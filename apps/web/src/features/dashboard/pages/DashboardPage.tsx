@@ -1,5 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { ROLE_LABELS, PROVIDER_ROLES, INSURER_ROLES, ADMIN_ROLES } from '@dhamen/shared';
+import type { Role } from '@dhamen/shared';
 
 function StatCard({
   title,
@@ -80,8 +82,108 @@ const statusLabels: Record<string, { label: string; className: string }> = {
   rejected: { label: 'Rejeté', className: 'bg-red-100 text-red-800' },
 };
 
+// Stats par rôle
+const roleStats: Record<string, { title: string; stats: Array<{ title: string; value: string; description: string; icon: React.ComponentType<{ className?: string }>; trend?: { value: string; positive: boolean } }> }> = {
+  ADMIN: {
+    title: 'Administration Plateforme',
+    stats: [
+      { title: 'Utilisateurs actifs', value: '1,247', description: 'Total utilisateurs', icon: UsersIcon, trend: { value: '5%', positive: true } },
+      { title: 'PEC traitées', value: '15,892', description: 'Ce mois', icon: ClaimsIcon, trend: { value: '18%', positive: true } },
+      { title: 'Volume total', value: '2.4M TND', description: 'Ce mois', icon: MoneyIcon, trend: { value: '12%', positive: true } },
+      { title: 'Taux de fraude', value: '0.3%', description: 'Détectées', icon: CheckIcon, trend: { value: '0.1%', positive: true } },
+    ],
+  },
+  INSURER_ADMIN: {
+    title: 'Administration Assureur',
+    stats: [
+      { title: 'Adhérents', value: '8,456', description: 'Portefeuille actif', icon: UsersIcon, trend: { value: '3%', positive: true } },
+      { title: 'PEC en attente', value: '234', description: 'À traiter', icon: ClaimsIcon },
+      { title: 'Montant engagé', value: '856K TND', description: 'Ce mois', icon: MoneyIcon, trend: { value: '7%', positive: true } },
+      { title: 'Réconciliation', value: '98.5%', description: 'Taux de rapprochement', icon: CheckIcon },
+    ],
+  },
+  INSURER_AGENT: {
+    title: 'Agent Assureur',
+    stats: [
+      { title: 'PEC traitées', value: '127', description: "Aujourd'hui", icon: ClaimsIcon, trend: { value: '15%', positive: true } },
+      { title: 'Temps moyen', value: '2.3 min', description: 'Par dossier', icon: CheckIcon, trend: { value: '12%', positive: true } },
+      { title: 'En attente', value: '18', description: 'À valider', icon: UsersIcon },
+      { title: 'Rejets', value: '4', description: "Aujourd'hui", icon: MoneyIcon },
+    ],
+  },
+  PHARMACIST: {
+    title: 'Pharmacie',
+    stats: [
+      { title: 'Dispensations', value: '47', description: "Aujourd'hui", icon: ClaimsIcon, trend: { value: '12%', positive: true } },
+      { title: 'Montant PEC', value: '12,450 TND', description: "Aujourd'hui", icon: MoneyIcon, trend: { value: '8%', positive: true } },
+      { title: 'Patients servis', value: '38', description: 'Patients uniques', icon: UsersIcon },
+      { title: 'Taux acceptation', value: '94%', description: 'PEC approuvées', icon: CheckIcon, trend: { value: '2%', positive: true } },
+    ],
+  },
+  DOCTOR: {
+    title: 'Cabinet Médical',
+    stats: [
+      { title: 'Consultations', value: '23', description: "Aujourd'hui", icon: ClaimsIcon, trend: { value: '8%', positive: true } },
+      { title: 'PEC validées', value: '21', description: "Aujourd'hui", icon: CheckIcon },
+      { title: 'Montant total', value: '1,840 TND', description: "Aujourd'hui", icon: MoneyIcon },
+      { title: 'Patients', value: '19', description: 'Patients uniques', icon: UsersIcon },
+    ],
+  },
+  LAB_MANAGER: {
+    title: 'Laboratoire d\'Analyses',
+    stats: [
+      { title: 'Analyses', value: '89', description: "Aujourd'hui", icon: ClaimsIcon, trend: { value: '15%', positive: true } },
+      { title: 'En attente', value: '12', description: 'Résultats à saisir', icon: CheckIcon },
+      { title: 'Montant PEC', value: '4,560 TND', description: "Aujourd'hui", icon: MoneyIcon },
+      { title: 'Patients', value: '67', description: 'Patients uniques', icon: UsersIcon },
+    ],
+  },
+  CLINIC_ADMIN: {
+    title: 'Clinique',
+    stats: [
+      { title: 'Admissions', value: '8', description: "Aujourd'hui", icon: ClaimsIcon },
+      { title: 'Patients hospitalisés', value: '34', description: 'Actuellement', icon: UsersIcon },
+      { title: 'PEC en cours', value: '156K TND', description: 'Engagements', icon: MoneyIcon },
+      { title: 'Sorties prévues', value: '5', description: "Aujourd'hui", icon: CheckIcon },
+    ],
+  },
+};
+
+// Actions rapides par type de rôle
+const quickActionsByRoleType = {
+  admin: [
+    { title: 'Gérer utilisateurs', desc: 'Administration', icon: UsersIcon, color: 'bg-primary/10', iconColor: 'text-primary' },
+    { title: 'Voir statistiques', desc: 'Tableau de bord global', icon: CheckIcon, color: 'bg-blue-100', iconColor: 'text-blue-600' },
+    { title: 'Configuration', desc: 'Paramètres système', icon: MoneyIcon, color: 'bg-green-100', iconColor: 'text-green-600' },
+    { title: 'Audit', desc: 'Journal d\'activité', icon: ClaimsIcon, color: 'bg-purple-100', iconColor: 'text-purple-600' },
+  ],
+  insurer: [
+    { title: 'Valider PEC', desc: 'Dossiers en attente', icon: ClaimsIcon, color: 'bg-primary/10', iconColor: 'text-primary' },
+    { title: 'Adhérents', desc: 'Gestion portefeuille', icon: UsersIcon, color: 'bg-blue-100', iconColor: 'text-blue-600' },
+    { title: 'Réconciliation', desc: 'Rapprochement paiements', icon: MoneyIcon, color: 'bg-green-100', iconColor: 'text-green-600' },
+    { title: 'Rapports', desc: 'Statistiques', icon: CheckIcon, color: 'bg-purple-100', iconColor: 'text-purple-600' },
+  ],
+  provider: [
+    { title: 'Nouvelle PEC', desc: 'Créer prise en charge', icon: ClaimsIcon, color: 'bg-primary/10', iconColor: 'text-primary' },
+    { title: 'Vérifier éligibilité', desc: 'Consulter les droits', icon: UsersIcon, color: 'bg-blue-100', iconColor: 'text-blue-600' },
+    { title: 'Mes bordereaux', desc: 'Consulter paiements', icon: MoneyIcon, color: 'bg-green-100', iconColor: 'text-green-600' },
+    { title: 'Rapports', desc: 'Mon activité', icon: CheckIcon, color: 'bg-purple-100', iconColor: 'text-purple-600' },
+  ],
+};
+
+function getRoleType(role: Role | undefined): 'admin' | 'insurer' | 'provider' {
+  if (!role) return 'provider';
+  if (ADMIN_ROLES.includes(role)) return 'admin';
+  if (INSURER_ROLES.includes(role)) return 'insurer';
+  return 'provider';
+}
+
 export function DashboardPage() {
   const { user } = useAuth();
+  const role = user?.role;
+  const roleType = getRoleType(role);
+  const roleConfig = role ? roleStats[role] : roleStats.PHARMACIST;
+  const quickActions = quickActionsByRoleType[roleType];
 
   return (
     <div className="space-y-6">
@@ -91,39 +193,22 @@ export function DashboardPage() {
           Bienvenue, {user?.firstName} {user?.lastName}
         </h1>
         <p className="text-muted-foreground">
-          Voici un aperçu de votre activité aujourd'hui.
+          {role ? ROLE_LABELS[role] : ''} — {roleConfig.title}
         </p>
       </div>
 
       {/* Stats grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="PEC du jour"
-          value="47"
-          description="Prises en charge traitées"
-          icon={ClaimsIcon}
-          trend={{ value: '12%', positive: true }}
-        />
-        <StatCard
-          title="Montant total"
-          value="12,450 TND"
-          description="Valeur des PEC du jour"
-          icon={MoneyIcon}
-          trend={{ value: '8%', positive: true }}
-        />
-        <StatCard
-          title="Adhérents servis"
-          value="38"
-          description="Patients uniques"
-          icon={UsersIcon}
-        />
-        <StatCard
-          title="Taux d'approbation"
-          value="94%"
-          description="PEC approuvées"
-          icon={CheckIcon}
-          trend={{ value: '2%', positive: true }}
-        />
+        {roleConfig.stats.map((stat) => (
+          <StatCard
+            key={stat.title}
+            title={stat.title}
+            value={stat.value}
+            description={stat.description}
+            icon={stat.icon}
+            trend={stat.trend}
+          />
+        ))}
       </div>
 
       {/* Recent activity */}
@@ -166,42 +251,20 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-2">
-              <button className="flex items-center gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-muted">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                  <ClaimsIcon className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="font-medium">Nouvelle PEC</p>
-                  <p className="text-xs text-muted-foreground">Créer une prise en charge</p>
-                </div>
-              </button>
-              <button className="flex items-center gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-muted">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
-                  <UsersIcon className="h-5 w-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="font-medium">Vérifier éligibilité</p>
-                  <p className="text-xs text-muted-foreground">Consulter les droits</p>
-                </div>
-              </button>
-              <button className="flex items-center gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-muted">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100">
-                  <MoneyIcon className="h-5 w-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="font-medium">Mes bordereaux</p>
-                  <p className="text-xs text-muted-foreground">Consulter les paiements</p>
-                </div>
-              </button>
-              <button className="flex items-center gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-muted">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
-                  <CheckIcon className="h-5 w-5 text-purple-600" />
-                </div>
-                <div>
-                  <p className="font-medium">Rapports</p>
-                  <p className="text-xs text-muted-foreground">Statistiques d'activité</p>
-                </div>
-              </button>
+              {quickActions.map((action) => (
+                <button
+                  key={action.title}
+                  className="flex items-center gap-3 rounded-lg border p-4 text-left transition-colors hover:bg-muted"
+                >
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${action.color}`}>
+                    <action.icon className={`h-5 w-5 ${action.iconColor}`} />
+                  </div>
+                  <div>
+                    <p className="font-medium">{action.title}</p>
+                    <p className="text-xs text-muted-foreground">{action.desc}</p>
+                  </div>
+                </button>
+              ))}
             </div>
           </CardContent>
         </Card>
