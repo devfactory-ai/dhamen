@@ -1,6 +1,6 @@
 import type { ApiResponse, PaginatedResponse } from '@dhamen/shared';
 
-const API_BASE_URL = '/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
@@ -46,7 +46,7 @@ class ApiClient {
     };
 
     if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+      (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
     }
 
     const response = await fetch(url, {

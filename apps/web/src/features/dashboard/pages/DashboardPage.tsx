@@ -147,9 +147,9 @@ export function DashboardPage() {
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-medium">{claim.amount}</span>
                     <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusLabels[claim.status].className}`}
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusLabels[claim.status]?.className ?? ''}`}
                     >
-                      {statusLabels[claim.status].label}
+                      {statusLabels[claim.status]?.label ?? claim.status}
                     </span>
                   </div>
                 </div>

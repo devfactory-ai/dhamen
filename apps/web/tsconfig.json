@@ -6,14 +6,15 @@
     "module": "ESNext",
     "jsx": "react-jsx",
     "outDir": "./dist",
-    "rootDir": "./src",
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
       "@dhamen/shared": ["../../packages/shared/src"],
       "@dhamen/shared/*": ["../../packages/shared/src/*"]
-    }
+    },
+    "skipLibCheck": true,
+    "noEmit": true
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "../../packages/shared/src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

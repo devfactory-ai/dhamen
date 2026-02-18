@@ -37,6 +37,13 @@ coverage/
 # TypeScript
 *.tsbuildinfo
 
+# Generated files in packages
+packages/**/*.js
+packages/**/*.d.ts
+packages/**/*.js.map
+packages/**/*.d.ts.map
+!packages/**/vitest.config.ts
+
 # Temporary files
 tmp/
 temp/
