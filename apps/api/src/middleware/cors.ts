@@ -16,6 +16,8 @@ export const corsMiddleware = cors({
       'http://localhost:3000',
       'https://app.dhamen.tn',
       'https://staging.dhamen.tn',
+      'https://dhamen-web.pages.dev',
+      'https://dhamen-web-staging.pages.dev',
     ];
 
     if (allowedOrigins.includes(origin)) {
@@ -24,6 +26,11 @@ export const corsMiddleware = cors({
 
     // Allow all *.dhamen.tn subdomains
     if (origin.endsWith('.dhamen.tn')) {
+      return origin;
+    }
+
+    // Allow Cloudflare Pages preview deployments
+    if (origin.endsWith('.pages.dev')) {
       return origin;
     }
 
