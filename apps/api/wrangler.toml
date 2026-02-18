@@ -30,29 +30,45 @@ bucket_name = "dhamen-files"
 
 # Staging environment
 [env.staging]
-vars = { ENVIRONMENT = "staging" }
+name = "dhamen-api-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+API_VERSION = "v1"
+JWT_ISSUER = "dhamen"
+JWT_EXPIRES_IN = "900"
+REFRESH_EXPIRES_IN = "86400"
 
 [[env.staging.d1_databases]]
 binding = "DB"
-database_name = "dhamen-db"
-database_id = "83076129-b19e-49e9-a77c-6668252d38cc"
+database_name = "dhamen-db-staging"
+database_id = "7be5e065-bfba-4b94-8f7e-87226fcd2665"
+migrations_dir = "../../packages/db/migrations"
 
 [[env.staging.kv_namespaces]]
 binding = "CACHE"
-id = "22194f538ced43e7aba76bc0c4dfbaaa"
+id = "287b62ff109946bea823c4f39fde0690"
 
 [[env.staging.r2_buckets]]
 binding = "STORAGE"
-bucket_name = "dhamen-files"
+bucket_name = "dhamen-files-staging"
 
 # Production environment (à créer séparément)
 [env.production]
-vars = { ENVIRONMENT = "production" }
+name = "dhamen-api-production"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+API_VERSION = "v1"
+JWT_ISSUER = "dhamen"
+JWT_EXPIRES_IN = "900"
+REFRESH_EXPIRES_IN = "86400"
 
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "dhamen-db"
 database_id = "83076129-b19e-49e9-a77c-6668252d38cc"
+migrations_dir = "../../packages/db/migrations"
 
 [[env.production.kv_namespaces]]
 binding = "CACHE"

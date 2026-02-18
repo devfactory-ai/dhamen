@@ -7,6 +7,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '../hooks/useAuth';
 
+const DEMO_ACCOUNTS = [
+  { email: 'admin@dhamen.tn', password: 'dhamen123', role: 'Admin Plateforme', icon: '👑' },
+  { email: 'admin@star.com.tn', password: 'dhamen123', role: 'Admin STAR', icon: '🏢' },
+  { email: 'pharma.centrale@email.tn', password: 'dhamen123', role: 'Pharmacien', icon: '💊' },
+  { email: 'dr.benali@email.tn', password: 'dhamen123', role: 'Médecin', icon: '🩺' },
+  { email: 'labo.central@email.tn', password: 'dhamen123', role: 'Laboratoire', icon: '🔬' },
+  { email: 'clinique.oliviers@email.tn', password: 'dhamen123', role: 'Clinique', icon: '🏥' },
+];
+
 export function LoginForm() {
   const { login, isLoading, error } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
@@ -14,6 +23,7 @@ export function LoginForm() {
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors },
   } = useForm<LoginRequest>({
     resolver: zodResolver(loginRequestSchema),
@@ -25,6 +35,11 @@ export function LoginForm() {
 
   const onSubmit = async (data: LoginRequest) => {
     await login(data);
+  };
+
+  const fillDemoAccount = (email: string, password: string) => {
+    setValue('email', email);
+    setValue('password', password);
   };
 
   return (
@@ -66,13 +81,34 @@ export function LoginForm() {
         <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
       )}
 
-      <Button type="submit" className="w-full" loading={isLoading}>
-        Se connecter
+      <Button type="submit" className="w-full" disabled={isLoading}>
+        {isLoading ? 'Connexion...' : 'Se connecter'}
       </Button>
 
-      <div className="text-center text-sm text-muted-foreground">
-        <p>Compte de test:</p>
-        <p>admin@dhamen.tn / dhamen123</p>
+      {/* Demo accounts section */}
+      <div className="border-t pt-4">
+        <p className="mb-3 text-center text-sm font-medium text-muted-foreground">
+          Comptes de démonstration
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {DEMO_ACCOUNTS.map((account) => (
+            <button
+              key={account.email}
+              type="button"
+              onClick={() => fillDemoAccount(account.email, account.password)}
+              className="flex items-center gap-2 rounded-lg border bg-muted/50 p-2 text-left text-xs transition-colors hover:bg-muted"
+            >
+              <span className="text-base">{account.icon}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{account.role}</p>
+                <p className="truncate text-muted-foreground">{account.email.split('@')[0]}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-center text-xs text-muted-foreground">
+          Mot de passe: <code className="rounded bg-muted px-1">dhamen123</code>
+        </p>
       </div>
     </form>
   );
