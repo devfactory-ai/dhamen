@@ -1,0 +1,36 @@
+{
+  "name": "dhamen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plateforme IA-native de tiers payant santé pour la Tunisie",
+  "scripts": {
+    "dev": "turbo dev",
+    "dev:api": "turbo dev --filter=@dhamen/api",
+    "dev:web": "turbo dev --filter=@dhamen/web",
+    "build": "turbo build",
+    "test": "turbo test",
+    "test:unit": "turbo test:unit",
+    "test:integration": "turbo test:integration",
+    "test:e2e": "turbo test:e2e",
+    "lint": "turbo lint",
+    "lint:fix": "turbo lint:fix",
+    "typecheck": "turbo typecheck",
+    "format": "biome format --write .",
+    "check": "biome check .",
+    "db:migrate": "turbo db:migrate",
+    "db:seed": "turbo db:seed",
+    "deploy:staging": "turbo deploy --filter=@dhamen/api -- --env staging",
+    "deploy:prod": "turbo deploy --filter=@dhamen/api -- --env production",
+    "clean": "turbo clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.10.0",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "packageManager": "pnpm@9.14.4",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

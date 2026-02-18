@@ -1,0 +1,71 @@
+name = "dhamen-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+[vars]
+ENVIRONMENT = "development"
+API_VERSION = "v1"
+JWT_ISSUER = "dhamen"
+JWT_EXPIRES_IN = "900"
+REFRESH_EXPIRES_IN = "86400"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dhamen-db"
+database_id = "local"
+migrations_dir = "../../packages/db/migrations"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "dhamen-cache-dev"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "dhamen-files-dev"
+
+[[queues.producers]]
+binding = "EVENTS_QUEUE"
+queue = "dhamen-events-dev"
+
+[durable_objects]
+bindings = [
+  { name = "RATE_LIMITER", class_name = "RateLimiter" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RateLimiter"]
+
+# Development environment overrides
+[env.development]
+vars = { ENVIRONMENT = "development" }
+
+# Staging environment
+[env.staging]
+vars = { ENVIRONMENT = "staging" }
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "dhamen-db-staging"
+database_id = "staging-id"
+
+[[env.staging.kv_namespaces]]
+binding = "CACHE"
+id = "dhamen-cache-staging-id"
+
+# Production environment
+[env.production]
+vars = { ENVIRONMENT = "production" }
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "dhamen-db-prod"
+database_id = "prod-id"
+
+[[env.production.kv_namespaces]]
+binding = "CACHE"
+id = "dhamen-cache-prod-id"
