@@ -46,7 +46,7 @@ async function getKey(secret: string): Promise<CryptoKey> {
  * Sign a JWT
  */
 export async function signJWT(
-  payload: Omit<JWTPayload, 'iat' | 'exp'>,
+  payload: Omit<JWTPayload, 'iat' | 'exp' | 'iss'>,
   secret: string,
   expiresInSeconds: number
 ): Promise<string> {
@@ -63,7 +63,11 @@ export async function signJWT(
   const payloadB64 = base64UrlEncode(encoder.encode(JSON.stringify(fullPayload)));
 
   const key = await getKey(secret);
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`${headerB64}.${payloadB64}`));
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    encoder.encode(`${headerB64}.${payloadB64}`)
+  );
   const signatureB64 = base64UrlEncode(signature);
 
   return `${headerB64}.${payloadB64}.${signatureB64}`;
@@ -91,7 +95,11 @@ export async function signRefreshToken(
   const payloadB64 = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
 
   const key = await getKey(secret);
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`${headerB64}.${payloadB64}`));
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    encoder.encode(`${headerB64}.${payloadB64}`)
+  );
   const signatureB64 = base64UrlEncode(signature);
 
   return `${headerB64}.${payloadB64}.${signatureB64}`;
@@ -107,7 +115,7 @@ export async function verifyJWT(token: string, secret: string): Promise<JWTPaylo
   }
 
   const [headerB64, payloadB64, signatureB64] = parts;
-  if (!headerB64 || !payloadB64 || !signatureB64) {
+  if (!(headerB64 && payloadB64 && signatureB64)) {
     return null;
   }
 
@@ -158,7 +166,7 @@ export async function verifyRefreshToken(
   }
 
   const [headerB64, payloadB64, signatureB64] = parts;
-  if (!headerB64 || !payloadB64 || !signatureB64) {
+  if (!(headerB64 && payloadB64 && signatureB64)) {
     return null;
   }
 

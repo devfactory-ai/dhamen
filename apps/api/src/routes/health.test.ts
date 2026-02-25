@@ -1,6 +1,22 @@
-import { describe, it, expect } from 'vitest';
-import { success, error, unauthorized, forbidden, notFound, paginated } from '../lib/response';
 import { Hono } from 'hono';
+import { describe, expect, it } from 'vitest';
+import { error, forbidden, notFound, paginated, success, unauthorized } from '../lib/response';
+
+interface ApiSuccessBody<T> {
+  success: true;
+  data: T;
+}
+
+interface ApiErrorBody {
+  success: false;
+  error: { code: string; message: string };
+}
+
+interface PaginatedBody<T> {
+  success: true;
+  data: T[];
+  meta: { page: number; limit: number; total: number; totalPages: number };
+}
 
 describe('Response Helpers', () => {
   describe('success', () => {
@@ -9,7 +25,7 @@ describe('Response Helpers', () => {
       app.get('/test', (c) => success(c, { foo: 'bar' }));
 
       const res = await app.request('/test');
-      const body = await res.json();
+      const body = (await res.json()) as ApiSuccessBody<{ foo: string }>;
 
       expect(res.status).toBe(200);
       expect(body.success).toBe(true);
@@ -32,7 +48,7 @@ describe('Response Helpers', () => {
       app.get('/test', (c) => error(c, 'TEST_ERROR', 'Test message', 400));
 
       const res = await app.request('/test');
-      const body = await res.json();
+      const body = (await res.json()) as ApiErrorBody;
 
       expect(res.status).toBe(400);
       expect(body.success).toBe(false);
@@ -47,7 +63,7 @@ describe('Response Helpers', () => {
       app.get('/test', (c) => unauthorized(c));
 
       const res = await app.request('/test');
-      const body = await res.json();
+      const body = (await res.json()) as ApiErrorBody;
 
       expect(res.status).toBe(401);
       expect(body.success).toBe(false);
@@ -59,7 +75,7 @@ describe('Response Helpers', () => {
       app.get('/test', (c) => unauthorized(c, 'Custom message'));
 
       const res = await app.request('/test');
-      const body = await res.json();
+      const body = (await res.json()) as ApiErrorBody;
 
       expect(body.error.message).toBe('Custom message');
     });
@@ -71,7 +87,7 @@ describe('Response Helpers', () => {
       app.get('/test', (c) => forbidden(c));
 
       const res = await app.request('/test');
-      const body = await res.json();
+      const body = (await res.json()) as ApiErrorBody;
 
       expect(res.status).toBe(403);
       expect(body.success).toBe(false);
@@ -85,7 +101,7 @@ describe('Response Helpers', () => {
       app.get('/test', (c) => notFound(c, 'Utilisateur non trouvé'));
 
       const res = await app.request('/test');
-      const body = await res.json();
+      const body = (await res.json()) as ApiErrorBody;
 
       expect(res.status).toBe(404);
       expect(body.success).toBe(false);
@@ -102,7 +118,7 @@ describe('Response Helpers', () => {
       );
 
       const res = await app.request('/test');
-      const body = await res.json();
+      const body = (await res.json()) as PaginatedBody<{ id: number }>;
 
       expect(res.status).toBe(200);
       expect(body.success).toBe(true);

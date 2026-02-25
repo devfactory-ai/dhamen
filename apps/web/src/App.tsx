@@ -1,23 +1,58 @@
+import { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { LoginPage } from '@/features/auth/pages/LoginPage';
 import { DashboardPage } from '@/features/dashboard/pages/DashboardPage';
 import { Layout } from '@/components/layout/Layout';
 import { Toaster } from '@/components/ui/toaster';
+import { Toaster as SonnerToaster } from 'sonner';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
-// Lazy load feature pages
-import { UsersPage } from '@/features/users/pages/UsersPage';
-import { ProvidersPage } from '@/features/providers/pages/ProvidersPage';
-import { InsurersPage } from '@/features/insurers/pages/InsurersPage';
-import { AdherentsPage } from '@/features/adherents/pages/AdherentsPage';
-import { ContractsPage } from '@/features/contracts/pages/ContractsPage';
-import { ClaimsPage } from '@/features/claims/pages/ClaimsPage';
-import { ClaimsManagePage } from '@/features/claims/pages/ClaimsManagePage';
-import { EligibilityPage } from '@/features/eligibility/pages/EligibilityPage';
-import { BordereauxPage } from '@/features/bordereaux/pages/BordereauxPage';
-import { ReconciliationPage } from '@/features/reconciliation/pages/ReconciliationPage';
-import { ReportsPage } from '@/features/reports/pages/ReportsPage';
-import { SettingsPage } from '@/features/settings/pages/SettingsPage';
+// Lazy load feature pages for better initial bundle size
+const UsersPage = lazy(() => import('@/features/users/pages/UsersPage').then(m => ({ default: m.UsersPage })));
+const ProvidersPage = lazy(() => import('@/features/providers/pages/ProvidersPage').then(m => ({ default: m.ProvidersPage })));
+const InsurersPage = lazy(() => import('@/features/insurers/pages/InsurersPage').then(m => ({ default: m.InsurersPage })));
+const AdherentsPage = lazy(() => import('@/features/adherents/pages/AdherentsPage').then(m => ({ default: m.AdherentsPage })));
+const ContractsPage = lazy(() => import('@/features/contracts/pages/ContractsPage').then(m => ({ default: m.ContractsPage })));
+const ClaimsPage = lazy(() => import('@/features/claims/pages/ClaimsPage').then(m => ({ default: m.ClaimsPage })));
+const ClaimsManagePage = lazy(() => import('@/features/claims/pages/ClaimsManagePage').then(m => ({ default: m.ClaimsManagePage })));
+const EligibilityPage = lazy(() => import('@/features/eligibility/pages/EligibilityPage').then(m => ({ default: m.EligibilityPage })));
+const BordereauxPage = lazy(() => import('@/features/bordereaux/pages/BordereauxPage').then(m => ({ default: m.BordereauxPage })));
+const ReconciliationPage = lazy(() => import('@/features/reconciliation/pages/ReconciliationPage').then(m => ({ default: m.ReconciliationPage })));
+const ReportsPage = lazy(() => import('@/features/reports/pages/ReportsPage').then(m => ({ default: m.ReportsPage })));
+const SettingsPage = lazy(() => import('@/features/settings/pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const MfaVerifyPage = lazy(() => import('@/features/auth/pages/MfaVerifyPage').then(m => ({ default: m.MfaVerifyPage })));
+
+/**
+ * Loading spinner for lazy-loaded routes
+ */
+function PageLoader() {
+  return (
+    <div className="flex min-h-[400px] items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <p className="text-sm text-muted-foreground">Chargement...</p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Skeleton loader for page content
+ */
+function PageSkeleton() {
+  return (
+    <div className="space-y-4 p-6">
+      <div className="h-8 w-64 animate-pulse rounded bg-muted" />
+      <div className="h-4 w-96 animate-pulse rounded bg-muted" />
+      <div className="mt-6 space-y-3">
+        <div className="h-12 w-full animate-pulse rounded bg-muted" />
+        <div className="h-12 w-full animate-pulse rounded bg-muted" />
+        <div className="h-12 w-full animate-pulse rounded bg-muted" />
+      </div>
+    </div>
+  );
+}
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -39,41 +74,52 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   return (
-    <>
+    <ErrorBoundary>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/mfa/verify"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <MfaVerifyPage />
+            </Suspense>
+          }
+        />
         <Route
           path="/*"
           element={
             <PrivateRoute>
               <Layout>
-                <Routes>
-                  <Route path="/" element={<DashboardPage />} />
-                  <Route path="/dashboard" element={<DashboardPage />} />
-                  {/* Admin routes */}
-                  <Route path="/users" element={<UsersPage />} />
-                  <Route path="/providers" element={<ProvidersPage />} />
-                  <Route path="/insurers" element={<InsurersPage />} />
-                  {/* Insurer routes */}
-                  <Route path="/adherents" element={<AdherentsPage />} />
-                  <Route path="/contracts" element={<ContractsPage />} />
-                  <Route path="/claims/manage" element={<ClaimsManagePage />} />
-                  <Route path="/reconciliation" element={<ReconciliationPage />} />
-                  {/* Provider routes */}
-                  <Route path="/claims" element={<ClaimsPage />} />
-                  <Route path="/eligibility" element={<EligibilityPage />} />
-                  <Route path="/bordereaux" element={<BordereauxPage />} />
-                  {/* Common routes */}
-                  <Route path="/reports" element={<ReportsPage />} />
-                  <Route path="/settings" element={<SettingsPage />} />
-                </Routes>
+                <Suspense fallback={<PageSkeleton />}>
+                  <Routes>
+                    <Route path="/" element={<DashboardPage />} />
+                    <Route path="/dashboard" element={<DashboardPage />} />
+                    {/* Admin routes */}
+                    <Route path="/users" element={<UsersPage />} />
+                    <Route path="/providers" element={<ProvidersPage />} />
+                    <Route path="/insurers" element={<InsurersPage />} />
+                    {/* Insurer routes */}
+                    <Route path="/adherents" element={<AdherentsPage />} />
+                    <Route path="/contracts" element={<ContractsPage />} />
+                    <Route path="/claims/manage" element={<ClaimsManagePage />} />
+                    <Route path="/reconciliation" element={<ReconciliationPage />} />
+                    {/* Provider routes */}
+                    <Route path="/claims" element={<ClaimsPage />} />
+                    <Route path="/eligibility" element={<EligibilityPage />} />
+                    <Route path="/bordereaux" element={<BordereauxPage />} />
+                    {/* Common routes */}
+                    <Route path="/reports" element={<ReportsPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
+                  </Routes>
+                </Suspense>
               </Layout>
             </PrivateRoute>
           }
         />
       </Routes>
       <Toaster />
-    </>
+      <SonnerToaster position="top-right" richColors closeButton />
+    </ErrorBoundary>
   );
 }
 

@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiClient } from '@/lib/api-client';
-import { useAuth } from '@/features/auth/hooks/useAuth';
 
 interface ReportStats {
   period: string;
@@ -33,7 +32,6 @@ interface ReportStats {
 }
 
 export function ReportsPage() {
-  const { user } = useAuth();
   const [period, setPeriod] = useState('month');
 
   const { data, isLoading } = useQuery({
@@ -42,7 +40,7 @@ export function ReportsPage() {
       const response = await apiClient.get<ReportStats>('/reports/stats', {
         params: { period },
       });
-      if (!response.success) throw new Error(response.error?.message);
+      if (!response.success) { throw new Error(response.error?.message); }
       return response.data;
     },
   });
@@ -101,10 +99,10 @@ export function ReportsPage() {
           <div className="grid gap-4 md:grid-cols-4">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total PEC</CardTitle>
+                <CardTitle className='font-medium text-muted-foreground text-sm'>Total PEC</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-2xl font-bold">{data.claims.total}</p>
+                <p className='font-bold text-2xl'>{data.claims.total}</p>
                 <div className="mt-2 flex gap-2 text-xs">
                   <span className="text-green-600">{data.claims.approved} approuvées</span>
                   <span className="text-destructive">{data.claims.rejected} rejetées</span>
@@ -113,26 +111,26 @@ export function ReportsPage() {
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Montant total</CardTitle>
+                <CardTitle className='font-medium text-muted-foreground text-sm'>Montant total</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-2xl font-bold">{formatAmount(data.amounts.total)}</p>
+                <p className='font-bold text-2xl'>{formatAmount(data.amounts.total)}</p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Montant couvert</CardTitle>
+                <CardTitle className='font-medium text-muted-foreground text-sm'>Montant couvert</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-2xl font-bold text-primary">{formatAmount(data.amounts.covered)}</p>
+                <p className='font-bold text-2xl text-primary'>{formatAmount(data.amounts.covered)}</p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Ticket modérateur</CardTitle>
+                <CardTitle className='font-medium text-muted-foreground text-sm'>Ticket modérateur</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-2xl font-bold text-muted-foreground">{formatAmount(data.amounts.copay)}</p>
+                <p className='font-bold text-2xl text-muted-foreground'>{formatAmount(data.amounts.copay)}</p>
               </CardContent>
             </Card>
           </div>
@@ -161,7 +159,7 @@ export function ReportsPage() {
                             style={{ width: `${percentage}%` }}
                           />
                         </div>
-                        <p className="mt-1 text-xs text-muted-foreground">{formatAmount(item.amount)}</p>
+                        <p className='mt-1 text-muted-foreground text-xs'>{formatAmount(item.amount)}</p>
                       </div>
                     );
                   })}
@@ -177,12 +175,12 @@ export function ReportsPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {data.trend.slice(-10).map((item, index) => {
+                  {data.trend.slice(-10).map((item) => {
                     const maxClaims = Math.max(...data.trend.map((t) => t.claims));
                     const percentage = (item.claims / maxClaims) * 100;
                     return (
-                      <div key={index} className="flex items-center gap-3">
-                        <span className="w-20 text-xs text-muted-foreground">
+                      <div key={item.date} className="flex items-center gap-3">
+                        <span className='w-20 text-muted-foreground text-xs'>
                           {new Date(item.date).toLocaleDateString('fr-TN', { day: '2-digit', month: 'short' })}
                         </span>
                         <div className="flex-1">
@@ -193,7 +191,7 @@ export function ReportsPage() {
                             />
                           </div>
                         </div>
-                        <span className="w-12 text-right text-sm font-medium">{item.claims}</span>
+                        <span className='w-12 text-right font-medium text-sm'>{item.claims}</span>
                       </div>
                     );
                   })}
@@ -210,7 +208,7 @@ export function ReportsPage() {
             <CardContent>
               <div className="flex items-center gap-8">
                 <div className="relative h-32 w-32">
-                  <svg className="h-32 w-32 -rotate-90 transform" viewBox="0 0 36 36">
+                  <svg className='-rotate-90 h-32 w-32 transform' viewBox="0 0 36 36" aria-hidden="true">
                     <circle
                       cx="18"
                       cy="18"
@@ -230,7 +228,7 @@ export function ReportsPage() {
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-2xl font-bold">
+                    <span className='font-bold text-2xl'>
                       {((data.claims.approved / data.claims.total) * 100).toFixed(0)}%
                     </span>
                   </div>

@@ -1,6 +1,12 @@
 const encoder = new TextEncoder();
 
 /**
+ * PBKDF2 iterations - OWASP 2023 recommends 600,000 for SHA-256
+ * This provides strong protection against offline brute-force attacks
+ */
+const PBKDF2_ITERATIONS = 600000;
+
+/**
  * Hash a password using PBKDF2 (Web Crypto API compatible alternative to bcrypt)
  */
 export async function hashPassword(password: string): Promise<string> {
@@ -17,7 +23,7 @@ export async function hashPassword(password: string): Promise<string> {
     {
       name: 'PBKDF2',
       salt,
-      iterations: 100000,
+      iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
     passwordKey,
@@ -27,17 +33,17 @@ export async function hashPassword(password: string): Promise<string> {
   const saltB64 = btoa(String.fromCharCode(...salt));
   const hashB64 = btoa(String.fromCharCode(...new Uint8Array(hash)));
 
-  return `$pbkdf2$100000$${saltB64}$${hashB64}`;
+  return `$pbkdf2$${PBKDF2_ITERATIONS}$${saltB64}$${hashB64}`;
 }
 
 /**
  * Verify a password against a hash
  */
 export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
-  // Support for bcrypt hashes (from seed data)
+  // Reject legacy bcrypt hashes - they must be migrated to PBKDF2
   if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$')) {
-    // For development, accept "dhamen123" for bcrypt hashes
-    return password === 'dhamen123';
+    console.error('Bcrypt hashes are not supported. Please migrate user passwords to PBKDF2.');
+    return false;
   }
 
   // PBKDF2 hash verification
@@ -50,7 +56,7 @@ export async function verifyPassword(password: string, storedHash: string): Prom
     return false;
   }
 
-  const iterations = parseInt(parts[2] ?? '0', 10);
+  const iterations = Number.parseInt(parts[2] ?? '0', 10);
   const saltB64 = parts[3] ?? '';
   const hashB64 = parts[4] ?? '';
 

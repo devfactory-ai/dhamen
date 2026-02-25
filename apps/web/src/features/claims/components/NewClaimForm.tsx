@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useCreateClaim } from '../hooks/useClaims';
 import { useSearchAdherent } from '@/features/adherents/hooks/useAdherents';
+import { useToast } from '@/stores/toast';
 
 interface NewClaimFormProps {
   onSuccess: () => void;
@@ -15,6 +16,7 @@ interface NewClaimFormProps {
 }
 
 interface ClaimItem {
+  id: string;
   code: string;
   description: string;
   quantity: number;
@@ -24,7 +26,8 @@ interface ClaimItem {
 export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
   const [searchNationalId, setSearchNationalId] = useState('');
   const [items, setItems] = useState<ClaimItem[]>([]);
-  const [newItem, setNewItem] = useState<ClaimItem>({ code: '', description: '', quantity: 1, unitPrice: 0 });
+  const [newItem, setNewItem] = useState<Omit<ClaimItem, 'id'>>({ code: '', description: '', quantity: 1, unitPrice: 0 });
+  const { toast } = useToast();
 
   const { data: adherent, isLoading: isSearching } = useSearchAdherent(searchNationalId);
   const createClaim = useCreateClaim();
@@ -32,7 +35,6 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
   const {
     register,
     handleSubmit,
-    formState: { errors },
   } = useForm({
     defaultValues: {
       serviceDate: new Date().toISOString().split('T')[0],
@@ -43,33 +45,35 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
 
   const addItem = () => {
     if (newItem.code && newItem.description && newItem.unitPrice > 0) {
-      setItems([...items, newItem]);
+      setItems([...items, { ...newItem, id: crypto.randomUUID() }]);
       setNewItem({ code: '', description: '', quantity: 1, unitPrice: 0 });
     }
   };
 
-  const removeItem = (index: number) => {
-    setItems(items.filter((_, i) => i !== index));
+  const removeItem = (id: string) => {
+    setItems(items.filter((item) => item.id !== id));
   };
 
   const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
 
-  const onSubmit = async (formData: { serviceDate: string; diagnosis: string; notes: string }) => {
-    if (!adherent || items.length === 0) return;
+  const onSubmit = async (formData: { serviceDate?: string; diagnosis: string; notes: string }) => {
+    if (!adherent || items.length === 0) { return; }
 
+    const today = new Date().toISOString().split('T')[0] ?? '';
     try {
       await createClaim.mutateAsync({
         adherentId: adherent.id,
         type: 'PHARMACY', // Default, could be dynamic
         amount: totalAmount * 1000, // Convert to millimes
-        serviceDate: formData.serviceDate,
+        serviceDate: formData.serviceDate ?? today,
         diagnosis: formData.diagnosis || undefined,
         notes: formData.notes || undefined,
-        items,
+        items: items.map(({ id: _id, ...rest }) => rest),
       });
+      toast({ title: 'PEC creee avec succes', variant: 'success' });
       onSuccess();
-    } catch (error) {
-      console.error('Error creating claim:', error);
+    } catch {
+      toast({ title: 'Erreur lors de la creation', description: 'Veuillez reessayer', variant: 'destructive' });
     }
   };
 
@@ -96,7 +100,7 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium">{adherent.firstName} {adherent.lastName}</p>
-                  <p className="text-sm text-muted-foreground">N° {adherent.memberNumber}</p>
+                  <p className='text-muted-foreground text-sm'>N° {adherent.memberNumber}</p>
                 </div>
                 <Badge variant={adherent.isActive ? 'success' : 'destructive'}>
                   {adherent.isActive ? 'Éligible' : 'Non éligible'}
@@ -135,14 +139,14 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
             type="number"
             placeholder="Qté"
             value={newItem.quantity}
-            onChange={(e) => setNewItem({ ...newItem, quantity: parseInt(e.target.value) || 1 })}
+            onChange={(e) => setNewItem({ ...newItem, quantity: Number.parseInt(e.target.value) || 1 })}
             className="w-20"
           />
           <Input
             type="number"
             placeholder="Prix"
             value={newItem.unitPrice || ''}
-            onChange={(e) => setNewItem({ ...newItem, unitPrice: parseFloat(e.target.value) || 0 })}
+            onChange={(e) => setNewItem({ ...newItem, unitPrice: Number.parseFloat(e.target.value) || 0 })}
             className="w-24"
           />
           <Button type="button" onClick={addItem} variant="outline">
@@ -161,12 +165,12 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
                   <th className="p-2 text-right">Qté</th>
                   <th className="p-2 text-right">Prix</th>
                   <th className="p-2 text-right">Total</th>
-                  <th className="p-2"></th>
+                  <th className="p-2" />
                 </tr>
               </thead>
               <tbody>
-                {items.map((item, index) => (
-                  <tr key={index} className="border-b last:border-0">
+                {items.map((item) => (
+                  <tr key={item.id} className="border-b last:border-0">
                     <td className="p-2">{item.code}</td>
                     <td className="p-2">{item.description}</td>
                     <td className="p-2 text-right">{item.quantity}</td>
@@ -177,7 +181,7 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
                     <td className="p-2 text-right">
                       <button
                         type="button"
-                        onClick={() => removeItem(index)}
+                        onClick={() => removeItem(item.id)}
                         className="text-destructive hover:underline"
                       >
                         ×
@@ -188,7 +192,7 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
                 <tr className="bg-muted/50 font-medium">
                   <td colSpan={4} className="p-2 text-right">Total</td>
                   <td className="p-2 text-right">{totalAmount.toFixed(3)} TND</td>
-                  <td></td>
+                  <td />
                 </tr>
               </tbody>
             </table>

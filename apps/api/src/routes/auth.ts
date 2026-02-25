@@ -1,13 +1,45 @@
-import { Hono } from 'hono';
+import { findUserByEmail, findUserById, updateUser, userToPublic } from '@dhamen/db';
+import { loginRequestSchema, mfaVerifyRequestSchema, } from '@dhamen/shared';
 import { zValidator } from '@hono/zod-validator';
-import { loginRequestSchema, refreshRequestSchema } from '@dhamen/shared';
-import { findUserByEmail, userToPublic, updateUser } from '@dhamen/db';
-import type { Bindings, Variables } from '../types';
-import { signJWT, signRefreshToken, verifyRefreshToken } from '../lib/jwt';
+import { Hono } from 'hono';
+import { z } from 'zod';
+import {
+  setAccessTokenCookie,
+  setRefreshTokenCookie,
+  clearAuthCookies,
+  getRefreshTokenFromCookie,
+} from '../lib/cookies';
+import { signJWT, signRefreshToken, verifyRefreshToken, verifyJWT } from '../lib/jwt';
 import { verifyPassword } from '../lib/password';
-import { success, error, unauthorized } from '../lib/response';
-import { authMiddleware } from '../middleware/auth';
+import { error, success, unauthorized } from '../lib/response';
+import {
+  generateTOTPSecret,
+  generateTOTPUri,
+  verifyTOTP,
+  generateBackupCodes,
+  hashBackupCode,
+  verifyBackupCode,
+  roleRequiresMFA,
+} from '../lib/totp';
 import { logAudit } from '../middleware/audit-trail';
+import { authMiddleware } from '../middleware/auth';
+import type { Bindings, Variables } from '../types';
+
+/** Helper to check if running in production */
+function isProduction(c: { env: Bindings }): boolean {
+  return c.env.ENVIRONMENT === 'production';
+}
+
+// Schema for MFA setup
+const mfaSetupSchema = z.object({
+  otpCode: z.string().length(6, 'Code OTP doit contenir 6 chiffres'),
+});
+
+// Schema for backup code verification
+const backupCodeSchema = z.object({
+  mfaToken: z.string().min(1, 'Token MFA requis'),
+  backupCode: z.string().min(8, 'Code de secours requis'),
+});
 
 const auth = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -25,7 +57,7 @@ auth.post('/login', zValidator('json', loginRequestSchema), async (c) => {
   }
 
   if (!user.isActive) {
-    return error(c, 'ACCOUNT_DISABLED', 'Compte désactivé', 401);
+    return error(c, 'ACCOUNT_DISABLED', 'Compte desactive', 401);
   }
 
   const isValidPassword = await verifyPassword(password, user.passwordHash);
@@ -34,11 +66,28 @@ auth.post('/login', zValidator('json', loginRequestSchema), async (c) => {
     return error(c, 'INVALID_CREDENTIALS', 'Email ou mot de passe incorrect', 401);
   }
 
-  // Check if MFA is required
-  if (user.mfaEnabled) {
-    // Generate MFA token (simplified - in production, use a proper OTP flow)
+  // Check if MFA is required for this role but not yet enabled
+  const mfaRequired = roleRequiresMFA(user.role);
+  if (mfaRequired && !user.mfaEnabled) {
+    // User needs to set up MFA first
+    const mfaSetupToken = await signJWT(
+      { sub: user.id, role: user.role, purpose: 'mfa_setup' },
+      c.env.JWT_SECRET,
+      600 // 10 minutes
+    );
+
+    return success(c, {
+      requiresMfaSetup: true,
+      mfaSetupToken,
+      message: 'Configuration MFA requise pour ce compte',
+    });
+  }
+
+  // Check if MFA verification is needed
+  if (user.mfaEnabled && user.mfaSecret) {
+    // Generate MFA verification token
     const mfaToken = await signJWT(
-      { sub: user.id, role: user.role },
+      { sub: user.id, role: user.role, purpose: 'mfa_verify' },
       c.env.JWT_SECRET,
       300 // 5 minutes
     );
@@ -49,9 +98,9 @@ auth.post('/login', zValidator('json', loginRequestSchema), async (c) => {
     });
   }
 
-  // Generate tokens
-  const jwtExpiresIn = parseInt(c.env.JWT_EXPIRES_IN, 10) || 900;
-  const refreshExpiresIn = parseInt(c.env.REFRESH_EXPIRES_IN, 10) || 86400;
+  // Generate tokens for users without MFA requirement
+  const jwtExpiresIn = Number.parseInt(c.env.JWT_EXPIRES_IN, 10) || 900;
+  const refreshExpiresIn = Number.parseInt(c.env.REFRESH_EXPIRES_IN, 10) || 86400;
 
   const accessToken = await signJWT(
     {
@@ -71,6 +120,11 @@ auth.post('/login', zValidator('json', loginRequestSchema), async (c) => {
     expirationTtl: refreshExpiresIn,
   });
 
+  // Set HttpOnly cookies for secure token storage
+  const isProd = isProduction(c);
+  setAccessTokenCookie(c, accessToken, jwtExpiresIn, isProd);
+  setRefreshTokenCookie(c, refreshToken, refreshExpiresIn, isProd);
+
   // Update last login
   await updateUser(c.env.DB, user.id, { lastLoginAt: new Date().toISOString() });
 
@@ -86,77 +140,466 @@ auth.post('/login', zValidator('json', loginRequestSchema), async (c) => {
 
   return success(c, {
     requiresMfa: false,
-    tokens: {
-      accessToken,
-      refreshToken,
-      expiresIn: jwtExpiresIn,
-    },
+    expiresIn: jwtExpiresIn,
     user: userToPublic(user),
   });
 });
 
 /**
- * POST /api/v1/auth/refresh
- * Refresh access token using refresh token
+ * POST /api/v1/auth/mfa/setup
+ * Initialize MFA setup - generates secret and QR code URI
  */
-auth.post('/refresh', zValidator('json', refreshRequestSchema), async (c) => {
-  const { refreshToken } = c.req.valid('json');
+auth.post('/mfa/setup', authMiddleware(), async (c) => {
+  const jwtPayload = c.get('user');
+
+  if (!jwtPayload) {
+    return unauthorized(c);
+  }
+
+  const user = await findUserById(c.env.DB, jwtPayload.sub);
+  if (!user) {
+    return unauthorized(c, 'Utilisateur non trouve');
+  }
+
+  if (user.mfaEnabled) {
+    return error(c, 'MFA_ALREADY_ENABLED', 'MFA deja active sur ce compte', 400);
+  }
+
+  // Generate new TOTP secret
+  const secret = generateTOTPSecret();
+  const uri = generateTOTPUri(secret, user.email);
+
+  // Store secret temporarily (not enabled until verified)
+  await c.env.CACHE.put(`mfa_setup:${user.id}`, secret, {
+    expirationTtl: 600, // 10 minutes
+  });
+
+  // Audit log
+  await logAudit(c.env.DB, {
+    userId: user.id,
+    action: 'auth.mfa_setup_initiated',
+    entityType: 'user',
+    entityId: user.id,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, {
+    secret,
+    uri,
+    message: 'Scannez le QR code avec votre application d\'authentification',
+  });
+});
+
+/**
+ * POST /api/v1/auth/mfa/setup/verify
+ * Verify MFA setup with OTP code - enables MFA on account
+ */
+auth.post('/mfa/setup/verify', authMiddleware(), zValidator('json', mfaSetupSchema), async (c) => {
+  const jwtPayload = c.get('user');
+  const { otpCode } = c.req.valid('json');
+
+  if (!jwtPayload) {
+    return unauthorized(c);
+  }
+
+  const user = await findUserById(c.env.DB, jwtPayload.sub);
+  if (!user) {
+    return unauthorized(c, 'Utilisateur non trouve');
+  }
+
+  // Get temporary secret from cache
+  const secret = await c.env.CACHE.get(`mfa_setup:${user.id}`);
+  if (!secret) {
+    return error(c, 'MFA_SETUP_EXPIRED', 'Session de configuration MFA expiree', 400);
+  }
+
+  // Verify the OTP code
+  const isValid = await verifyTOTP(otpCode, secret);
+  if (!isValid) {
+    return error(c, 'INVALID_OTP', 'Code OTP invalide', 400);
+  }
+
+  // Generate backup codes
+  const backupCodes = generateBackupCodes(10);
+  const hashedCodes = await Promise.all(backupCodes.map(hashBackupCode));
+
+  // Enable MFA and store secret + backup codes
+  await updateUser(c.env.DB, user.id, {
+    mfaEnabled: true,
+    mfaSecret: secret,
+  });
+
+  // Store hashed backup codes in KV
+  await c.env.CACHE.put(`mfa_backup:${user.id}`, JSON.stringify(hashedCodes), {
+    // No expiration - backup codes are permanent until used
+  });
+
+  // Clean up setup secret
+  await c.env.CACHE.delete(`mfa_setup:${user.id}`);
+
+  // Audit log
+  await logAudit(c.env.DB, {
+    userId: user.id,
+    action: 'auth.mfa_enabled',
+    entityType: 'user',
+    entityId: user.id,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, {
+    enabled: true,
+    backupCodes, // Show these once, user must save them
+    message: 'MFA active. Conservez vos codes de secours en lieu sur.',
+  });
+});
+
+/**
+ * POST /api/v1/auth/mfa/verify
+ * Verify MFA code during login
+ */
+auth.post('/mfa/verify', zValidator('json', mfaVerifyRequestSchema), async (c) => {
+  const { mfaToken, otpCode } = c.req.valid('json');
+
+  // Verify MFA token
+  const payload = await verifyJWT(mfaToken, c.env.JWT_SECRET);
+  if (!payload || payload.purpose !== 'mfa_verify') {
+    return unauthorized(c, 'Token MFA invalide ou expire');
+  }
+
+  const user = await findUserById(c.env.DB, payload.sub);
+  if (!(user?.mfaSecret)) {
+    return unauthorized(c, 'Utilisateur non trouve');
+  }
+
+  // Verify OTP code
+  const isValid = await verifyTOTP(otpCode, user.mfaSecret);
+  if (!isValid) {
+    // Audit failed attempt
+    await logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'auth.mfa_failed',
+      entityType: 'user',
+      entityId: user.id,
+      changes: { reason: 'invalid_otp' },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return error(c, 'INVALID_OTP', 'Code OTP invalide', 401);
+  }
+
+  // Generate final tokens
+  const jwtExpiresIn = Number.parseInt(c.env.JWT_EXPIRES_IN, 10) || 900;
+  const refreshExpiresIn = Number.parseInt(c.env.REFRESH_EXPIRES_IN, 10) || 86400;
+
+  const accessToken = await signJWT(
+    {
+      sub: user.id,
+      role: user.role,
+      providerId: user.providerId ?? undefined,
+      insurerId: user.insurerId ?? undefined,
+    },
+    c.env.JWT_SECRET,
+    jwtExpiresIn
+  );
+
+  const refreshToken = await signRefreshToken(user.id, c.env.JWT_SECRET, refreshExpiresIn);
+
+  // Store refresh token in KV
+  await c.env.CACHE.put(`refresh:${user.id}`, refreshToken, {
+    expirationTtl: refreshExpiresIn,
+  });
+
+  // Set HttpOnly cookies
+  const isProd = isProduction(c);
+  setAccessTokenCookie(c, accessToken, jwtExpiresIn, isProd);
+  setRefreshTokenCookie(c, refreshToken, refreshExpiresIn, isProd);
+
+  // Update last login
+  await updateUser(c.env.DB, user.id, { lastLoginAt: new Date().toISOString() });
+
+  // Audit log
+  await logAudit(c.env.DB, {
+    userId: user.id,
+    action: 'auth.login_mfa_verified',
+    entityType: 'user',
+    entityId: user.id,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, {
+    expiresIn: jwtExpiresIn,
+    user: userToPublic(user),
+  });
+});
+
+/**
+ * POST /api/v1/auth/mfa/backup
+ * Verify backup code for account recovery
+ */
+auth.post('/mfa/backup', zValidator('json', backupCodeSchema), async (c) => {
+  const { mfaToken, backupCode } = c.req.valid('json');
+
+  // Verify MFA token
+  const payload = await verifyJWT(mfaToken, c.env.JWT_SECRET);
+  if (!payload || payload.purpose !== 'mfa_verify') {
+    return unauthorized(c, 'Token MFA invalide ou expire');
+  }
+
+  const user = await findUserById(c.env.DB, payload.sub);
+  if (!user) {
+    return unauthorized(c, 'Utilisateur non trouve');
+  }
+
+  // Get backup codes
+  const storedCodes = await c.env.CACHE.get(`mfa_backup:${user.id}`);
+  if (!storedCodes) {
+    return error(c, 'NO_BACKUP_CODES', 'Aucun code de secours disponible', 400);
+  }
+
+  const hashedCodes: string[] = JSON.parse(storedCodes);
+  const matchIndex = await verifyBackupCode(backupCode, hashedCodes);
+
+  if (matchIndex === -1) {
+    // Audit failed attempt
+    await logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'auth.backup_code_failed',
+      entityType: 'user',
+      entityId: user.id,
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return error(c, 'INVALID_BACKUP_CODE', 'Code de secours invalide', 401);
+  }
+
+  // Remove used backup code
+  hashedCodes.splice(matchIndex, 1);
+  await c.env.CACHE.put(`mfa_backup:${user.id}`, JSON.stringify(hashedCodes));
+
+  // Generate final tokens
+  const jwtExpiresIn = Number.parseInt(c.env.JWT_EXPIRES_IN, 10) || 900;
+  const refreshExpiresIn = Number.parseInt(c.env.REFRESH_EXPIRES_IN, 10) || 86400;
+
+  const accessToken = await signJWT(
+    {
+      sub: user.id,
+      role: user.role,
+      providerId: user.providerId ?? undefined,
+      insurerId: user.insurerId ?? undefined,
+    },
+    c.env.JWT_SECRET,
+    jwtExpiresIn
+  );
+
+  const refreshToken = await signRefreshToken(user.id, c.env.JWT_SECRET, refreshExpiresIn);
+
+  await c.env.CACHE.put(`refresh:${user.id}`, refreshToken, {
+    expirationTtl: refreshExpiresIn,
+  });
+
+  // Set HttpOnly cookies
+  const isProd = isProduction(c);
+  setAccessTokenCookie(c, accessToken, jwtExpiresIn, isProd);
+  setRefreshTokenCookie(c, refreshToken, refreshExpiresIn, isProd);
+
+  await updateUser(c.env.DB, user.id, { lastLoginAt: new Date().toISOString() });
+
+  // Audit log
+  await logAudit(c.env.DB, {
+    userId: user.id,
+    action: 'auth.login_backup_code_used',
+    entityType: 'user',
+    entityId: user.id,
+    changes: { remainingCodes: hashedCodes.length },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, {
+    expiresIn: jwtExpiresIn,
+    user: userToPublic(user),
+    remainingBackupCodes: hashedCodes.length,
+    warning: hashedCodes.length < 3 ? 'Attention: peu de codes de secours restants' : undefined,
+  });
+});
+
+/**
+ * POST /api/v1/auth/mfa/disable
+ * Disable MFA on account (requires current OTP)
+ */
+auth.post('/mfa/disable', authMiddleware(), zValidator('json', mfaSetupSchema), async (c) => {
+  const jwtPayload = c.get('user');
+  const { otpCode } = c.req.valid('json');
+
+  if (!jwtPayload) {
+    return unauthorized(c);
+  }
+
+  const user = await findUserById(c.env.DB, jwtPayload.sub);
+  if (!(user?.mfaSecret)) {
+    return error(c, 'MFA_NOT_ENABLED', 'MFA non active sur ce compte', 400);
+  }
+
+  // Verify OTP before disabling
+  const isValid = await verifyTOTP(otpCode, user.mfaSecret);
+  if (!isValid) {
+    return error(c, 'INVALID_OTP', 'Code OTP invalide', 401);
+  }
+
+  // Check if MFA is required for this role
+  if (roleRequiresMFA(user.role)) {
+    return error(c, 'MFA_REQUIRED', 'MFA est obligatoire pour votre role', 403);
+  }
+
+  // Disable MFA
+  await updateUser(c.env.DB, user.id, {
+    mfaEnabled: false,
+    mfaSecret: undefined,
+  });
+
+  // Remove backup codes
+  await c.env.CACHE.delete(`mfa_backup:${user.id}`);
+
+  // Audit log
+  await logAudit(c.env.DB, {
+    userId: user.id,
+    action: 'auth.mfa_disabled',
+    entityType: 'user',
+    entityId: user.id,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, {
+    disabled: true,
+    message: 'MFA desactive',
+  });
+});
+
+/**
+ * GET /api/v1/auth/mfa/status
+ * Get MFA status for current user
+ */
+auth.get('/mfa/status', authMiddleware(), async (c) => {
+  const jwtPayload = c.get('user');
+
+  if (!jwtPayload) {
+    return unauthorized(c);
+  }
+
+  const user = await findUserById(c.env.DB, jwtPayload.sub);
+  if (!user) {
+    return unauthorized(c, 'Utilisateur non trouvé');
+  }
+
+  // Get backup codes count
+  let backupCodesCount = 0;
+  const storedCodes = await c.env.CACHE.get(`mfa_backup:${user.id}`);
+  if (storedCodes) {
+    const hashedCodes: string[] = JSON.parse(storedCodes);
+    backupCodesCount = hashedCodes.length;
+  }
+
+  return success(c, {
+    mfaEnabled: user.mfaEnabled,
+    mfaRequired: roleRequiresMFA(user.role),
+    backupCodesRemaining: user.mfaEnabled ? backupCodesCount : 0,
+  });
+});
+
+/**
+ * POST /api/v1/auth/mfa/backup/regenerate
+ * Regenerate backup codes (requires current OTP)
+ */
+auth.post('/mfa/backup/regenerate', authMiddleware(), zValidator('json', mfaSetupSchema), async (c) => {
+  const jwtPayload = c.get('user');
+  const { otpCode } = c.req.valid('json');
+
+  if (!jwtPayload) {
+    return unauthorized(c);
+  }
+
+  const user = await findUserById(c.env.DB, jwtPayload.sub);
+  if (!(user?.mfaSecret)) {
+    return error(c, 'MFA_NOT_ENABLED', 'MFA non activé sur ce compte', 400);
+  }
+
+  // Verify OTP before regenerating
+  const isValid = await verifyTOTP(otpCode, user.mfaSecret);
+  if (!isValid) {
+    return error(c, 'INVALID_OTP', 'Code OTP invalide', 401);
+  }
+
+  // Generate new backup codes
+  const backupCodes = generateBackupCodes(10);
+  const hashedCodes = await Promise.all(backupCodes.map(hashBackupCode));
+
+  // Store new hashed backup codes
+  await c.env.CACHE.put(`mfa_backup:${user.id}`, JSON.stringify(hashedCodes));
+
+  // Audit log
+  await logAudit(c.env.DB, {
+    userId: user.id,
+    action: 'auth.backup_codes_regenerated',
+    entityType: 'user',
+    entityId: user.id,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, {
+    backupCodes,
+    message: 'Nouveaux codes de secours générés. Conservez-les en lieu sûr.',
+  });
+});
+
+/**
+ * POST /api/v1/auth/refresh
+ * Refresh access token using refresh token from cookie or body
+ */
+auth.post('/refresh', async (c) => {
+  // Try to get refresh token from cookie first, then from body
+  let refreshToken = getRefreshTokenFromCookie(c);
+
+  if (!refreshToken) {
+    try {
+      const body = await c.req.json() as { refreshToken?: string };
+      refreshToken = body.refreshToken;
+    } catch {
+      // No body provided
+    }
+  }
+
+  if (!refreshToken) {
+    return unauthorized(c, 'Refresh token manquant');
+  }
 
   const payload = await verifyRefreshToken(refreshToken, c.env.JWT_SECRET);
 
   if (!payload) {
-    return unauthorized(c, 'Refresh token invalide ou expiré');
+    return unauthorized(c, 'Refresh token invalide ou expire');
   }
 
   // Verify token is still valid in KV
   const storedToken = await c.env.CACHE.get(`refresh:${payload.sub}`);
   if (storedToken !== refreshToken) {
-    return unauthorized(c, 'Refresh token révoqué');
+    return unauthorized(c, 'Refresh token revoque');
   }
 
-  const user = await findUserByEmail(c.env.DB, payload.sub);
-  if (!user) {
-    // Try finding by ID if not found by email (payload.sub is user ID)
-    const { findUserById } = await import('@dhamen/db');
-    const userById = await findUserById(c.env.DB, payload.sub);
-    if (!userById || !userById.isActive) {
-      return unauthorized(c, 'Utilisateur non trouvé ou désactivé');
-    }
-
-    // Generate new tokens
-    const jwtExpiresIn = parseInt(c.env.JWT_EXPIRES_IN, 10) || 900;
-    const refreshExpiresIn = parseInt(c.env.REFRESH_EXPIRES_IN, 10) || 86400;
-
-    const newAccessToken = await signJWT(
-      {
-        sub: userById.id,
-        role: userById.role,
-        providerId: userById.providerId ?? undefined,
-        insurerId: userById.insurerId ?? undefined,
-      },
-      c.env.JWT_SECRET,
-      jwtExpiresIn
-    );
-
-    const newRefreshToken = await signRefreshToken(userById.id, c.env.JWT_SECRET, refreshExpiresIn);
-
-    // Update stored refresh token
-    await c.env.CACHE.put(`refresh:${userById.id}`, newRefreshToken, {
-      expirationTtl: refreshExpiresIn,
-    });
-
-    return success(c, {
-      tokens: {
-        accessToken: newAccessToken,
-        refreshToken: newRefreshToken,
-        expiresIn: jwtExpiresIn,
-      },
-    });
+  // Find user by ID
+  const user = await findUserById(c.env.DB, payload.sub);
+  if (!user?.isActive) {
+    return unauthorized(c, 'Utilisateur non trouve ou desactive');
   }
 
   // Generate new tokens
-  const jwtExpiresIn = parseInt(c.env.JWT_EXPIRES_IN, 10) || 900;
-  const refreshExpiresIn = parseInt(c.env.REFRESH_EXPIRES_IN, 10) || 86400;
+  const jwtExpiresIn = Number.parseInt(c.env.JWT_EXPIRES_IN, 10) || 900;
+  const refreshExpiresIn = Number.parseInt(c.env.REFRESH_EXPIRES_IN, 10) || 86400;
 
   const newAccessToken = await signJWT(
     {
@@ -176,12 +619,13 @@ auth.post('/refresh', zValidator('json', refreshRequestSchema), async (c) => {
     expirationTtl: refreshExpiresIn,
   });
 
+  // Set HttpOnly cookies
+  const isProd = isProduction(c);
+  setAccessTokenCookie(c, newAccessToken, jwtExpiresIn, isProd);
+  setRefreshTokenCookie(c, newRefreshToken, refreshExpiresIn, isProd);
+
   return success(c, {
-    tokens: {
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
-      expiresIn: jwtExpiresIn,
-    },
+    expiresIn: jwtExpiresIn,
   });
 });
 
@@ -207,7 +651,10 @@ auth.post('/logout', authMiddleware(), async (c) => {
     });
   }
 
-  return success(c, { message: 'Déconnexion réussie' });
+  // Clear authentication cookies
+  clearAuthCookies(c, isProduction(c));
+
+  return success(c, { message: 'Deconnexion reussie' });
 });
 
 /**

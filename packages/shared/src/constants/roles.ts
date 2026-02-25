@@ -8,6 +8,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   DOCTOR: 'Médecin',
   LAB_MANAGER: 'Responsable Laboratoire',
   CLINIC_ADMIN: 'Administrateur Clinique',
+  ADHERENT: 'Adhérent',
 };
 
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
@@ -18,6 +19,7 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   DOCTOR: 'Consultations et prescriptions',
   LAB_MANAGER: 'Gestion des analyses et résultats',
   CLINIC_ADMIN: 'Gestion des hospitalisations et séjours',
+  ADHERENT: 'Accès mobile aux données personnelles',
 };
 
 export const PROVIDER_ROLES: Role[] = ['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN'];
@@ -25,3 +27,5 @@ export const PROVIDER_ROLES: Role[] = ['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'C
 export const INSURER_ROLES: Role[] = ['INSURER_ADMIN', 'INSURER_AGENT'];
 
 export const ADMIN_ROLES: Role[] = ['ADMIN'];
+
+export const MOBILE_ROLES: Role[] = ['ADHERENT'];

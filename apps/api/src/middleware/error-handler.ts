@@ -1,17 +1,17 @@
 import type { ErrorHandler } from 'hono';
 import { ZodError } from 'zod';
-import type { Bindings, Variables } from '../types';
 import { error, internalError, validationError } from '../lib/response';
+import { structuredLog } from '../lib/logger';
+import type { Bindings, Variables } from '../types';
 
 /**
  * Global error handler middleware
+ * Uses structured logging instead of console.error
  */
 export const errorHandler: ErrorHandler<{ Bindings: Bindings; Variables: Variables }> = (
   err,
   c
 ) => {
-  const requestId = c.get('requestId');
-
   // Zod validation errors
   if (err instanceof ZodError) {
     const errors = err.errors.map((e) => ({
@@ -46,11 +46,12 @@ export const errorHandler: ErrorHandler<{ Bindings: Bindings; Variables: Variabl
     }
   }
 
-  // Log unexpected errors
-  console.error('Unhandled error:', {
-    requestId,
+  // Log unexpected errors using structured logger
+  structuredLog(c, 'error', 'Unhandled error', {
     error: err instanceof Error ? err.message : String(err),
     stack: err instanceof Error ? err.stack : undefined,
+    url: c.req.url,
+    method: c.req.method,
   });
 
   // Don't expose internal error details in production

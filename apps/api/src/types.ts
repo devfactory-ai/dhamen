@@ -1,5 +1,5 @@
-import type { Context } from 'hono';
 import type { JWTPayload, Role } from '@dhamen/shared';
+import type { Context } from 'hono';
 
 /**
  * Cloudflare Worker bindings
@@ -19,20 +19,32 @@ export interface Bindings {
   REFRESH_EXPIRES_IN: string;
   JWT_SECRET: string;
   ENCRYPTION_KEY: string;
+
+  // Notification providers (optional)
+  SENDGRID_API_KEY?: string;
+  TWILIO_ACCOUNT_SID?: string;
+  TWILIO_AUTH_TOKEN?: string;
+  TWILIO_FROM_NUMBER?: string;
+  RESEND_API_KEY?: string;
 }
 
 /**
  * Variables stored in Hono context
  */
 export interface Variables {
-  user?: JWTPayload;
+  user: JWTPayload;
   requestId: string;
 }
 
 /**
+ * App environment type for Hono
+ */
+export type AppEnv = { Bindings: Bindings; Variables: Variables };
+
+/**
  * Hono context with our bindings and variables
  */
-export type AppContext = Context<{ Bindings: Bindings; Variables: Variables }>;
+export type AppContext = Context<AppEnv>;
 
 /**
  * Route handler type

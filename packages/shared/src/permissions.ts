@@ -84,6 +84,16 @@ export const PERMISSIONS: Record<Role, Partial<Record<Resource, Action[]>>> = {
     contracts: ['read'],
     claims: ['create', 'read', 'list'],
   },
+
+  /**
+   * ADHERENT role - Mobile app users (insured members)
+   * Can only view their own data
+   */
+  ADHERENT: {
+    adherents: ['read'], // Only own profile
+    contracts: ['read'], // Only own contracts
+    claims: ['read', 'list'], // Only own claims
+  },
 };
 
 /**
@@ -139,9 +149,7 @@ export function canAccessRoute(role: Role, resource: Resource, method: string): 
  * Roles that can approve/reject claims
  */
 export function canManageClaims(role: Role): boolean {
-  return (
-    hasPermission(role, 'claims', 'approve') || hasPermission(role, 'claims', 'reject')
-  );
+  return hasPermission(role, 'claims', 'approve') || hasPermission(role, 'claims', 'reject');
 }
 
 /**

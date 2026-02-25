@@ -3,9 +3,28 @@ import { ROLES } from '../types/user';
 
 export const roleSchema = z.enum(ROLES);
 
+/**
+ * Password complexity requirements:
+ * - Minimum 12 characters
+ * - At least one uppercase letter
+ * - At least one lowercase letter
+ * - At least one number
+ * - At least one special character
+ */
+export const passwordSchema = z
+  .string()
+  .min(12, 'Le mot de passe doit contenir au moins 12 caracteres')
+  .regex(/[A-Z]/, 'Le mot de passe doit contenir au moins une majuscule')
+  .regex(/[a-z]/, 'Le mot de passe doit contenir au moins une minuscule')
+  .regex(/[0-9]/, 'Le mot de passe doit contenir au moins un chiffre')
+  .regex(/[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/`~]/, 'Le mot de passe doit contenir au moins un caractere special');
+
+/**
+ * Login schema - less strict for login attempts (don't reveal password requirements)
+ */
 export const loginRequestSchema = z.object({
   email: z.string().email('Email invalide'),
-  password: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères'),
+  password: z.string().min(1, 'Mot de passe requis'),
 });
 
 export const mfaVerifyRequestSchema = z.object({
@@ -19,24 +38,36 @@ export const refreshRequestSchema = z.object({
 
 export const userCreateSchema = z.object({
   email: z.string().email('Email invalide'),
-  password: z.string().min(8, 'Le mot de passe doit contenir au moins 8 caractères'),
+  password: passwordSchema,
   role: roleSchema,
   providerId: z.string().optional(),
   insurerId: z.string().optional(),
-  firstName: z.string().min(1, 'Prénom requis'),
+  firstName: z.string().min(1, 'Prenom requis'),
   lastName: z.string().min(1, 'Nom requis'),
   phone: z.string().optional(),
 });
 
 export const userUpdateSchema = z.object({
   email: z.string().email('Email invalide').optional(),
-  password: z.string().min(8).optional(),
+  password: passwordSchema.optional(),
   role: roleSchema.optional(),
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
   phone: z.string().optional(),
   isActive: z.boolean().optional(),
   mfaEnabled: z.boolean().optional(),
+});
+
+/**
+ * Password change schema with current password verification
+ */
+export const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(1, 'Mot de passe actuel requis'),
+  newPassword: passwordSchema,
+  confirmPassword: z.string().min(1, 'Confirmation requise'),
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  message: 'Les mots de passe ne correspondent pas',
+  path: ['confirmPassword'],
 });
 
 export type LoginRequestInput = z.infer<typeof loginRequestSchema>;

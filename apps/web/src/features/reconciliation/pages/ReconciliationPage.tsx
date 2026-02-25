@@ -1,12 +1,21 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/ui/page-header';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/ui/data-table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api-client';
+import { toast } from 'sonner';
+import { Download, CheckCircle, Loader2, Eye } from 'lucide-react';
 
 interface ReconciliationSummary {
   period: string;
@@ -46,6 +55,10 @@ const RECONCILIATION_STATUS = {
 export function ReconciliationPage() {
   const [page, setPage] = useState(1);
   const [periodFilter, setPeriodFilter] = useState<string>('2024-01');
+  const [selectedItem, setSelectedItem] = useState<ReconciliationItem | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const queryClient = useQueryClient();
 
   const { data: summary } = useQuery({
     queryKey: ['reconciliation', 'summary', periodFilter],
@@ -53,7 +66,7 @@ export function ReconciliationPage() {
       const response = await apiClient.get<ReconciliationSummary>('/reconciliation/summary', {
         params: { period: periodFilter },
       });
-      if (!response.success) throw new Error(response.error?.message);
+      if (!response.success) { throw new Error(response.error?.message); }
       return response.data;
     },
   });
@@ -64,7 +77,7 @@ export function ReconciliationPage() {
       const response = await apiClient.get<{ items: ReconciliationItem[]; total: number }>('/reconciliation', {
         params: { page, limit: 20, period: periodFilter },
       });
-      if (!response.success) throw new Error(response.error?.message);
+      if (!response.success) { throw new Error(response.error?.message); }
       return response.data;
     },
   });
@@ -76,6 +89,54 @@ export function ReconciliationPage() {
     }).format(amount / 1000);
   };
 
+  const reconcileMutation = useMutation({
+    mutationFn: async (itemId: string) => {
+      const response = await apiClient.post<{ item: ReconciliationItem }>(`/reconciliation/${itemId}/reconcile`);
+      if (!response.success) { throw new Error(response.error?.message); }
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reconciliation'] });
+      toast.success('Rapprochement effectué avec succès');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors du rapprochement');
+    },
+  });
+
+  const handleExport = async () => {
+    try {
+      setIsExporting(true);
+      const response = await apiClient.get<Blob>('/reconciliation/export', {
+        params: { period: periodFilter },
+        responseType: 'blob',
+      });
+
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur lors de l\'export');
+      }
+
+      const url = window.URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `reconciliation-${periodFilter}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast.success('Export téléchargé avec succès');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erreur lors de l\'export');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleReconcile = (itemId: string) => {
+    reconcileMutation.mutate(itemId);
+  };
+
   const columns = [
     {
       key: 'bordereau',
@@ -83,7 +144,7 @@ export function ReconciliationPage() {
       render: (item: ReconciliationItem) => (
         <div>
           <p className="font-medium">{item.bordereauNumber}</p>
-          <p className="text-sm text-muted-foreground">{item.providerName}</p>
+          <p className='text-muted-foreground text-sm'>{item.providerName}</p>
         </div>
       ),
     },
@@ -133,11 +194,22 @@ export function ReconciliationPage() {
       className: 'text-right',
       render: (item: ReconciliationItem) => (
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm">
+          <Button variant="ghost" size="sm" onClick={() => setSelectedItem(item)}>
+            <Eye className="mr-1 h-3 w-3" />
             Détails
           </Button>
           {item.status === 'UNMATCHED' && (
-            <Button variant="outline" size="sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleReconcile(item.id)}
+              disabled={reconcileMutation.isPending}
+            >
+              {reconcileMutation.isPending ? (
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              ) : (
+                <CheckCircle className="mr-1 h-3 w-3" />
+              )}
               Rapprocher
             </Button>
           )}
@@ -168,10 +240,10 @@ export function ReconciliationPage() {
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Taux de rapprochement</CardTitle>
+              <CardTitle className='font-medium text-muted-foreground text-sm'>Taux de rapprochement</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-primary">{summary.matchRate.toFixed(1)}%</p>
+              <p className='font-bold text-2xl text-primary'>{summary.matchRate.toFixed(1)}%</p>
               <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
                 <div className="h-full bg-primary" style={{ width: `${summary.matchRate}%` }} />
               </div>
@@ -179,29 +251,29 @@ export function ReconciliationPage() {
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Rapprochés</CardTitle>
+              <CardTitle className='font-medium text-muted-foreground text-sm'>Rapprochés</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-green-600">{summary.matchedClaims}</p>
-              <p className="text-sm text-muted-foreground">{formatAmount(summary.matchedAmount)}</p>
+              <p className='font-bold text-2xl text-green-600'>{summary.matchedClaims}</p>
+              <p className='text-muted-foreground text-sm'>{formatAmount(summary.matchedAmount)}</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Non rapprochés</CardTitle>
+              <CardTitle className='font-medium text-muted-foreground text-sm'>Non rapprochés</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-yellow-600">{summary.unmatchedClaims}</p>
-              <p className="text-sm text-muted-foreground">{formatAmount(summary.unmatchedAmount)}</p>
+              <p className='font-bold text-2xl text-yellow-600'>{summary.unmatchedClaims}</p>
+              <p className='text-muted-foreground text-sm'>{formatAmount(summary.unmatchedAmount)}</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Contestés</CardTitle>
+              <CardTitle className='font-medium text-muted-foreground text-sm'>Contestés</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold text-destructive">{summary.disputedClaims}</p>
-              <p className="text-sm text-muted-foreground">{formatAmount(summary.disputedAmount)}</p>
+              <p className='font-bold text-2xl text-destructive'>{summary.disputedClaims}</p>
+              <p className='text-muted-foreground text-sm'>{formatAmount(summary.disputedAmount)}</p>
             </CardContent>
           </Card>
         </div>
@@ -219,7 +291,14 @@ export function ReconciliationPage() {
             ))}
           </SelectContent>
         </Select>
-        <Button variant="outline">Exporter</Button>
+        <Button variant="outline" onClick={handleExport} disabled={isExporting}>
+          {isExporting ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="mr-2 h-4 w-4" />
+          )}
+          Exporter
+        </Button>
       </div>
 
       <DataTable
@@ -238,6 +317,84 @@ export function ReconciliationPage() {
             : undefined
         }
       />
+
+      {/* Details Dialog */}
+      <Dialog open={!!selectedItem} onOpenChange={() => setSelectedItem(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Détails de la réconciliation</DialogTitle>
+            <DialogDescription>
+              Bordereau {selectedItem?.bordereauNumber}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedItem && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className='text-muted-foreground text-sm'>Prestataire</p>
+                  <p className="font-medium">{selectedItem.providerName}</p>
+                </div>
+                <div>
+                  <p className='text-muted-foreground text-sm'>Période</p>
+                  <p className="font-medium">{selectedItem.period}</p>
+                </div>
+                <div>
+                  <p className='text-muted-foreground text-sm'>Nombre de PEC</p>
+                  <p className="font-medium">{selectedItem.claimCount}</p>
+                </div>
+                <div>
+                  <p className='text-muted-foreground text-sm'>Statut</p>
+                  <Badge variant={RECONCILIATION_STATUS[selectedItem.status].variant}>
+                    {RECONCILIATION_STATUS[selectedItem.status].label}
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-4 border-t">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Montant déclaré</span>
+                  <span className="font-medium">{formatAmount(selectedItem.declaredAmount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Montant vérifié</span>
+                  <span className="font-medium">{formatAmount(selectedItem.verifiedAmount)}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t">
+                  <span className="font-medium">Écart</span>
+                  <span className={`font-bold ${
+                    selectedItem.difference === 0 ? '' :
+                    selectedItem.difference > 0 ? 'text-green-600' : 'text-destructive'
+                  }`}>
+                    {selectedItem.difference > 0 ? '+' : ''}{formatAmount(selectedItem.difference)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button variant="outline" onClick={() => setSelectedItem(null)}>
+                  Fermer
+                </Button>
+                {selectedItem.status === 'UNMATCHED' && (
+                  <Button
+                    onClick={() => {
+                      handleReconcile(selectedItem.id);
+                      setSelectedItem(null);
+                    }}
+                    disabled={reconcileMutation.isPending}
+                  >
+                    {reconcileMutation.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <CheckCircle className="mr-2 h-4 w-4" />
+                    )}
+                    Rapprocher
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

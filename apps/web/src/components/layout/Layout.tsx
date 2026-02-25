@@ -19,6 +19,10 @@ export function Layout({ children }: LayoutProps) {
         <div
           className="fixed inset-0 z-40 bg-black/50 lg:hidden"
           onClick={() => setSidebarOpen(false)}
+          onKeyDown={(e) => e.key === 'Escape' && setSidebarOpen(false)}
+          role="button"
+          tabIndex={0}
+          aria-label="Fermer le menu"
         />
       )}
 

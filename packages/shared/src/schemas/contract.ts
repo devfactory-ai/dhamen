@@ -53,7 +53,10 @@ export const contractCreateSchema = z.object({
 
 export const contractUpdateSchema = z.object({
   planType: planTypeSchema.optional(),
-  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
   annualLimit: z.number().positive().optional(),
   coverage: coverageConfigSchema.partial().optional(),
   exclusions: z.array(z.string()).optional(),

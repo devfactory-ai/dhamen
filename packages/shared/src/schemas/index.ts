@@ -9,4 +9,5 @@ export * from './insurer';
 export * from './contract';
 export * from './claim';
 export * from './reconciliation';
+export * from './convention';
 export * from './common';

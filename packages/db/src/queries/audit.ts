@@ -30,7 +30,9 @@ function rowToAuditLog(row: AuditLogRow): AuditLog {
     action: row.action,
     entityType: row.entity_type,
     entityId: row.entity_id,
-    changesJson: row.changes_json ? (JSON.parse(row.changes_json) as Record<string, unknown>) : null,
+    changesJson: row.changes_json
+      ? (JSON.parse(row.changes_json) as Record<string, unknown>)
+      : null,
     ipAddress: row.ip_address,
     userAgent: row.user_agent,
     createdAt: row.created_at,

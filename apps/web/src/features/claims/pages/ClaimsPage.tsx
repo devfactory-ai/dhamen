@@ -3,7 +3,6 @@ import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
@@ -67,7 +66,7 @@ export function ClaimsPage() {
       render: (claim: Claim) => (
         <div>
           <p className="font-medium">{claim.claimNumber}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(claim.serviceDate)}</p>
+          <p className='text-muted-foreground text-sm'>{formatDate(claim.serviceDate)}</p>
         </div>
       ),
     },
@@ -77,7 +76,7 @@ export function ClaimsPage() {
       render: (claim: Claim) => (
         <div>
           <p className="text-sm">{claim.adherentName || '-'}</p>
-          <p className="text-xs text-muted-foreground">{claim.adherentNationalId || '-'}</p>
+          <p className='text-muted-foreground text-xs'>{claim.adherentNationalId || '-'}</p>
         </div>
       ),
     },
@@ -87,7 +86,7 @@ export function ClaimsPage() {
       render: (claim: Claim) => {
         const typeInfo = CLAIM_TYPES[claim.type];
         return (
-          <span className={`rounded-full px-2 py-1 text-xs font-medium ${typeInfo.color}`}>
+          <span className={`rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>
             {typeInfo.label}
           </span>
         );
@@ -100,7 +99,7 @@ export function ClaimsPage() {
         <div className="text-right">
           <p className="font-medium">{formatAmount(claim.amount)}</p>
           {claim.status === 'APPROVED' && (
-            <p className="text-xs text-green-600">Couvert: {formatAmount(claim.coveredAmount)}</p>
+            <p className='text-green-600 text-xs'>Couvert: {formatAmount(claim.coveredAmount)}</p>
           )}
         </div>
       ),
@@ -206,35 +205,35 @@ export function ClaimsPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-sm text-muted-foreground">Adhérent</p>
+                  <p className='text-muted-foreground text-sm'>Adhérent</p>
                   <p className="font-medium">{selectedClaim.adherentName}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">CIN</p>
+                  <p className='text-muted-foreground text-sm'>CIN</p>
                   <p className="font-medium">{selectedClaim.adherentNationalId}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Type</p>
+                  <p className='text-muted-foreground text-sm'>Type</p>
                   <p className="font-medium">{CLAIM_TYPES[selectedClaim.type].label}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Date</p>
+                  <p className='text-muted-foreground text-sm'>Date</p>
                   <p className="font-medium">{formatDate(selectedClaim.serviceDate)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Montant total</p>
+                  <p className='text-muted-foreground text-sm'>Montant total</p>
                   <p className="font-medium">{formatAmount(selectedClaim.amount)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Montant couvert</p>
+                  <p className='text-muted-foreground text-sm'>Montant couvert</p>
                   <p className="font-medium text-green-600">{formatAmount(selectedClaim.coveredAmount)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Ticket modérateur</p>
+                  <p className='text-muted-foreground text-sm'>Ticket modérateur</p>
                   <p className="font-medium">{formatAmount(selectedClaim.copayAmount)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Statut</p>
+                  <p className='text-muted-foreground text-sm'>Statut</p>
                   <Badge variant={CLAIM_STATUS[selectedClaim.status].variant}>
                     {CLAIM_STATUS[selectedClaim.status].label}
                   </Badge>
@@ -242,19 +241,19 @@ export function ClaimsPage() {
               </div>
               {selectedClaim.diagnosis && (
                 <div>
-                  <p className="text-sm text-muted-foreground">Diagnostic</p>
+                  <p className='text-muted-foreground text-sm'>Diagnostic</p>
                   <p>{selectedClaim.diagnosis}</p>
                 </div>
               )}
               {selectedClaim.rejectionReason && (
                 <div>
-                  <p className="text-sm text-muted-foreground">Motif de rejet</p>
+                  <p className='text-muted-foreground text-sm'>Motif de rejet</p>
                   <p className="text-destructive">{selectedClaim.rejectionReason}</p>
                 </div>
               )}
               {selectedClaim.fraudScore !== null && (
                 <div>
-                  <p className="text-sm text-muted-foreground">Score anti-fraude</p>
+                  <p className='text-muted-foreground text-sm'>Score anti-fraude</p>
                   <p className={selectedClaim.fraudScore > 70 ? 'text-destructive' : selectedClaim.fraudScore > 40 ? 'text-yellow-600' : 'text-green-600'}>
                     {selectedClaim.fraudScore}/100
                   </p>

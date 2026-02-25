@@ -10,6 +10,7 @@ export const ROLES = [
   'DOCTOR',
   'LAB_MANAGER',
   'CLINIC_ADMIN',
+  'ADHERENT',
 ] as const;
 
 export type Role = (typeof ROLES)[number];
@@ -51,6 +52,8 @@ export interface JWTPayload {
   role: Role;
   providerId?: string;
   insurerId?: string;
+  /** Purpose for limited-scope tokens (e.g., 'mfa_setup', 'mfa_verify') */
+  purpose?: 'mfa_setup' | 'mfa_verify';
   iat: number;
   exp: number;
   iss: 'dhamen';

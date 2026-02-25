@@ -1,24 +1,24 @@
-import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
+import {
+  createInsurer,
+  findInsurerByCode,
+  findInsurerById,
+  listInsurers,
+  softDeleteInsurer,
+  updateInsurer,
+} from '@dhamen/db';
 import {
   insurerCreateSchema,
-  insurerUpdateSchema,
   insurerFiltersSchema,
+  insurerUpdateSchema,
   paginationSchema,
 } from '@dhamen/shared';
-import {
-  findInsurerById,
-  findInsurerByCode,
-  listInsurers,
-  createInsurer,
-  updateInsurer,
-  softDeleteInsurer,
-} from '@dhamen/db';
-import type { Bindings, Variables } from '../types';
-import { authMiddleware, requireRole } from '../middleware/auth';
+import { zValidator } from '@hono/zod-validator';
+import { Hono } from 'hono';
+import { conflict, created, noContent, notFound, paginated, success } from '../lib/response';
 import { generateId } from '../lib/ulid';
-import { success, created, notFound, conflict, noContent, paginated } from '../lib/response';
 import { logAudit } from '../middleware/audit-trail';
+import { authMiddleware, requireRole } from '../middleware/auth';
+import type { Bindings, Variables } from '../types';
 
 const insurers = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -78,40 +78,35 @@ insurers.get('/:id', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
  * POST /api/v1/insurers
  * Create a new insurer
  */
-insurers.post(
-  '/',
-  requireRole('ADMIN'),
-  zValidator('json', insurerCreateSchema),
-  async (c) => {
-    const data = c.req.valid('json');
-    const user = c.get('user');
+insurers.post('/', requireRole('ADMIN'), zValidator('json', insurerCreateSchema), async (c) => {
+  const data = c.req.valid('json');
+  const user = c.get('user');
 
-    // Check if code already exists
-    const existing = await findInsurerByCode(c.env.DB, data.code);
-    if (existing) {
-      return conflict(c, 'Un assureur avec ce code existe déjà');
-    }
-
-    const id = generateId();
-    const insurer = await createInsurer(c.env.DB, id, data);
-
-    // Audit log
-    await logAudit(c.env.DB, {
-      userId: user?.sub,
-      action: 'insurer.create',
-      entityType: 'insurer',
-      entityId: id,
-      changes: {
-        name: data.name,
-        code: data.code,
-      },
-      ipAddress: c.req.header('CF-Connecting-IP'),
-      userAgent: c.req.header('User-Agent'),
-    });
-
-    return created(c, insurer);
+  // Check if code already exists
+  const existing = await findInsurerByCode(c.env.DB, data.code);
+  if (existing) {
+    return conflict(c, 'Un assureur avec ce code existe déjà');
   }
-);
+
+  const id = generateId();
+  const insurer = await createInsurer(c.env.DB, id, data);
+
+  // Audit log
+  await logAudit(c.env.DB, {
+    userId: user?.sub,
+    action: 'insurer.create',
+    entityType: 'insurer',
+    entityId: id,
+    changes: {
+      name: data.name,
+      code: data.code,
+    },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return created(c, insurer);
+});
 
 /**
  * PUT /api/v1/insurers/:id

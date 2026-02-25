@@ -100,36 +100,36 @@ INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, 
 
 -- ============================================
 -- USERS (15 system users)
--- Note: Password hash is for "dhamen123" - bcrypt compatible
+-- Note: Password hash is for "dhamen123" using PBKDF2-SHA256 (100k iterations)
 -- ============================================
 
 INSERT INTO users (id, email, password_hash, role, provider_id, insurer_id, first_name, last_name, phone, mfa_enabled, is_active) VALUES
 -- Admin
-('01JCVMKC1AP2N3X4Y5Z6A7B8C9', 'admin@dhamen.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'ADMIN', NULL, NULL, 'Admin', 'Dhamen', '+21671000000', 0, 1),
+('01JCVMKC1AP2N3X4Y5Z6A7B8C9', 'admin@dhamen.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'ADMIN', NULL, NULL, 'Admin', 'Dhamen', '+21671000000', 0, 1),
 
 -- Insurer Admins (4)
-('01JCVMKC1BP2N3X4Y5Z6A7B8D0', 'admin@star.com.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'INSURER_ADMIN', NULL, '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 'Kamel', 'Ben Amor', '+21671840841', 0, 1),
-('01JCVMKC1CP2N3X4Y5Z6A7B8E1', 'admin@gat.com.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'INSURER_ADMIN', NULL, '01JCVMK8R7P2N3X4Y5Z6A7B8D0', 'Sami', 'Gharbi', '+21671350351', 0, 1),
-('01JCVMKC1DP2N3X4Y5Z6A7B8F2', 'admin@comar.com.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'INSURER_ADMIN', NULL, '01JCVMK8R7P2N3X4Y5Z6A7B8E1', 'Riadh', 'Mejri', '+21671790791', 0, 1),
-('01JCVMKC1EP2N3X4Y5Z6A7B8G3', 'admin@ami.com.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'INSURER_ADMIN', NULL, '01JCVMK8R7P2N3X4Y5Z6A7B8F2', 'Mourad', 'Chaabane', '+21671284285', 0, 1),
+('01JCVMKC1BP2N3X4Y5Z6A7B8D0', 'admin@star.com.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'INSURER_ADMIN', NULL, '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 'Kamel', 'Ben Amor', '+21671840841', 0, 1),
+('01JCVMKC1CP2N3X4Y5Z6A7B8E1', 'admin@gat.com.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'INSURER_ADMIN', NULL, '01JCVMK8R7P2N3X4Y5Z6A7B8D0', 'Sami', 'Gharbi', '+21671350351', 0, 1),
+('01JCVMKC1DP2N3X4Y5Z6A7B8F2', 'admin@comar.com.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'INSURER_ADMIN', NULL, '01JCVMK8R7P2N3X4Y5Z6A7B8E1', 'Riadh', 'Mejri', '+21671790791', 0, 1),
+('01JCVMKC1EP2N3X4Y5Z6A7B8G3', 'admin@ami.com.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'INSURER_ADMIN', NULL, '01JCVMK8R7P2N3X4Y5Z6A7B8F2', 'Mourad', 'Chaabane', '+21671284285', 0, 1),
 
 -- Pharmacists (4)
-('01JCVMKC1FP2N3X4Y5Z6A7B8H4', 'pharma.centrale@email.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'PHARMACIST', '01JCVMK9A1P2N3X4Y5Z6A7B8C9', NULL, 'Nabil', 'Hamdouni', '+21698111001', 0, 1),
-('01JCVMKC1GP2N3X4Y5Z6A7B8I5', 'pharma.sahel@email.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'PHARMACIST', '01JCVMK9A2P2N3X4Y5Z6A7B8D0', NULL, 'Olfa', 'Mansouri', '+21698222002', 0, 1),
-('01JCVMKC1HP2N3X4Y5Z6A7B8J6', 'pharma.sousse@email.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'PHARMACIST', '01JCVMK9A3P2N3X4Y5Z6A7B8E1', NULL, 'Tarek', 'Fakhfakh', '+21698333003', 0, 1),
-('01JCVMKC1IP2N3X4Y5Z6A7B8K7', 'pharma.monastir@email.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'PHARMACIST', '01JCVMK9A4P2N3X4Y5Z6A7B8F2', NULL, 'Wafa', 'Khelifi', '+21698444004', 0, 1),
+('01JCVMKC1FP2N3X4Y5Z6A7B8H4', 'pharma.centrale@email.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'PHARMACIST', '01JCVMK9A1P2N3X4Y5Z6A7B8C9', NULL, 'Nabil', 'Hamdouni', '+21698111001', 0, 1),
+('01JCVMKC1GP2N3X4Y5Z6A7B8I5', 'pharma.sahel@email.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'PHARMACIST', '01JCVMK9A2P2N3X4Y5Z6A7B8D0', NULL, 'Olfa', 'Mansouri', '+21698222002', 0, 1),
+('01JCVMKC1HP2N3X4Y5Z6A7B8J6', 'pharma.sousse@email.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'PHARMACIST', '01JCVMK9A3P2N3X4Y5Z6A7B8E1', NULL, 'Tarek', 'Fakhfakh', '+21698333003', 0, 1),
+('01JCVMKC1IP2N3X4Y5Z6A7B8K7', 'pharma.monastir@email.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'PHARMACIST', '01JCVMK9A4P2N3X4Y5Z6A7B8F2', NULL, 'Wafa', 'Khelifi', '+21698444004', 0, 1),
 
 -- Doctors (3)
-('01JCVMKC1JP2N3X4Y5Z6A7B8L8', 'dr.benali@email.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'DOCTOR', '01JCVMK9B1P2N3X4Y5Z6A7B8C9', NULL, 'Mehdi', 'Ben Ali', '+21698555005', 0, 1),
-('01JCVMKC1KP2N3X4Y5Z6A7B8M9', 'dr.trabelsi@email.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'DOCTOR', '01JCVMK9B2P2N3X4Y5Z6A7B8D0', NULL, 'Amel', 'Trabelsi', '+21698666006', 0, 1),
-('01JCVMKC1LP2N3X4Y5Z6A7B8N0', 'dr.bouazizi@email.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'DOCTOR', '01JCVMK9B3P2N3X4Y5Z6A7B8E1', NULL, 'Sofien', 'Bouazizi', '+21698777007', 0, 1),
+('01JCVMKC1JP2N3X4Y5Z6A7B8L8', 'dr.benali@email.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'DOCTOR', '01JCVMK9B1P2N3X4Y5Z6A7B8C9', NULL, 'Mehdi', 'Ben Ali', '+21698555005', 0, 1),
+('01JCVMKC1KP2N3X4Y5Z6A7B8M9', 'dr.trabelsi@email.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'DOCTOR', '01JCVMK9B2P2N3X4Y5Z6A7B8D0', NULL, 'Amel', 'Trabelsi', '+21698666006', 0, 1),
+('01JCVMKC1LP2N3X4Y5Z6A7B8N0', 'dr.bouazizi@email.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'DOCTOR', '01JCVMK9B3P2N3X4Y5Z6A7B8E1', NULL, 'Sofien', 'Bouazizi', '+21698777007', 0, 1),
 
 -- Lab Managers (2)
-('01JCVMKC1MP2N3X4Y5Z6A7B8O1', 'labo.central@email.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'LAB_MANAGER', '01JCVMK9C1P2N3X4Y5Z6A7B8C9', NULL, 'Lamia', 'Jomaa', '+21698888008', 0, 1),
-('01JCVMKC1NP2N3X4Y5Z6A7B8P2', 'labo.elmanar@email.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'LAB_MANAGER', '01JCVMK9C2P2N3X4Y5Z6A7B8D0', NULL, 'Bilel', 'Sassi', '+21698999009', 0, 1),
+('01JCVMKC1MP2N3X4Y5Z6A7B8O1', 'labo.central@email.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'LAB_MANAGER', '01JCVMK9C1P2N3X4Y5Z6A7B8C9', NULL, 'Lamia', 'Jomaa', '+21698888008', 0, 1),
+('01JCVMKC1NP2N3X4Y5Z6A7B8P2', 'labo.elmanar@email.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'LAB_MANAGER', '01JCVMK9C2P2N3X4Y5Z6A7B8D0', NULL, 'Bilel', 'Sassi', '+21698999009', 0, 1),
 
 -- Clinic Admin (1)
-('01JCVMKC1OP2N3X4Y5Z6A7B8Q3', 'clinique.oliviers@email.tn', '$2a$10$rQnM1vPpPuTKpKqKpKqKpuK1vPpPuTKpKqKpKqKpuK1vPpPuTKpKq', 'CLINIC_ADMIN', '01JCVMK9D1P2N3X4Y5Z6A7B8C9', NULL, 'Hajer', 'Slim', '+21698000010', 0, 1);
+('01JCVMKC1OP2N3X4Y5Z6A7B8Q3', 'clinique.oliviers@email.tn', '$pbkdf2$100000$qpVIbyGwiladDZsfFG7rWg==$JLAJs+t8U6vWbHNYwKNxfArAUS46ufcAo+b6Yag7TI8=', 'CLINIC_ADMIN', '01JCVMK9D1P2N3X4Y5Z6A7B8C9', NULL, 'Hajer', 'Slim', '+21698000010', 0, 1);
 
 -- ============================================
 -- CONVENTIONS (Provider-Insurer agreements)

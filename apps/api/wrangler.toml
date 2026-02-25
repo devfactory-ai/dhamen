@@ -28,6 +28,15 @@ id = "22194f538ced43e7aba76bc0c4dfbaaa"
 binding = "STORAGE"
 bucket_name = "dhamen-files"
 
+# Durable Objects for distributed rate limiting
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RateLimiter"]
+
 # Staging environment
 [env.staging]
 name = "dhamen-api-staging"
@@ -53,7 +62,19 @@ id = "287b62ff109946bea823c4f39fde0690"
 binding = "STORAGE"
 bucket_name = "dhamen-files-staging"
 
-# Production environment (à créer séparément)
+[[env.staging.durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+# Production environment
+# IMPORTANT: Before deploying to production, create these resources:
+# 1. wrangler d1 create dhamen-db-production
+# 2. wrangler kv:namespace create CACHE --env production
+# 3. wrangler r2 bucket create dhamen-files-production
+# 4. wrangler secret put JWT_SECRET --env production
+# 5. wrangler secret put ENCRYPTION_KEY --env production
+# Then update the IDs below with the actual values.
+
 [env.production]
 name = "dhamen-api-production"
 
@@ -66,14 +87,18 @@ REFRESH_EXPIRES_IN = "86400"
 
 [[env.production.d1_databases]]
 binding = "DB"
-database_name = "dhamen-db"
-database_id = "83076129-b19e-49e9-a77c-6668252d38cc"
+database_name = "dhamen-db-production"
+database_id = "REPLACE_WITH_PRODUCTION_D1_ID"
 migrations_dir = "../../packages/db/migrations"
 
 [[env.production.kv_namespaces]]
 binding = "CACHE"
-id = "22194f538ced43e7aba76bc0c4dfbaaa"
+id = "REPLACE_WITH_PRODUCTION_KV_ID"
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"
-bucket_name = "dhamen-files"
+bucket_name = "dhamen-files-production"
+
+[[env.production.durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"

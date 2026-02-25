@@ -77,7 +77,7 @@ export function useSearchAdherent(nationalId: string) {
   return useQuery({
     queryKey: ['adherents', 'search', nationalId],
     queryFn: async () => {
-      const response = await apiClient.get<Adherent>(`/adherents/search`, {
+      const response = await apiClient.get<Adherent>('/adherents/search', {
         params: { nationalId },
       });
       if (!response.success) {

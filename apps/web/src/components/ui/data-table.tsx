@@ -81,7 +81,7 @@ export function DataTable<T extends { id: string }>({
 
       {pagination && totalPages > 1 && (
         <div className="flex items-center justify-between px-2">
-          <p className="text-sm text-muted-foreground">
+          <p className='text-muted-foreground text-sm'>
             Page {pagination.page} sur {totalPages} ({pagination.total} résultats)
           </p>
           <div className="flex gap-2">

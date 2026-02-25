@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from 'hono';
-import type { Bindings, Variables } from '../types';
 import { generateId } from '../lib/ulid';
+import type { Bindings, Variables } from '../types';
 
 /**
  * Request ID middleware

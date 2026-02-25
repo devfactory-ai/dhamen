@@ -14,12 +14,14 @@ import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '../hooks/
 import { UserForm } from '../components/UserForm';
 import { ROLE_LABELS } from '@dhamen/shared';
 import type { UserPublic } from '@dhamen/shared';
+import { useToast } from '@/stores/toast';
 
 export function UsersPage() {
   const [page, setPage] = useState(1);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserPublic | undefined>();
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const { data, isLoading } = useUsers(page);
   const createUser = useCreateUser();
@@ -40,12 +42,14 @@ export function UsersPage() {
     try {
       if (selectedUser) {
         await updateUser.mutateAsync({ id: selectedUser.id, data: formData });
+        toast({ title: 'Utilisateur modifie', variant: 'success' });
       } else {
-        await createUser.mutateAsync(formData as Parameters<typeof createUser.mutateAsync>[0]);
+        await createUser.mutateAsync(formData as unknown as Parameters<typeof createUser.mutateAsync>[0]);
+        toast({ title: 'Utilisateur cree', variant: 'success' });
       }
       setIsDialogOpen(false);
-    } catch (error) {
-      console.error('Error saving user:', error);
+    } catch {
+      toast({ title: 'Erreur lors de l\'enregistrement', description: 'Veuillez reessayer', variant: 'destructive' });
     }
   };
 
@@ -53,8 +57,9 @@ export function UsersPage() {
     try {
       await deleteUser.mutateAsync(id);
       setDeleteConfirm(null);
-    } catch (error) {
-      console.error('Error deleting user:', error);
+      toast({ title: 'Utilisateur supprime', variant: 'success' });
+    } catch {
+      toast({ title: 'Erreur lors de la suppression', description: 'Veuillez reessayer', variant: 'destructive' });
     }
   };
 
@@ -65,7 +70,7 @@ export function UsersPage() {
       render: (user: UserPublic) => (
         <div>
           <p className="font-medium">{user.firstName} {user.lastName}</p>
-          <p className="text-sm text-muted-foreground">{user.email}</p>
+          <p className='text-muted-foreground text-sm'>{user.email}</p>
         </div>
       ),
     },

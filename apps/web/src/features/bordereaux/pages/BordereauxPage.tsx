@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api-client';
+import { toast } from 'sonner';
+import { Download, Send, Loader2 } from 'lucide-react';
 
 interface Bordereau {
   id: string;
@@ -46,6 +48,9 @@ export function BordereauxPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [selectedBordereau, setSelectedBordereau] = useState<Bordereau | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
     queryKey: ['bordereaux', page, statusFilter],
@@ -53,7 +58,7 @@ export function BordereauxPage() {
       const response = await apiClient.get<{ bordereaux: Bordereau[]; total: number }>('/bordereaux', {
         params: { page, limit: 20, status: statusFilter },
       });
-      if (!response.success) throw new Error(response.error?.message);
+      if (!response.success) { throw new Error(response.error?.message); }
       return response.data;
     },
   });
@@ -73,6 +78,54 @@ export function BordereauxPage() {
     }).format(amount / 1000);
   };
 
+  const submitMutation = useMutation({
+    mutationFn: async (bordereauId: string) => {
+      const response = await apiClient.post<{ bordereau: Bordereau }>(`/bordereaux/${bordereauId}/submit`);
+      if (!response.success) { throw new Error(response.error?.message); }
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bordereaux'] });
+      toast.success('Bordereau soumis avec succès');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors de la soumission');
+    },
+  });
+
+  const handleDownloadPdf = async (bordereau: Bordereau) => {
+    try {
+      setDownloadingId(bordereau.id);
+      const response = await apiClient.get<Blob>(`/bordereaux/${bordereau.id}/pdf`, {
+        responseType: 'blob',
+      });
+
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur lors du téléchargement');
+      }
+
+      // Create download link
+      const url = window.URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `bordereau-${bordereau.bordereauNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast.success('PDF téléchargé avec succès');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Erreur lors du téléchargement');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleSubmitBordereau = (bordereauId: string) => {
+    submitMutation.mutate(bordereauId);
+  };
+
   const columns = [
     {
       key: 'bordereau',
@@ -80,7 +133,7 @@ export function BordereauxPage() {
       render: (bordereau: Bordereau) => (
         <div>
           <p className="font-medium">{bordereau.bordereauNumber}</p>
-          <p className="text-sm text-muted-foreground">
+          <p className='text-muted-foreground text-sm'>
             {formatDate(bordereau.periodStart)} - {formatDate(bordereau.periodEnd)}
           </p>
         </div>
@@ -104,7 +157,7 @@ export function BordereauxPage() {
       render: (bordereau: Bordereau) => (
         <div className="text-right">
           <p className="font-medium">{formatAmount(bordereau.coveredAmount)}</p>
-          <p className="text-xs text-muted-foreground">sur {formatAmount(bordereau.totalAmount)}</p>
+          <p className='text-muted-foreground text-xs'>sur {formatAmount(bordereau.totalAmount)}</p>
         </div>
       ),
     },
@@ -126,7 +179,17 @@ export function BordereauxPage() {
             Détails
           </Button>
           {bordereau.status === 'DRAFT' && (
-            <Button variant="outline" size="sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleSubmitBordereau(bordereau.id)}
+              disabled={submitMutation.isPending}
+            >
+              {submitMutation.isPending ? (
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+              ) : (
+                <Send className="mr-1 h-3 w-3" />
+              )}
               Soumettre
             </Button>
           )}
@@ -156,26 +219,26 @@ export function BordereauxPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">PEC totales</CardTitle>
+            <CardTitle className='font-medium text-muted-foreground text-sm'>PEC totales</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{totals.claims}</p>
+            <p className='font-bold text-2xl'>{totals.claims}</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Montant couvert</CardTitle>
+            <CardTitle className='font-medium text-muted-foreground text-sm'>Montant couvert</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-primary">{formatAmount(totals.covered)}</p>
+            <p className='font-bold text-2xl text-primary'>{formatAmount(totals.covered)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Montant payé</CardTitle>
+            <CardTitle className='font-medium text-muted-foreground text-sm'>Montant payé</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-green-600">{formatAmount(totals.paid)}</p>
+            <p className='font-bold text-2xl text-green-600'>{formatAmount(totals.paid)}</p>
           </CardContent>
         </Card>
       </div>
@@ -225,27 +288,27 @@ export function BordereauxPage() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-sm text-muted-foreground">Assureur</p>
+                  <p className='text-muted-foreground text-sm'>Assureur</p>
                   <p className="font-medium">{selectedBordereau.insurerName}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Nombre de PEC</p>
+                  <p className='text-muted-foreground text-sm'>Nombre de PEC</p>
                   <p className="font-medium">{selectedBordereau.claimCount}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Montant total</p>
+                  <p className='text-muted-foreground text-sm'>Montant total</p>
                   <p className="font-medium">{formatAmount(selectedBordereau.totalAmount)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Montant couvert</p>
+                  <p className='text-muted-foreground text-sm'>Montant couvert</p>
                   <p className="font-medium text-primary">{formatAmount(selectedBordereau.coveredAmount)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Montant payé</p>
+                  <p className='text-muted-foreground text-sm'>Montant payé</p>
                   <p className="font-medium text-green-600">{formatAmount(selectedBordereau.paidAmount)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Statut</p>
+                  <p className='text-muted-foreground text-sm'>Statut</p>
                   <Badge variant={BORDEREAU_STATUS[selectedBordereau.status].variant}>
                     {BORDEREAU_STATUS[selectedBordereau.status].label}
                   </Badge>
@@ -253,20 +316,44 @@ export function BordereauxPage() {
               </div>
               {selectedBordereau.submittedAt && (
                 <div>
-                  <p className="text-sm text-muted-foreground">Soumis le</p>
+                  <p className='text-muted-foreground text-sm'>Soumis le</p>
                   <p className="font-medium">{formatDate(selectedBordereau.submittedAt)}</p>
                 </div>
               )}
               {selectedBordereau.paidAt && (
                 <div>
-                  <p className="text-sm text-muted-foreground">Payé le</p>
+                  <p className='text-muted-foreground text-sm'>Payé le</p>
                   <p className="font-medium">{formatDate(selectedBordereau.paidAt)}</p>
                 </div>
               )}
               <div className="flex justify-end gap-2 pt-4">
-                <Button variant="outline">Télécharger PDF</Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handleDownloadPdf(selectedBordereau)}
+                  disabled={downloadingId === selectedBordereau.id}
+                >
+                  {downloadingId === selectedBordereau.id ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-2 h-4 w-4" />
+                  )}
+                  Télécharger PDF
+                </Button>
                 {selectedBordereau.status === 'DRAFT' && (
-                  <Button>Soumettre</Button>
+                  <Button
+                    onClick={() => {
+                      handleSubmitBordereau(selectedBordereau.id);
+                      setSelectedBordereau(null);
+                    }}
+                    disabled={submitMutation.isPending}
+                  >
+                    {submitMutation.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="mr-2 h-4 w-4" />
+                    )}
+                    Soumettre
+                  </Button>
                 )}
               </div>
             </div>

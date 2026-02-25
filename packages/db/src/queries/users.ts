@@ -66,10 +66,7 @@ export function userToPublic(user: User): UserPublic {
 }
 
 export async function findUserById(db: D1Database, id: string): Promise<User | null> {
-  const row = await db
-    .prepare('SELECT * FROM users WHERE id = ?')
-    .bind(id)
-    .first<UserRow>();
+  const row = await db.prepare('SELECT * FROM users WHERE id = ?').bind(id).first<UserRow>();
 
   return row ? rowToUser(row) : null;
 }
@@ -183,21 +180,42 @@ export async function createUser(
   return user;
 }
 
+type UserUpdateData = {
+  email?: string;
+  passwordHash?: string;
+  role?: Role;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  isActive?: boolean;
+  mfaEnabled?: boolean;
+  mfaSecret?: string;
+  lastLoginAt?: string;
+};
+
+type FieldMapping = {
+  key: keyof UserUpdateData;
+  column: string;
+  transform?: (value: unknown) => unknown;
+};
+
+const USER_FIELD_MAPPINGS: FieldMapping[] = [
+  { key: 'email', column: 'email', transform: (v) => String(v).toLowerCase() },
+  { key: 'passwordHash', column: 'password_hash' },
+  { key: 'role', column: 'role' },
+  { key: 'firstName', column: 'first_name' },
+  { key: 'lastName', column: 'last_name' },
+  { key: 'phone', column: 'phone' },
+  { key: 'isActive', column: 'is_active', transform: (v) => (v ? 1 : 0) },
+  { key: 'mfaEnabled', column: 'mfa_enabled', transform: (v) => (v ? 1 : 0) },
+  { key: 'mfaSecret', column: 'mfa_secret' },
+  { key: 'lastLoginAt', column: 'last_login_at' },
+];
+
 export async function updateUser(
   db: D1Database,
   id: string,
-  data: {
-    email?: string;
-    passwordHash?: string;
-    role?: Role;
-    firstName?: string;
-    lastName?: string;
-    phone?: string;
-    isActive?: boolean;
-    mfaEnabled?: boolean;
-    mfaSecret?: string;
-    lastLoginAt?: string;
-  }
+  data: UserUpdateData
 ): Promise<User | null> {
   const existing = await findUserById(db, id);
   if (!existing) {
@@ -207,45 +225,12 @@ export async function updateUser(
   const updates: string[] = [];
   const params: unknown[] = [];
 
-  if (data.email !== undefined) {
-    updates.push('email = ?');
-    params.push(data.email.toLowerCase());
-  }
-  if (data.passwordHash !== undefined) {
-    updates.push('password_hash = ?');
-    params.push(data.passwordHash);
-  }
-  if (data.role !== undefined) {
-    updates.push('role = ?');
-    params.push(data.role);
-  }
-  if (data.firstName !== undefined) {
-    updates.push('first_name = ?');
-    params.push(data.firstName);
-  }
-  if (data.lastName !== undefined) {
-    updates.push('last_name = ?');
-    params.push(data.lastName);
-  }
-  if (data.phone !== undefined) {
-    updates.push('phone = ?');
-    params.push(data.phone);
-  }
-  if (data.isActive !== undefined) {
-    updates.push('is_active = ?');
-    params.push(data.isActive ? 1 : 0);
-  }
-  if (data.mfaEnabled !== undefined) {
-    updates.push('mfa_enabled = ?');
-    params.push(data.mfaEnabled ? 1 : 0);
-  }
-  if (data.mfaSecret !== undefined) {
-    updates.push('mfa_secret = ?');
-    params.push(data.mfaSecret);
-  }
-  if (data.lastLoginAt !== undefined) {
-    updates.push('last_login_at = ?');
-    params.push(data.lastLoginAt);
+  for (const mapping of USER_FIELD_MAPPINGS) {
+    const value = data[mapping.key];
+    if (value !== undefined) {
+      updates.push(`${mapping.column} = ?`);
+      params.push(mapping.transform ? mapping.transform(value) : value);
+    }
   }
 
   if (updates.length === 0) {

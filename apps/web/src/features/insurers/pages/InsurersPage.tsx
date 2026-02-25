@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useInsurers, useCreateInsurer, useUpdateInsurer, useDeleteInsurer, type Insurer } from '../hooks/useInsurers';
+import { useToast } from '@/stores/toast';
 
 const INSURER_TYPES = {
   INSURANCE: { label: 'Assurance', color: 'bg-blue-100 text-blue-800' },
@@ -26,6 +27,7 @@ export function InsurersPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedInsurer, setSelectedInsurer] = useState<Insurer | undefined>();
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const { data, isLoading } = useInsurers(page);
   const createInsurer = useCreateInsurer();
@@ -96,12 +98,14 @@ export function InsurersPage() {
     try {
       if (selectedInsurer) {
         await updateInsurer.mutateAsync({ id: selectedInsurer.id, data: formData });
+        toast({ title: 'Assureur modifie', variant: 'success' });
       } else {
-        await createInsurer.mutateAsync(formData as Parameters<typeof createInsurer.mutateAsync>[0]);
+        await createInsurer.mutateAsync(formData as unknown as Parameters<typeof createInsurer.mutateAsync>[0]);
+        toast({ title: 'Assureur cree', variant: 'success' });
       }
       setIsDialogOpen(false);
-    } catch (error) {
-      console.error('Error saving insurer:', error);
+    } catch {
+      toast({ title: 'Erreur lors de l\'enregistrement', description: 'Veuillez reessayer', variant: 'destructive' });
     }
   };
 
@@ -109,8 +113,9 @@ export function InsurersPage() {
     try {
       await deleteInsurer.mutateAsync(id);
       setDeleteConfirm(null);
-    } catch (error) {
-      console.error('Error deleting insurer:', error);
+      toast({ title: 'Assureur supprime', variant: 'success' });
+    } catch {
+      toast({ title: 'Erreur lors de la suppression', description: 'Veuillez reessayer', variant: 'destructive' });
     }
   };
 
@@ -120,12 +125,12 @@ export function InsurersPage() {
       header: 'Assureur',
       render: (insurer: Insurer) => (
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-sm font-bold">
+          <div className='flex h-10 w-10 items-center justify-center rounded-lg bg-muted font-bold text-sm'>
             {insurer.code}
           </div>
           <div>
             <p className="font-medium">{insurer.name}</p>
-            <p className="text-sm text-muted-foreground">{insurer.registrationNumber}</p>
+            <p className='text-muted-foreground text-sm'>{insurer.registrationNumber}</p>
           </div>
         </div>
       ),
@@ -136,7 +141,7 @@ export function InsurersPage() {
       render: (insurer: Insurer) => {
         const typeInfo = INSURER_TYPES[insurer.type];
         return (
-          <span className={`rounded-full px-2 py-1 text-xs font-medium ${typeInfo.color}`}>
+          <span className={`rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>
             {typeInfo.label}
           </span>
         );
@@ -157,7 +162,7 @@ export function InsurersPage() {
       render: (insurer: Insurer) => (
         <div>
           <p className="text-sm">{insurer.phone}</p>
-          {insurer.email && <p className="text-xs text-muted-foreground">{insurer.email}</p>}
+          {insurer.email && <p className='text-muted-foreground text-xs'>{insurer.email}</p>}
         </div>
       ),
     },

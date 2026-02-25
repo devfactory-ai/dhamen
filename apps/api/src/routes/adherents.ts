@@ -1,23 +1,23 @@
-import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
 import {
-  adherentCreateSchema,
-  adherentUpdateSchema,
-  adherentFiltersSchema,
-  paginationSchema,
-} from '@dhamen/shared';
-import {
+  createAdherent,
   findAdherentById,
   listAdherents,
-  createAdherent,
-  updateAdherent,
   softDeleteAdherent,
+  updateAdherent,
 } from '@dhamen/db';
-import type { Bindings, Variables } from '../types';
-import { authMiddleware, requireRole } from '../middleware/auth';
+import {
+  adherentCreateSchema,
+  adherentFiltersSchema,
+  adherentUpdateSchema,
+  paginationSchema,
+} from '@dhamen/shared';
+import { zValidator } from '@hono/zod-validator';
+import { Hono } from 'hono';
+import { created, noContent, notFound, paginated, success } from '../lib/response';
 import { generateId } from '../lib/ulid';
-import { success, created, notFound, noContent, paginated } from '../lib/response';
 import { logAudit } from '../middleware/audit-trail';
+import { authMiddleware, requireRole } from '../middleware/auth';
+import type { Bindings, Variables } from '../types';
 
 const adherents = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -57,7 +57,15 @@ adherents.get(
  */
 adherents.get(
   '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN'),
+  requireRole(
+    'ADMIN',
+    'INSURER_ADMIN',
+    'INSURER_AGENT',
+    'PHARMACIST',
+    'DOCTOR',
+    'LAB_MANAGER',
+    'CLINIC_ADMIN'
+  ),
   async (c) => {
     const id = c.req.param('id');
     const adherent = await findAdherentById(c.env.DB, id);

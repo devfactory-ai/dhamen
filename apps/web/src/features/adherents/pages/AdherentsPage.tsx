@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { useAdherents, useCreateAdherent, useUpdateAdherent, useDeleteAdherent, type Adherent } from '../hooks/useAdherents';
 import { useInsurers } from '@/features/insurers/hooks/useInsurers';
+import { useToast } from '@/stores/toast';
 
 const RELATIONSHIP_LABELS = {
   PRIMARY: 'Titulaire',
@@ -35,6 +36,7 @@ export function AdherentsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedAdherent, setSelectedAdherent] = useState<Adherent | undefined>();
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const { data, isLoading } = useAdherents(page, 20, search || undefined);
   const { data: insurersData } = useInsurers(1, 100);
@@ -108,12 +110,14 @@ export function AdherentsPage() {
     try {
       if (selectedAdherent) {
         await updateAdherent.mutateAsync({ id: selectedAdherent.id, data: formData });
+        toast({ title: 'Adherent modifie', variant: 'success' });
       } else {
-        await createAdherent.mutateAsync(formData as Parameters<typeof createAdherent.mutateAsync>[0]);
+        await createAdherent.mutateAsync(formData as unknown as Parameters<typeof createAdherent.mutateAsync>[0]);
+        toast({ title: 'Adherent cree', variant: 'success' });
       }
       setIsDialogOpen(false);
-    } catch (error) {
-      console.error('Error saving adherent:', error);
+    } catch {
+      toast({ title: 'Erreur lors de l\'enregistrement', description: 'Veuillez reessayer', variant: 'destructive' });
     }
   };
 
@@ -121,8 +125,9 @@ export function AdherentsPage() {
     try {
       await deleteAdherent.mutateAsync(id);
       setDeleteConfirm(null);
-    } catch (error) {
-      console.error('Error deleting adherent:', error);
+      toast({ title: 'Adherent supprime', variant: 'success' });
+    } catch {
+      toast({ title: 'Erreur lors de la suppression', description: 'Veuillez reessayer', variant: 'destructive' });
     }
   };
 
@@ -141,7 +146,7 @@ export function AdherentsPage() {
       render: (adherent: Adherent) => (
         <div>
           <p className="font-medium">{adherent.firstName} {adherent.lastName}</p>
-          <p className="text-sm text-muted-foreground">N° {adherent.memberNumber}</p>
+          <p className='text-muted-foreground text-sm'>N° {adherent.memberNumber}</p>
         </div>
       ),
     },
@@ -156,7 +161,7 @@ export function AdherentsPage() {
       render: (adherent: Adherent) => (
         <div>
           <p className="text-sm">{formatDate(adherent.dateOfBirth)}</p>
-          <p className="text-xs text-muted-foreground">{GENDER_LABELS[adherent.gender]}</p>
+          <p className='text-muted-foreground text-xs'>{GENDER_LABELS[adherent.gender]}</p>
         </div>
       ),
     },
@@ -173,7 +178,7 @@ export function AdherentsPage() {
       render: (adherent: Adherent) => (
         <div>
           {adherent.phone && <p className="text-sm">{adherent.phone}</p>}
-          {adherent.city && <p className="text-xs text-muted-foreground">{adherent.city}</p>}
+          {adherent.city && <p className='text-muted-foreground text-xs'>{adherent.city}</p>}
         </div>
       ),
     },

@@ -1,12 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  hasPermission,
-  getPermissions,
+  ACTIONS,
+  RESOURCES,
   canAccessRoute,
   canManageClaims,
   canManageReconciliations,
-  RESOURCES,
-  ACTIONS,
+  getPermissions,
+  hasPermission,
 } from './permissions';
 import type { Role } from './types/user';
 

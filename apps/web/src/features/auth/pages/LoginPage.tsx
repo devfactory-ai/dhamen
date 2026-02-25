@@ -18,11 +18,11 @@ export function LoginPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
           <div className="mb-4 flex justify-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-2xl font-bold text-primary-foreground">
+            <div className='flex h-12 w-12 items-center justify-center rounded-xl bg-primary font-bold text-2xl text-primary-foreground'>
               D
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold">Dhamen</CardTitle>
+          <CardTitle className='font-bold text-2xl'>Dhamen</CardTitle>
           <CardDescription>Plateforme de tiers payant sante</CardDescription>
         </CardHeader>
         <CardContent>

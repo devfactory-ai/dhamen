@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useProviders, useCreateProvider, useUpdateProvider, useDeleteProvider, type Provider } from '../hooks/useProviders';
+import { useToast } from '@/stores/toast';
 
 const PROVIDER_TYPES = {
   PHARMACY: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
@@ -29,6 +30,7 @@ export function ProvidersPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<Provider | undefined>();
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const { data, isLoading } = useProviders(page, 20, typeFilter);
   const createProvider = useCreateProvider();
@@ -41,7 +43,6 @@ export function ProvidersPage() {
     reset,
     setValue,
     watch,
-    formState: { errors },
   } = useForm({
     defaultValues: {
       name: '',
@@ -94,12 +95,14 @@ export function ProvidersPage() {
     try {
       if (selectedProvider) {
         await updateProvider.mutateAsync({ id: selectedProvider.id, data: formData });
+        toast({ title: 'Prestataire modifie', variant: 'success' });
       } else {
-        await createProvider.mutateAsync(formData as Parameters<typeof createProvider.mutateAsync>[0]);
+        await createProvider.mutateAsync(formData as unknown as Parameters<typeof createProvider.mutateAsync>[0]);
+        toast({ title: 'Prestataire cree', variant: 'success' });
       }
       setIsDialogOpen(false);
-    } catch (error) {
-      console.error('Error saving provider:', error);
+    } catch {
+      toast({ title: 'Erreur lors de l\'enregistrement', description: 'Veuillez reessayer', variant: 'destructive' });
     }
   };
 
@@ -107,8 +110,9 @@ export function ProvidersPage() {
     try {
       await deleteProvider.mutateAsync(id);
       setDeleteConfirm(null);
-    } catch (error) {
-      console.error('Error deleting provider:', error);
+      toast({ title: 'Prestataire supprime', variant: 'success' });
+    } catch {
+      toast({ title: 'Erreur lors de la suppression', description: 'Veuillez reessayer', variant: 'destructive' });
     }
   };
 
@@ -119,7 +123,7 @@ export function ProvidersPage() {
       render: (provider: Provider) => (
         <div>
           <p className="font-medium">{provider.name}</p>
-          <p className="text-sm text-muted-foreground">{provider.registrationNumber}</p>
+          <p className='text-muted-foreground text-sm'>{provider.registrationNumber}</p>
         </div>
       ),
     },
@@ -129,7 +133,7 @@ export function ProvidersPage() {
       render: (provider: Provider) => {
         const typeInfo = PROVIDER_TYPES[provider.type];
         return (
-          <span className={`rounded-full px-2 py-1 text-xs font-medium ${typeInfo.color}`}>
+          <span className={`rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>
             {typeInfo.label}
           </span>
         );
@@ -141,7 +145,7 @@ export function ProvidersPage() {
       render: (provider: Provider) => (
         <div>
           <p className="text-sm">{provider.city}</p>
-          <p className="text-xs text-muted-foreground">{provider.address}</p>
+          <p className='text-muted-foreground text-xs'>{provider.address}</p>
         </div>
       ),
     },
@@ -151,7 +155,7 @@ export function ProvidersPage() {
       render: (provider: Provider) => (
         <div>
           <p className="text-sm">{provider.phone}</p>
-          {provider.email && <p className="text-xs text-muted-foreground">{provider.email}</p>}
+          {provider.email && <p className='text-muted-foreground text-xs'>{provider.email}</p>}
         </div>
       ),
     },

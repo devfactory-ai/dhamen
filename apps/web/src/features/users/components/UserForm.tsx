@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ROLE_LABELS } from '@dhamen/shared';
-import type { UserPublic, Role } from '@dhamen/shared';
+import type { UserPublic, } from '@dhamen/shared';
 
 const userFormSchema = z.object({
   email: z.string().email('Email invalide'),
@@ -55,14 +55,14 @@ export function UserForm({ user, onSubmit, onCancel, isLoading }: UserFormProps)
           <Label htmlFor="firstName">Prénom</Label>
           <Input id="firstName" {...register('firstName')} />
           {errors.firstName && (
-            <p className="text-sm text-destructive">{errors.firstName.message}</p>
+            <p className='text-destructive text-sm'>{errors.firstName.message}</p>
           )}
         </div>
         <div className="space-y-2">
           <Label htmlFor="lastName">Nom</Label>
           <Input id="lastName" {...register('lastName')} />
           {errors.lastName && (
-            <p className="text-sm text-destructive">{errors.lastName.message}</p>
+            <p className='text-destructive text-sm'>{errors.lastName.message}</p>
           )}
         </div>
       </div>
@@ -70,7 +70,7 @@ export function UserForm({ user, onSubmit, onCancel, isLoading }: UserFormProps)
       <div className="space-y-2">
         <Label htmlFor="email">Email</Label>
         <Input id="email" type="email" {...register('email')} disabled={isEditing} />
-        {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+        {errors.email && <p className='text-destructive text-sm'>{errors.email.message}</p>}
       </div>
 
       {!isEditing && (
@@ -78,7 +78,7 @@ export function UserForm({ user, onSubmit, onCancel, isLoading }: UserFormProps)
           <Label htmlFor="password">Mot de passe</Label>
           <Input id="password" type="password" {...register('password')} />
           {errors.password && (
-            <p className="text-sm text-destructive">{errors.password.message}</p>
+            <p className='text-destructive text-sm'>{errors.password.message}</p>
           )}
         </div>
       )}

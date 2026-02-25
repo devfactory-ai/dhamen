@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { signJWT, verifyJWT, signRefreshToken, verifyRefreshToken } from './jwt';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { signJWT, signRefreshToken, verifyJWT, verifyRefreshToken } from './jwt';
 
 const TEST_SECRET = 'test-secret-key-for-testing-purposes';
 
@@ -36,7 +36,7 @@ describe('JWT Library', () => {
 
       const token = await signJWT(payload, TEST_SECRET, 3600);
       const [, payloadB64] = token.split('.');
-      const decodedPayload = JSON.parse(atob(payloadB64!.replace(/-/g, '+').replace(/_/g, '/')));
+      const decodedPayload = JSON.parse(atob((payloadB64 ?? '').replace(/-/g, '+').replace(/_/g, '/')));
 
       expect(decodedPayload.iat).toBeDefined();
       expect(decodedPayload.exp).toBe(decodedPayload.iat + 3600);
@@ -84,7 +84,7 @@ describe('JWT Library', () => {
       };
 
       const token = await signJWT(payload, TEST_SECRET, 3600);
-      const tampered = token.slice(0, -5) + 'xxxxx';
+      const tampered = `${token.slice(0, -5)}xxxxx`;
 
       const verified = await verifyJWT(tampered, TEST_SECRET);
       expect(verified).toBeNull();
@@ -122,7 +122,7 @@ describe('JWT Library', () => {
     it('should include type=refresh in payload', async () => {
       const token = await signRefreshToken('user-refresh-456', TEST_SECRET, 86400);
       const [, payloadB64] = token.split('.');
-      const decodedPayload = JSON.parse(atob(payloadB64!.replace(/-/g, '+').replace(/_/g, '/')));
+      const decodedPayload = JSON.parse(atob((payloadB64 ?? '').replace(/-/g, '+').replace(/_/g, '/')));
 
       expect(decodedPayload.type).toBe('refresh');
       expect(decodedPayload.sub).toBe('user-refresh-456');

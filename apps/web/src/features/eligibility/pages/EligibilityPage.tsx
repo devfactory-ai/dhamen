@@ -50,7 +50,7 @@ export function EligibilityPage() {
       const response = await apiClient.get<EligibilityResult>('/eligibility/check', {
         params: { nationalId },
       });
-      if (!response.success) throw new Error(response.error?.message);
+      if (!response.success) { throw new Error(response.error?.message); }
       return response.data;
     },
     enabled: searchTriggered && nationalId.length >= 8,
@@ -116,13 +116,13 @@ export function EligibilityPage() {
           <CardContent className="p-6">
             <div className="flex items-center gap-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
-                <svg className="h-6 w-6 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="h-6 w-6 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </div>
               <div>
                 <p className="font-medium text-destructive">Adhérent non trouvé</p>
-                <p className="text-sm text-muted-foreground">
+                <p className='text-muted-foreground text-sm'>
                   Aucun adhérent trouvé avec ce numéro CIN
                 </p>
               </div>
@@ -139,11 +139,11 @@ export function EligibilityPage() {
               <div className="flex items-center gap-4">
                 <div className={`flex h-12 w-12 items-center justify-center rounded-full ${data.isEligible ? 'bg-green-100' : 'bg-destructive/10'}`}>
                   {data.isEligible ? (
-                    <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                   ) : (
-                    <svg className="h-6 w-6 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="h-6 w-6 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   )}
@@ -152,7 +152,7 @@ export function EligibilityPage() {
                   <p className={`font-medium ${data.isEligible ? 'text-green-600' : 'text-destructive'}`}>
                     {data.isEligible ? 'Éligible' : 'Non éligible'}
                   </p>
-                  <p className="text-sm text-muted-foreground">{data.eligibilityMessage}</p>
+                  <p className='text-muted-foreground text-sm'>{data.eligibilityMessage}</p>
                 </div>
               </div>
             </CardContent>
@@ -228,20 +228,20 @@ export function EligibilityPage() {
                 {/* Coverage Rates */}
                 <div className="grid grid-cols-4 gap-4">
                   <div className="rounded-lg bg-muted p-4 text-center">
-                    <p className="text-2xl font-bold text-green-600">{data.coverage.pharmacy}%</p>
-                    <p className="text-sm text-muted-foreground">Pharmacie</p>
+                    <p className='font-bold text-2xl text-green-600'>{data.coverage.pharmacy}%</p>
+                    <p className='text-muted-foreground text-sm'>Pharmacie</p>
                   </div>
                   <div className="rounded-lg bg-muted p-4 text-center">
-                    <p className="text-2xl font-bold text-blue-600">{data.coverage.consultation}%</p>
-                    <p className="text-sm text-muted-foreground">Consultation</p>
+                    <p className='font-bold text-2xl text-blue-600'>{data.coverage.consultation}%</p>
+                    <p className='text-muted-foreground text-sm'>Consultation</p>
                   </div>
                   <div className="rounded-lg bg-muted p-4 text-center">
-                    <p className="text-2xl font-bold text-purple-600">{data.coverage.lab}%</p>
-                    <p className="text-sm text-muted-foreground">Laboratoire</p>
+                    <p className='font-bold text-2xl text-purple-600'>{data.coverage.lab}%</p>
+                    <p className='text-muted-foreground text-sm'>Laboratoire</p>
                   </div>
                   <div className="rounded-lg bg-muted p-4 text-center">
-                    <p className="text-2xl font-bold text-orange-600">{data.coverage.hospitalization}%</p>
-                    <p className="text-sm text-muted-foreground">Hospitalisation</p>
+                    <p className='font-bold text-2xl text-orange-600'>{data.coverage.hospitalization}%</p>
+                    <p className='text-muted-foreground text-sm'>Hospitalisation</p>
                   </div>
                 </div>
 
@@ -261,7 +261,7 @@ export function EligibilityPage() {
                       }}
                     />
                   </div>
-                  <p className="mt-2 text-sm text-muted-foreground">
+                  <p className='mt-2 text-muted-foreground text-sm'>
                     Reste disponible: <span className="font-medium text-green-600">{formatAmount(data.coverage.remainingAmount)}</span>
                   </p>
                 </div>

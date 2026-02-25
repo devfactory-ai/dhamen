@@ -87,9 +87,7 @@ export async function listInsurers(
     .first<{ count: number }>();
 
   const { results } = await db
-    .prepare(
-      `SELECT * FROM insurers WHERE ${whereClause} ORDER BY name ASC LIMIT ? OFFSET ?`
-    )
+    .prepare(`SELECT * FROM insurers WHERE ${whereClause} ORDER BY name ASC LIMIT ? OFFSET ?`)
     .bind(...params, limit, offset)
     .all<InsurerRow>();
 
@@ -209,7 +207,9 @@ export async function updateInsurer(
 
 export async function softDeleteInsurer(db: D1Database, id: string): Promise<boolean> {
   const result = await db
-    .prepare('UPDATE insurers SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+    .prepare(
+      'UPDATE insurers SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
+    )
     .bind(new Date().toISOString(), new Date().toISOString(), id)
     .run();
 

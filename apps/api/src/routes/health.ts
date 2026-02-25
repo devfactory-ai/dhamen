@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import type { Bindings, Variables } from '../types';
-import { success } from '../lib/response';
 
 const health = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -65,13 +64,19 @@ health.get('/', async (c) => {
   const minutes = Math.floor((uptimeMs % (1000 * 60 * 60)) / (1000 * 60));
   const uptime = `${days}d ${hours}h ${minutes}m`;
 
-  return success(c, {
-    status,
-    version: '0.1.0',
-    environment: c.env.ENVIRONMENT,
-    checks,
-    uptime,
-  });
+  // Return appropriate HTTP status code for monitoring systems
+  const httpStatus = status === 'healthy' ? 200 : status === 'degraded' ? 200 : 503;
+
+  return c.json({
+    success: httpStatus < 400,
+    data: {
+      status,
+      version: '0.1.0',
+      environment: c.env.ENVIRONMENT,
+      checks,
+      uptime,
+    },
+  }, httpStatus);
 });
 
 export { health };

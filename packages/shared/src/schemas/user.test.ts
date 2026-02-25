@@ -1,19 +1,55 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   loginRequestSchema,
   mfaVerifyRequestSchema,
+  passwordSchema,
   refreshRequestSchema,
+  roleSchema,
   userCreateSchema,
   userUpdateSchema,
-  roleSchema,
 } from './user';
 
+// Strong password that meets all requirements: 12+ chars, uppercase, lowercase, number, special char
+const VALID_PASSWORD = 'SecureP@ss123!';
+
 describe('User Schemas', () => {
+  describe('passwordSchema', () => {
+    it('should validate a strong password', () => {
+      const result = passwordSchema.safeParse(VALID_PASSWORD);
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject passwords shorter than 12 characters', () => {
+      const result = passwordSchema.safeParse('Short1@');
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject passwords without uppercase letters', () => {
+      const result = passwordSchema.safeParse('securep@ss123!');
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject passwords without lowercase letters', () => {
+      const result = passwordSchema.safeParse('SECUREP@SS123!');
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject passwords without numbers', () => {
+      const result = passwordSchema.safeParse('SecureP@ssword!');
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject passwords without special characters', () => {
+      const result = passwordSchema.safeParse('SecurePassword123');
+      expect(result.success).toBe(false);
+    });
+  });
+
   describe('loginRequestSchema', () => {
     it('should validate correct login data', () => {
       const result = loginRequestSchema.safeParse({
         email: 'user@example.com',
-        password: 'password123',
+        password: 'anypassword', // Login accepts any password for attempt
       });
 
       expect(result.success).toBe(true);
@@ -31,16 +67,15 @@ describe('User Schemas', () => {
       }
     });
 
-    it('should reject short password', () => {
+    it('should reject empty password', () => {
       const result = loginRequestSchema.safeParse({
         email: 'user@example.com',
-        password: 'short',
+        password: '',
       });
 
       expect(result.success).toBe(false);
       if (!result.success) {
         expect(result.error.issues[0]?.path).toContain('password');
-        expect(result.error.issues[0]?.message).toContain('8 caractères');
       }
     });
 
@@ -102,7 +137,7 @@ describe('User Schemas', () => {
     it('should validate correct user creation data', () => {
       const result = userCreateSchema.safeParse({
         email: 'newuser@example.com',
-        password: 'securePassword123',
+        password: VALID_PASSWORD,
         role: 'PHARMACIST',
         firstName: 'Mohamed',
         lastName: 'Ben Ali',
@@ -114,7 +149,7 @@ describe('User Schemas', () => {
     it('should validate with optional fields', () => {
       const result = userCreateSchema.safeParse({
         email: 'newuser@example.com',
-        password: 'securePassword123',
+        password: VALID_PASSWORD,
         role: 'DOCTOR',
         firstName: 'Fatma',
         lastName: 'Trabelsi',
@@ -128,8 +163,20 @@ describe('User Schemas', () => {
     it('should reject invalid role', () => {
       const result = userCreateSchema.safeParse({
         email: 'newuser@example.com',
-        password: 'securePassword123',
+        password: VALID_PASSWORD,
         role: 'INVALID_ROLE',
+        firstName: 'Test',
+        lastName: 'User',
+      });
+
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject weak password', () => {
+      const result = userCreateSchema.safeParse({
+        email: 'newuser@example.com',
+        password: 'weakpassword', // no uppercase, number, special char
+        role: 'ADMIN',
         firstName: 'Test',
         lastName: 'User',
       });
@@ -140,7 +187,7 @@ describe('User Schemas', () => {
     it('should reject missing required fields', () => {
       const result = userCreateSchema.safeParse({
         email: 'newuser@example.com',
-        password: 'securePassword123',
+        password: VALID_PASSWORD,
         role: 'ADMIN',
         // missing firstName and lastName
       });
@@ -195,19 +242,19 @@ describe('User Schemas', () => {
         'CLINIC_ADMIN',
       ];
 
-      validRoles.forEach((role) => {
+      for (const role of validRoles) {
         const result = roleSchema.safeParse(role);
         expect(result.success).toBe(true);
-      });
+      }
     });
 
     it('should reject invalid roles', () => {
       const invalidRoles = ['SUPERUSER', 'GUEST', 'admin', 'Manager'];
 
-      invalidRoles.forEach((role) => {
+      for (const role of invalidRoles) {
         const result = roleSchema.safeParse(role);
         expect(result.success).toBe(false);
-      });
+      }
     });
   });
 });

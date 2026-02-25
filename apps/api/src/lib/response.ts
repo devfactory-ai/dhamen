@@ -1,10 +1,11 @@
-import type { Context } from 'hono';
 import type { ApiError, ApiResponse, PaginatedResponse, PaginationMeta } from '@dhamen/shared';
+import type { Context } from 'hono';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
 /**
  * Create a success response
  */
-export function success<T>(c: Context, data: T, status: number = 200): Response {
+export function success<T>(c: Context, data: T, status: ContentfulStatusCode = 200): Response {
   const response: ApiResponse<T> = { success: true, data };
   return c.json(response, status);
 }
@@ -15,10 +16,18 @@ export function success<T>(c: Context, data: T, status: number = 200): Response 
 export function paginated<T>(
   c: Context,
   data: T[],
-  meta: PaginationMeta,
-  status: number = 200
+  meta: Omit<PaginationMeta, 'totalPages'> & { totalPages?: number },
+  status: ContentfulStatusCode = 200
 ): Response {
-  const response: PaginatedResponse<T> = { success: true, data, meta };
+  const totalPages = meta.totalPages ?? Math.ceil(meta.total / meta.limit);
+  const response: PaginatedResponse<T> = {
+    success: true,
+    data,
+    meta: {
+      ...meta,
+      totalPages,
+    },
+  };
   return c.json(response, status);
 }
 
@@ -29,7 +38,7 @@ export function error(
   c: Context,
   code: string,
   message: string,
-  status: number = 400,
+  status: ContentfulStatusCode = 400,
   details?: unknown
 ): Response {
   const apiError: ApiError = { code, message };

@@ -110,9 +110,7 @@ export async function listProviders(
     .first<{ count: number }>();
 
   const { results } = await db
-    .prepare(
-      `SELECT * FROM providers WHERE ${whereClause} ORDER BY name ASC LIMIT ? OFFSET ?`
-    )
+    .prepare(`SELECT * FROM providers WHERE ${whereClause} ORDER BY name ASC LIMIT ? OFFSET ?`)
     .bind(...params, limit, offset)
     .all<ProviderRow>();
 

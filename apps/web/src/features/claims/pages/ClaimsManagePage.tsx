@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useClaims, useProcessClaim, type Claim } from '../hooks/useClaims';
+import { useToast } from '@/stores/toast';
 
 const CLAIM_TYPES = {
   PHARMACY: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
@@ -46,6 +47,7 @@ export function ClaimsManagePage() {
     rejectionReason: '',
     notes: '',
   });
+  const { toast } = useToast();
 
   const { data, isLoading } = useClaims(page, 20, { status: statusFilter });
   const processClaim = useProcessClaim();
@@ -68,22 +70,23 @@ export function ClaimsManagePage() {
   };
 
   const handleProcess = async () => {
-    if (!selectedClaim) return;
+    if (!selectedClaim) { return; }
 
     try {
       await processClaim.mutateAsync({
         id: selectedClaim.id,
         data: {
           status: processingData.status,
-          coveredAmount: processingData.status === 'APPROVED' ? parseFloat(processingData.coveredAmount) * 1000 : undefined,
+          coveredAmount: processingData.status === 'APPROVED' ? Number.parseFloat(processingData.coveredAmount) * 1000 : undefined,
           rejectionReason: processingData.status === 'REJECTED' ? processingData.rejectionReason : undefined,
           notes: processingData.notes || undefined,
         },
       });
+      toast({ title: processingData.status === 'APPROVED' ? 'PEC approuvee' : 'PEC rejetee', variant: processingData.status === 'APPROVED' ? 'success' : 'destructive' });
       setSelectedClaim(null);
       setProcessingData({ status: 'APPROVED', coveredAmount: '', rejectionReason: '', notes: '' });
-    } catch (error) {
-      console.error('Error processing claim:', error);
+    } catch {
+      toast({ title: 'Erreur lors du traitement', description: 'Veuillez reessayer', variant: 'destructive' });
     }
   };
 
@@ -104,7 +107,7 @@ export function ClaimsManagePage() {
       render: (claim: Claim) => (
         <div>
           <p className="font-medium">{claim.claimNumber}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(claim.createdAt)}</p>
+          <p className='text-muted-foreground text-sm'>{formatDate(claim.createdAt)}</p>
         </div>
       ),
     },
@@ -114,7 +117,7 @@ export function ClaimsManagePage() {
       render: (claim: Claim) => (
         <div>
           <p className="text-sm">{claim.adherentName || '-'}</p>
-          <p className="text-xs text-muted-foreground">{claim.adherentNationalId || '-'}</p>
+          <p className='text-muted-foreground text-xs'>{claim.adherentNationalId || '-'}</p>
         </div>
       ),
     },
@@ -133,7 +136,7 @@ export function ClaimsManagePage() {
       render: (claim: Claim) => {
         const typeInfo = CLAIM_TYPES[claim.type];
         return (
-          <span className={`rounded-full px-2 py-1 text-xs font-medium ${typeInfo.color}`}>
+          <span className={`rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>
             {typeInfo.label}
           </span>
         );
@@ -152,7 +155,7 @@ export function ClaimsManagePage() {
       key: 'fraudScore',
       header: 'Score',
       render: (claim: Claim) => {
-        if (claim.fraudScore === null) return '-';
+        if (claim.fraudScore === null) { return '-'; }
         const color = claim.fraudScore > 70 ? 'text-destructive' : claim.fraudScore > 40 ? 'text-yellow-600' : 'text-green-600';
         return <span className={`font-medium ${color}`}>{claim.fraudScore}</span>;
       },
@@ -203,18 +206,18 @@ export function ClaimsManagePage() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">PEC en attente</CardTitle>
+            <CardTitle className='font-medium text-muted-foreground text-sm'>PEC en attente</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
+            <p className='font-bold text-2xl text-yellow-600'>{pendingCount}</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Montant en attente</CardTitle>
+            <CardTitle className='font-medium text-muted-foreground text-sm'>Montant en attente</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{formatAmount(totalPendingAmount)}</p>
+            <p className='font-bold text-2xl'>{formatAmount(totalPendingAmount)}</p>
           </CardContent>
         </Card>
       </div>
