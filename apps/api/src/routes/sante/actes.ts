@@ -19,7 +19,6 @@ import {
   santeActeUpdateStatutSchema,
   santeActeFiltersSchema,
   paginationSchema,
-  SANTE_STATUTS_ACTE,
 } from '@dhamen/shared';
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';

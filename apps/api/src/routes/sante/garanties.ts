@@ -14,7 +14,6 @@ import {
   santeGarantieFormuleCreateSchema,
   santeGarantieFormuleUpdateSchema,
   santeTypeSoinSchema,
-  paginationSchema,
 } from '@dhamen/shared';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
@@ -155,7 +154,7 @@ garanties.get(
       return notFound(c, 'Plafonds non trouvés');
     }
 
-    const annee = parseInt(c.req.query('annee') ?? new Date().getFullYear().toString());
+    const annee = Number.parseInt(c.req.query('annee') ?? new Date().getFullYear().toString());
     const plafonds = await listPlafondsConsommes(c.env.DB, adherentId, annee);
 
     return success(c, plafonds);

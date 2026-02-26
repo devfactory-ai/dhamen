@@ -37,3 +37,19 @@ export {
   getPendingDiscrepancies,
 } from './reconciliation';
 export type { ReconciliationRequest, ReconciliationResult, BordereauInfo } from './reconciliation';
+
+// =============================================================================
+// SoinFlow Agents - Health reimbursement specialized agents
+// =============================================================================
+
+// SoinFlow Eligibility Agent - Verifies adherent eligibility using formules
+export { checkSanteEligibility, invalidateSanteCache } from './sante';
+export type { SanteEligibilityRequest, SanteEligibilityResult } from './sante';
+
+// SoinFlow Tarification Agent - Calculates coverage using formule rates
+export { calculateSanteTarification } from './sante';
+export type { SanteTarificationRequest, SanteTarificationResult } from './sante';
+
+// SoinFlow Fraud Agent - Detects fraudulent reimbursement claims
+export { detectSanteFraud } from './sante';
+export type { SanteFraudRequest, SanteFraudResult } from './sante';

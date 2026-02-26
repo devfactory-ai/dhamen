@@ -3,7 +3,6 @@
  */
 import {
   createSanteDemande,
-  findSanteDemandeById,
   findSanteDemandeAvecDetails,
   listSanteDemandes,
   updateSanteDemandeStatut,

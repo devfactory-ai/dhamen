@@ -9,6 +9,9 @@ import { praticiens } from './praticiens';
 import { garanties } from './garanties';
 import { documents } from './documents';
 import { actes } from './actes';
+import { paiements } from './paiements';
+import { bordereaux } from './bordereaux';
+import { eligibility } from './eligibility';
 
 const sante = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -18,5 +21,8 @@ sante.route('/praticiens', praticiens);
 sante.route('/garanties', garanties);
 sante.route('/documents', documents);
 sante.route('/actes', actes);
+sante.route('/paiements', paiements);
+sante.route('/bordereaux', bordereaux);
+sante.route('/eligibility', eligibility);
 
 export { sante };

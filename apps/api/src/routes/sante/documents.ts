@@ -9,10 +9,8 @@ import {
   deleteDocument,
   findSanteDemandeById,
 } from '@dhamen/db';
-import { santeDocumentCreateSchema, SANTE_TYPES_DOCUMENT } from '@dhamen/shared';
-import { zValidator } from '@hono/zod-validator';
+import { SANTE_TYPES_DOCUMENT } from '@dhamen/shared';
 import { Hono } from 'hono';
-import { z } from 'zod';
 import { created, notFound, success, forbidden, badRequest } from '../../lib/response';
 import { generateId } from '../../lib/ulid';
 import { logAudit } from '../../middleware/audit-trail';
