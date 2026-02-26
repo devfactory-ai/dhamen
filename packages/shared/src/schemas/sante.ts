@@ -121,6 +121,11 @@ export const santeDocumentUploadSchema = z.object({
   tailleOctets: z.number().min(1).max(10 * 1024 * 1024, 'Fichier trop volumineux (max 10MB)'),
 });
 
+export const santeDocumentCreateSchema = z.object({
+  demandeId: z.string().min(1),
+  typeDocument: santeTypeDocumentSchema,
+});
+
 // ============================================
 // Acte Praticien schemas
 // ============================================
@@ -130,12 +135,27 @@ export const santeActeCreateSchema = z.object({
   codeActe: z.string().min(1).max(50),
   libelleActe: z.string().min(2).max(255),
   montantActe: z.number().min(1),
-  dateActe: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide (YYYY-MM-DD)'),
+  tauxCouverture: z.number().min(0).max(100),
+  montantCouvert: z.number().min(0),
+  montantPatient: z.number().min(0),
+  dateActe: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide (YYYY-MM-DD)').optional(),
   qrCodeAdherent: z.string().max(500).optional(),
 });
 
 export const santeActeValidateSchema = z.object({
   signatureAdherent: z.boolean(),
+});
+
+export const santeActeUpdateStatutSchema = z.object({
+  statut: santeStatutActeSchema,
+});
+
+export const santeActeFiltersSchema = z.object({
+  praticienId: z.string().optional(),
+  adherentId: z.string().optional(),
+  statut: santeStatutActeSchema.optional(),
+  dateDebut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateFin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 // ============================================
@@ -191,6 +211,8 @@ export type SanteDemandeFilters = z.infer<typeof santeDemandeFiltersSchema>;
 export type SanteDocumentUpload = z.infer<typeof santeDocumentUploadSchema>;
 export type SanteActeCreate = z.infer<typeof santeActeCreateSchema>;
 export type SanteActeValidate = z.infer<typeof santeActeValidateSchema>;
+export type SanteActeUpdateStatut = z.infer<typeof santeActeUpdateStatutSchema>;
+export type SanteActeFilters = z.infer<typeof santeActeFiltersSchema>;
 export type SantePaiementInitiate = z.infer<typeof santePaiementInitiateSchema>;
 export type AyantDroitInput = z.infer<typeof ayantDroitSchema>;
 export type AdherentSanteExtension = z.infer<typeof adherentSanteExtensionSchema>;

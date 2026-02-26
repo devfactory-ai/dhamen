@@ -59,7 +59,15 @@ export const SANTE_TYPES_DOCUMENT = [
 
 export type SanteTypeDocument = (typeof SANTE_TYPES_DOCUMENT)[number];
 
-export const SANTE_STATUTS_ACTE = ['cree', 'valide', 'paye', 'annule'] as const;
+export const SANTE_STATUTS_ACTE = [
+  'cree',
+  'valide_adherent',
+  'soumis',
+  'en_traitement',
+  'rembourse',
+  'rejete',
+  'annule',
+] as const;
 
 export type SanteStatutActe = (typeof SANTE_STATUTS_ACTE)[number];
 

@@ -22,6 +22,7 @@ const ReconciliationPage = lazy(() => import('@/features/reconciliation/pages/Re
 const ReportsPage = lazy(() => import('@/features/reports/pages/ReportsPage').then(m => ({ default: m.ReportsPage })));
 const SettingsPage = lazy(() => import('@/features/settings/pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const MfaVerifyPage = lazy(() => import('@/features/auth/pages/MfaVerifyPage').then(m => ({ default: m.MfaVerifyPage })));
+const SanteDemandesPage = lazy(() => import('@/features/sante/pages/SanteDemandesPage').then(m => ({ default: m.SanteDemandesPage })));
 
 /**
  * Loading spinner for lazy-loaded routes
@@ -107,6 +108,8 @@ function App() {
                     <Route path="/claims" element={<ClaimsPage />} />
                     <Route path="/eligibility" element={<EligibilityPage />} />
                     <Route path="/bordereaux" element={<BordereauxPage />} />
+                    {/* SoinFlow routes */}
+                    <Route path="/sante/demandes" element={<SanteDemandesPage />} />
                     {/* Common routes */}
                     <Route path="/reports" element={<ReportsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />

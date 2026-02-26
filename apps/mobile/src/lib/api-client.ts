@@ -302,6 +302,60 @@ class ApiClient {
   async delete<T>(endpoint: string, options?: RequestOptions): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' });
   }
+
+  async upload<T>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> {
+    const url = `${this.baseUrl}${endpoint}`;
+
+    try {
+      const token = await this.getAccessToken();
+      const headers: HeadersInit = {};
+
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      // Note: Don't set Content-Type for FormData, let fetch set it with boundary
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+
+      if (!response.ok) {
+        if (response.status === 401 && token) {
+          const refreshed = await this.refreshTokenWithLocking();
+          if (refreshed) {
+            headers.Authorization = `Bearer ${await this.getAccessToken()}`;
+            const retryResponse = await fetch(url, {
+              method: 'POST',
+              headers,
+              body: formData,
+            });
+            return retryResponse.json();
+          }
+          await this.clearTokens();
+          emitAuthEvent('logout');
+          return {
+            success: false,
+            error: { code: 'SESSION_EXPIRED', message: 'Session expirée' },
+          };
+        }
+
+        const errorData = await response.json().catch(() => ({}));
+        return {
+          success: false,
+          error: errorData.error || { code: 'UPLOAD_ERROR', message: 'Échec de l\'upload' },
+        };
+      }
+
+      return response.json();
+    } catch (error) {
+      return {
+        success: false,
+        error: { code: 'NETWORK_ERROR', message: 'Erreur de connexion' },
+      };
+    }
+  }
 }
 
 export const apiClient = new ApiClient(API_BASE_URL);

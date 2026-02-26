@@ -20,3 +20,5 @@ export * from './conventions';
 export * from './sante-demandes';
 export * from './sante-garanties';
 export * from './sante-praticiens';
+export * from './sante-documents';
+export * from './sante-actes';

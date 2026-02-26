@@ -294,7 +294,11 @@ export async function upsertPlafondConsomme(
       .bind(data.montantConsomme, data.montantPlafond, now, existing.id)
       .run();
 
-    return (await getPlafondConsomme(db, data.adherentId, data.typeSoin, data.annee))!;
+    const result = await getPlafondConsomme(db, data.adherentId, data.typeSoin, data.annee);
+    if (!result) {
+      throw new Error('Failed to retrieve updated plafond consomme');
+    }
+    return result;
   }
 
   await db
@@ -330,6 +334,32 @@ export async function incrementPlafondConsomme(
     )
     .bind(montant, now, adherentId, typeSoin, year)
     .run();
+}
+
+/**
+ * Record consumption for an adherent - convenience wrapper for global plafond
+ */
+export async function recordConsommation(
+  db: D1Database,
+  adherentId: string,
+  annee: number,
+  montant: number
+): Promise<void> {
+  const existing = await getPlafondConsomme(db, adherentId, 'global', annee);
+
+  if (existing) {
+    await incrementPlafondConsomme(db, adherentId, 'global', montant, annee);
+  } else {
+    // Create new record with ULID-like ID
+    const id = Date.now().toString(36) + Math.random().toString(36).substring(2);
+    await db
+      .prepare(
+        `INSERT INTO sante_plafonds_consommes (id, adherent_id, annee, type_soin, montant_consomme, montant_plafond, updated_at)
+         VALUES (?, ?, ?, 'global', ?, 0, ?)`
+      )
+      .bind(id, adherentId, annee, montant, new Date().toISOString())
+      .run();
+  }
 }
 
 /**

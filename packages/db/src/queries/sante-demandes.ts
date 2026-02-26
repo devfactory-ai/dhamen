@@ -125,7 +125,9 @@ export async function findSanteDemandeAvecDetails(
     .bind(id)
     .first<SanteDemandeRow>();
 
-  if (!row) return null;
+  if (!row) {
+    return null;
+  }
 
   const demande = rowToDemande(row);
 
