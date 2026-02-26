@@ -8,6 +8,7 @@ export default function MainLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="dashboard" />
       <Stack.Screen name="demandes" />
+      <Stack.Screen name="profil" />
     </Stack>
   );
 }

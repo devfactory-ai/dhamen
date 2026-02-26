@@ -38,6 +38,18 @@ export const TEST_USERS = {
     role: 'ADHERENT',
     requiresMfa: false,
   },
+  soinGestionnaire: {
+    email: 'gestionnaire@soinflow.tn',
+    password: 'Soin123!@#',
+    role: 'SOIN_GESTIONNAIRE',
+    requiresMfa: true,
+  },
+  soinAgent: {
+    email: 'agent@soinflow.tn',
+    password: 'Agent123!@#',
+    role: 'SOIN_AGENT',
+    requiresMfa: false,
+  },
 } as const;
 
 // Test adherent data for eligibility checks

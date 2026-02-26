@@ -110,13 +110,13 @@ bordereaux.get(
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const countResult = await c.env.DB.prepare(
-      `SELECT COUNT(*) as count FROM bordereaux ${whereClause}`
+      `SELECT COUNT(*) as count FROM sante_bordereaux ${whereClause}`
     )
       .bind(...params)
       .first<{ count: number }>();
 
     const { results } = await c.env.DB.prepare(
-      `SELECT * FROM bordereaux ${whereClause} ORDER BY date_generation DESC LIMIT ? OFFSET ?`
+      `SELECT * FROM sante_bordereaux ${whereClause} ORDER BY date_generation DESC LIMIT ? OFFSET ?`
     )
       .bind(...params, limit, offset)
       .all<BordereauRow>();
@@ -139,7 +139,7 @@ bordereaux.get(
 bordereaux.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
   const { results: statusCounts } = await c.env.DB.prepare(`
     SELECT statut, COUNT(*) as count, COALESCE(SUM(montant_total), 0) as total
-    FROM bordereaux
+    FROM sante_bordereaux
     GROUP BY statut
   `).all<{ statut: string; count: number; total: number }>();
 
@@ -148,7 +148,7 @@ bordereaux.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) =>
       COUNT(*) as totalBordereaux,
       COALESCE(SUM(nombre_demandes), 0) as totalDemandes,
       COALESCE(SUM(montant_total), 0) as montantTotal
-    FROM bordereaux
+    FROM sante_bordereaux
     WHERE statut != 'annule'
   `).first<{ totalBordereaux: number; totalDemandes: number; montantTotal: number }>();
 
@@ -172,7 +172,7 @@ bordereaux.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) =>
 bordereaux.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
   const id = c.req.param('id');
 
-  const row = await c.env.DB.prepare('SELECT * FROM bordereaux WHERE id = ?')
+  const row = await c.env.DB.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
     .bind(id)
     .first<BordereauRow>();
 
@@ -187,7 +187,7 @@ bordereaux.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
       d.numero_demande, d.type_soin, d.date_soin,
       d.montant_demande, d.montant_rembourse,
       a.first_name || ' ' || a.last_name as adherent_nom
-    FROM bordereau_lignes bl
+    FROM sante_bordereau_lignes bl
     JOIN sante_demandes d ON bl.demande_id = d.id
     LEFT JOIN adherents a ON d.adherent_id = a.id
     WHERE bl.bordereau_id = ?
@@ -227,7 +227,7 @@ bordereaux.post(
     const { results: demandesEligibles } = await c.env.DB.prepare(`
       SELECT d.id, d.montant_rembourse
       FROM sante_demandes d
-      LEFT JOIN bordereau_lignes bl ON d.id = bl.demande_id
+      LEFT JOIN sante_bordereau_lignes bl ON d.id = bl.demande_id
       WHERE d.statut = 'approuvee'
         AND d.date_soin >= ?
         AND d.date_soin <= ?
@@ -248,7 +248,7 @@ bordereaux.post(
 
     // Create bordereau
     await c.env.DB.prepare(`
-      INSERT INTO bordereaux (
+      INSERT INTO sante_bordereaux (
         id, numero_bordereau, periode_debut, periode_fin,
         nombre_demandes, montant_total, statut, date_generation,
         genere_par, notes, created_at, updated_at
@@ -273,7 +273,7 @@ bordereaux.post(
     for (const demande of demandesEligibles) {
       const ligneId = generateId();
       await c.env.DB.prepare(`
-        INSERT INTO bordereau_lignes (id, bordereau_id, demande_id, created_at)
+        INSERT INTO sante_bordereau_lignes (id, bordereau_id, demande_id, created_at)
         VALUES (?, ?, ?, ?)
       `)
         .bind(ligneId, id, demande.id, now)
@@ -294,7 +294,7 @@ bordereaux.post(
       },
     });
 
-    const bordereau = await c.env.DB.prepare('SELECT * FROM bordereaux WHERE id = ?')
+    const bordereau = await c.env.DB.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
       .bind(id)
       .first<BordereauRow>();
 
@@ -315,7 +315,7 @@ bordereaux.patch(
     const data = c.req.valid('json');
     const user = c.get('user');
 
-    const existing = await c.env.DB.prepare('SELECT * FROM bordereaux WHERE id = ?')
+    const existing = await c.env.DB.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
       .bind(id)
       .first<BordereauRow>();
 
@@ -363,7 +363,7 @@ bordereaux.patch(
     params.push(id);
 
     await c.env.DB.prepare(
-      `UPDATE bordereaux SET ${updates.join(', ')} WHERE id = ?`
+      `UPDATE sante_bordereaux SET ${updates.join(', ')} WHERE id = ?`
     )
       .bind(...params)
       .run();
@@ -373,7 +373,7 @@ bordereaux.patch(
       await c.env.DB.prepare(`
         UPDATE sante_demandes
         SET statut = 'payee', updated_at = ?
-        WHERE id IN (SELECT demande_id FROM bordereau_lignes WHERE bordereau_id = ?)
+        WHERE id IN (SELECT demande_id FROM sante_bordereau_lignes WHERE bordereau_id = ?)
       `)
         .bind(now, id)
         .run();
@@ -387,7 +387,7 @@ bordereaux.patch(
       changes: { oldStatut: existing.statut, newStatut: data.statut },
     });
 
-    const bordereau = await c.env.DB.prepare('SELECT * FROM bordereaux WHERE id = ?')
+    const bordereau = await c.env.DB.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
       .bind(id)
       .first<BordereauRow>();
 
@@ -402,7 +402,7 @@ bordereaux.patch(
 bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
   const id = c.req.param('id');
 
-  const bordereau = await c.env.DB.prepare('SELECT * FROM bordereaux WHERE id = ?')
+  const bordereau = await c.env.DB.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
     .bind(id)
     .first<BordereauRow>();
 
@@ -415,7 +415,7 @@ bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (
       d.numero_demande, d.type_soin, d.date_soin,
       d.montant_demande, d.montant_rembourse,
       a.first_name, a.last_name, a.matricule
-    FROM bordereau_lignes bl
+    FROM sante_bordereau_lignes bl
     JOIN sante_demandes d ON bl.demande_id = d.id
     LEFT JOIN adherents a ON d.adherent_id = a.id
     WHERE bl.bordereau_id = ?

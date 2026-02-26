@@ -4,9 +4,8 @@
 
 -- Claims indexes for common query patterns
 CREATE INDEX IF NOT EXISTS idx_claims_insurer_created ON claims(insurer_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_claims_contract ON claims(contract_id);
-CREATE INDEX IF NOT EXISTS idx_claims_bordereau ON claims(bordereau_id);
-CREATE INDEX IF NOT EXISTS idx_claims_fraud_score ON claims(fraud_score) WHERE fraud_score >= 50;
+-- Note: idx_claims_bordereau skipped - bordereau_id column not in claims table
+CREATE INDEX IF NOT EXISTS idx_claims_fraud_score_high ON claims(fraud_score) WHERE fraud_score >= 50;
 
 -- Contracts composite index for lookups
 CREATE INDEX IF NOT EXISTS idx_contracts_insurer_adherent ON contracts(insurer_id, adherent_id);
@@ -21,9 +20,9 @@ CREATE INDEX IF NOT EXISTS idx_bordereaux_provider_status ON bordereaux(provider
 CREATE INDEX IF NOT EXISTS idx_bordereaux_period ON bordereaux(period_start, period_end);
 
 -- Partial indexes for active records (improves WHERE is_active = 1 queries)
-CREATE INDEX IF NOT EXISTS idx_users_active ON users(role, insurer_id, provider_id) WHERE is_active = 1 AND deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_providers_active ON providers(type, city) WHERE is_active = 1 AND deleted_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_insurers_active ON insurers(code) WHERE is_active = 1 AND deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_users_active ON users(role, insurer_id, provider_id) WHERE is_active = 1;
+CREATE INDEX IF NOT EXISTS idx_providers_active ON providers(type, city) WHERE is_active = 1;
+CREATE INDEX IF NOT EXISTS idx_insurers_active ON insurers(code) WHERE is_active = 1;
 CREATE INDEX IF NOT EXISTS idx_contracts_active ON contracts(status) WHERE status = 'ACTIVE';
 CREATE INDEX IF NOT EXISTS idx_conventions_active ON conventions(insurer_id, provider_id) WHERE is_active = 1;
 
@@ -31,8 +30,8 @@ CREATE INDEX IF NOT EXISTS idx_conventions_active ON conventions(insurer_id, pro
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity_date ON audit_logs(entity_type, entity_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_date ON audit_logs(user_id, created_at);
 
--- Notifications indexes
-CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read);
+-- Notifications indexes (using status column instead of is_read)
+CREATE INDEX IF NOT EXISTS idx_notifications_user_status ON notifications(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_date ON notifications(user_id, created_at);
 
 -- Baremes composite index for tariff lookups
@@ -48,4 +47,4 @@ CREATE INDEX IF NOT EXISTS idx_fraud_rules_lookup ON fraud_rules_config(insurer_
 CREATE INDEX IF NOT EXISTS idx_adherents_name ON adherents(last_name, first_name);
 
 -- Drug incompatibilities lookup
-CREATE INDEX IF NOT EXISTS idx_drug_incompatibilities_lookup ON drug_incompatibilities(drug_code_a, drug_code_b) WHERE is_active = 1;
+CREATE INDEX IF NOT EXISTS idx_drug_incompatibilities_lookup ON drug_incompatibilities(drug_code_1, drug_code_2) WHERE is_active = 1;

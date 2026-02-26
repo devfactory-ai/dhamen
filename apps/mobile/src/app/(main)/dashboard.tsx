@@ -113,6 +113,17 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={styles.actionCardSecondary}
+            onPress={() => router.push('/(main)/profil')}
+          >
+            <Text style={styles.actionIcon}></Text>
+            <Text style={styles.actionTitle}>Mon profil</Text>
+            <Text style={styles.actionSubtitle}>Plafonds et couverture</Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Demandes récentes</Text>
           {demandes && demandes.length > 0 ? (
@@ -270,5 +281,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#666',
     padding: 24,
+  },
+  actionCardSecondary: {
+    flex: 1,
+    backgroundColor: '#e8f0f8',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
   },
 });
