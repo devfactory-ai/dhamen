@@ -11,3 +11,4 @@ export * from './claim';
 export * from './reconciliation';
 export * from './convention';
 export * from './common';
+export * from './sante';

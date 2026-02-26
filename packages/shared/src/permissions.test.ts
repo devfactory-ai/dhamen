@@ -197,6 +197,15 @@ describe('RBAC Permissions', () => {
       expect(RESOURCES).toContain('audit_logs');
     });
 
+    it('RESOURCES should include SoinFlow resources', () => {
+      expect(RESOURCES).toContain('sante_demandes');
+      expect(RESOURCES).toContain('sante_documents');
+      expect(RESOURCES).toContain('sante_garanties');
+      expect(RESOURCES).toContain('sante_praticiens');
+      expect(RESOURCES).toContain('sante_actes');
+      expect(RESOURCES).toContain('sante_paiements');
+    });
+
     it('ACTIONS should include CRUD and business actions', () => {
       expect(ACTIONS).toContain('create');
       expect(ACTIONS).toContain('read');
@@ -205,6 +214,136 @@ describe('RBAC Permissions', () => {
       expect(ACTIONS).toContain('list');
       expect(ACTIONS).toContain('approve');
       expect(ACTIONS).toContain('reject');
+    });
+
+    it('ACTIONS should include SoinFlow actions', () => {
+      expect(ACTIONS).toContain('validate');
+      expect(ACTIONS).toContain('upload');
+      expect(ACTIONS).toContain('download');
+      expect(ACTIONS).toContain('initiate');
+      expect(ACTIONS).toContain('process');
+    });
+  });
+
+  describe('SoinFlow RBAC', () => {
+    describe('SOIN_GESTIONNAIRE role', () => {
+      const role: Role = 'SOIN_GESTIONNAIRE';
+
+      it('should have full access to sante_demandes including validate', () => {
+        expect(hasPermission(role, 'sante_demandes', 'create')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'read')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'update')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'delete')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'list')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'validate')).toBe(true);
+      });
+
+      it('should have upload/download access to sante_documents', () => {
+        expect(hasPermission(role, 'sante_documents', 'upload')).toBe(true);
+        expect(hasPermission(role, 'sante_documents', 'download')).toBe(true);
+      });
+
+      it('should be able to initiate payments', () => {
+        expect(hasPermission(role, 'sante_paiements', 'initiate')).toBe(true);
+      });
+
+      it('should read adherents but not modify', () => {
+        expect(hasPermission(role, 'adherents', 'read')).toBe(true);
+        expect(hasPermission(role, 'adherents', 'list')).toBe(true);
+        expect(hasPermission(role, 'adherents', 'create')).toBe(false);
+        expect(hasPermission(role, 'adherents', 'delete')).toBe(false);
+      });
+
+      it('should read audit logs', () => {
+        expect(hasPermission(role, 'audit_logs', 'read')).toBe(true);
+        expect(hasPermission(role, 'audit_logs', 'list')).toBe(true);
+      });
+    });
+
+    describe('SOIN_AGENT role', () => {
+      const role: Role = 'SOIN_AGENT';
+
+      it('should read and create sante_demandes but not delete', () => {
+        expect(hasPermission(role, 'sante_demandes', 'read')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'list')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'create')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'update')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'delete')).toBe(false);
+        expect(hasPermission(role, 'sante_demandes', 'validate')).toBe(false);
+      });
+
+      it('should upload documents but not download', () => {
+        expect(hasPermission(role, 'sante_documents', 'read')).toBe(true);
+        expect(hasPermission(role, 'sante_documents', 'upload')).toBe(true);
+        expect(hasPermission(role, 'sante_documents', 'download')).toBe(false);
+      });
+
+      it('should process payments but not initiate', () => {
+        expect(hasPermission(role, 'sante_paiements', 'process')).toBe(true);
+        expect(hasPermission(role, 'sante_paiements', 'initiate')).toBe(false);
+      });
+
+      it('should NOT access audit logs', () => {
+        expect(hasPermission(role, 'audit_logs', 'read')).toBe(false);
+      });
+    });
+
+    describe('PRATICIEN role', () => {
+      const role: Role = 'PRATICIEN';
+
+      it('should create and read own sante_demandes', () => {
+        expect(hasPermission(role, 'sante_demandes', 'create')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'read')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'list')).toBe(false);
+        expect(hasPermission(role, 'sante_demandes', 'update')).toBe(false);
+        expect(hasPermission(role, 'sante_demandes', 'delete')).toBe(false);
+      });
+
+      it('should only upload documents', () => {
+        expect(hasPermission(role, 'sante_documents', 'upload')).toBe(true);
+        expect(hasPermission(role, 'sante_documents', 'read')).toBe(false);
+        expect(hasPermission(role, 'sante_documents', 'download')).toBe(false);
+      });
+
+      it('should create and read own sante_actes', () => {
+        expect(hasPermission(role, 'sante_actes', 'create')).toBe(true);
+        expect(hasPermission(role, 'sante_actes', 'read')).toBe(true);
+        expect(hasPermission(role, 'sante_actes', 'list')).toBe(true);
+        expect(hasPermission(role, 'sante_actes', 'validate')).toBe(false);
+      });
+
+      it('should read garanties for eligibility checks', () => {
+        expect(hasPermission(role, 'sante_garanties', 'read')).toBe(true);
+        expect(hasPermission(role, 'sante_garanties', 'create')).toBe(false);
+      });
+
+      it('should only read adherents linked to care', () => {
+        expect(hasPermission(role, 'adherents', 'read')).toBe(true);
+        expect(hasPermission(role, 'adherents', 'list')).toBe(false);
+      });
+
+      it('should only read own payments', () => {
+        expect(hasPermission(role, 'sante_paiements', 'read')).toBe(true);
+        expect(hasPermission(role, 'sante_paiements', 'initiate')).toBe(false);
+        expect(hasPermission(role, 'sante_paiements', 'process')).toBe(false);
+      });
+    });
+
+    describe('ADHERENT role SoinFlow access', () => {
+      const role: Role = 'ADHERENT';
+
+      it('should create and view own sante_demandes', () => {
+        expect(hasPermission(role, 'sante_demandes', 'create')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'read')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'list')).toBe(true);
+        expect(hasPermission(role, 'sante_demandes', 'update')).toBe(false);
+      });
+
+      it('should upload and read documents', () => {
+        expect(hasPermission(role, 'sante_documents', 'upload')).toBe(true);
+        expect(hasPermission(role, 'sante_documents', 'read')).toBe(true);
+        expect(hasPermission(role, 'sante_documents', 'download')).toBe(false);
+      });
     });
   });
 });

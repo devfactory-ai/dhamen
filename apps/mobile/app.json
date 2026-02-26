@@ -1,0 +1,68 @@
+{
+  "expo": {
+    "name": "SoinFlow",
+    "slug": "soinflow",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "soinflow",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1e3a5f"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "tn.bhassurance.soinflow",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Nous avons besoin d'accéder à votre caméra pour scanner les bulletins de soins.",
+        "NSPhotoLibraryUsageDescription": "Nous avons besoin d'accéder à vos photos pour télécharger des bulletins de soins."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1e3a5f"
+      },
+      "package": "tn.bhassurance.soinflow",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Nous avons besoin d'accéder à votre caméra pour scanner les bulletins de soins."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Nous avons besoin d'accéder à vos photos pour télécharger des bulletins de soins."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#1e3a5f"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -11,6 +11,10 @@ export const ROLES = [
   'LAB_MANAGER',
   'CLINIC_ADMIN',
   'ADHERENT',
+  // SoinFlow roles
+  'SOIN_GESTIONNAIRE',
+  'SOIN_AGENT',
+  'PRATICIEN',
 ] as const;
 
 export type Role = (typeof ROLES)[number];

@@ -13,6 +13,13 @@ export const RESOURCES = [
   'reconciliations',
   'conventions',
   'audit_logs',
+  // SoinFlow resources
+  'sante_demandes',
+  'sante_documents',
+  'sante_garanties',
+  'sante_praticiens',
+  'sante_actes',
+  'sante_paiements',
 ] as const;
 
 export type Resource = (typeof RESOURCES)[number];
@@ -20,7 +27,21 @@ export type Resource = (typeof RESOURCES)[number];
 /**
  * Available actions on resources
  */
-export const ACTIONS = ['create', 'read', 'update', 'delete', 'list', 'approve', 'reject'] as const;
+export const ACTIONS = [
+  'create',
+  'read',
+  'update',
+  'delete',
+  'list',
+  'approve',
+  'reject',
+  // SoinFlow actions
+  'validate',
+  'upload',
+  'download',
+  'initiate',
+  'process',
+] as const;
 
 export type Action = (typeof ACTIONS)[number];
 
@@ -93,6 +114,51 @@ export const PERMISSIONS: Record<Role, Partial<Record<Resource, Action[]>>> = {
     adherents: ['read'], // Only own profile
     contracts: ['read'], // Only own contracts
     claims: ['read', 'list'], // Only own claims
+    // SoinFlow: adhérents peuvent soumettre et voir leurs demandes
+    sante_demandes: ['create', 'read', 'list'],
+    sante_documents: ['upload', 'read'],
+  },
+
+  /**
+   * SOIN_GESTIONNAIRE role - SoinFlow supervisors
+   * Full control over SoinFlow operations, validation, reports
+   */
+  SOIN_GESTIONNAIRE: {
+    adherents: ['read', 'list'],
+    sante_demandes: ['create', 'read', 'update', 'delete', 'list', 'validate'],
+    sante_documents: ['create', 'read', 'update', 'delete', 'list', 'upload', 'download'],
+    sante_garanties: ['create', 'read', 'update', 'delete', 'list'],
+    sante_praticiens: ['create', 'read', 'update', 'delete', 'list'],
+    sante_actes: ['create', 'read', 'update', 'delete', 'list', 'validate'],
+    sante_paiements: ['create', 'read', 'update', 'list', 'initiate'],
+    audit_logs: ['read', 'list'],
+  },
+
+  /**
+   * SOIN_AGENT role - SoinFlow daily operations
+   * Process claims, data entry, read access
+   */
+  SOIN_AGENT: {
+    adherents: ['read', 'list'],
+    sante_demandes: ['read', 'list', 'create', 'update'],
+    sante_documents: ['read', 'upload'],
+    sante_garanties: ['read', 'list'],
+    sante_praticiens: ['read', 'list'],
+    sante_actes: ['read', 'list'],
+    sante_paiements: ['read', 'list', 'process'],
+  },
+
+  /**
+   * PRATICIEN role - Healthcare practitioners
+   * Submit digital acts, verify eligibility, view own submissions
+   */
+  PRATICIEN: {
+    adherents: ['read'], // Only linked to their care
+    sante_demandes: ['create', 'read'], // Own submissions only
+    sante_documents: ['upload'], // Own documents only
+    sante_garanties: ['read'], // Check coverage
+    sante_actes: ['create', 'read', 'list'], // Own acts only
+    sante_paiements: ['read'], // Own payments only
   },
 };
 

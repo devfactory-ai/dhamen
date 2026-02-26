@@ -1,0 +1,154 @@
+{
+  "project": "SoinFlow - Plateforme Santé BH Assurance",
+  "description": "Plateforme unifiée supportant traitement bulletins papier ET workflow 100% digital (praticiens + tiers-payant)",
+  "stack": {
+    "mobile": "React Native + TypeScript",
+    "web": "React + Vite + TailwindCSS",
+    "backend": "Cloudflare Workers + TypeScript",
+    "database": "Cloudflare D1 (SQLite)",
+    "storage": "Cloudflare R2",
+    "cache": "Cloudflare KV",
+    "queues": "Cloudflare Queues",
+    "websocket": "Durable Objects"
+  },
+  "total_tasks": 125,
+  "estimated_hours": "500-600h",
+  "sprints": 8,
+  "tasks": [
+    {
+      "category": "Infrastructure",
+      "prefix": "INFRA",
+      "tasks": [
+        { "id": "INFRA-001", "title": "Configuration Cloudflare Account", "priority": "Critique", "hours": "2-3h", "sprint": 1 },
+        { "id": "INFRA-002", "title": "Structure Monorepo Workspaces", "priority": "Critique", "hours": "3-4h", "sprint": 1 },
+        { "id": "INFRA-003", "title": "Configuration Wrangler CLI", "priority": "Critique", "hours": "2-3h", "sprint": 1 },
+        { "id": "INFRA-004", "title": "CI/CD GitHub Actions", "priority": "Haute", "hours": "4-5h", "sprint": 1 }
+      ]
+    },
+    {
+      "category": "Backend",
+      "prefix": "BACK",
+      "tasks": [
+        { "id": "BACK-001", "title": "Structure Workers Modulaire", "priority": "Critique", "hours": "2-3h", "sprint": 2, "description": "Créer structure dossiers modules (core, dhamen, sante), routing modulaire" },
+        { "id": "BACK-002", "title": "Router Principal Itty-Router", "priority": "Critique", "hours": "2-3h", "sprint": 2, "description": "Router /health, /api/dhamen/*, /api/sante/*, middleware CORS" },
+        { "id": "BACK-003", "title": "Middleware Authentification JWT", "priority": "Critique", "hours": "4-5h", "sprint": 2, "description": "Génération JWT (jose), vérification, refresh tokens, middleware authMiddleware" },
+        { "id": "BACK-004", "title": "Module Santé Router", "priority": "Critique", "hours": "2-3h", "sprint": 2, "description": "Routes /adherents/*, /demandes/*, /documents/*, /praticiens/*" },
+        { "id": "BACK-005", "title": "Endpoints Adhérents", "priority": "Haute", "hours": "3-4h", "sprint": 3, "description": "GET /adherents/:id, GET /adherents/:id/garanties, GET /adherents/:id/plafonds" },
+        { "id": "BACK-006", "title": "Endpoint Création Demande", "priority": "Critique", "hours": "6-8h", "sprint": 3, "description": "POST /demandes avec validation Zod, insertion D1, historique, notifications" },
+        { "id": "BACK-007", "title": "Endpoint Liste Demandes", "priority": "Haute", "hours": "4-5h", "sprint": 3, "description": "GET /demandes avec filtres statut/période, pagination" },
+        { "id": "BACK-008", "title": "Endpoint Détail Demande", "priority": "Haute", "hours": "3-4h", "sprint": 3, "description": "GET /demandes/:id avec documents, historique, garanties" },
+        { "id": "BACK-009", "title": "Endpoint Update Status", "priority": "Haute", "hours": "4-5h", "sprint": 3, "description": "PATCH /demandes/:id/status (approuver/rejeter), state machine transitions" },
+        { "id": "BACK-010", "title": "Endpoint Upload Documents", "priority": "Critique", "hours": "5-6h", "sprint": 4, "description": "POST /demandes/:id/documents multipart/form-data vers R2" },
+        { "id": "BACK-011", "title": "Endpoint Download Documents", "priority": "Moyenne", "hours": "2-3h", "sprint": 4, "description": "GET /documents/:id/download avec signed URLs R2" },
+        { "id": "BACK-012", "title": "WebSocket Durable Object", "priority": "Haute", "hours": "6-8h", "sprint": 4, "description": "Notifications temps réel via Durable Objects, WebSocket upgrade" },
+        { "id": "BACK-013", "title": "Intégration Notifications", "priority": "Haute", "hours": "3-4h", "sprint": 4, "description": "Helper sendNotification, appels depuis création/update demandes" },
+        { "id": "BACK-014", "title": "Queue Paiements", "priority": "Haute", "hours": "5-6h", "sprint": 4, "description": "Queue consumer pour traitement asynchrone paiements, intégration API bancaire" },
+        { "id": "BACK-015", "title": "Utils Database Helpers", "priority": "Moyenne", "hours": "2-3h", "sprint": 2, "description": "Helpers query D1 (execute, first, all), transactions, error handling" },
+        { "id": "BACK-016", "title": "Utils Validation Zod", "priority": "Moyenne", "hours": "3-4h", "sprint": 2, "description": "Schemas Zod pour toutes entities, validators emails/téléphones/montants" },
+        { "id": "BACK-017", "title": "Utils Generators", "priority": "Moyenne", "hours": "2-3h", "sprint": 2, "description": "Génération références uniques (BH-YYYY-XXXXX), UUIDs, tokens" },
+        { "id": "BACK-018", "title": "Utils Encryption", "priority": "Haute", "hours": "3-4h", "sprint": 2, "description": "Hash passwords (bcrypt), encryption AES-256, signatures JWT" },
+        { "id": "BACK-019", "title": "Rate Limiting KV", "priority": "Moyenne", "hours": "3-4h", "sprint": 4, "description": "Rate limiter avec KV, sliding window, headers X-RateLimit-*" },
+        { "id": "BACK-020", "title": "Logging & Monitoring", "priority": "Moyenne", "hours": "3-4h", "sprint": 4, "description": "Structured logging, Analytics Engine, métriques custom" },
+        { "id": "BACK-021", "title": "Praticiens Auth", "priority": "Haute", "hours": "4-5h", "sprint": 5, "description": "POST /praticiens/register, POST /praticiens/login, JWT séparé" },
+        { "id": "BACK-022", "title": "Praticiens Verify Adherent", "priority": "Haute", "hours": "3-4h", "sprint": 5, "description": "POST /praticiens/verify avec QR/n_contrat, retour garanties + tiers-payant status" },
+        { "id": "BACK-023", "title": "Praticiens Create Acte", "priority": "Critique", "hours": "6-8h", "sprint": 5, "description": "POST /praticiens/actes, création demande auto, workflow tiers-payant/remboursement" },
+        { "id": "BACK-024", "title": "Workflow Tiers-Payant", "priority": "Haute", "hours": "5-6h", "sprint": 5, "description": "Logique calcul parts adhérent/BH, validation tarifs convention, queue paiement praticien" }
+      ]
+    },
+    {
+      "category": "Database",
+      "prefix": "DB",
+      "tasks": [
+        { "id": "DB-001", "title": "Schema Initial Tables Santé", "priority": "Critique", "hours": "4-5h", "sprint": 1, "description": "Tables sante_adherents, demandes, documents, garanties, plafonds, historique" },
+        { "id": "DB-002", "title": "Schema Tables Praticiens", "priority": "Critique", "hours": "2-3h", "sprint": 5, "description": "Tables sante_praticiens, sante_actes_praticiens" },
+        { "id": "DB-003", "title": "Extension Tables Partagées", "priority": "Haute", "hours": "2-3h", "sprint": 1, "description": "ALTER users (module_access, praticien_id), notifications (module, adherent_sante_id)" },
+        { "id": "DB-004", "title": "Indexes Optimisation", "priority": "Moyenne", "hours": "2-3h", "sprint": 4, "description": "Indexes composites sur queries fréquentes, analyse EXPLAIN QUERY PLAN" },
+        { "id": "DB-005", "title": "Seed Data Garanties", "priority": "Haute", "hours": "2-3h", "sprint": 1, "description": "INSERT garanties 3 formules × 6 postes avec taux/plafonds BH" },
+        { "id": "DB-006", "title": "Migration Dhamen vers Santé", "priority": "Haute", "hours": "5-6h", "sprint": 2, "description": "Script migration clients Dhamen → sante_adherents, initialisation plafonds" },
+        { "id": "DB-007", "title": "Triggers & Constraints", "priority": "Moyenne", "hours": "3-4h", "sprint": 2, "description": "Triggers auto-update updated_at, constraints CHECK montants/statuts" },
+        { "id": "DB-008", "title": "Backup & Restore", "priority": "Moyenne", "hours": "2-3h", "sprint": 6, "description": "Procédures backup quotidien D1, scripts restore, tests disaster recovery" }
+      ]
+    },
+    {
+      "category": "Storage",
+      "prefix": "R2",
+      "tasks": [
+        { "id": "R2-001", "title": "Configuration Buckets", "priority": "Critique", "hours": "1-2h", "sprint": 1, "description": "Créer buckets dev/staging/prod, CORS configuration, lifecycle policies" },
+        { "id": "R2-002", "title": "Upload Helpers", "priority": "Haute", "hours": "3-4h", "sprint": 2, "description": "Fonction uploadToR2 avec validation types/taille, retry logic" },
+        { "id": "R2-003", "title": "Download Helpers", "priority": "Haute", "hours": "2-3h", "sprint": 2, "description": "Fonction getSignedUrl avec expiration configurable" },
+        { "id": "R2-004", "title": "Delete Helpers", "priority": "Moyenne", "hours": "2-3h", "sprint": 4, "description": "Soft delete (move /deleted/), purge après 30j" },
+        { "id": "R2-005", "title": "Multipart Uploads", "priority": "Basse", "hours": "4-5h", "sprint": 8, "description": "Support fichiers >100MB avec chunks, resume upload" },
+        { "id": "R2-006", "title": "Image Optimisation", "priority": "Moyenne", "hours": "3-4h", "sprint": 6, "description": "Compression auto images, génération thumbnails, conversion HEIC→JPEG" }
+      ]
+    },
+    {
+      "category": "Mobile",
+      "prefix": "MOBILE",
+      "count": 26,
+      "description": "26 tâches React Native couvrant setup, navigation, screens, components, services"
+    },
+    {
+      "category": "Web",
+      "prefix": "WEB",
+      "count": 32,
+      "description": "32 tâches React/Vite couvrant adhérents, gestionnaires, agents, praticiens"
+    },
+    {
+      "category": "Praticiens",
+      "prefix": "PRAT",
+      "tasks": [
+        { "id": "PRAT-001", "title": "Admin Gestion Praticiens", "priority": "Moyenne", "hours": "5-6h", "sprint": 6, "description": "Page admin liste/approuver/éditer praticiens, configurer conventionnée" },
+        { "id": "PRAT-002", "title": "Onboarding Praticiens", "priority": "Moyenne", "hours": "4-5h", "sprint": 6, "description": "Workflow inscription→validation email→approbation BH" },
+        { "id": "PRAT-003", "title": "Configuration Tarifs Convention", "priority": "Moyenne", "hours": "3-4h", "sprint": 5, "description": "Interface admin saisie tarifs convention par praticien/acte" }
+      ]
+    },
+    {
+      "category": "Testing",
+      "prefix": "TEST",
+      "tasks": [
+        { "id": "TEST-001", "title": "Unit Tests Backend", "priority": "Haute", "hours": "10-12h", "sprint": 7, "description": "Vitest, tests utils/validation/generators/encryption, coverage >80%" },
+        { "id": "TEST-002", "title": "Integration Tests Workers", "priority": "Haute", "hours": "8-10h", "sprint": 7, "description": "Tests endpoints auth/demandes/documents, mocks D1/R2" },
+        { "id": "TEST-003", "title": "E2E Tests Mobile", "priority": "Moyenne", "hours": "12-15h", "sprint": 7, "description": "Detox, scénarios login→création demande→upload→suivi" },
+        { "id": "TEST-004", "title": "E2E Tests Web", "priority": "Moyenne", "hours": "12-15h", "sprint": 7, "description": "Playwright, scénarios adhérent + gestionnaire + praticien" },
+        { "id": "TEST-005", "title": "Performance Tests", "priority": "Moyenne", "hours": "6-8h", "sprint": 7, "description": "k6 load tests, vérifier latence <100ms, throughput >1000req/s" },
+        { "id": "TEST-006", "title": "Security Tests", "priority": "Haute", "hours": "8-10h", "sprint": 7, "description": "Audit npm/pip, tests injection SQL/XSS, permissions, rate limiting" },
+        { "id": "TEST-007", "title": "Accessibilité Tests", "priority": "Basse", "hours": "4-5h", "sprint": 8, "description": "Audit axe-core, navigation clavier, screen readers" },
+        { "id": "TEST-008", "title": "Browser Compatibility", "priority": "Basse", "hours": "4-5h", "sprint": 8, "description": "Tests Chrome/Firefox/Safari/Edge, polyfills si nécessaire" },
+        { "id": "TEST-009", "title": "Regression Tests Suite", "priority": "Moyenne", "hours": "6-8h", "sprint": 7, "description": "Suite automatisée cas critiques, intégration CI" },
+        { "id": "TEST-010", "title": "User Acceptance Testing", "priority": "Haute", "hours": "8-10h", "sprint": 8, "description": "UAT avec vrais adhérents/gestionnaires/agents, feedback itération" }
+      ]
+    },
+    {
+      "category": "Deployment",
+      "prefix": "DEPLOY",
+      "tasks": [
+        { "id": "DEPLOY-001", "title": "Environments Setup", "priority": "Critique", "hours": "2-3h", "sprint": 1, "description": "Configurer dev/staging/prod Cloudflare, séparer DB/buckets" },
+        { "id": "DEPLOY-002", "title": "CI/CD Workers Pipeline", "priority": "Critique", "hours": "4-5h", "sprint": 2, "description": "GitHub Actions deploy-workers.yml, tests→deploy staging/prod" },
+        { "id": "DEPLOY-003", "title": "CI/CD Web Pipeline", "priority": "Critique", "hours": "3-4h", "sprint": 2, "description": "Deploy Cloudflare Pages, preview PRs, production auto" },
+        { "id": "DEPLOY-004", "title": "CI/CD Mobile Pipeline", "priority": "Haute", "hours": "6-8h", "sprint": 6, "description": "Fastlane iOS→TestFlight, Gradle Android→Internal Testing" },
+        { "id": "DEPLOY-005", "title": "Database Migrations Workflow", "priority": "Haute", "hours": "3-4h", "sprint": 2, "description": "Scripts exécution migrations D1, versioning, rollback" },
+        { "id": "DEPLOY-006", "title": "Secrets Management", "priority": "Haute", "hours": "2-3h", "sprint": 1, "description": "Wrangler secrets, GitHub secrets, rotation régulière" },
+        { "id": "DEPLOY-007", "title": "Monitoring Production", "priority": "Haute", "hours": "4-5h", "sprint": 6, "description": "Cloudflare Analytics, alertes errors/latency, dashboard métriques" },
+        { "id": "DEPLOY-008", "title": "Backup & Disaster Recovery", "priority": "Moyenne", "hours": "3-4h", "sprint": 6, "description": "Backup quotidien D1/R2, procédure restore, tests trimestriels" },
+        { "id": "DEPLOY-009", "title": "Health Checks", "priority": "Moyenne", "hours": "2-3h", "sprint": 4, "description": "/health endpoint, vérif DB/R2/AI, monitoring ping 1min" },
+        { "id": "DEPLOY-010", "title": "Rollback Strategy", "priority": "Moyenne", "hours": "3-4h", "sprint": 6, "description": "Garder 3 dernières versions, rollback one-click, auto si healthcheck fail" },
+        { "id": "DEPLOY-011", "title": "Documentation Deployment", "priority": "Moyenne", "hours": "4-5h", "sprint": 8, "description": "README setup local, guide déploiement, troubleshooting, architecture diagrams" },
+        { "id": "DEPLOY-012", "title": "Feature Flags System", "priority": "Basse", "hours": "3-4h", "sprint": 8, "description": "Feature flags KV, rollout progressif, kill switch, A/B testing" }
+      ]
+    }
+  ],
+  "modules": {
+    "module_papier": {
+      "name": "Traitement Bulletins Papier",
+      "description": "Adhérents scannent/uploadent bulletins papier, gestionnaires traitent manuellement",
+      "workflow": "Upload bulletin→Gestionnaire vérifie→Calcul garanties→Approbation→Virement J+3-5"
+    },
+    "module_digital": {
+      "name": "Workflow 100% Digital",
+      "description": "Praticiens créent demandes en ligne, tiers-payant pour conventionnés, remboursement auto pour non-conventionnés",
+      "workflow_conventionne": "Praticien vérifie garanties→Crée acte→Adhérent paie reste à charge→BH paie praticien J+3",
+      "workflow_non_conventionne": "Praticien crée demande→Adhérent paie tout→Remboursement auto adhérent <24h"
+    }
+  },
+  "note": "OCR/IA (Phase 2) reportée à plus tard. Focus sur plateforme fonctionnelle avec modules papier + digital simultanés."
+}

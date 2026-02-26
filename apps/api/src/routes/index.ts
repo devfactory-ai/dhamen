@@ -17,3 +17,6 @@ export { default as eligibility } from './eligibility';
 export { default as tarification } from './tarification';
 export { default as fraud } from './fraud';
 export { reconciliation } from './reconciliation';
+
+// SoinFlow routes
+export { sante } from './sante';

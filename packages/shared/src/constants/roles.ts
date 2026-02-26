@@ -9,6 +9,10 @@ export const ROLE_LABELS: Record<Role, string> = {
   LAB_MANAGER: 'Responsable Laboratoire',
   CLINIC_ADMIN: 'Administrateur Clinique',
   ADHERENT: 'Adhérent',
+  // SoinFlow roles
+  SOIN_GESTIONNAIRE: 'Gestionnaire SoinFlow',
+  SOIN_AGENT: 'Agent SoinFlow',
+  PRATICIEN: 'Praticien',
 };
 
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
@@ -20,6 +24,10 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   LAB_MANAGER: 'Gestion des analyses et résultats',
   CLINIC_ADMIN: 'Gestion des hospitalisations et séjours',
   ADHERENT: 'Accès mobile aux données personnelles',
+  // SoinFlow roles
+  SOIN_GESTIONNAIRE: 'Validation des demandes, supervision et rapports SoinFlow',
+  SOIN_AGENT: 'Traitement quotidien des demandes SoinFlow',
+  PRATICIEN: 'Soumission d\'actes digitaux et tiers-payant',
 };
 
 export const PROVIDER_ROLES: Role[] = ['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN'];
@@ -29,3 +37,8 @@ export const INSURER_ROLES: Role[] = ['INSURER_ADMIN', 'INSURER_AGENT'];
 export const ADMIN_ROLES: Role[] = ['ADMIN'];
 
 export const MOBILE_ROLES: Role[] = ['ADHERENT'];
+
+// SoinFlow role groups
+export const SOINFLOW_ROLES: Role[] = ['SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN'];
+
+export const SOINFLOW_INTERNAL_ROLES: Role[] = ['SOIN_GESTIONNAIRE', 'SOIN_AGENT'];

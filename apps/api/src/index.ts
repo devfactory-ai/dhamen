@@ -18,6 +18,7 @@ import {
   tarification,
   fraud,
   reconciliation,
+  sante,
 } from './routes';
 import type { Bindings, Variables } from './types';
 
@@ -67,6 +68,9 @@ api.route('/eligibility', eligibility);
 api.route('/tarification', tarification);
 api.route('/fraud', fraud);
 api.route('/reconciliation', reconciliation);
+
+// SoinFlow routes
+api.route('/sante', sante);
 
 // Root redirect
 app.get('/', (c) => {

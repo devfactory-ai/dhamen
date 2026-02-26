@@ -91,6 +91,13 @@ export function conflict(c: Context, message = 'Conflit avec une ressource exist
 }
 
 /**
+ * Create a 400 Bad Request response
+ */
+export function badRequest(c: Context, message = 'Requête invalide'): Response {
+  return error(c, 'BAD_REQUEST', message, 400);
+}
+
+/**
  * Create a 422 Validation Error response
  */
 export function validationError(c: Context, details: unknown): Response {
