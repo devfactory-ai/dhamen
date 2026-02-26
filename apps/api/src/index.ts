@@ -21,6 +21,9 @@ import {
   sante,
   webhooks,
   publicApi,
+  realtime,
+  exports,
+  compliance,
 } from './routes';
 import type { Bindings, Variables } from './types';
 
@@ -80,6 +83,15 @@ app.route('/webhooks', webhooks);
 
 // Public API (uses API key auth)
 app.route('/public/v1', publicApi);
+
+// Realtime SSE
+api.route('/realtime', realtime);
+
+// Exports (PDF, etc.)
+api.route('/exports', exports);
+
+// Compliance and GDPR
+api.route('/compliance', compliance);
 
 // Root redirect
 app.get('/', (c) => {

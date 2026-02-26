@@ -24,3 +24,8 @@ export { sante } from './sante';
 // Webhooks and Public API
 export { webhooks } from './webhooks';
 export { publicApi } from './public-api';
+
+// Realtime, Exports, and Compliance
+export { realtime } from './realtime';
+export { exports } from './exports';
+export { compliance } from './compliance';
