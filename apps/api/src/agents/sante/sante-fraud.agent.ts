@@ -18,6 +18,7 @@ import type {
   RegleFraudeConfig,
 } from './sante-fraud.types';
 import { getNiveauRisque, getActionRecommandee } from './sante-fraud.types';
+import { createWorkersAIService } from '../../services/workers-ai.service';
 
 // Seuils par défaut
 const SEUIL_DEMANDES_JOUR = 3;
@@ -178,6 +179,63 @@ export async function detectSanteFraud(
   }
 
   // ============================================
+  // Check 6: AI-powered fraud analysis (if enabled)
+  // ============================================
+  let analyseIA: { score: number; confidence: number; reasoning: string; flags: string[] } | null = null;
+
+  try {
+    const aiService = createWorkersAIService(c);
+
+    // Build history string
+    const historiqueStr = demandesRecentes
+      .slice(0, 5)
+      .map((d) => `${d.dateSoin}: ${d.typeSoin} - ${d.montant / 1000} TND`)
+      .join('; ');
+
+    const aiResult = await aiService.analyzeFraudIndicators({
+      description: request.description || '',
+      montant: request.montant,
+      typeSoin: request.typeSoin,
+      historique: historiqueStr,
+    });
+
+    analyseIA = aiResult;
+
+    // Add AI-detected flags as rules
+    if (aiResult.score >= 30 && aiResult.confidence >= 50) {
+      reglesActivees.push({
+        code: 'ANALYSE_IA',
+        nom: 'Analyse IA',
+        description: aiResult.reasoning,
+        severite: aiResult.score >= 70 ? 'elevee' : aiResult.score >= 50 ? 'moyenne' : 'faible',
+        impactScore: Math.round(aiResult.score * 0.5), // Weight AI at 50%
+        details: {
+          iaScore: aiResult.score,
+          iaConfidence: aiResult.confidence,
+          iaFlags: aiResult.flags,
+        },
+      });
+    }
+
+    // Add specific AI flags
+    for (const flag of aiResult.flags) {
+      if (!reglesActivees.some((r) => r.description.includes(flag))) {
+        reglesActivees.push({
+          code: 'IA_FLAG',
+          nom: `Indicateur IA: ${flag}`,
+          description: flag,
+          severite: 'info' as const,
+          impactScore: 5,
+          details: { source: 'ai' },
+        });
+      }
+    }
+  } catch (error) {
+    console.error('AI fraud analysis failed:', error);
+    // Continue without AI analysis
+  }
+
+  // ============================================
   // Calculate final score
   // ============================================
   const scoreFraude = calculateScoreFinal(reglesActivees);
@@ -192,6 +250,7 @@ export async function detectSanteFraud(
     reglesActivees,
     analyseFrequence,
     analyseMontant,
+    analyseIA,
     tempsAnalyse: Date.now() - startTime,
   };
 }

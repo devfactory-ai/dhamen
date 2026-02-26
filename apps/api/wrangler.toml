@@ -33,9 +33,22 @@ bucket_name = "dhamen-files"
 name = "RATE_LIMITER"
 class_name = "RateLimiter"
 
+# Durable Objects for real-time notifications
+[[durable_objects.bindings]]
+name = "NOTIFICATION_HUB"
+class_name = "NotificationHub"
+
+# Workers AI binding
+[ai]
+binding = "AI"
+
 [[migrations]]
 tag = "v1"
 new_classes = ["RateLimiter"]
+
+[[migrations]]
+tag = "v2"
+new_classes = ["NotificationHub"]
 
 # Staging environment
 [env.staging]
@@ -65,6 +78,13 @@ bucket_name = "dhamen-files-staging"
 [[env.staging.durable_objects.bindings]]
 name = "RATE_LIMITER"
 class_name = "RateLimiter"
+
+[[env.staging.durable_objects.bindings]]
+name = "NOTIFICATION_HUB"
+class_name = "NotificationHub"
+
+[env.staging.ai]
+binding = "AI"
 
 # Production environment
 # IMPORTANT: Before deploying to production, create these resources:
@@ -102,3 +122,10 @@ bucket_name = "dhamen-files-production"
 [[env.production.durable_objects.bindings]]
 name = "RATE_LIMITER"
 class_name = "RateLimiter"
+
+[[env.production.durable_objects.bindings]]
+name = "NOTIFICATION_HUB"
+class_name = "NotificationHub"
+
+[env.production.ai]
+binding = "AI"

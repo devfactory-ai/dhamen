@@ -16,6 +16,7 @@ export interface SanteFraudRequest {
   dateSoin: string;
   heureSoin?: string;
   medicaments?: string[];
+  description?: string;
 }
 
 export interface SanteFraudResult {
@@ -26,6 +27,12 @@ export interface SanteFraudResult {
   reglesActivees: RegleFraudeActivee[];
   analyseFrequence: FrequenceAnalyse;
   analyseMontant: MontantAnalyse;
+  analyseIA?: {
+    score: number;
+    confidence: number;
+    reasoning: string;
+    flags: string[];
+  } | null;
   tempsAnalyse: number;
 }
 
@@ -37,7 +44,7 @@ export interface RegleFraudeActivee {
   code: RegleFraudeCode;
   nom: string;
   description: string;
-  severite: 'faible' | 'moyenne' | 'elevee' | 'critique';
+  severite: 'faible' | 'moyenne' | 'elevee' | 'critique' | 'info';
   impactScore: number;
   details?: Record<string, unknown>;
 }
@@ -50,7 +57,9 @@ export type RegleFraudeCode =
   | 'PRATICIEN_VOLUME_ELEVE'
   | 'ADHERENT_MULTI_PRATICIENS'
   | 'MEDICAMENTS_INCOMPATIBLES'
-  | 'PATTERN_SUSPECT';
+  | 'PATTERN_SUSPECT'
+  | 'ANALYSE_IA'
+  | 'IA_FLAG';
 
 export interface FrequenceAnalyse {
   demandesAujourdhui: number;

@@ -24,6 +24,7 @@ import type { Bindings, Variables } from './types';
 
 // Export Durable Objects
 export { RateLimiter } from './durable-objects/rate-limiter';
+export { NotificationHub } from './durable-objects/notification-hub';
 
 /**
  * Dhamen API - Cloudflare Worker
