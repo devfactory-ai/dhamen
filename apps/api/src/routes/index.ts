@@ -20,3 +20,7 @@ export { reconciliation } from './reconciliation';
 
 // SoinFlow routes
 export { sante } from './sante';
+
+// Webhooks and Public API
+export { webhooks } from './webhooks';
+export { publicApi } from './public-api';

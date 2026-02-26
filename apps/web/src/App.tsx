@@ -34,6 +34,7 @@ const SanteAnalyticsPage = lazy(() => import('@/features/sante/pages/SanteAnalyt
 const SanteDocumentsPage = lazy(() => import('@/features/sante/pages/SanteDocumentsPage').then(m => ({ default: m.SanteDocumentsPage })));
 const SanteFraudPage = lazy(() => import('@/features/sante/pages/SanteFraudPage').then(m => ({ default: m.SanteFraudPage })));
 const SanteReportsPage = lazy(() => import('@/features/sante/pages/SanteReportsPage').then(m => ({ default: m.SanteReportsPage })));
+const BIDashboardPage = lazy(() => import('@/features/bi/pages/BIDashboardPage').then(m => ({ default: m.BIDashboardPage })));
 
 /**
  * Loading spinner for lazy-loaded routes
@@ -132,6 +133,9 @@ function App() {
                     <Route path="/sante/documents" element={<SanteDocumentsPage />} />
                     <Route path="/sante/fraud" element={<SanteFraudPage />} />
                     <Route path="/sante/reports" element={<SanteReportsPage />} />
+                    {/* BI Dashboard */}
+                    <Route path="/bi" element={<BIDashboardPage />} />
+                    <Route path="/bi/dashboard" element={<BIDashboardPage />} />
                     {/* Common routes */}
                     <Route path="/reports" element={<ReportsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />

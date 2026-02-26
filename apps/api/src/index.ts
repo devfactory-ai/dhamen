@@ -19,6 +19,8 @@ import {
   fraud,
   reconciliation,
   sante,
+  webhooks,
+  publicApi,
 } from './routes';
 import type { Bindings, Variables } from './types';
 
@@ -72,6 +74,12 @@ api.route('/reconciliation', reconciliation);
 
 // SoinFlow routes
 api.route('/sante', sante);
+
+// Webhooks (no auth middleware - uses signature verification)
+app.route('/webhooks', webhooks);
+
+// Public API (uses API key auth)
+app.route('/public/v1', publicApi);
 
 // Root redirect
 app.get('/', (c) => {
