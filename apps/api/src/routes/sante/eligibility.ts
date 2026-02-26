@@ -222,6 +222,172 @@ eligibility.post(
 );
 
 /**
+ * GET /api/v1/sante/eligibility/check
+ * Check eligibility by matricule or national ID (for web portal)
+ */
+eligibility.get(
+  '/check',
+  requireRole('PRATICIEN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER'),
+  async (c) => {
+    const matricule = c.req.query('matricule');
+    const nationalId = c.req.query('nationalId');
+
+    if (!matricule && !nationalId) {
+      return badRequest(c, 'Matricule ou CIN requis');
+    }
+
+    // Find adherent by matricule or national ID
+    const adherentQuery = matricule
+      ? c.env.DB.prepare(`
+          SELECT a.id, a.first_name, a.last_name, a.birth_date, a.national_id, a.is_active,
+                 COALESCE(sa.matricule, a.id) as matricule,
+                 sa.formule_id, sa.plafond_global,
+                 f.code as formule_code, f.nom as formule_nom, f.plafond_global as formule_plafond,
+                 c.id as contrat_id, c.contract_number, c.start_date, c.end_date, c.status
+          FROM adherents a
+          LEFT JOIN sante_adherents sa ON a.id = sa.adherent_id
+          LEFT JOIN sante_garanties_formules f ON sa.formule_id = f.id
+          LEFT JOIN contracts c ON a.contract_id = c.id
+          WHERE (sa.matricule = ? OR a.id = ?) AND a.deleted_at IS NULL
+        `).bind(matricule, matricule)
+      : c.env.DB.prepare(`
+          SELECT a.id, a.first_name, a.last_name, a.birth_date, a.national_id, a.is_active,
+                 COALESCE(sa.matricule, a.id) as matricule,
+                 sa.formule_id, sa.plafond_global,
+                 f.code as formule_code, f.nom as formule_nom, f.plafond_global as formule_plafond,
+                 c.id as contrat_id, c.contract_number, c.start_date, c.end_date, c.status
+          FROM adherents a
+          LEFT JOIN sante_adherents sa ON a.id = sa.adherent_id
+          LEFT JOIN sante_garanties_formules f ON sa.formule_id = f.id
+          LEFT JOIN contracts c ON a.contract_id = c.id
+          WHERE a.national_id = ? AND a.deleted_at IS NULL
+        `).bind(nationalId);
+
+    const adherent = await adherentQuery.first<{
+      id: string;
+      first_name: string;
+      last_name: string;
+      birth_date: string | null;
+      national_id: string | null;
+      is_active: number;
+      matricule: string;
+      formule_id: string | null;
+      plafond_global: number | null;
+      formule_code: string | null;
+      formule_nom: string | null;
+      formule_plafond: number | null;
+      contrat_id: string | null;
+      contract_number: string | null;
+      start_date: string | null;
+      end_date: string | null;
+      status: string | null;
+    }>();
+
+    if (!adherent) {
+      return badRequest(c, 'Adherent non trouve');
+    }
+
+    // Get consumed plafonds
+    const year = new Date().getFullYear();
+    const { results: plafonds } = await c.env.DB.prepare(`
+      SELECT type_soin, montant_consomme, montant_plafond
+      FROM sante_plafonds_consommes
+      WHERE adherent_id = ? AND annee = ?
+    `).bind(adherent.id, year).all<{
+      type_soin: string;
+      montant_consomme: number;
+      montant_plafond: number;
+    }>();
+
+    // Calculate plafonds with percentages
+    const plafondsWithPercentage = plafonds.map((p) => ({
+      typeSoin: p.type_soin,
+      montantPlafond: p.montant_plafond,
+      montantConsomme: p.montant_consomme,
+      montantRestant: p.montant_plafond - p.montant_consomme,
+      pourcentageUtilise: p.montant_plafond > 0
+        ? Math.round((p.montant_consomme / p.montant_plafond) * 100)
+        : 0,
+    }));
+
+    // Determine eligibility and warnings
+    const warnings: string[] = [];
+    let eligible = true;
+
+    if (adherent.is_active !== 1) {
+      eligible = false;
+      warnings.push('Adherent inactif');
+    }
+
+    if (!adherent.formule_id) {
+      eligible = false;
+      warnings.push('Aucune formule de garantie attribuee');
+    }
+
+    if (adherent.contrat_id && adherent.status !== 'active') {
+      eligible = false;
+      warnings.push('Contrat non actif');
+    }
+
+    if (adherent.end_date) {
+      const endDate = new Date(adherent.end_date);
+      if (endDate < new Date()) {
+        eligible = false;
+        warnings.push('Contrat expire');
+      } else {
+        const daysUntilExpiry = Math.ceil((endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+        if (daysUntilExpiry <= 30) {
+          warnings.push(`Contrat expire dans ${daysUntilExpiry} jours`);
+        }
+      }
+    }
+
+    // Check global plafond
+    const globalPlafond = plafonds.find((p) => p.type_soin === 'global');
+    if (globalPlafond) {
+      const remaining = globalPlafond.montant_plafond - globalPlafond.montant_consomme;
+      if (remaining <= 0) {
+        eligible = false;
+        warnings.push('Plafond global epuise');
+      } else if (remaining < globalPlafond.montant_plafond * 0.1) {
+        warnings.push('Plafond global presque epuise (< 10%)');
+      }
+    }
+
+    return success(c, {
+      eligible,
+      adherent: {
+        id: adherent.id,
+        matricule: adherent.matricule,
+        nom: adherent.last_name,
+        prenom: adherent.first_name,
+        dateNaissance: adherent.birth_date || '',
+        estActif: adherent.is_active === 1,
+      },
+      formule: adherent.formule_id
+        ? {
+            id: adherent.formule_id,
+            code: adherent.formule_code || '',
+            nom: adherent.formule_nom || '',
+            plafondGlobal: adherent.formule_plafond,
+          }
+        : null,
+      plafonds: plafondsWithPercentage,
+      contrat: adherent.contrat_id
+        ? {
+            id: adherent.contrat_id,
+            numero: adherent.contract_number || '',
+            dateDebut: adherent.start_date || '',
+            dateFin: adherent.end_date || '',
+            estActif: adherent.status === 'active',
+          }
+        : undefined,
+      warnings,
+    });
+  }
+);
+
+/**
  * GET /api/v1/sante/eligibility/quick/:adherentId
  * Quick eligibility lookup by adherent ID
  */

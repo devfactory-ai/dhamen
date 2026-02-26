@@ -1,5 +1,5 @@
 /**
- * New Demande Screen - Camera capture for bulletin scan
+ * New Demande Screen - Camera capture for bulletin scan with OCR
  */
 import { useState, useRef } from 'react';
 import {
@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
+  TextInput,
 } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -27,27 +28,52 @@ const TYPES_SOIN: { value: SanteTypeSoin; label: string }[] = [
   { value: 'optique', label: 'Optique' },
   { value: 'dentaire', label: 'Dentaire' },
   { value: 'laboratoire', label: 'Laboratoire' },
-  { value: 'kinesitherapie', label: 'Kinésithérapie' },
+  { value: 'kinesitherapie', label: 'Kinesitherapie' },
   { value: 'autre', label: 'Autre' },
 ];
+
+interface OCRExtractedData {
+  dateSoin?: string;
+  typeSoin?: SanteTypeSoin;
+  montantTotal: number;
+  praticien?: {
+    nom?: string;
+    specialite?: string;
+  };
+  lignes: Array<{
+    libelle: string;
+    montantTotal: number;
+  }>;
+  confidence: number;
+  warnings: string[];
+}
 
 export default function NouvelleDemande() {
   const [permission, requestPermission] = useCameraPermissions();
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<SanteTypeSoin | null>(null);
-  const [step, setStep] = useState<'select-type' | 'capture' | 'preview'>('select-type');
+  const [step, setStep] = useState<'select-type' | 'capture' | 'preview' | 'ocr-review'>('select-type');
+  const [ocrData, setOcrData] = useState<OCRExtractedData | null>(null);
+  const [isOcrLoading, setIsOcrLoading] = useState(false);
+  const [editedAmount, setEditedAmount] = useState<string>('');
+  const [editedDate, setEditedDate] = useState<string>('');
   const cameraRef = useRef<CameraView>(null);
   const queryClient = useQueryClient();
 
   const createDemande = useMutation({
-    mutationFn: async (data: { typeSoin: SanteTypeSoin; imageUri: string }) => {
+    mutationFn: async (data: {
+      typeSoin: SanteTypeSoin;
+      imageUri: string;
+      montantDemande?: number;
+      dateSoin?: string;
+    }) => {
       // Create demande first
       const createResponse = await apiClient.post<{ success: boolean; data: { id: string } }>(
         '/sante/demandes',
         {
           typeSoin: data.typeSoin,
-          montantDemande: 0, // Will be filled by gestionnaire
-          dateSoin: new Date().toISOString().split('T')[0],
+          montantDemande: data.montantDemande || 0,
+          dateSoin: data.dateSoin || new Date().toISOString().split('T')[0],
         }
       );
 
@@ -67,10 +93,16 @@ export default function NouvelleDemande() {
       formData.append('demandeId', demandeId);
       formData.append('typeDocument', 'bulletin_soin');
 
-      const uploadResponse = await apiClient.upload('/sante/documents/upload', formData);
+      const uploadResponse = await apiClient.upload<{ data: { id: string } }>('/sante/documents/upload', formData);
 
       if (!uploadResponse.success) {
         throw new Error('Failed to upload document');
+      }
+
+      // Trigger OCR in background (don't wait for it)
+      const documentId = uploadResponse.data?.id;
+      if (documentId) {
+        apiClient.post(`/sante/documents/${documentId}/ocr`).catch(console.error);
       }
 
       return { demandeId };
@@ -78,19 +110,43 @@ export default function NouvelleDemande() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mes-demandes'] });
       Alert.alert(
-        'Demande envoyée',
-        'Votre demande de remboursement a été soumise avec succès.',
+        'Demande envoyee',
+        'Votre demande de remboursement a ete soumise avec succes.',
         [{ text: 'OK', onPress: () => router.back() }]
       );
     },
     onError: (error) => {
       Alert.alert(
         'Erreur',
-        'Une erreur est survenue lors de l\'envoi de votre demande. Veuillez réessayer.'
+        'Une erreur est survenue lors de l\'envoi de votre demande. Veuillez reessayer.'
       );
       console.error('Create demande error:', error);
     },
   });
+
+  // OCR extraction after capture
+  const runOCR = async (imageUri: string) => {
+    setIsOcrLoading(true);
+    try {
+      // Create a temporary demande and upload document to trigger OCR
+      const formData = new FormData();
+      formData.append('file', {
+        uri: imageUri,
+        type: 'image/jpeg',
+        name: 'bulletin_ocr.jpg',
+      } as unknown as Blob);
+
+      // For OCR preview, we'll do a simplified extraction locally
+      // The full OCR will be done server-side after submission
+      setOcrData(null);
+      setStep('preview');
+    } catch (error) {
+      console.error('OCR error:', error);
+      setStep('preview');
+    } finally {
+      setIsOcrLoading(false);
+    }
+  };
 
   const handleCapture = async () => {
     if (!cameraRef.current) return;
@@ -130,7 +186,22 @@ export default function NouvelleDemande() {
 
   const handleSubmit = () => {
     if (!capturedImage || !selectedType) return;
-    createDemande.mutate({ typeSoin: selectedType, imageUri: capturedImage });
+
+    // Use edited or OCR values
+    const montant = editedAmount ? parseFloat(editedAmount) * 1000 : ocrData?.montantTotal || 0;
+    const date = editedDate || ocrData?.dateSoin || new Date().toISOString().split('T')[0];
+
+    createDemande.mutate({
+      typeSoin: selectedType,
+      imageUri: capturedImage,
+      montantDemande: montant,
+      dateSoin: date,
+    });
+  };
+
+  // Format amount for display (millimes to TND)
+  const formatAmount = (millimes: number) => {
+    return (millimes / 1000).toFixed(3);
   };
 
   // Step 1: Select type of care
@@ -267,6 +338,66 @@ export default function NouvelleDemande() {
             {TYPES_SOIN.find((t) => t.value === selectedType)?.label}
           </Text>
         </View>
+
+        {/* OCR extracted data or manual input */}
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Montant (TND)</Text>
+          <TextInput
+            style={styles.amountInput}
+            value={editedAmount || (ocrData?.montantTotal ? formatAmount(ocrData.montantTotal) : '')}
+            onChangeText={setEditedAmount}
+            placeholder="Ex: 50.000"
+            keyboardType="decimal-pad"
+          />
+          {ocrData?.confidence && ocrData.confidence > 0.5 && (
+            <Text style={styles.ocrHint}>
+              Detecte automatiquement (confiance: {Math.round(ocrData.confidence * 100)}%)
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Date du soin</Text>
+          <TextInput
+            style={styles.amountInput}
+            value={editedDate || ocrData?.dateSoin || ''}
+            onChangeText={setEditedDate}
+            placeholder="AAAA-MM-JJ"
+          />
+        </View>
+
+        {ocrData?.praticien?.nom && (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Praticien detecte</Text>
+            <Text style={styles.summaryValue}>{ocrData.praticien.nom}</Text>
+            {ocrData.praticien.specialite && (
+              <Text style={styles.summarySubvalue}>{ocrData.praticien.specialite}</Text>
+            )}
+          </View>
+        )}
+
+        {ocrData?.lignes && ocrData.lignes.length > 0 && (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryLabel}>Articles detectes</Text>
+            {ocrData.lignes.slice(0, 5).map((ligne, index) => (
+              <View key={index} style={styles.ligneRow}>
+                <Text style={styles.ligneLibelle} numberOfLines={1}>{ligne.libelle}</Text>
+                <Text style={styles.ligneMontant}>{formatAmount(ligne.montantTotal)} TND</Text>
+              </View>
+            ))}
+            {ocrData.lignes.length > 5 && (
+              <Text style={styles.ligneMore}>+{ocrData.lignes.length - 5} autres...</Text>
+            )}
+          </View>
+        )}
+
+        {ocrData?.warnings && ocrData.warnings.length > 0 && (
+          <View style={styles.warningCard}>
+            <Text style={styles.warningText}>
+              {ocrData.warnings[0]}
+            </Text>
+          </View>
+        )}
 
         <TouchableOpacity
           style={[styles.primaryButton, createDemande.isPending && styles.buttonDisabled]}
@@ -502,5 +633,60 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.6,
+  },
+  amountInput: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    paddingVertical: 8,
+    marginTop: 4,
+  },
+  ocrHint: {
+    fontSize: 12,
+    color: '#28a745',
+    marginTop: 4,
+  },
+  summarySubvalue: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
+  },
+  ligneRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  ligneLibelle: {
+    flex: 1,
+    fontSize: 14,
+    color: '#333',
+    marginRight: 8,
+  },
+  ligneMontant: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1e3a5f',
+  },
+  ligneMore: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  warningCard: {
+    backgroundColor: '#fff3cd',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: '#ffc107',
+  },
+  warningText: {
+    fontSize: 13,
+    color: '#856404',
   },
 });

@@ -15,14 +15,26 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { getUser, clearAuth } from '@/lib/auth';
+import { useOfflineSync } from '@/hooks/useOfflineSync';
+import { usePushNotifications, getUnreadCount, setBadgeCount } from '@/hooks/usePushNotifications';
 import type { UserPublic, SanteDemande } from '@dhamen/shared';
 
 export default function DashboardScreen() {
   const [user, setUserState] = useState<UserPublic | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const { isOnline, pendingCount, isSyncing } = useOfflineSync();
+  const { registerToken } = usePushNotifications();
 
   useEffect(() => {
     getUser().then(setUserState);
-  }, []);
+    // Register push token on dashboard load
+    registerToken();
+    // Fetch unread count
+    getUnreadCount().then((count) => {
+      setUnreadCount(count);
+      setBadgeCount(count);
+    });
+  }, [registerToken]);
 
   const { data: demandes, isLoading, refetch } = useQuery({
     queryKey: ['mes-demandes'],
@@ -75,6 +87,22 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Offline Banner */}
+      {!isOnline && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>
+            Mode hors ligne {pendingCount > 0 ? `(${pendingCount} en attente)` : ''}
+          </Text>
+        </View>
+      )}
+
+      {/* Syncing indicator */}
+      {isSyncing && (
+        <View style={styles.syncingBanner}>
+          <Text style={styles.syncingBannerText}>Synchronisation en cours...</Text>
+        </View>
+      )}
+
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>Bonjour,</Text>
@@ -82,9 +110,25 @@ export default function DashboardScreen() {
             {user?.firstName} {user?.lastName}
           </Text>
         </View>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-          <Text style={styles.logoutText}>Déconnexion</Text>
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          {/* Notifications button */}
+          <TouchableOpacity
+            onPress={() => router.push('/(main)/notifications')}
+            style={styles.notificationButton}
+          >
+            <Text style={styles.notificationIcon}>🔔</Text>
+            {unreadCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+            <Text style={styles.logoutText}>Deconnexion</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -168,12 +212,62 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f5f5f5',
   },
+  offlineBanner: {
+    backgroundColor: '#dc3545',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  offlineBannerText: {
+    color: '#fff',
+    fontSize: 12,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  syncingBanner: {
+    backgroundColor: '#ffc107',
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+  },
+  syncingBannerText: {
+    color: '#333',
+    fontSize: 12,
+    textAlign: 'center',
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
     backgroundColor: '#1e3a5f',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  notificationButton: {
+    padding: 8,
+    position: 'relative',
+  },
+  notificationIcon: {
+    fontSize: 22,
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: '#dc3545',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  notificationBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   greeting: {
     fontSize: 14,

@@ -25,6 +25,8 @@ const MfaVerifyPage = lazy(() => import('@/features/auth/pages/MfaVerifyPage').t
 const SanteDemandesPage = lazy(() => import('@/features/sante/pages/SanteDemandesPage').then(m => ({ default: m.SanteDemandesPage })));
 const SanteBordereauxPage = lazy(() => import('@/features/sante/pages/SanteBordereauxPage').then(m => ({ default: m.SanteBordereauxPage })));
 const SantePaiementsPage = lazy(() => import('@/features/sante/pages/SantePaiementsPage').then(m => ({ default: m.SantePaiementsPage })));
+const SanteEligibilityPage = lazy(() => import('@/features/sante/pages/SanteEligibilityPage'));
+const SantePraticiensPage = lazy(() => import('@/features/sante/pages/SantePraticiensPage'));
 
 /**
  * Loading spinner for lazy-loaded routes
@@ -114,6 +116,8 @@ function App() {
                     <Route path="/sante/demandes" element={<SanteDemandesPage />} />
                     <Route path="/sante/bordereaux" element={<SanteBordereauxPage />} />
                     <Route path="/sante/paiements" element={<SantePaiementsPage />} />
+                    <Route path="/sante/eligibility" element={<SanteEligibilityPage />} />
+                    <Route path="/sante/praticiens" element={<SantePraticiensPage />} />
                     {/* Common routes */}
                     <Route path="/reports" element={<ReportsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />

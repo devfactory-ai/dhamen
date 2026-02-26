@@ -56,6 +56,25 @@ praticiens.get(
 );
 
 /**
+ * GET /api/v1/sante/praticiens/specialites
+ * List distinct specialites
+ */
+praticiens.get(
+  '/specialites',
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  async (c) => {
+    const { results } = await c.env.DB.prepare(`
+      SELECT DISTINCT specialite
+      FROM sante_praticiens
+      WHERE deleted_at IS NULL AND est_actif = 1
+      ORDER BY specialite
+    `).all<{ specialite: string }>();
+
+    return success(c, results.map((r) => r.specialite));
+  }
+);
+
+/**
  * GET /api/v1/sante/praticiens/villes
  * List cities with practitioners
  */

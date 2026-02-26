@@ -248,23 +248,39 @@ documents.post(
 
 /**
  * POST /api/v1/sante/documents/:id/ocr
- * Trigger OCR processing for a document
+ * Trigger OCR processing for a document using Workers AI
  */
 documents.post(
   '/:id/ocr',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADHERENT', 'PRATICIEN', 'ADMIN'),
   async (c) => {
     const id = c.req.param('id');
     const user = c.get('user');
 
     const doc = await findDocumentById(c.env.DB, id);
     if (!doc) {
-      return notFound(c, 'Document non trouvé');
+      return notFound(c, 'Document non trouve');
+    }
+
+    // Verify access through demande
+    const demande = await findSanteDemandeById(c.env.DB, doc.demandeId);
+    if (!demande) {
+      return notFound(c, 'Demande associee non trouvee');
+    }
+
+    if (user.role === 'ADHERENT' && demande.adherentId !== user.sub) {
+      return forbidden(c, 'Acces non autorise');
+    }
+    if (user.role === 'PRATICIEN' && demande.praticienId !== user.providerId) {
+      return forbidden(c, 'Acces non autorise');
     }
 
     // Check if already processed
-    if (doc.ocrStatus === 'completed') {
-      return success(c, { message: 'OCR déjà effectué', ocrResult: doc.ocrResultJson });
+    if (doc.ocrStatus === 'completed' && doc.ocrResultJson) {
+      return success(c, {
+        message: 'OCR deja effectue',
+        data: JSON.parse(doc.ocrResultJson),
+      });
     }
 
     // Mark as processing
@@ -274,22 +290,57 @@ documents.post(
     const object = await c.env.STORAGE.get(doc.r2Key);
     if (!object) {
       await updateDocumentOcrStatus(c.env.DB, id, 'failed');
-      return notFound(c, 'Fichier non trouvé dans le stockage');
+      return notFound(c, 'Fichier non trouve dans le stockage');
     }
 
-    // TODO: Call Workers AI OCR
-    // For now, mark as skipped (OCR implementation in future sprint)
-    await updateDocumentOcrStatus(c.env.DB, id, 'skipped');
+    try {
+      // Import OCR agent dynamically to avoid circular dependencies
+      const { extractBulletinData } = await import('../../agents/ocr/ocr.agent');
 
-    await logAudit(c.env.DB, {
-      userId: user.sub,
-      action: 'sante_documents.ocr_trigger',
-      entityType: 'sante_documents',
-      entityId: id,
-      changes: {},
-    });
+      // Extract data from document
+      const imageData = await object.arrayBuffer();
+      const extractedData = await extractBulletinData(c, imageData);
 
-    return success(c, { message: 'OCR en attente de configuration' });
+      // Save OCR result
+      await c.env.DB.prepare(`
+        UPDATE sante_documents
+        SET ocr_status = 'completed',
+            ocr_result_json = ?,
+            ocr_completed_at = datetime('now'),
+            updated_at = datetime('now')
+        WHERE id = ?
+      `).bind(JSON.stringify(extractedData), id).run();
+
+      await logAudit(c.env.DB, {
+        userId: user.sub,
+        action: 'sante_documents.ocr_completed',
+        entityType: 'sante_documents',
+        entityId: id,
+        changes: {
+          confidence: extractedData.confidence,
+          montantTotal: extractedData.montantTotal,
+          lignesCount: extractedData.lignes.length,
+        },
+      });
+
+      return success(c, {
+        message: 'OCR termine avec succes',
+        data: extractedData,
+      });
+    } catch (error) {
+      // Mark as failed
+      await updateDocumentOcrStatus(c.env.DB, id, 'failed');
+
+      await logAudit(c.env.DB, {
+        userId: user.sub,
+        action: 'sante_documents.ocr_failed',
+        entityType: 'sante_documents',
+        entityId: id,
+        changes: { error: error instanceof Error ? error.message : 'Unknown error' },
+      });
+
+      return badRequest(c, `Erreur OCR: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 );
 
