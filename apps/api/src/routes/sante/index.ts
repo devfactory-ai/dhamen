@@ -18,6 +18,9 @@ import { stats } from './stats';
 import { exports } from './exports';
 import { workflows } from './workflows';
 import { realtime } from './realtime';
+import { fraud } from './fraud';
+import { reports } from './reports';
+import { carte } from './carte';
 
 const sante = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -36,5 +39,8 @@ sante.route('/stats', stats);
 sante.route('/exports', exports);
 sante.route('/workflows', workflows);
 sante.route('/realtime', realtime);
+sante.route('/fraud', fraud);
+sante.route('/reports', reports);
+sante.route('/carte', carte);
 
 export { sante };
