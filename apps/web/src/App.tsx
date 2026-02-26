@@ -29,6 +29,7 @@ const SanteEligibilityPage = lazy(() => import('@/features/sante/pages/SanteElig
 const SantePraticiensPage = lazy(() => import('@/features/sante/pages/SantePraticiensPage'));
 const SanteDashboardPage = lazy(() => import('@/features/sante/pages/SanteDashboardPage').then(m => ({ default: m.SanteDashboardPage })));
 const SanteGarantiesPage = lazy(() => import('@/features/sante/pages/SanteGarantiesPage').then(m => ({ default: m.SanteGarantiesPage })));
+const SanteWorkflowsPage = lazy(() => import('@/features/sante/pages/SanteWorkflowsPage').then(m => ({ default: m.SanteWorkflowsPage })));
 
 /**
  * Loading spinner for lazy-loaded routes
@@ -122,6 +123,7 @@ function App() {
                     <Route path="/sante/praticiens" element={<SantePraticiensPage />} />
                     <Route path="/sante/dashboard" element={<SanteDashboardPage />} />
                     <Route path="/sante/garanties" element={<SanteGarantiesPage />} />
+                    <Route path="/sante/workflows" element={<SanteWorkflowsPage />} />
                     {/* Common routes */}
                     <Route path="/reports" element={<ReportsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />

@@ -19,4 +19,50 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // React core
+          if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
+            return 'react-vendor';
+          }
+          // React Router
+          if (id.includes('node_modules/react-router')) {
+            return 'router-vendor';
+          }
+          // TanStack Query
+          if (id.includes('@tanstack/react-query')) {
+            return 'query-vendor';
+          }
+          // Form libraries
+          if (id.includes('react-hook-form') || id.includes('@hookform/resolvers') || id.includes('node_modules/zod')) {
+            return 'form-vendor';
+          }
+          // Radix UI components
+          if (id.includes('@radix-ui')) {
+            return 'ui-vendor';
+          }
+          // Charts (recharts)
+          if (id.includes('recharts') || id.includes('d3-')) {
+            return 'chart-vendor';
+          }
+          // Sante feature
+          if (id.includes('/features/sante/')) {
+            return 'feature-sante';
+          }
+          // Auth feature
+          if (id.includes('/features/auth/')) {
+            return 'feature-auth';
+          }
+        },
+      },
+    },
+    // Minify options
+    minify: 'esbuild',
+    // Target modern browsers
+    target: 'es2020',
+    // Chunk size warning limit
+    chunkSizeWarningLimit: 500,
+  },
 });
