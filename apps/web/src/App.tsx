@@ -30,6 +30,10 @@ const SantePraticiensPage = lazy(() => import('@/features/sante/pages/SantePrati
 const SanteDashboardPage = lazy(() => import('@/features/sante/pages/SanteDashboardPage').then(m => ({ default: m.SanteDashboardPage })));
 const SanteGarantiesPage = lazy(() => import('@/features/sante/pages/SanteGarantiesPage').then(m => ({ default: m.SanteGarantiesPage })));
 const SanteWorkflowsPage = lazy(() => import('@/features/sante/pages/SanteWorkflowsPage').then(m => ({ default: m.SanteWorkflowsPage })));
+const SanteAnalyticsPage = lazy(() => import('@/features/sante/pages/SanteAnalyticsPage').then(m => ({ default: m.SanteAnalyticsPage })));
+const SanteDocumentsPage = lazy(() => import('@/features/sante/pages/SanteDocumentsPage').then(m => ({ default: m.SanteDocumentsPage })));
+const SanteFraudPage = lazy(() => import('@/features/sante/pages/SanteFraudPage').then(m => ({ default: m.SanteFraudPage })));
+const SanteReportsPage = lazy(() => import('@/features/sante/pages/SanteReportsPage').then(m => ({ default: m.SanteReportsPage })));
 
 /**
  * Loading spinner for lazy-loaded routes
@@ -124,6 +128,10 @@ function App() {
                     <Route path="/sante/dashboard" element={<SanteDashboardPage />} />
                     <Route path="/sante/garanties" element={<SanteGarantiesPage />} />
                     <Route path="/sante/workflows" element={<SanteWorkflowsPage />} />
+                    <Route path="/sante/analytics" element={<SanteAnalyticsPage />} />
+                    <Route path="/sante/documents" element={<SanteDocumentsPage />} />
+                    <Route path="/sante/fraud" element={<SanteFraudPage />} />
+                    <Route path="/sante/reports" element={<SanteReportsPage />} />
                     {/* Common routes */}
                     <Route path="/reports" element={<ReportsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />

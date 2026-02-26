@@ -25,12 +25,16 @@ const navigation: NavItem[] = [
   { name: 'Réconciliation', href: '/reconciliation', icon: CalculatorIcon, roles: ['ADMIN', 'INSURER_ADMIN'] },
   // SoinFlow - Gestionnaires
   { name: 'Dashboard Sante', href: '/sante/dashboard', icon: ChartIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE'] },
+  { name: 'Analytics Avances', href: '/sante/analytics', icon: AnalyticsIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE'] },
   { name: 'Demandes Sante', href: '/sante/demandes', icon: HeartIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT'] },
   { name: 'Bordereaux Sante', href: '/sante/bordereaux', icon: DocumentIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE'] },
   { name: 'Paiements Sante', href: '/sante/paiements', icon: CurrencyIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE'] },
   { name: 'Eligibilite Sante', href: '/sante/eligibility', icon: CheckCircleIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'PRATICIEN'] },
   { name: 'Garanties/Formules', href: '/sante/garanties', icon: ShieldIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN'] },
   { name: 'Workflows', href: '/sante/workflows', icon: WorkflowIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT'] },
+  { name: 'Documents', href: '/sante/documents', icon: DocumentsIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT'] },
+  { name: 'Detection Fraude', href: '/sante/fraud', icon: FraudIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE'] },
+  { name: 'Rapports Avances', href: '/sante/reports', icon: ReportsIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN'] },
   { name: 'Annuaire Praticiens', href: '/sante/praticiens', icon: UserGroupIcon, roles: 'all' },
   // Prestataires
   { name: 'Prises en charge', href: '/claims', icon: ClipboardIcon, roles: ['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'PRATICIEN'] },
@@ -166,6 +170,38 @@ function WorkflowIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" />
+    </svg>
+  );
+}
+
+function AnalyticsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0 0 20.25 18V6A2.25 2.25 0 0 0 18 3.75H6A2.25 2.25 0 0 0 3.75 6v12A2.25 2.25 0 0 0 6 20.25Z" />
+    </svg>
+  );
+}
+
+function DocumentsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+    </svg>
+  );
+}
+
+function FraudIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+    </svg>
+  );
+}
+
+function ReportsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" />
     </svg>
   );
 }

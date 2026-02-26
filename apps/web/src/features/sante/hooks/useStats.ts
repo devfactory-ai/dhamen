@@ -252,3 +252,71 @@ export const STATUT_LABELS: Record<string, string> = {
   payee: 'Payee',
   rejetee: 'Rejetee',
 };
+
+// ============================================
+// Comparison Analytics
+// ============================================
+
+export interface AnalyticsComparison {
+  previousDemandes: number;
+  previousMontant: number;
+  previousTauxApprobation: number;
+  previousDelai: number;
+}
+
+/**
+ * Fetch comparison data for analytics
+ */
+export function useAnalyticsComparison(period: 'week' | 'month' | 'quarter' | 'year') {
+  return useQuery({
+    queryKey: ['sante-analytics-comparison', period],
+    queryFn: async () => {
+      // Calculate previous period dates
+      const now = new Date();
+      let startDate: Date;
+      let endDate: Date;
+
+      switch (period) {
+        case 'week':
+          startDate = new Date(now);
+          startDate.setDate(startDate.getDate() - 14);
+          endDate = new Date(now);
+          endDate.setDate(endDate.getDate() - 7);
+          break;
+        case 'month':
+          startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+          endDate = new Date(now.getFullYear(), now.getMonth() - 1, 0);
+          break;
+        case 'quarter':
+          startDate = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+          endDate = new Date(now.getFullYear(), now.getMonth() - 3, 0);
+          break;
+        case 'year':
+          startDate = new Date(now.getFullYear() - 2, 0, 1);
+          endDate = new Date(now.getFullYear() - 1, 11, 31);
+          break;
+      }
+
+      const response = await apiClient.get<{ success: boolean; data: AnalyticsComparison }>(
+        `/sante/stats/comparison?startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
+      );
+
+      if (!response.success) {
+        // Return default values if comparison API doesn't exist yet
+        return {
+          previousDemandes: 0,
+          previousMontant: 0,
+          previousTauxApprobation: 0,
+          previousDelai: 0,
+        };
+      }
+
+      return response.data?.data || {
+        previousDemandes: 0,
+        previousMontant: 0,
+        previousTauxApprobation: 0,
+        previousDelai: 0,
+      };
+    },
+  });
+}
