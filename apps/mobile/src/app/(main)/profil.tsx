@@ -9,7 +9,9 @@ import {
   StyleSheet,
   ScrollView,
   RefreshControl,
+  TouchableOpacity,
 } from 'react-native';
+import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
@@ -181,6 +183,16 @@ export default function ProfilScreen() {
             </Text>
           </View>
         )}
+
+        {/* Settings Button */}
+        <TouchableOpacity
+          style={styles.settingsButton}
+          onPress={() => router.push('/(main)/parametres')}
+        >
+          <Text style={styles.settingsIcon}>⚙️</Text>
+          <Text style={styles.settingsText}>Parametres</Text>
+          <Text style={styles.settingsChevron}>›</Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -313,5 +325,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999',
     textAlign: 'center',
+  },
+  settingsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+  },
+  settingsIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  settingsText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  settingsChevron: {
+    fontSize: 20,
+    color: '#ccc',
   },
 });

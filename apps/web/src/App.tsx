@@ -35,6 +35,7 @@ const SanteDocumentsPage = lazy(() => import('@/features/sante/pages/SanteDocume
 const SanteFraudPage = lazy(() => import('@/features/sante/pages/SanteFraudPage').then(m => ({ default: m.SanteFraudPage })));
 const SanteReportsPage = lazy(() => import('@/features/sante/pages/SanteReportsPage').then(m => ({ default: m.SanteReportsPage })));
 const BIDashboardPage = lazy(() => import('@/features/bi/pages/BIDashboardPage').then(m => ({ default: m.BIDashboardPage })));
+const InsurerDashboardPage = lazy(() => import('@/features/insurers/pages/InsurerDashboardPage').then(m => ({ default: m.InsurerDashboardPage })));
 
 /**
  * Loading spinner for lazy-loaded routes
@@ -112,6 +113,7 @@ function App() {
                     <Route path="/providers" element={<ProvidersPage />} />
                     <Route path="/insurers" element={<InsurersPage />} />
                     {/* Insurer routes */}
+                    <Route path="/insurer/dashboard" element={<InsurerDashboardPage />} />
                     <Route path="/adherents" element={<AdherentsPage />} />
                     <Route path="/contracts" element={<ContractsPage />} />
                     <Route path="/claims/manage" element={<ClaimsManagePage />} />

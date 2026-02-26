@@ -70,6 +70,12 @@ export default function MainLayout() {
           href: null, // Hide from tab bar
         }}
       />
+      <Tabs.Screen
+        name="parametres"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
     </Tabs>
   );
 }

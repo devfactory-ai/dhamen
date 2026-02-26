@@ -24,6 +24,8 @@ import {
   realtime,
   exports,
   compliance,
+  ocr,
+  cnam,
 } from './routes';
 import type { Bindings, Variables } from './types';
 
@@ -92,6 +94,12 @@ api.route('/exports', exports);
 
 // Compliance and GDPR
 api.route('/compliance', compliance);
+
+// OCR Document Processing
+api.route('/ocr', ocr);
+
+// CNAM Integration
+api.route('/cnam', cnam);
 
 // Root redirect
 app.get('/', (c) => {

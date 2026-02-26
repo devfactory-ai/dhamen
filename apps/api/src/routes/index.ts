@@ -29,3 +29,9 @@ export { publicApi } from './public-api';
 export { realtime } from './realtime';
 export { exports } from './exports';
 export { compliance } from './compliance';
+
+// OCR
+export { ocr } from './ocr';
+
+// CNAM Integration
+export { cnam } from './cnam';
