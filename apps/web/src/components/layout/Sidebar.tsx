@@ -24,10 +24,12 @@ const navigation: NavItem[] = [
   { name: 'Gestion PEC', href: '/claims/manage', icon: ClipboardCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'] },
   { name: 'Réconciliation', href: '/reconciliation', icon: CalculatorIcon, roles: ['ADMIN', 'INSURER_ADMIN'] },
   // SoinFlow - Gestionnaires
+  { name: 'Dashboard Sante', href: '/sante/dashboard', icon: ChartIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE'] },
   { name: 'Demandes Sante', href: '/sante/demandes', icon: HeartIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT'] },
   { name: 'Bordereaux Sante', href: '/sante/bordereaux', icon: DocumentIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE'] },
   { name: 'Paiements Sante', href: '/sante/paiements', icon: CurrencyIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE'] },
   { name: 'Eligibilite Sante', href: '/sante/eligibility', icon: CheckCircleIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'PRATICIEN'] },
+  { name: 'Garanties/Formules', href: '/sante/garanties', icon: ShieldIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN'] },
   { name: 'Annuaire Praticiens', href: '/sante/praticiens', icon: UserGroupIcon, roles: 'all' },
   // Prestataires
   { name: 'Prises en charge', href: '/claims', icon: ClipboardIcon, roles: ['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'PRATICIEN'] },

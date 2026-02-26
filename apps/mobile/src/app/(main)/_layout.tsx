@@ -10,6 +10,7 @@ export default function MainLayout() {
       <Stack.Screen name="demandes" />
       <Stack.Screen name="profil" />
       <Stack.Screen name="notifications" />
+      <Stack.Screen name="praticiens" />
     </Stack>
   );
 }

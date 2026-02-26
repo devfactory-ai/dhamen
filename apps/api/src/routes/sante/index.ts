@@ -14,6 +14,8 @@ import { bordereaux } from './bordereaux';
 import { eligibility } from './eligibility';
 import { profil } from './profil';
 import { notifications } from './notifications';
+import { stats } from './stats';
+import { exports } from './exports';
 
 const sante = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -28,5 +30,7 @@ sante.route('/bordereaux', bordereaux);
 sante.route('/eligibility', eligibility);
 sante.route('/profil', profil);
 sante.route('/notifications', notifications);
+sante.route('/stats', stats);
+sante.route('/exports', exports);
 
 export { sante };

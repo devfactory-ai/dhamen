@@ -29,6 +29,7 @@ import {
   type BordereauStatut,
 } from '../hooks/useBordereaux';
 import { useToast } from '@/stores/toast';
+import { apiClient } from '@/lib/api-client';
 
 export function SanteBordereauxPage() {
   const [page, setPage] = useState(1);
@@ -124,9 +125,9 @@ export function SanteBordereauxPage() {
     return labels[statut];
   };
 
-  const handleExport = (id: string, numero: string) => {
-    // Download CSV
-    window.open(`/api/v1/sante/bordereaux/${id}/export`, '_blank');
+  const handleExport = (id: string, format: 'pdf' | 'csv' = 'csv') => {
+    const url = `${apiClient.getBaseUrl()}/sante/exports/bordereau/${id}?format=${format}`;
+    window.open(url, '_blank');
   };
 
   const columns = [
@@ -188,8 +189,11 @@ export function SanteBordereauxPage() {
                 {getActionLabel(b.statut)}
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={() => handleExport(b.id, b.numeroBordereau)}>
-              Export
+            <Button variant="outline" size="sm" onClick={() => handleExport(b.id, 'csv')}>
+              CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleExport(b.id, 'pdf')}>
+              PDF
             </Button>
           </div>
         );
@@ -411,9 +415,15 @@ export function SanteBordereauxPage() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => handleExport(selectedBordereau.id, selectedBordereau.numeroBordereau)}
+                  onClick={() => handleExport(selectedBordereau.id, 'csv')}
                 >
                   Export CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handleExport(selectedBordereau.id, 'pdf')}
+                >
+                  Export PDF
                 </Button>
                 {getNextAction(selectedBordereau.statut) && (
                   <Button onClick={() => handleStatusUpdate(selectedBordereau.id, getNextAction(selectedBordereau.statut)!)}>

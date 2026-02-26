@@ -329,6 +329,13 @@ class ApiClient {
   async delete<T>(endpoint: string, options?: RequestOptions): Promise<ApiResponse<T>> {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' });
   }
+
+  /**
+   * Get the base URL for direct access (e.g., file downloads)
+   */
+  getBaseUrl(): string {
+    return this.baseUrl;
+  }
 }
 
 export const apiClient = new ApiClient(API_BASE_URL);

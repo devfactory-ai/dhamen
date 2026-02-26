@@ -28,6 +28,7 @@ import {
   type SanteDemande,
 } from '../hooks/useSante';
 import { useToast } from '@/stores/toast';
+import { apiClient } from '@/lib/api-client';
 import type { SanteStatutDemande, SanteTypeSoin } from '@dhamen/shared';
 
 export function SanteDemandesPage() {
@@ -108,6 +109,23 @@ export function SanteDemandesPage() {
 
   const canProcess = (demande: SanteDemande) => {
     return ['soumise', 'en_examen', 'info_requise'].includes(demande.statut);
+  };
+
+  const handleExport = async (format: 'pdf' | 'csv') => {
+    try {
+      const params = new URLSearchParams();
+      params.append('format', format);
+      if (filters.statut) params.append('statut', filters.statut);
+      if (filters.typeSoin) params.append('typeSoin', filters.typeSoin);
+
+      const url = `${apiClient.getBaseUrl()}/sante/exports/demandes?${params.toString()}`;
+      window.open(url, '_blank');
+    } catch {
+      toast({
+        title: 'Erreur lors de l\'export',
+        variant: 'destructive',
+      });
+    }
   };
 
   const columns = [
@@ -212,6 +230,16 @@ export function SanteDemandesPage() {
       <PageHeader
         title="Demandes SoinFlow"
         description="Gerer les demandes de remboursement sante"
+        action={
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => handleExport('csv')}>
+              Export CSV
+            </Button>
+            <Button variant="outline" onClick={() => handleExport('pdf')}>
+              Export PDF
+            </Button>
+          </div>
+        }
       />
 
       {/* Stats */}

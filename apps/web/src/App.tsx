@@ -27,6 +27,8 @@ const SanteBordereauxPage = lazy(() => import('@/features/sante/pages/SanteBorde
 const SantePaiementsPage = lazy(() => import('@/features/sante/pages/SantePaiementsPage').then(m => ({ default: m.SantePaiementsPage })));
 const SanteEligibilityPage = lazy(() => import('@/features/sante/pages/SanteEligibilityPage'));
 const SantePraticiensPage = lazy(() => import('@/features/sante/pages/SantePraticiensPage'));
+const SanteDashboardPage = lazy(() => import('@/features/sante/pages/SanteDashboardPage').then(m => ({ default: m.SanteDashboardPage })));
+const SanteGarantiesPage = lazy(() => import('@/features/sante/pages/SanteGarantiesPage').then(m => ({ default: m.SanteGarantiesPage })));
 
 /**
  * Loading spinner for lazy-loaded routes
@@ -118,6 +120,8 @@ function App() {
                     <Route path="/sante/paiements" element={<SantePaiementsPage />} />
                     <Route path="/sante/eligibility" element={<SanteEligibilityPage />} />
                     <Route path="/sante/praticiens" element={<SantePraticiensPage />} />
+                    <Route path="/sante/dashboard" element={<SanteDashboardPage />} />
+                    <Route path="/sante/garanties" element={<SanteGarantiesPage />} />
                     {/* Common routes */}
                     <Route path="/reports" element={<ReportsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />

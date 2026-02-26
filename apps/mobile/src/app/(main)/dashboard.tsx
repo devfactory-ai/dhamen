@@ -162,9 +162,18 @@ export default function DashboardScreen() {
             style={styles.actionCardSecondary}
             onPress={() => router.push('/(main)/profil')}
           >
-            <Text style={styles.actionIcon}></Text>
+            <Text style={styles.actionIcon}>👤</Text>
             <Text style={styles.actionTitle}>Mon profil</Text>
             <Text style={styles.actionSubtitle}>Plafonds et couverture</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionCardSecondary}
+            onPress={() => router.push('/(main)/praticiens')}
+          >
+            <Text style={styles.actionIcon}>🏥</Text>
+            <Text style={styles.actionTitle}>Praticiens</Text>
+            <Text style={styles.actionSubtitle}>Annuaire sante</Text>
           </TouchableOpacity>
         </View>
 
