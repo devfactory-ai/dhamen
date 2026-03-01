@@ -52,6 +52,9 @@ import {
   Calendar,
   X,
   Send,
+  FileDown,
+  ChevronRight,
+  User,
 } from 'lucide-react';
 
 // Types for bulletin workflow
@@ -200,6 +203,55 @@ const careTypeConfig = {
   lab: { label: 'Analyses', icon: FlaskConical },
   hospital: { label: 'Hospitalisation', icon: Building2 },
 };
+
+// Blank bulletin templates for download
+const BULLETIN_TEMPLATES = [
+  {
+    id: 'consultation',
+    title: 'Bulletin Consultation',
+    description: 'Pour les consultations médicales',
+    icon: Stethoscope,
+    filename: 'bulletin_consultation.pdf',
+  },
+  {
+    id: 'pharmacy',
+    title: 'Bulletin Pharmacie',
+    description: 'Pour les achats en pharmacie',
+    icon: Pill,
+    filename: 'bulletin_pharmacie.pdf',
+  },
+  {
+    id: 'lab',
+    title: 'Bulletin Analyses',
+    description: 'Pour les analyses de laboratoire',
+    icon: FlaskConical,
+    filename: 'bulletin_analyses.pdf',
+  },
+  {
+    id: 'hospital',
+    title: 'Bulletin Hospitalisation',
+    description: 'Pour les séjours hospitaliers',
+    icon: Building2,
+    filename: 'bulletin_hospitalisation.pdf',
+  },
+  {
+    id: 'universal',
+    title: 'Bulletin Universel',
+    description: 'Formulaire multi-usage',
+    icon: FileText,
+    filename: 'bulletin_universel.pdf',
+  },
+];
+
+interface AdherentProfile {
+  id: string;
+  first_name: string;
+  last_name: string;
+  date_of_birth: string;
+  matricule: string;
+  address?: string;
+  phone?: string;
+}
 
 // Form schema for bulletin submission
 const bulletinFormSchema = z.object({
@@ -384,6 +436,11 @@ export function AdhérentBulletinsPage() {
   const [activeTab, setActiveTab] = useState('list');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Download modal state
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<typeof BULLETIN_TEMPLATES[0] | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+
   const {
     register,
     handleSubmit,
@@ -430,6 +487,17 @@ export function AdhérentBulletinsPage() {
       if (!response.success) throw new Error(response.error?.message);
       return response.data;
     },
+  });
+
+  // Fetch adherent profile for pre-filled bulletins
+  const { data: adherentProfile } = useQuery({
+    queryKey: ['adherent-profile'],
+    queryFn: async () => {
+      const response = await apiClient.get<AdherentProfile>('/sante/profil/me');
+      if (!response.success) return null;
+      return response.data;
+    },
+    retry: false,
   });
 
   // Submit mutation
@@ -512,8 +580,40 @@ export function AdhérentBulletinsPage() {
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handlePrintBlankBulletin = () => {
-    window.open(`${import.meta.env.VITE_API_URL}/bulletins-soins/blank-pdf`, '_blank');
+  // Download bulletin (blank or pre-filled)
+  const handleDownloadBulletin = async (mode: 'blank' | 'prefilled') => {
+    if (!selectedTemplate) return;
+
+    try {
+      setIsDownloading(true);
+
+      // Build URL with optional pre-fill parameters
+      let pdfUrl = `${import.meta.env.VITE_API_URL || '/api/v1'}/bulletins-soins/templates/${selectedTemplate.filename}`;
+
+      if (mode === 'prefilled' && adherentProfile) {
+        const params = new URLSearchParams({
+          prefill: 'true',
+          firstName: adherentProfile.first_name || '',
+          lastName: adherentProfile.last_name || '',
+          dateOfBirth: adherentProfile.date_of_birth || '',
+          matricule: adherentProfile.matricule || '',
+          address: adherentProfile.address || '',
+          phone: adherentProfile.phone || '',
+        });
+        pdfUrl += `?${params.toString()}`;
+      }
+
+      // Open PDF in new tab for download/print
+      window.open(pdfUrl, '_blank');
+      toast.success('Bulletin téléchargé avec succès');
+      setSelectedTemplate(null);
+      setShowDownloadModal(false);
+    } catch (error) {
+      console.error('Download error:', error);
+      toast.error('Erreur lors du téléchargement');
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   const handleViewScan = (bulletin: BulletinSoins) => {
@@ -645,11 +745,11 @@ export function AdhérentBulletinsPage() {
       <PageHeader
         title="Mes Bulletins de Soins"
         description="Soumettez vos bulletins et suivez l'état de vos remboursements"
-        actions={
+        action={
           <div className="flex gap-2">
-            <Button variant="outline" onClick={handlePrintBlankBulletin}>
-              <Printer className="mr-2 h-4 w-4" />
-              Bulletin vierge
+            <Button variant="outline" onClick={() => setShowDownloadModal(true)}>
+              <Download className="mr-2 h-4 w-4" />
+              Télécharger bulletin
             </Button>
             <Button onClick={() => setActiveTab('submit')}>
               <Upload className="mr-2 h-4 w-4" />
@@ -1252,6 +1352,160 @@ export function AdhérentBulletinsPage() {
                   <Download className="mr-2 h-4 w-4" />
                   Télécharger
                 </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Download Bulletins Modal */}
+      <Dialog open={showDownloadModal} onOpenChange={(open) => {
+        setShowDownloadModal(open);
+        if (!open) setSelectedTemplate(null);
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileDown className="h-5 w-5" />
+              Télécharger un bulletin vierge
+            </DialogTitle>
+          </DialogHeader>
+
+          {!selectedTemplate ? (
+            <div className="space-y-4">
+              {/* Info Banner */}
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-blue-50 border border-blue-200">
+                <Info className="h-5 w-5 text-blue-600 mt-0.5" />
+                <p className="text-sm text-blue-700">
+                  Choisissez le type de bulletin à télécharger. Vous pourrez ensuite choisir entre un bulletin vierge ou pré-rempli avec vos informations.
+                </p>
+              </div>
+
+              {/* Template List */}
+              <div className="space-y-2">
+                {BULLETIN_TEMPLATES.map((template) => {
+                  const Icon = template.icon;
+                  return (
+                    <button
+                      key={template.id}
+                      onClick={() => setSelectedTemplate(template)}
+                      className="w-full flex items-center gap-4 p-4 rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors text-left"
+                    >
+                      <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary/10">
+                        <Icon className="h-6 w-6 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium">{template.title}</p>
+                        <p className="text-sm text-muted-foreground">{template.description}</p>
+                      </div>
+                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Tips */}
+              <div className="rounded-lg bg-green-50 border border-green-200 p-4 space-y-2">
+                <p className="text-sm font-medium text-green-800 flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4" />
+                  Conseils
+                </p>
+                <ul className="text-sm text-green-700 space-y-1">
+                  <li>• Imprimez en format A4</li>
+                  <li>• Remplissez lisiblement au stylo noir</li>
+                  <li>• Faites signer et cacheter par le praticien</li>
+                </ul>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Back Button */}
+              <button
+                onClick={() => setSelectedTemplate(null)}
+                className="flex items-center gap-2 text-sm text-primary hover:underline"
+              >
+                ← Retour aux types
+              </button>
+
+              {/* Selected Template */}
+              <div className="flex items-center gap-4 p-4 rounded-lg bg-primary/5 border border-primary/20">
+                {(() => {
+                  const Icon = selectedTemplate.icon;
+                  return <Icon className="h-8 w-8 text-primary" />;
+                })()}
+                <div>
+                  <p className="font-medium">{selectedTemplate.title}</p>
+                  <p className="text-sm text-muted-foreground">{selectedTemplate.description}</p>
+                </div>
+              </div>
+
+              <p className="text-sm font-medium">Choisissez le format :</p>
+
+              {/* Option 1: Blank */}
+              <button
+                onClick={() => handleDownloadBulletin('blank')}
+                disabled={isDownloading}
+                className="w-full flex items-center gap-4 p-4 rounded-lg border hover:border-primary hover:bg-primary/5 transition-colors text-left"
+              >
+                <div className="flex items-center justify-center w-12 h-12 rounded-full bg-gray-100">
+                  <FileText className="h-6 w-6 text-gray-600" />
+                </div>
+                <div className="flex-1">
+                  <p className="font-medium">Bulletin Vierge</p>
+                  <p className="text-sm text-muted-foreground">Sans informations pré-remplies</p>
+                </div>
+                {isDownloading ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                ) : (
+                  <Download className="h-5 w-5 text-primary" />
+                )}
+              </button>
+
+              {/* Option 2: Pre-filled */}
+              <button
+                onClick={() => handleDownloadBulletin('prefilled')}
+                disabled={isDownloading || !adherentProfile}
+                className="w-full flex flex-col gap-3 p-4 rounded-lg border-2 border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary/20">
+                    <User className="h-6 w-6 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium">Bulletin Pré-rempli</p>
+                    <p className="text-sm text-muted-foreground">Vos informations déjà complétées</p>
+                  </div>
+                  {isDownloading ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  ) : (
+                    <Download className="h-5 w-5 text-primary" />
+                  )}
+                </div>
+
+                {adherentProfile ? (
+                  <div className="ml-16 pl-4 border-l-2 border-primary/20 space-y-1 text-sm">
+                    <p className="text-muted-foreground">
+                      <span className="font-medium text-foreground">Nom:</span> {adherentProfile.last_name} {adherentProfile.first_name}
+                    </p>
+                    <p className="text-muted-foreground">
+                      <span className="font-medium text-foreground">Matricule:</span> {adherentProfile.matricule}
+                    </p>
+                    {adherentProfile.date_of_birth && (
+                      <p className="text-muted-foreground">
+                        <span className="font-medium text-foreground">Date de naissance:</span> {new Date(adherentProfile.date_of_birth).toLocaleDateString('fr-TN')}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="ml-16 text-sm text-amber-600 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    Profil non disponible - Veuillez compléter votre profil
+                  </div>
+                )}
+              </button>
+
+              <div className="text-center text-sm text-muted-foreground">
+                ✨ Recommandé : Pré-rempli pour gagner du temps
               </div>
             </div>
           )}
