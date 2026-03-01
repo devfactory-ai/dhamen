@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
 import { logAudit } from '../middleware/audit-trail';
 import { generateId } from '../lib/ulid';
 
@@ -101,7 +102,7 @@ webhooks.post('/payment', zValidator('json', paymentWebhookSchema), async (c) =>
   const now = new Date().toISOString();
 
   // Find payment by reference
-  const payment = await c.env.DB.prepare(
+  const payment = await getDb(c).prepare(
     'SELECT id, demande_id, statut FROM sante_paiements WHERE reference_paiement = ? OR idempotency_key = ?'
   )
     .bind(payload.reference, payload.reference)
@@ -109,7 +110,7 @@ webhooks.post('/payment', zValidator('json', paymentWebhookSchema), async (c) =>
 
   if (!payment) {
     // Log unknown webhook
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: 'WEBHOOK',
       action: 'webhook.payment.unknown',
       entityType: 'webhooks',
@@ -131,7 +132,7 @@ webhooks.post('/payment', zValidator('json', paymentWebhookSchema), async (c) =>
   const newStatus = statusMap[payload.event] || 'en_cours';
 
   // Update payment status
-  await c.env.DB.prepare(`
+  await getDb(c).prepare(`
     UPDATE sante_paiements
     SET statut = ?,
         reference_paiement = COALESCE(reference_paiement, ?),
@@ -154,12 +155,12 @@ webhooks.post('/payment', zValidator('json', paymentWebhookSchema), async (c) =>
 
   // Update demande status if payment completed
   if (newStatus === 'execute') {
-    await c.env.DB.prepare('UPDATE sante_demandes SET statut = ?, updated_at = ? WHERE id = ?')
+    await getDb(c).prepare('UPDATE sante_demandes SET statut = ?, updated_at = ? WHERE id = ?')
       .bind('payee', now, payment.demande_id)
       .run();
   }
 
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: 'WEBHOOK',
     action: `webhook.payment.${payload.event}`,
     entityType: 'sante_paiements',
@@ -180,14 +181,14 @@ webhooks.post('/mobile-money/:provider', zValidator('json', mobileMoneyWebhookSc
   const now = new Date().toISOString();
 
   // Find payment by reference
-  const payment = await c.env.DB.prepare(
+  const payment = await getDb(c).prepare(
     'SELECT id, demande_id, statut FROM sante_paiements WHERE reference_paiement = ?'
   )
     .bind(payload.reference)
     .first<{ id: string; demande_id: string; statut: string }>();
 
   if (!payment) {
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: 'WEBHOOK',
       action: `webhook.mobile_money.${provider}.unknown`,
       entityType: 'webhooks',
@@ -207,7 +208,7 @@ webhooks.post('/mobile-money/:provider', zValidator('json', mobileMoneyWebhookSc
 
   const newStatus = statusMap[payload.status] || 'en_cours';
 
-  await c.env.DB.prepare(`
+  await getDb(c).prepare(`
     UPDATE sante_paiements
     SET statut = ?,
         date_execution = CASE WHEN ? = 'execute' THEN ? ELSE date_execution END,
@@ -219,12 +220,12 @@ webhooks.post('/mobile-money/:provider', zValidator('json', mobileMoneyWebhookSc
     .run();
 
   if (newStatus === 'execute') {
-    await c.env.DB.prepare('UPDATE sante_demandes SET statut = ?, updated_at = ? WHERE id = ?')
+    await getDb(c).prepare('UPDATE sante_demandes SET statut = ?, updated_at = ? WHERE id = ?')
       .bind('payee', now, payment.demande_id)
       .run();
   }
 
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: 'WEBHOOK',
     action: `webhook.mobile_money.${provider}`,
     entityType: 'sante_paiements',
@@ -243,14 +244,14 @@ webhooks.post('/bank-transfer', zValidator('json', bankTransferWebhookSchema), a
   const payload = c.req.valid('json');
   const now = new Date().toISOString();
 
-  const payment = await c.env.DB.prepare(
+  const payment = await getDb(c).prepare(
     'SELECT id, demande_id, statut FROM sante_paiements WHERE reference_paiement = ?'
   )
     .bind(payload.reference)
     .first<{ id: string; demande_id: string; statut: string }>();
 
   if (!payment) {
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: 'WEBHOOK',
       action: 'webhook.bank_transfer.unknown',
       entityType: 'webhooks',
@@ -269,7 +270,7 @@ webhooks.post('/bank-transfer', zValidator('json', bankTransferWebhookSchema), a
 
   const newStatus = statusMap[payload.status] || 'en_cours';
 
-  await c.env.DB.prepare(`
+  await getDb(c).prepare(`
     UPDATE sante_paiements
     SET statut = ?,
         date_execution = CASE WHEN ? = 'execute' THEN ? ELSE date_execution END,
@@ -281,12 +282,12 @@ webhooks.post('/bank-transfer', zValidator('json', bankTransferWebhookSchema), a
     .run();
 
   if (newStatus === 'execute') {
-    await c.env.DB.prepare('UPDATE sante_demandes SET statut = ?, updated_at = ? WHERE id = ?')
+    await getDb(c).prepare('UPDATE sante_demandes SET statut = ?, updated_at = ? WHERE id = ?')
       .bind('payee', now, payment.demande_id)
       .run();
   }
 
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: 'WEBHOOK',
     action: 'webhook.bank_transfer',
     entityType: 'sante_paiements',
@@ -305,7 +306,7 @@ webhooks.post('/cnam', async (c) => {
   const payload = await c.req.json();
   const now = new Date().toISOString();
 
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: 'WEBHOOK',
     action: 'webhook.cnam.received',
     entityType: 'webhooks',

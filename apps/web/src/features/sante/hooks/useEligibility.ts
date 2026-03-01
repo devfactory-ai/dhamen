@@ -27,7 +27,7 @@ export interface EligibilityCheckResult {
   plafonds: Array<{
     typeSoin: string;
     montantPlafond: number;
-    montantConsomme: number;
+    montantConsommé: number;
     montantRestant: number;
     pourcentageUtilise: number;
   }>;
@@ -105,7 +105,7 @@ export function useAdherentProfil(adherentId: string | null) {
           plafonds: Array<{
             typeSoin: string;
             montantPlafond: number;
-            montantConsomme: number;
+            montantConsommé: number;
             montantRestant: number;
             pourcentageUtilise: number;
           }>;

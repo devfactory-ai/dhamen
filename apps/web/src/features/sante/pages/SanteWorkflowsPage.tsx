@@ -67,7 +67,7 @@ export function SanteWorkflowsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Workflows en attente"
-        description="Gerer les demandes d'information, escalades et validations"
+        description="Gérer les demandes d'information, escalades et validations"
       />
 
       {/* Stats */}
@@ -148,7 +148,7 @@ export function SanteWorkflowsPage() {
         onSubmitInfoResponse={async (data) => {
           try {
             await submitInfoResponse.mutateAsync(data);
-            toast({ title: 'Reponse soumise', variant: 'success' });
+            toast({ title: 'Réponse soumise', variant: 'success' });
             setSelectedWorkflow(null);
             refetch();
           } catch (error) {
@@ -162,7 +162,7 @@ export function SanteWorkflowsPage() {
         onResolveEscalation={async (data) => {
           try {
             await resolveEscalation.mutateAsync(data);
-            toast({ title: 'Escalade resolue', variant: 'success' });
+            toast({ title: 'Escalade résolue', variant: 'success' });
             setSelectedWorkflow(null);
             refetch();
           } catch (error) {
@@ -229,7 +229,7 @@ function WorkflowCard({
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground">Demande</p>
-                <p className="font-medium">{workflow.demande?.numero || workflow.demandeId.slice(0, 8)}</p>
+                <p className="font-medium">{workflow.demande?.numéro || workflow.demandeId.slice(0, 8)}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Montant</p>
@@ -238,7 +238,7 @@ function WorkflowCard({
                 </p>
               </div>
               <div>
-                <p className="text-muted-foreground">Cree le</p>
+                <p className="text-muted-foreground">Créé le</p>
                 <p className="font-medium">{formatWorkflowDate(workflow.createdAt)}</p>
               </div>
               <div>
@@ -327,11 +327,11 @@ function WorkflowActionDialog({
         <DialogHeader>
           <DialogTitle>
             {workflow.type === 'info_request' && 'Valider les informations'}
-            {workflow.type === 'escalation' && 'Resoudre l\'escalade'}
+            {workflow.type === 'escalation' && 'Résoudre l\'escalade'}
             {workflow.type === 'multi_validation' && 'Validation niveau ' + workflow.currentStep}
           </DialogTitle>
           <DialogDescription>
-            Demande: {workflow.demande?.numero || workflow.demandeId.slice(0, 8)}
+            Demande: {workflow.demande?.numéro || workflow.demandeId.slice(0, 8)}
           </DialogDescription>
         </DialogHeader>
 
@@ -352,7 +352,7 @@ function WorkflowActionDialog({
                 <Textarea
                   value={formData.message}
                   onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                  placeholder="Commentaire sur les informations recues..."
+                  placeholder="Commentaire sur les informations reçues..."
                   rows={4}
                 />
               </div>
@@ -363,7 +363,7 @@ function WorkflowActionDialog({
           {workflow.type === 'escalation' && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Decision</Label>
+                <Label>Décision</Label>
                 <div className="flex gap-2">
                   <Button
                     type="button"
@@ -400,11 +400,11 @@ function WorkflowActionDialog({
                     onValueChange={(v) => setFormData({ ...formData, newStatus: v })}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Selectionner un statut" />
+                      <SelectValue placeholder="Sélectionner un statut" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="approuvee">Approuvee</SelectItem>
-                      <SelectItem value="rejetee">Rejetee</SelectItem>
+                      <SelectItem value="rejetée">Rejetee</SelectItem>
                       <SelectItem value="en_examen">En examen</SelectItem>
                     </SelectContent>
                   </Select>
@@ -416,7 +416,7 @@ function WorkflowActionDialog({
                 <Textarea
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  placeholder="Notes sur votre decision..."
+                  placeholder="Notes sur votre décision..."
                   rows={3}
                 />
               </div>
@@ -439,7 +439,7 @@ function WorkflowActionDialog({
               </div>
 
               <div className="space-y-2">
-                <Label>Decision</Label>
+                <Label>Décision</Label>
                 <div className="flex gap-2">
                   <Button
                     type="button"
@@ -465,7 +465,7 @@ function WorkflowActionDialog({
                 <Textarea
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  placeholder="Justification de votre decision..."
+                  placeholder="Justification de votre décision..."
                   rows={3}
                 />
               </div>

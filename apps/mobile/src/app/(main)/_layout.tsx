@@ -1,14 +1,51 @@
 /**
- * Main app layout with bottom tabs
+ * Main app layout with enhanced bottom tabs
  */
+import { useEffect, useRef } from 'react';
 import { Tabs } from 'expo-router';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Animated, Platform } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { colors, typography, spacing, shadows } from '@/theme';
 
-function TabIcon({ name, focused, icon }: { name: string; focused: boolean; icon: string }) {
+interface TabIconProps {
+  name: string;
+  focused: boolean;
+  icon: string;
+  activeIcon: string;
+}
+
+function TabIcon({ name, focused, icon, activeIcon }: TabIconProps) {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const opacityAnim = useRef(new Animated.Value(focused ? 1 : 0.6)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: focused ? 1.1 : 1,
+        friction: 5,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: focused ? 1 : 0.6,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [focused, scaleAnim, opacityAnim]);
+
   return (
     <View style={styles.tabIconContainer}>
-      <Text style={[styles.tabIcon, focused && styles.tabIconFocused]}>{icon}</Text>
+      <Animated.View
+        style={[
+          styles.iconWrapper,
+          focused && styles.iconWrapperActive,
+          { transform: [{ scale: scaleAnim }], opacity: opacityAnim },
+        ]}
+      >
+        <Text style={styles.tabIcon}>{focused ? activeIcon : icon}</Text>
+      </Animated.View>
       <Text style={[styles.tabLabel, focused && styles.tabLabelFocused]}>{name}</Text>
+      {focused && <View style={styles.activeIndicator} />}
     </View>
   );
 }
@@ -20,60 +57,94 @@ export default function MainLayout() {
         headerShown: false,
         tabBarStyle: styles.tabBar,
         tabBarShowLabel: false,
+        tabBarBackground: () =>
+          Platform.OS === 'ios' ? (
+            <BlurView intensity={80} tint="light" style={StyleSheet.absoluteFill} />
+          ) : (
+            <View style={[StyleSheet.absoluteFill, styles.tabBarBackground]} />
+          ),
       }}
     >
       <Tabs.Screen
         name="dashboard"
         options={{
           title: 'Accueil',
-          tabBarIcon: ({ focused }) => <TabIcon name="Accueil" focused={focused} icon="🏠" />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="Accueil" focused={focused} icon="🏠" activeIcon="🏡" />
+          ),
         }}
       />
       <Tabs.Screen
         name="demandes"
         options={{
           title: 'Demandes',
-          tabBarIcon: ({ focused }) => <TabIcon name="Demandes" focused={focused} icon="📋" />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="Demandes" focused={focused} icon="📋" activeIcon="📝" />
+          ),
         }}
       />
       <Tabs.Screen
         name="carte"
         options={{
           title: 'Ma Carte',
-          tabBarIcon: ({ focused }) => <TabIcon name="Carte" focused={focused} icon="💳" />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="Carte" focused={focused} icon="💳" activeIcon="💎" />
+          ),
         }}
       />
       <Tabs.Screen
         name="eligibility"
         options={{
           title: 'Eligibilite',
-          tabBarIcon: ({ focused }) => <TabIcon name="Eligibilite" focused={focused} icon="✅" />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="Eligibilite" focused={focused} icon="✅" activeIcon="✨" />
+          ),
         }}
       />
       <Tabs.Screen
         name="profil"
         options={{
           title: 'Profil',
-          tabBarIcon: ({ focused }) => <TabIcon name="Profil" focused={focused} icon="👤" />,
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name="Profil" focused={focused} icon="👤" activeIcon="😊" />
+          ),
         }}
       />
       {/* Hidden screens (accessible via navigation) */}
       <Tabs.Screen
         name="notifications"
         options={{
-          href: null, // Hide from tab bar
+          href: null,
         }}
       />
       <Tabs.Screen
         name="praticiens"
         options={{
-          href: null, // Hide from tab bar
+          href: null,
         }}
       />
       <Tabs.Screen
         name="parametres"
         options={{
-          href: null, // Hide from tab bar
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="garanties"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="remboursements"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="bulletins"
+        options={{
+          href: null,
         }}
       />
     </Tabs>
@@ -82,31 +153,51 @@ export default function MainLayout() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    height: 70,
-    paddingBottom: 8,
-    paddingTop: 8,
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#e0e0e0',
+    position: 'absolute',
+    height: Platform.OS === 'ios' ? 88 : 70,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 8,
+    paddingTop: 12,
+    backgroundColor: Platform.OS === 'ios' ? 'transparent' : colors.background.secondary,
+    borderTopWidth: 0,
+    ...shadows.lg,
+  },
+  tabBarBackground: {
+    backgroundColor: colors.background.secondary,
   },
   tabIconContainer: {
     alignItems: 'center',
     justifyContent: 'center',
+    paddingTop: 4,
+  },
+  iconWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  iconWrapperActive: {
+    backgroundColor: `${colors.primary[500]}15`,
   },
   tabIcon: {
     fontSize: 22,
-    marginBottom: 2,
-    opacity: 0.5,
-  },
-  tabIconFocused: {
-    opacity: 1,
   },
   tabLabel: {
-    fontSize: 10,
-    color: '#666',
+    fontSize: typography.fontSize.xs,
+    color: colors.text.tertiary,
+    marginTop: 2,
+    fontWeight: typography.fontWeight.medium,
   },
   tabLabelFocused: {
-    color: '#1e3a5f',
-    fontWeight: '600',
+    color: colors.primary[500],
+    fontWeight: typography.fontWeight.semibold,
+  },
+  activeIndicator: {
+    position: 'absolute',
+    bottom: -8,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.primary[500],
   },
 });

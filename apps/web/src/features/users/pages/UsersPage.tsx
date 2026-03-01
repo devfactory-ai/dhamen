@@ -1,65 +1,71 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Upload, Plus, Download } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { toCSV, downloadCSV, type ExportColumn } from '@/lib/export-utils';
+import { apiClient } from '@/lib/api-client';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { useUsers, useCreateUser, useUpdateUser, useDeleteUser } from '../hooks/useUsers';
-import { UserForm } from '../components/UserForm';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useUsers, useDeleteUser } from '../hooks/useUsers';
 import { ROLE_LABELS } from '@dhamen/shared';
 import type { UserPublic } from '@dhamen/shared';
 import { useToast } from '@/stores/toast';
 
 export function UsersPage() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<UserPublic | undefined>();
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<UserPublic | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const { toast } = useToast();
 
   const { data, isLoading } = useUsers(page);
-  const createUser = useCreateUser();
-  const updateUser = useUpdateUser();
   const deleteUser = useDeleteUser();
 
-  const handleCreate = () => {
-    setSelectedUser(undefined);
-    setIsDialogOpen(true);
-  };
+  const exportColumns: ExportColumn<UserPublic>[] = [
+    { key: 'email', header: 'Email' },
+    { key: 'firstName', header: 'Prénom' },
+    { key: 'lastName', header: 'Nom' },
+    { key: 'role', header: 'Role', format: (v) => ROLE_LABELS[v as keyof typeof ROLE_LABELS] || String(v) },
+    { key: 'phone', header: 'Téléphone' },
+    { key: 'isActive', header: 'Actif', format: (v) => v ? 'Oui' : 'Non' },
+  ];
 
-  const handleEdit = (user: UserPublic) => {
-    setSelectedUser(user);
-    setIsDialogOpen(true);
-  };
-
-  const handleSubmit = async (formData: Record<string, unknown>) => {
+  const handleExportCSV = async () => {
+    setIsExporting(true);
     try {
-      if (selectedUser) {
-        await updateUser.mutateAsync({ id: selectedUser.id, data: formData });
-        toast({ title: 'Utilisateur modifie', variant: 'success' });
-      } else {
-        await createUser.mutateAsync(formData as unknown as Parameters<typeof createUser.mutateAsync>[0]);
-        toast({ title: 'Utilisateur cree', variant: 'success' });
-      }
-      setIsDialogOpen(false);
+      const response = await apiClient.get<{ data: UserPublic[]; meta: { total: number } }>('/users?limit=10000');
+      if (!response.success) throw new Error(response.error?.message);
+
+      const allData = response.data?.data || [];
+      const csv = toCSV(allData, exportColumns);
+      downloadCSV(csv, 'utilisateurs');
+      toast({ title: `${allData.length} utilisateurs exportés`, variant: 'success' });
     } catch {
-      toast({ title: 'Erreur lors de l\'enregistrement', description: 'Veuillez reessayer', variant: 'destructive' });
+      toast({ title: 'Erreur lors de l\'export', variant: 'destructive' });
+    } finally {
+      setIsExporting(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
     try {
-      await deleteUser.mutateAsync(id);
+      await deleteUser.mutateAsync(deleteConfirm.id);
       setDeleteConfirm(null);
-      toast({ title: 'Utilisateur supprime', variant: 'success' });
+      toast({ title: 'Utilisateur supprimé avec succès', variant: 'success' });
     } catch {
-      toast({ title: 'Erreur lors de la suppression', description: 'Veuillez reessayer', variant: 'destructive' });
+      toast({ title: 'Erreur lors de la suppression', description: 'Veuillez réessayer', variant: 'destructive' });
     }
   };
 
@@ -70,13 +76,13 @@ export function UsersPage() {
       render: (user: UserPublic) => (
         <div>
           <p className="font-medium">{user.firstName} {user.lastName}</p>
-          <p className='text-muted-foreground text-sm'>{user.email}</p>
+          <p className="text-muted-foreground text-sm">{user.email}</p>
         </div>
       ),
     },
     {
       key: 'role',
-      header: 'Rôle',
+      header: 'Role',
       render: (user: UserPublic) => (
         <Badge variant="secondary">{ROLE_LABELS[user.role]}</Badge>
       ),
@@ -101,14 +107,14 @@ export function UsersPage() {
       className: 'text-right',
       render: (user: UserPublic) => (
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => handleEdit(user)}>
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/users/${user.id}/edit`)}>
             Modifier
           </Button>
           <Button
             variant="ghost"
             size="sm"
             className="text-destructive hover:text-destructive"
-            onClick={() => setDeleteConfirm(user.id)}
+            onClick={() => setDeleteConfirm(user)}
           >
             Supprimer
           </Button>
@@ -119,20 +125,32 @@ export function UsersPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Utilisateurs"
-        description="Gérer les utilisateurs de la plateforme"
-        action={{
-          label: 'Nouvel utilisateur',
-          onClick: handleCreate,
-        }}
-      />
+      <div className="flex items-center justify-between">
+        <PageHeader
+          title="Utilisateurs"
+          description="Gérer les utilisateurs de la plateforme"
+        />
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
+            <Download className="mr-2 h-4 w-4" />
+            {isExporting ? 'Export...' : 'Exporter'}
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/users/import')}>
+            <Upload className="mr-2 h-4 w-4" />
+            Import CSV
+          </Button>
+          <Button onClick={() => navigate('/users/new')}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nouvel utilisateur
+          </Button>
+        </div>
+      </div>
 
       <DataTable
         columns={columns}
         data={data?.users || []}
         isLoading={isLoading}
-        emptyMessage="Aucun utilisateur trouvé"
+        emptyMessage="Aucun adhérent trouvé"
         pagination={
           data
             ? {
@@ -145,51 +163,30 @@ export function UsersPage() {
         }
       />
 
-      {/* Create/Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {selectedUser ? 'Modifier l\'utilisateur' : 'Nouvel utilisateur'}
-            </DialogTitle>
-            <DialogDescription>
-              {selectedUser
-                ? 'Modifier les informations de l\'utilisateur'
-                : 'Créer un nouveau compte utilisateur'}
-            </DialogDescription>
-          </DialogHeader>
-          <UserForm
-            user={selectedUser}
-            onSubmit={handleSubmit}
-            onCancel={() => setIsDialogOpen(false)}
-            isLoading={createUser.isPending || updateUser.isPending}
-          />
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Confirmer la suppression</DialogTitle>
-            <DialogDescription>
-              Êtes-vous sûr de vouloir supprimer cet utilisateur ? Cette action est irréversible.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-3 pt-4">
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
-              Annuler
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
-              disabled={deleteUser.isPending}
+      {/* Delete Confirmation Dialog - keeping this as AlertDialog for confirmations */}
+      <AlertDialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+            <AlertDialogDescription>
+              Êtes-vous sûr de vouloir supprimer l'utilisateur{' '}
+              <strong>{deleteConfirm?.firstName} {deleteConfirm?.lastName}</strong> ?
+              Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteUser.isPending ? 'Suppression...' : 'Supprimer'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
+
+export default UsersPage;

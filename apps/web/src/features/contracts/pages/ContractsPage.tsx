@@ -1,18 +1,23 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Plus, Download } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { toCSV, downloadCSV, formatDateExport, formatAmountExport, type ExportColumn } from '@/lib/export-utils';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { apiClient } from '@/lib/api-client';
-import { ContractForm } from '../components/ContractForm';
 import { toast } from 'sonner';
 
 interface Contract {
@@ -30,7 +35,7 @@ interface Contract {
   coverageLab: number;
   coverageHospitalization: number;
   annualCeiling: number;
-  adherentCount: number;
+  adhérentCount: number;
   createdAt: string;
 }
 
@@ -47,27 +52,45 @@ const CONTRACT_STATUS = {
   CANCELLED: { label: 'Annulé', variant: 'destructive' as const },
 };
 
-type ContractFormData = {
-  insurerId: string;
-  name: string;
-  contractNumber: string;
-  type: 'INDIVIDUAL' | 'GROUP' | 'CORPORATE';
-  startDate: string;
-  endDate: string;
-  annualCeiling: number;
-  coveragePharmacy: number;
-  coverageConsultation: number;
-  coverageLab: number;
-  coverageHospitalization: number;
-};
-
 export function ContractsPage() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
-  const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [editingContract, setEditingContract] = useState<Contract | null>(null);
-
+  const [deleteConfirm, setDeleteConfirm] = useState<Contract | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const queryClient = useQueryClient();
+
+  const exportColumns: ExportColumn<Contract>[] = [
+    { key: 'contractNumber', header: 'N° Contrat' },
+    { key: 'name', header: 'Nom' },
+    { key: 'insurerName', header: 'Assureur' },
+    { key: 'type', header: 'Type', format: (v) => CONTRACT_TYPES[v as keyof typeof CONTRACT_TYPES]?.label || String(v) },
+    { key: 'status', header: 'Statut', format: (v) => CONTRACT_STATUS[v as keyof typeof CONTRACT_STATUS]?.label || String(v) },
+    { key: 'startDate', header: 'Debut', format: (v) => formatDateExport(v as string) },
+    { key: 'endDate', header: 'Fin', format: (v) => formatDateExport(v as string) },
+    { key: 'adhérentCount', header: 'Adhérents' },
+    { key: 'coveragePharmacy', header: 'Couverture Pharmacie %' },
+    { key: 'coverageConsultation', header: 'Couverture Consultation %' },
+    { key: 'coverageLab', header: 'Couverture Labo %' },
+    { key: 'coverageHospitalization', header: 'Couverture Hospitalisation %' },
+    { key: 'annualCeiling', header: 'Plafond Annuel (TND)', format: (v) => formatAmountExport(v as number) },
+  ];
+
+  const handleExportCSV = async () => {
+    setIsExporting(true);
+    try {
+      const response = await apiClient.get<{ contracts: Contract[]; total: number }>('/contracts?limit=10000');
+      if (!response.success) throw new Error(response.error?.message);
+
+      const allData = response.data?.contracts || [];
+      const csv = toCSV(allData, exportColumns);
+      downloadCSV(csv, 'contrats');
+      toast.success(`${allData.length} contrats exportés`);
+    } catch {
+      toast.error('Erreur lors de l\'export');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ['contracts', page],
@@ -75,52 +98,26 @@ export function ContractsPage() {
       const response = await apiClient.get<{ contracts: Contract[]; total: number }>('/contracts', {
         params: { page, limit: 20 },
       });
-      if (!response.success) { throw new Error(response.error?.message); }
+      if (!response.success) throw new Error(response.error?.message);
       return response.data;
     },
   });
 
-  const createMutation = useMutation({
-    mutationFn: async (data: ContractFormData) => {
-      const response = await apiClient.post<{ contract: Contract }>('/contracts', data);
-      if (!response.success) { throw new Error(response.error?.message); }
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['contracts'] });
-      setIsCreateDialogOpen(false);
-      toast.success('Contrat créé avec succès');
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Erreur lors de la création du contrat');
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: ContractFormData }) => {
-      const response = await apiClient.put<{ contract: Contract }>(`/contracts/${id}`, data);
-      if (!response.success) { throw new Error(response.error?.message); }
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiClient.delete(`/contracts/${id}`);
+      if (!response.success) throw new Error(response.error?.message);
       return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contracts'] });
-      setEditingContract(null);
-      toast.success('Contrat mis à jour avec succès');
+      setDeleteConfirm(null);
+      toast.success('Contrat supprimé avec succès');
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Erreur lors de la mise à jour');
+      toast.error(error.message || 'Erreur lors de la suppression');
     },
   });
-
-  const handleCreateContract = (data: ContractFormData) => {
-    createMutation.mutate(data);
-  };
-
-  const handleUpdateContract = (data: ContractFormData) => {
-    if (editingContract) {
-      updateMutation.mutate({ id: editingContract.id, data });
-    }
-  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('fr-TN', {
@@ -128,13 +125,6 @@ export function ContractsPage() {
       month: '2-digit',
       year: 'numeric',
     });
-  };
-
-  const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat('fr-TN', {
-      style: 'currency',
-      currency: 'TND',
-    }).format(amount / 1000);
   };
 
   const columns = [
@@ -167,7 +157,7 @@ export function ContractsPage() {
     },
     {
       key: 'validity',
-      header: 'Validité',
+      header: 'Validite',
       render: (contract: Contract) => (
         <div className="text-sm">
           <p>{formatDate(contract.startDate)}</p>
@@ -176,10 +166,10 @@ export function ContractsPage() {
       ),
     },
     {
-      key: 'adherents',
+      key: 'adhérents',
       header: 'Adhérents',
       render: (contract: Contract) => (
-        <span className="font-medium">{contract.adherentCount}</span>
+        <span className="font-medium">{contract.adhérentCount}</span>
       ),
     },
     {
@@ -195,29 +185,50 @@ export function ContractsPage() {
       header: '',
       className: 'text-right',
       render: (contract: Contract) => (
-        <Button variant="ghost" size="sm" onClick={() => setSelectedContract(contract)}>
-          Détails
-        </Button>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/contracts/${contract.id}`)}>
+            Details
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/contracts/${contract.id}/edit`)}>
+            Modifier
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            onClick={() => setDeleteConfirm(contract)}
+          >
+            Supprimer
+          </Button>
+        </div>
       ),
     },
   ];
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Contrats"
-        description="Gérer les contrats d'assurance santé"
-        action={{
-          label: 'Nouveau contrat',
-          onClick: () => setIsCreateDialogOpen(true),
-        }}
-      />
+      <div className="flex items-center justify-between">
+        <PageHeader
+          title="Contrats"
+          description="Gérer les contrats d'assurance sante"
+        />
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
+            <Download className="mr-2 h-4 w-4" />
+            {isExporting ? 'Export...' : 'Exporter'}
+          </Button>
+          <Button onClick={() => navigate('/contracts/new')}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nouveau contrat
+          </Button>
+        </div>
+      </div>
 
       <DataTable
         columns={columns}
         data={data?.contracts || []}
         isLoading={isLoading}
-        emptyMessage="Aucun contrat trouvé"
+        emptyMessage="Aucun adhérent trouvé"
         pagination={
           data
             ? {
@@ -230,104 +241,30 @@ export function ContractsPage() {
         }
       />
 
-      {/* Contract Details Dialog */}
-      <Dialog open={!!selectedContract} onOpenChange={() => setSelectedContract(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{selectedContract?.name}</DialogTitle>
-            <DialogDescription>Contrat N° {selectedContract?.contractNumber}</DialogDescription>
-          </DialogHeader>
-          {selectedContract && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className='text-muted-foreground text-sm'>Assureur</p>
-                  <p className="font-medium">{selectedContract.insurerName}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Type</p>
-                  <p className="font-medium">{CONTRACT_TYPES[selectedContract.type].label}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Plafond annuel</p>
-                  <p className="font-medium">{formatAmount(selectedContract.annualCeiling)}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Adhérents</p>
-                  <p className="font-medium">{selectedContract.adherentCount}</p>
-                </div>
-              </div>
-
-              <div>
-                <p className='mb-3 font-medium text-sm'>Taux de couverture</p>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Pharmacie</span>
-                    <span className="font-medium">{selectedContract.coveragePharmacy}%</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Consultation</span>
-                    <span className="font-medium">{selectedContract.coverageConsultation}%</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Laboratoire</span>
-                    <span className="font-medium">{selectedContract.coverageLab}%</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Hospitalisation</span>
-                    <span className="font-medium">{selectedContract.coverageHospitalization}%</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t">
-                <Button variant="outline" onClick={() => setSelectedContract(null)}>
-                  Fermer
-                </Button>
-                <Button onClick={() => {
-                  setEditingContract(selectedContract);
-                  setSelectedContract(null);
-                }}>
-                  Modifier
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Create Contract Dialog */}
-      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Nouveau contrat</DialogTitle>
-            <DialogDescription>Créer un nouveau contrat d'assurance santé</DialogDescription>
-          </DialogHeader>
-          <ContractForm
-            onSubmit={handleCreateContract}
-            onCancel={() => setIsCreateDialogOpen(false)}
-            isLoading={createMutation.isPending}
-          />
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Contract Dialog */}
-      <Dialog open={!!editingContract} onOpenChange={() => setEditingContract(null)}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Modifier le contrat</DialogTitle>
-            <DialogDescription>Mettre à jour les informations du contrat</DialogDescription>
-          </DialogHeader>
-          {editingContract && (
-            <ContractForm
-              contract={editingContract}
-              onSubmit={handleUpdateContract}
-              onCancel={() => setEditingContract(null)}
-              isLoading={updateMutation.isPending}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+            <AlertDialogDescription>
+              Êtes-vous sûr de vouloir supprimer le contrat{' '}
+              <strong>{deleteConfirm?.name}</strong> ?
+              Cette action est irreversible et affectera tous les adhérents associés.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteConfirm && deleteMutation.mutate(deleteConfirm.id)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? 'Suppression...' : 'Supprimer'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
+
+export default ContractsPage;

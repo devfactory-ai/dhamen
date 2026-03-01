@@ -3,8 +3,9 @@
  *
  * Pricing tables management for contracts
  */
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
+import { FilePreview } from '@/components/ui/file-preview';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/button';
@@ -27,11 +28,20 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Upload } from 'lucide-react';
 
 const baremeSchema = z.object({
   codeActe: z.string().min(1, 'Code acte requis'),
-  libelle: z.string().min(1, 'Libellé requis'),
-  categorie: z.enum([
+  libellé: z.string().min(1, 'Libellé requis'),
+  catégorie: z.enum([
     'consultation',
     'pharmacie',
     'laboratoire',
@@ -89,7 +99,10 @@ export function BaremesManager({
   const [showForm, setShowForm] = useState(false);
   const [editingBareme, setEditingBareme] = useState<Bareme | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategorie, setFilterCategorie] = useState<string>('all');
+  const [filterCatégorie, setFilterCatégorie] = useState<string>('all');
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     register,
@@ -106,7 +119,7 @@ export function BaremesManager({
     },
   });
 
-  const selectedCategorie = watch('categorie');
+  const selectedCatégorie = watch('catégorie');
 
   const handleFormSubmit = (data: BaremeFormData) => {
     if (editingBareme) {
@@ -135,11 +148,29 @@ export function BaremesManager({
     setEditingBareme(null);
   };
 
-  const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && onImport) {
-      onImport(file);
+    if (file) {
+      setImportFile(file);
+      setShowImportDialog(true);
     }
+    // Reset the input
+    if (e.target) {
+      e.target.value = '';
+    }
+  };
+
+  const handleConfirmImport = () => {
+    if (importFile && onImport) {
+      onImport(importFile);
+      setShowImportDialog(false);
+      setImportFile(null);
+    }
+  };
+
+  const handleCancelImport = () => {
+    setShowImportDialog(false);
+    setImportFile(null);
   };
 
   const formatAmount = (amount: number) => {
@@ -152,15 +183,15 @@ export function BaremesManager({
   const filteredBaremes = baremes.filter((bareme) => {
     const matchesSearch =
       bareme.codeActe.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      bareme.libelle.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategorie =
-      filterCategorie === 'all' || bareme.categorie === filterCategorie;
-    return matchesSearch && matchesCategorie;
+      bareme.libellé.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCatégorie =
+      filterCatégorie === 'all' || bareme.catégorie === filterCatégorie;
+    return matchesSearch && matchesCatégorie;
   });
 
-  const statsByCategorie = baremes.reduce(
+  const statsByCatégorie = baremes.reduce(
     (acc, bareme) => {
-      acc[bareme.categorie] = (acc[bareme.categorie] || 0) + 1;
+      acc[bareme.catégorie] = (acc[bareme.catégorie] || 0) + 1;
       return acc;
     },
     {} as Record<string, number>
@@ -182,17 +213,19 @@ export function BaremesManager({
             </Button>
           )}
           {onImport && (
-            <label>
-              <Button variant="outline" asChild>
-                <span>Importer CSV</span>
-              </Button>
+            <>
               <input
+                ref={importFileInputRef}
                 type="file"
                 accept=".csv,.xlsx"
                 className="hidden"
-                onChange={handleFileImport}
+                onChange={handleFileSelect}
               />
-            </label>
+              <Button variant="outline" onClick={() => importFileInputRef.current?.click()}>
+                <Upload className="mr-2 h-4 w-4" />
+                Importer CSV
+              </Button>
+            </>
           )}
           {!showForm && (
             <Button onClick={() => setShowForm(true)}>Ajouter un acte</Button>
@@ -205,7 +238,7 @@ export function BaremesManager({
         <Badge variant="outline" className="cursor-default">
           Total: {baremes.length} actes
         </Badge>
-        {Object.entries(statsByCategorie).map(([cat, count]) => (
+        {Object.entries(statsByCatégorie).map(([cat, count]) => (
           <Badge key={cat} variant="secondary" className="cursor-default">
             {CATEGORIES[cat as keyof typeof CATEGORIES]}: {count}
           </Badge>
@@ -237,15 +270,15 @@ export function BaremesManager({
                 </div>
 
                 <div className="col-span-2 space-y-2">
-                  <Label htmlFor="libelle">Libellé</Label>
+                  <Label htmlFor="libellé">Libellé</Label>
                   <Input
-                    id="libelle"
-                    {...register('libelle')}
+                    id="libellé"
+                    {...register('libellé')}
                     placeholder="Ex: Consultation médecine générale"
                   />
-                  {errors.libelle && (
+                  {errors.libellé && (
                     <p className="text-destructive text-sm">
-                      {errors.libelle.message}
+                      {errors.libellé.message}
                     </p>
                   )}
                 </div>
@@ -255,9 +288,9 @@ export function BaremesManager({
                 <div className="space-y-2">
                   <Label>Catégorie</Label>
                   <Select
-                    value={selectedCategorie}
+                    value={selectedCatégorie}
                     onValueChange={(value) =>
-                      setValue('categorie', value as BaremeFormData['categorie'])
+                      setValue('catégorie', value as BaremeFormData['catégorie'])
                     }
                   >
                     <SelectTrigger>
@@ -333,7 +366,7 @@ export function BaremesManager({
                 </Button>
                 <Button type="submit" disabled={isLoading}>
                   {isLoading
-                    ? 'Enregistrement...'
+                    ? 'Enregistrément...'
                     : editingBareme
                       ? 'Mettre à jour'
                       : 'Ajouter'}
@@ -353,7 +386,7 @@ export function BaremesManager({
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <Select value={filterCategorie} onValueChange={setFilterCategorie}>
+        <Select value={filterCatégorie} onValueChange={setFilterCatégorie}>
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Toutes catégories" />
           </SelectTrigger>
@@ -389,10 +422,10 @@ export function BaremesManager({
                   <TableCell className="font-mono text-sm">
                     {bareme.codeActe}
                   </TableCell>
-                  <TableCell>{bareme.libelle}</TableCell>
+                  <TableCell>{bareme.libellé}</TableCell>
                   <TableCell>
                     <Badge variant="outline">
-                      {CATEGORIES[bareme.categorie as keyof typeof CATEGORIES]}
+                      {CATEGORIES[bareme.catégorie as keyof typeof CATEGORIES]}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
@@ -434,6 +467,37 @@ export function BaremesManager({
           </Table>
         </CardContent>
       </Card>
+
+      {/* Import Confirmation Dialog */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Importer des baremes</DialogTitle>
+            <DialogDescription>
+              Vérifiéz le fichier avant d'importer les baremes
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            {importFile && (
+              <FilePreview
+                file={importFile}
+                onRemove={() => setImportFile(null)}
+                showRemove={false}
+              />
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCancelImport}>
+              Annuler
+            </Button>
+            <Button onClick={handleConfirmImport} disabled={!importFile}>
+              Confirmer l'import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

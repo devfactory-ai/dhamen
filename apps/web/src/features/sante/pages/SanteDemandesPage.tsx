@@ -2,26 +2,15 @@
  * SoinFlow Demandes management page (for gestionnaire)
  */
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
   useSanteDemandes,
   useSanteStats,
-  useUpdateSanteDemandeStatut,
   SANTE_TYPE_SOINS_LABELS,
   SANTE_STATUTS_LABELS,
   SANTE_STATUTS_COLORS,
@@ -32,23 +21,16 @@ import { apiClient } from '@/lib/api-client';
 import type { SanteStatutDemande, SanteTypeSoin } from '@dhamen/shared';
 
 export function SanteDemandesPage() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<{
     statut?: SanteStatutDemande;
     typeSoin?: SanteTypeSoin;
   }>({});
-  const [selectedDemande, setSelectedDemande] = useState<SanteDemande | null>(null);
-  const [processingData, setProcessingData] = useState({
-    action: 'approuver' as 'approuver' | 'rejeter',
-    montantRembourse: '',
-    motifRejet: '',
-    notesInternes: '',
-  });
   const { toast } = useToast();
 
   const { data, isLoading } = useSanteDemandes(page, 20, filters);
   const { data: stats } = useSanteStats();
-  const updateStatut = useUpdateSanteDemandeStatut();
 
   const formatAmount = (amount: number) => {
     return new Intl.NumberFormat('fr-TN', {
@@ -62,48 +44,6 @@ export function SanteDemandesPage() {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
-    });
-  };
-
-  const handleProcess = async () => {
-    if (!selectedDemande) return;
-
-    try {
-      await updateStatut.mutateAsync({
-        id: selectedDemande.id,
-        data: {
-          statut: processingData.action === 'approuver' ? 'approuvee' : 'rejetee',
-          montantRembourse: processingData.action === 'approuver'
-            ? Number.parseFloat(processingData.montantRembourse) || undefined
-            : undefined,
-          motifRejet: processingData.action === 'rejeter' ? processingData.motifRejet : undefined,
-          notesInternes: processingData.notesInternes || undefined,
-        },
-      });
-
-      toast({
-        title: processingData.action === 'approuver' ? 'Demande approuvee' : 'Demande rejetee',
-        variant: processingData.action === 'approuver' ? 'success' : 'destructive',
-      });
-
-      setSelectedDemande(null);
-      setProcessingData({ action: 'approuver', montantRembourse: '', motifRejet: '', notesInternes: '' });
-    } catch {
-      toast({
-        title: 'Erreur lors du traitement',
-        description: 'Veuillez reessayer',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const openProcessDialog = (demande: SanteDemande) => {
-    setSelectedDemande(demande);
-    setProcessingData({
-      action: 'approuver',
-      montantRembourse: demande.montantDemande.toString(),
-      motifRejet: '',
-      notesInternes: '',
     });
   };
 
@@ -134,19 +74,19 @@ export function SanteDemandesPage() {
       header: 'Demande',
       render: (demande: SanteDemande) => (
         <div>
-          <p className="font-medium">{demande.numeroDemande}</p>
+          <p className="font-medium">{demande.numéroDemande}</p>
           <p className="text-muted-foreground text-sm">{formatDate(demande.createdAt)}</p>
         </div>
       ),
     },
     {
-      key: 'adherent',
-      header: 'Adherent',
+      key: 'adhérent',
+      header: 'Adhérent',
       render: (demande: SanteDemande) => (
         <div>
-          <p className="text-sm">{demande.adherentId}</p>
+          <p className="text-sm">{demande.adhérentId}</p>
           <p className="text-muted-foreground text-xs">
-            {demande.source === 'adherent' ? 'Bulletin' : 'Praticien'}
+            {demande.source === 'adhérent' ? 'Bulletin' : 'Praticien'}
           </p>
         </div>
       ),
@@ -211,15 +151,13 @@ export function SanteDemandesPage() {
       render: (demande: SanteDemande) => (
         <div className="flex justify-end gap-2">
           {canProcess(demande) && (
-            <Button size="sm" onClick={() => openProcessDialog(demande)}>
+            <Button size="sm" onClick={() => navigate(`/sante/demandes/${demande.id}/process`)}>
               Traiter
             </Button>
           )}
-          {!canProcess(demande) && (
-            <Button variant="ghost" size="sm" onClick={() => setSelectedDemande(demande)}>
-              Details
-            </Button>
-          )}
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/sante/demandes/${demande.id}`)}>
+            Details
+          </Button>
         </div>
       ),
     },
@@ -229,7 +167,7 @@ export function SanteDemandesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Demandes SoinFlow"
-        description="Gerer les demandes de remboursement sante"
+        description="Gérer les demandes de remboursement sante"
         action={
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => handleExport('csv')}>
@@ -323,7 +261,7 @@ export function SanteDemandesPage() {
         columns={columns}
         data={data?.data ?? []}
         isLoading={isLoading}
-        emptyMessage="Aucune demande trouvee"
+        emptyMessage="Aucune demande trouvée"
         pagination={
           data?.meta
             ? {
@@ -335,132 +273,6 @@ export function SanteDemandesPage() {
             : undefined
         }
       />
-
-      {/* Process Dialog */}
-      <Dialog
-        open={!!selectedDemande && canProcess(selectedDemande)}
-        onOpenChange={() => setSelectedDemande(null)}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Traiter la demande {selectedDemande?.numeroDemande}</DialogTitle>
-            <DialogDescription>Approuver ou rejeter cette demande de remboursement</DialogDescription>
-          </DialogHeader>
-
-          {selectedDemande && (
-            <div className="space-y-4">
-              {/* Demande Info */}
-              <div className="rounded-lg bg-muted p-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-muted-foreground">Type</p>
-                    <p className="font-medium">{SANTE_TYPE_SOINS_LABELS[selectedDemande.typeSoin]}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Montant demande</p>
-                    <p className="font-medium">{formatAmount(selectedDemande.montantDemande)}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Date soin</p>
-                    <p className="font-medium">{formatDate(selectedDemande.dateSoin)}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Score fraude</p>
-                    <p
-                      className={`font-medium ${
-                        selectedDemande.scoreFraude && selectedDemande.scoreFraude > 70
-                          ? 'text-destructive'
-                          : ''
-                      }`}
-                    >
-                      {selectedDemande.scoreFraude ?? 'N/A'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Decision */}
-              <div className="space-y-2">
-                <Label>Decision</Label>
-                <div className="flex gap-2">
-                  <Button
-                    variant={processingData.action === 'approuver' ? 'default' : 'outline'}
-                    className="flex-1"
-                    onClick={() => setProcessingData({ ...processingData, action: 'approuver' })}
-                  >
-                    Approuver
-                  </Button>
-                  <Button
-                    variant={processingData.action === 'rejeter' ? 'destructive' : 'outline'}
-                    className="flex-1"
-                    onClick={() => setProcessingData({ ...processingData, action: 'rejeter' })}
-                  >
-                    Rejeter
-                  </Button>
-                </div>
-              </div>
-
-              {processingData.action === 'approuver' && (
-                <div className="space-y-2">
-                  <Label htmlFor="montantRembourse">Montant rembourse (TND)</Label>
-                  <Input
-                    id="montantRembourse"
-                    type="number"
-                    step="0.001"
-                    value={processingData.montantRembourse}
-                    onChange={(e) =>
-                      setProcessingData({ ...processingData, montantRembourse: e.target.value })
-                    }
-                  />
-                </div>
-              )}
-
-              {processingData.action === 'rejeter' && (
-                <div className="space-y-2">
-                  <Label htmlFor="motifRejet">Motif du rejet</Label>
-                  <Textarea
-                    id="motifRejet"
-                    value={processingData.motifRejet}
-                    onChange={(e) =>
-                      setProcessingData({ ...processingData, motifRejet: e.target.value })
-                    }
-                    placeholder="Indiquer le motif du rejet..."
-                  />
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="notes">Notes internes (optionnel)</Label>
-                <Textarea
-                  id="notes"
-                  value={processingData.notesInternes}
-                  onChange={(e) =>
-                    setProcessingData({ ...processingData, notesInternes: e.target.value })
-                  }
-                  rows={2}
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4">
-                <Button variant="outline" onClick={() => setSelectedDemande(null)}>
-                  Annuler
-                </Button>
-                <Button
-                  onClick={handleProcess}
-                  disabled={updateStatut.isPending}
-                  variant={processingData.action === 'rejeter' ? 'destructive' : 'default'}
-                >
-                  {updateStatut.isPending
-                    ? 'Traitement...'
-                    : processingData.action === 'approuver'
-                      ? 'Approuver'
-                      : 'Rejeter'}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

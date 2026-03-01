@@ -24,7 +24,7 @@ import { Switch } from '@/components/ui/switch';
 const garantieSchema = z.object({
   code: z.string().min(1, 'Code requis'),
   nom: z.string().min(1, 'Nom requis'),
-  categorie: z.enum([
+  catégorie: z.enum([
     'pharmacie',
     'consultation',
     'hospitalisation',
@@ -97,7 +97,7 @@ export function GarantiesManager({
     },
   });
 
-  const selectedCategorie = watch('categorie');
+  const selectedCatégorie = watch('catégorie');
   const isActif = watch('actif');
 
   const handleFormSubmit = (data: GarantieFormData) => {
@@ -136,7 +136,7 @@ export function GarantiesManager({
 
   const groupedGaranties = garanties.reduce(
     (acc, garantie) => {
-      const cat = garantie.categorie;
+      const cat = garantie.catégorie;
       if (!acc[cat]) acc[cat] = [];
       acc[cat].push(garantie);
       return acc;
@@ -197,9 +197,9 @@ export function GarantiesManager({
                 <div className="space-y-2">
                   <Label>Catégorie</Label>
                   <Select
-                    value={selectedCategorie}
+                    value={selectedCatégorie}
                     onValueChange={(value) =>
-                      setValue('categorie', value as GarantieFormData['categorie'])
+                      setValue('catégorie', value as GarantieFormData['catégorie'])
                     }
                   >
                     <SelectTrigger>
@@ -213,8 +213,8 @@ export function GarantiesManager({
                       ))}
                     </SelectContent>
                   </Select>
-                  {errors.categorie && (
-                    <p className="text-destructive text-sm">{errors.categorie.message}</p>
+                  {errors.catégorie && (
+                    <p className="text-destructive text-sm">{errors.catégorie.message}</p>
                   )}
                 </div>
 
@@ -290,7 +290,7 @@ export function GarantiesManager({
                 </Button>
                 <Button type="submit" disabled={isLoading}>
                   {isLoading
-                    ? 'Enregistrement...'
+                    ? 'Enregistrément...'
                     : editingGarantie
                       ? 'Mettre à jour'
                       : 'Ajouter'}
@@ -303,14 +303,14 @@ export function GarantiesManager({
 
       {/* Garanties List */}
       <div className="space-y-4">
-        {Object.entries(groupedGaranties).map(([categorie, items]) => (
-          <Card key={categorie}>
+        {Object.entries(groupedGaranties).map(([catégorie, items]) => (
+          <Card key={catégorie}>
             <CardHeader className="py-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <span
-                  className={`rounded px-2 py-0.5 text-xs ${CATEGORIES[categorie as keyof typeof CATEGORIES]?.color}`}
+                  className={`rounded px-2 py-0.5 text-xs ${CATEGORIES[catégorie as keyof typeof CATEGORIES]?.color}`}
                 >
-                  {CATEGORIES[categorie as keyof typeof CATEGORIES]?.label}
+                  {CATEGORIES[catégorie as keyof typeof CATEGORIES]?.label}
                 </span>
                 <span className="text-muted-foreground">({items.length})</span>
               </CardTitle>

@@ -1,118 +1,82 @@
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useNavigate } from 'react-router-dom';
+import { Upload, Plus, Download } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toCSV, downloadCSV, type ExportColumn } from '@/lib/export-utils';
+import { apiClient } from '@/lib/api-client';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { useProviders, useCreateProvider, useUpdateProvider, useDeleteProvider, type Provider } from '../hooks/useProviders';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useProviders, useDeleteProvider, type Provider } from '../hooks/useProviders';
 import { useToast } from '@/stores/toast';
 
 const PROVIDER_TYPES = {
   PHARMACY: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
-  DOCTOR: { label: 'Cabinet Médical', color: 'bg-blue-100 text-blue-800' },
+  DOCTOR: { label: 'Cabinet Medical', color: 'bg-blue-100 text-blue-800' },
   LAB: { label: 'Laboratoire', color: 'bg-purple-100 text-purple-800' },
   CLINIC: { label: 'Clinique', color: 'bg-orange-100 text-orange-800' },
 };
 
 export function ProvidersPage() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [typeFilter, setTypeFilter] = useState<string | undefined>();
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<Provider | undefined>();
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<Provider | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const { toast } = useToast();
 
   const { data, isLoading } = useProviders(page, 20, typeFilter);
-  const createProvider = useCreateProvider();
-  const updateProvider = useUpdateProvider();
   const deleteProvider = useDeleteProvider();
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    setValue,
-    watch,
-  } = useForm({
-    defaultValues: {
-      name: '',
-      type: 'PHARMACY',
-      registrationNumber: '',
-      taxId: '',
-      address: '',
-      city: '',
-      postalCode: '',
-      phone: '',
-      email: '',
-    },
-  });
+  const exportColumns: ExportColumn<Provider>[] = [
+    { key: 'name', header: 'Nom' },
+    { key: 'type', header: 'Type', format: (v) => PROVIDER_TYPES[v as keyof typeof PROVIDER_TYPES]?.label || String(v) },
+    { key: 'licenseNo', header: 'N° Licence' },
+    { key: 'registrationNumber', header: 'N° Enregistrément' },
+    { key: 'speciality', header: 'Spécialité' },
+    { key: 'address', header: 'Adresse' },
+    { key: 'city', header: 'Ville' },
+    { key: 'phone', header: 'Téléphone' },
+    { key: 'email', header: 'Email' },
+    { key: 'isActive', header: 'Actif', format: (v) => v ? 'Oui' : 'Non' },
+  ];
 
-  const selectedType = watch('type');
-
-  const handleCreate = () => {
-    setSelectedProvider(undefined);
-    reset({
-      name: '',
-      type: 'PHARMACY',
-      registrationNumber: '',
-      taxId: '',
-      address: '',
-      city: '',
-      postalCode: '',
-      phone: '',
-      email: '',
-    });
-    setIsDialogOpen(true);
-  };
-
-  const handleEdit = (provider: Provider) => {
-    setSelectedProvider(provider);
-    reset({
-      name: provider.name,
-      type: provider.type,
-      registrationNumber: provider.registrationNumber,
-      taxId: provider.taxId || '',
-      address: provider.address,
-      city: provider.city,
-      postalCode: provider.postalCode || '',
-      phone: provider.phone,
-      email: provider.email || '',
-    });
-    setIsDialogOpen(true);
-  };
-
-  const onSubmit = async (formData: Record<string, string>) => {
+  const handleExportCSV = async () => {
+    setIsExporting(true);
     try {
-      if (selectedProvider) {
-        await updateProvider.mutateAsync({ id: selectedProvider.id, data: formData });
-        toast({ title: 'Prestataire modifie', variant: 'success' });
-      } else {
-        await createProvider.mutateAsync(formData as unknown as Parameters<typeof createProvider.mutateAsync>[0]);
-        toast({ title: 'Prestataire cree', variant: 'success' });
-      }
-      setIsDialogOpen(false);
+      const response = await apiClient.get<{ data: Provider[]; meta: { total: number } }>('/providers?limit=10000');
+      if (!response.success) throw new Error(response.error?.message);
+
+      const allData = response.data?.data || [];
+      const csv = toCSV(allData, exportColumns);
+      downloadCSV(csv, 'prestataires');
+      toast({ title: `${allData.length} prestataires exportés`, variant: 'success' });
     } catch {
-      toast({ title: 'Erreur lors de l\'enregistrement', description: 'Veuillez reessayer', variant: 'destructive' });
+      toast({ title: 'Erreur lors de l\'export', variant: 'destructive' });
+    } finally {
+      setIsExporting(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
     try {
-      await deleteProvider.mutateAsync(id);
+      await deleteProvider.mutateAsync(deleteConfirm.id);
       setDeleteConfirm(null);
-      toast({ title: 'Prestataire supprime', variant: 'success' });
+      toast({ title: 'Prestataire supprimé avec succès', variant: 'success' });
     } catch {
-      toast({ title: 'Erreur lors de la suppression', description: 'Veuillez reessayer', variant: 'destructive' });
+      toast({ title: 'Erreur lors de la suppression', description: 'Veuillez réessayer', variant: 'destructive' });
     }
   };
 
@@ -174,14 +138,14 @@ export function ProvidersPage() {
       className: 'text-right',
       render: (provider: Provider) => (
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => handleEdit(provider)}>
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/providers/${provider.id}/edit`)}>
             Modifier
           </Button>
           <Button
             variant="ghost"
             size="sm"
             className="text-destructive hover:text-destructive"
-            onClick={() => setDeleteConfirm(provider.id)}
+            onClick={() => setDeleteConfirm(provider)}
           >
             Supprimer
           </Button>
@@ -192,14 +156,26 @@ export function ProvidersPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Prestataires"
-        description="Gérer les prestataires de santé"
-        action={{
-          label: 'Nouveau prestataire',
-          onClick: handleCreate,
-        }}
-      />
+      <div className="flex items-center justify-between">
+        <PageHeader
+          title="Prestataires"
+          description="Gérer les prestataires de sante"
+        />
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
+            <Download className="mr-2 h-4 w-4" />
+            {isExporting ? 'Export...' : 'Exporter'}
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/providers/import')}>
+            <Upload className="mr-2 h-4 w-4" />
+            Import CSV
+          </Button>
+          <Button onClick={() => navigate('/providers/new')}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nouveau prestataire
+          </Button>
+        </div>
+      </div>
 
       {/* Filters */}
       <div className="flex gap-4">
@@ -220,7 +196,7 @@ export function ProvidersPage() {
         columns={columns}
         data={data?.providers || []}
         isLoading={isLoading}
-        emptyMessage="Aucun prestataire trouvé"
+        emptyMessage="Aucun adhérent trouvé"
         pagination={
           data
             ? {
@@ -233,112 +209,30 @@ export function ProvidersPage() {
         }
       />
 
-      {/* Create/Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {selectedProvider ? 'Modifier le prestataire' : 'Nouveau prestataire'}
-            </DialogTitle>
-            <DialogDescription>
-              {selectedProvider
-                ? 'Modifier les informations du prestataire'
-                : 'Ajouter un nouveau prestataire de santé'}
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Type</Label>
-              <Select value={selectedType} onValueChange={(v) => setValue('type', v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(PROVIDER_TYPES).map(([value, { label }]) => (
-                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="name">Nom</Label>
-              <Input id="name" {...register('name', { required: true })} />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="registrationNumber">N° Enregistrement</Label>
-                <Input id="registrationNumber" {...register('registrationNumber', { required: true })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="taxId">Matricule Fiscal</Label>
-                <Input id="taxId" {...register('taxId')} />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="address">Adresse</Label>
-              <Input id="address" {...register('address', { required: true })} />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="city">Ville</Label>
-                <Input id="city" {...register('city', { required: true })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="postalCode">Code Postal</Label>
-                <Input id="postalCode" {...register('postalCode')} />
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="phone">Téléphone</Label>
-                <Input id="phone" {...register('phone', { required: true })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" {...register('email')} />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4">
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-                Annuler
-              </Button>
-              <Button type="submit" disabled={createProvider.isPending || updateProvider.isPending}>
-                {createProvider.isPending || updateProvider.isPending ? 'Enregistrement...' : selectedProvider ? 'Mettre à jour' : 'Créer'}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
       {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Confirmer la suppression</DialogTitle>
-            <DialogDescription>
-              Êtes-vous sûr de vouloir supprimer ce prestataire ? Cette action est irréversible.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-3 pt-4">
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
-              Annuler
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
-              disabled={deleteProvider.isPending}
+      <AlertDialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+            <AlertDialogDescription>
+              Êtes-vous sûr de vouloir supprimer le prestataire{' '}
+              <strong>{deleteConfirm?.name}</strong> ?
+              Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteProvider.isPending ? 'Suppression...' : 'Supprimer'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
+
+export default ProvidersPage;

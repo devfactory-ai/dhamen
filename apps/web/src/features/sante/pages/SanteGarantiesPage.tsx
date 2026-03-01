@@ -67,7 +67,7 @@ export default function SanteGarantiesPage() {
       <div className="flex items-center justify-between">
         <PageHeader
           title="Formules de Garantie"
-          description="Gerer les formules et taux de couverture"
+          description="Gérer les formules et taux de couverture"
         />
         <div className="flex items-center gap-4">
           <label className="flex items-center gap-2 text-sm">
@@ -109,7 +109,7 @@ export default function SanteGarantiesPage() {
             <Card className="col-span-full">
               <CardContent className="py-12 text-center text-muted-foreground">
                 <Shield className="mx-auto h-12 w-12 opacity-20" />
-                <p className="mt-4">Aucune formule trouvee</p>
+                <p className="mt-4">Aucune formule trouvée</p>
               </CardContent>
             </Card>
           )}
@@ -186,7 +186,7 @@ function FormuleCard({
             <div>
               <p className="text-muted-foreground">Plafond global</p>
               <p className="font-medium font-mono">
-                {formule.plafondGlobal ? formatMontant(formule.plafondGlobal) : 'Illimite'}
+                {formule.plafondGlobal ? formatMontant(formule.plafondGlobal) : 'Illimité'}
               </p>
             </div>
           </div>
@@ -194,7 +194,7 @@ function FormuleCard({
 
         <div className="flex items-center gap-2 text-sm">
           <Users className="h-4 w-4 text-muted-foreground" />
-          <span>{formule.nbAdherents} adherents</span>
+          <span>{formule.nbAdhérents} adhérents</span>
         </div>
 
         {formule.description && (
@@ -217,7 +217,7 @@ function FormuleCard({
                 deleteFormule.mutate(formule.id);
               }
             }}
-            disabled={formule.nbAdherents > 0}
+            disabled={formule.nbAdhérents > 0}
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -249,7 +249,7 @@ function FormuleDetailView({ formule }: { formule: FormuleDetail }) {
         <div>
           <p className="text-sm text-muted-foreground">Plafond global</p>
           <p className="font-mono font-medium">
-            {formule.plafondGlobal ? formatMontant(formule.plafondGlobal) : 'Illimite'}
+            {formule.plafondGlobal ? formatMontant(formule.plafondGlobal) : 'Illimité'}
           </p>
         </div>
       </div>
@@ -300,7 +300,7 @@ function CouvertureRow({ couverture }: { couverture: SanteCouverture }) {
         <div className="flex items-center gap-1">
           <Shield className="h-3 w-3 text-muted-foreground" />
           <span className="font-mono">
-            {couverture.plafond ? formatMontant(couverture.plafond) : 'Illimite'}
+            {couverture.plafond ? formatMontant(couverture.plafond) : 'Illimité'}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -418,7 +418,7 @@ function CreateFormuleDialog({
               Annuler
             </Button>
             <Button type="submit" disabled={createFormule.isPending}>
-              {createFormule.isPending ? 'Creation...' : 'Creer'}
+              {createFormule.isPending ? 'Creation...' : 'Créer'}
             </Button>
           </DialogFooter>
         </form>
@@ -522,7 +522,7 @@ function EditFormuleDialog({
               Annuler
             </Button>
             <Button type="submit" disabled={updateFormule.isPending}>
-              {updateFormule.isPending ? 'Enregistrement...' : 'Enregistrer'}
+              {updateFormule.isPending ? 'Enregistrément...' : 'Enregistrér'}
             </Button>
           </DialogFooter>
         </form>

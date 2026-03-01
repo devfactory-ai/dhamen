@@ -110,7 +110,7 @@ export function parseDate(text: string): string | null {
 
   // DD/MM/YYYY or DD-MM-YYYY
   const ddmmMatch = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-  if (ddmmMatch) {
+  if (ddmmMatch && ddmmMatch[1] && ddmmMatch[2] && ddmmMatch[3]) {
     const day = ddmmMatch[1].padStart(2, '0');
     const month = ddmmMatch[2].padStart(2, '0');
     return `${ddmmMatch[3]}-${month}-${day}`;
@@ -120,7 +120,7 @@ export function parseDate(text: string): string | null {
   for (const [name, num] of Object.entries(frenchMonths)) {
     const regex = new RegExp(`(\\d{1,2})\\s*${name}\\s*(\\d{4})`, 'i');
     const match = text.match(regex);
-    if (match) {
+    if (match && match[1] && match[2]) {
       const day = match[1].padStart(2, '0');
       return `${match[2]}-${num}-${day}`;
     }
@@ -176,8 +176,8 @@ export function parseLineItems(text: string): BulletinLineItem[] {
       items.push({
         libelle: line.replace(/\d+[,.\s]?\d*\s*(tnd|dt)?/gi, '').trim().substring(0, 100),
         quantite: 1,
-        prixUnitaire: secondLastAmount || lastAmount,
-        montantTotal: lastAmount,
+        prixUnitaire: secondLastAmount ?? lastAmount ?? 0,
+        montantTotal: lastAmount ?? 0,
       });
     }
   }

@@ -169,7 +169,7 @@ export const SANTE_STATUTS_LABELS: Record<SanteStatutDemande, string> = {
   approuvee: 'Approuvée',
   en_paiement: 'En paiement',
   payee: 'Payée',
-  rejetee: 'Rejetée',
+  rejetée: 'Rejetée',
 };
 
 export const SANTE_STATUTS_COLORS: Record<SanteStatutDemande, string> = {
@@ -179,7 +179,7 @@ export const SANTE_STATUTS_COLORS: Record<SanteStatutDemande, string> = {
   approuvee: 'bg-green-100 text-green-800',
   en_paiement: 'bg-purple-100 text-purple-800',
   payee: 'bg-emerald-100 text-emerald-800',
-  rejetee: 'bg-red-100 text-red-800',
+  rejetée: 'bg-red-100 text-red-800',
 };
 
 export type { SanteDemande, SanteDemandeAvecDetails, DemandesFilters };

@@ -7,8 +7,9 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
 import { authMiddleware, requireRole } from '../middleware/auth';
-import { generateId } from '../lib/ulid';
+import { generatePrefixedId } from '../lib/ulid';
 import { logAudit } from '../middleware/audit-trail';
 
 const compliance = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -115,11 +116,11 @@ compliance.get(
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const countResult = await c.env.DB.prepare(`SELECT COUNT(*) as count FROM audit_logs ${whereClause}`)
+    const countResult = await getDb(c).prepare(`SELECT COUNT(*) as count FROM audit_logs ${whereClause}`)
       .bind(...params)
       .first<{ count: number }>();
 
-    const { results } = await c.env.DB.prepare(
+    const { results } = await getDb(c).prepare(
       `SELECT * FROM audit_logs ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`
     )
       .bind(...params, limit, offset)
@@ -146,7 +147,7 @@ compliance.get(
 compliance.get('/audit-logs/:id', requireRole('ADMIN', 'COMPLIANCE_OFFICER'), async (c) => {
   const logId = c.req.param('id');
 
-  const log = await c.env.DB.prepare('SELECT * FROM audit_logs WHERE id = ?').bind(logId).first();
+  const log = await getDb(c).prepare('SELECT * FROM audit_logs WHERE id = ?').bind(logId).first();
 
   if (!log) {
     return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Log non trouvé' } }, 404);
@@ -168,7 +169,7 @@ compliance.post(
     const user = c.get('user');
     const now = new Date().toISOString();
 
-    const requestId = generateId('DAR');
+    const requestId = generatePrefixedId('DAR');
 
     const request: DataAccessRequest = {
       id: requestId,
@@ -179,9 +180,9 @@ compliance.post(
     };
 
     // In production, save to D1
-    // await c.env.DB.prepare(`INSERT INTO data_access_requests ...`).run();
+    // await getDb(c).prepare(`INSERT INTO data_access_requests ...`).run();
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'compliance.data_request.create',
       entityType: 'data_access_requests',
@@ -262,7 +263,7 @@ compliance.patch(
     const now = new Date().toISOString();
 
     // In production, update D1
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'compliance.data_request.update',
       entityType: 'data_access_requests',
@@ -292,7 +293,7 @@ compliance.post('/consents', zValidator('json', consentSchema), async (c) => {
   const user = c.get('user');
   const now = new Date().toISOString();
 
-  const consentId = generateId('CNS');
+  const consentId = generatePrefixedId('CNS');
 
   const consent: ConsentRecord = {
     id: consentId,
@@ -305,7 +306,7 @@ compliance.post('/consents', zValidator('json', consentSchema), async (c) => {
   };
 
   // In production, save to D1
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user.sub,
     action: data.granted ? 'compliance.consent.grant' : 'compliance.consent.revoke',
     entityType: 'consents',
@@ -356,7 +357,7 @@ compliance.get(
     const user = c.get('user');
 
     // Fetch all data for the subject
-    const adherent = await c.env.DB.prepare('SELECT * FROM adherents WHERE id = ?')
+    const adherent = await getDb(c).prepare('SELECT * FROM adherents WHERE id = ?')
       .bind(subjectId)
       .first();
 
@@ -365,13 +366,13 @@ compliance.get(
     }
 
     // Fetch related data
-    const { results: demandes } = await c.env.DB.prepare(
+    const { results: demandes } = await getDb(c).prepare(
       'SELECT * FROM sante_demandes WHERE adherent_id = ?'
     )
       .bind(subjectId)
       .all();
 
-    const { results: auditLogs } = await c.env.DB.prepare(
+    const { results: auditLogs } = await getDb(c).prepare(
       "SELECT * FROM audit_logs WHERE entity_id = ? OR (changes LIKE ? AND entity_type = 'adherents')"
     )
       .bind(subjectId, `%${subjectId}%`)
@@ -392,7 +393,7 @@ compliance.get(
       consents: [], // Would fetch from consents table
     };
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'compliance.data_export',
       entityType: 'adherents',
@@ -434,7 +435,7 @@ compliance.delete(
     // 2. Keep audit trail
     // 3. Notify related services
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'compliance.data_deletion',
       entityType: 'adherents',

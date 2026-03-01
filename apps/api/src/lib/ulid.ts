@@ -8,6 +8,13 @@ export function generateId(): string {
 }
 
 /**
+ * Generate a new ULID with a prefix (e.g., 'USR-', 'CLM-')
+ */
+export function generatePrefixedId(prefix: string): string {
+  return `${prefix}-${ulid()}`;
+}
+
+/**
  * Validate if a string is a valid ULID
  */
 export function isValidUlid(id: string): boolean {

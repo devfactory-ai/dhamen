@@ -18,6 +18,7 @@ interface UserRow {
   role: Role;
   provider_id: string | null;
   insurer_id: string | null;
+  company_id: string | null;
   first_name: string;
   last_name: string;
   phone: string | null;
@@ -37,6 +38,7 @@ function rowToUser(row: UserRow): User {
     role: row.role,
     providerId: row.provider_id,
     insurerId: row.insurer_id,
+    companyId: row.company_id,
     firstName: row.first_name,
     lastName: row.last_name,
     phone: row.phone,
@@ -56,6 +58,7 @@ export function userToPublic(user: User): UserPublic {
     role: user.role,
     providerId: user.providerId,
     insurerId: user.insurerId,
+    companyId: user.companyId,
     firstName: user.firstName,
     lastName: user.lastName,
     phone: user.phone,

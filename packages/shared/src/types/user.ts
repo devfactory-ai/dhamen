@@ -11,10 +11,16 @@ export const ROLES = [
   'LAB_MANAGER',
   'CLINIC_ADMIN',
   'ADHERENT',
+  // HR role - Company HR staff who manage employees/adherents
+  'HR',
   // SoinFlow roles
   'SOIN_GESTIONNAIRE',
   'SOIN_AGENT',
   'PRATICIEN',
+  'SOIN_RESPONSABLE',
+  'SOIN_DIRECTEUR',
+  // Compliance
+  'COMPLIANCE_OFFICER',
 ] as const;
 
 export type Role = (typeof ROLES)[number];
@@ -26,6 +32,7 @@ export interface User {
   role: Role;
   providerId: string | null;
   insurerId: string | null;
+  companyId: string | null; // For HR users - linked company
   firstName: string;
   lastName: string;
   phone: string | null;
@@ -43,6 +50,7 @@ export interface UserPublic {
   role: Role;
   providerId: string | null;
   insurerId: string | null;
+  companyId: string | null;
   firstName: string;
   lastName: string;
   phone: string | null;
@@ -52,10 +60,20 @@ export interface UserPublic {
 }
 
 export interface JWTPayload {
+  /** User ID (same as sub for compatibility) */
+  id: string;
   sub: string;
+  /** User email */
+  email: string;
+  /** User first name */
+  firstName?: string;
+  /** User last name */
+  lastName?: string;
   role: Role;
   providerId?: string;
   insurerId?: string;
+  /** Company ID for HR users */
+  companyId?: string;
   /** Purpose for limited-scope tokens (e.g., 'mfa_setup', 'mfa_verify') */
   purpose?: 'mfa_setup' | 'mfa_verify';
   iat: number;

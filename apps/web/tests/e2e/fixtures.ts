@@ -143,3 +143,52 @@ export const test = base.extend<AuthFixtures>({
 });
 
 export { expect } from '@playwright/test';
+
+// Helper functions for direct login (simpler approach)
+export async function loginAsAdmin(page: Page): Promise<void> {
+  await page.goto('/login');
+  await page.fill('input[name="email"]', TEST_USERS.admin.email);
+  await page.fill('input[name="password"]', TEST_USERS.admin.password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/(dashboard)?$/, { timeout: 10000 });
+}
+
+export async function loginAsInsurerAdmin(page: Page): Promise<void> {
+  await page.goto('/login');
+  await page.fill('input[name="email"]', TEST_USERS.insurerAdmin.email);
+  await page.fill('input[name="password"]', TEST_USERS.insurerAdmin.password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/(dashboard)?$/, { timeout: 10000 });
+}
+
+export async function loginAsGestionnaire(page: Page): Promise<void> {
+  await page.goto('/login');
+  await page.fill('input[name="email"]', TEST_USERS.soinGestionnaire.email);
+  await page.fill('input[name="password"]', TEST_USERS.soinGestionnaire.password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/(dashboard)?$/, { timeout: 10000 });
+}
+
+export async function loginAsPharmacist(page: Page): Promise<void> {
+  await page.goto('/login');
+  await page.fill('input[name="email"]', TEST_USERS.pharmacist.email);
+  await page.fill('input[name="password"]', TEST_USERS.pharmacist.password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/(dashboard)?$/, { timeout: 10000 });
+}
+
+export async function loginAsDoctor(page: Page): Promise<void> {
+  await page.goto('/login');
+  await page.fill('input[name="email"]', TEST_USERS.doctor.email);
+  await page.fill('input[name="password"]', TEST_USERS.doctor.password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/(dashboard)?$/, { timeout: 10000 });
+}
+
+export async function loginAsAgent(page: Page): Promise<void> {
+  await page.goto('/login');
+  await page.fill('input[name="email"]', TEST_USERS.soinAgent.email);
+  await page.fill('input[name="password"]', TEST_USERS.soinAgent.password);
+  await page.click('button[type="submit"]');
+  await page.waitForURL(/\/(dashboard)?$/, { timeout: 10000 });
+}

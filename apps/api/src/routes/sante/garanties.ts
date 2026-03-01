@@ -23,6 +23,7 @@ import { generateId } from '../../lib/ulid';
 import { logAudit } from '../../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 
 const garanties = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -37,7 +38,7 @@ garanties.get(
   '/formules',
   requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
   async (c) => {
-    const formules = await listFormules(c.env.DB);
+    const formules = await listFormules(getDb(c));
     return success(c, formules);
   }
 );
@@ -51,7 +52,7 @@ garanties.get(
   requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
   async (c) => {
     const id = c.req.param('id');
-    const formule = await findFormuleById(c.env.DB, id);
+    const formule = await findFormuleById(getDb(c), id);
 
     if (!formule) {
       return notFound(c, 'Formule non trouvée');
@@ -70,7 +71,7 @@ garanties.get(
   requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
   async (c) => {
     const code = c.req.param('code');
-    const formule = await findFormuleByCode(c.env.DB, code);
+    const formule = await findFormuleByCode(getDb(c), code);
 
     if (!formule) {
       return notFound(c, 'Formule non trouvée');
@@ -93,9 +94,9 @@ garanties.post(
     const user = c.get('user');
 
     const id = generateId();
-    const formule = await createFormule(c.env.DB, id, data);
+    const formule = await createFormule(getDb(c), id, data);
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_garanties.create',
       entityType: 'sante_garanties',
@@ -120,13 +121,13 @@ garanties.patch(
     const data = c.req.valid('json');
     const user = c.get('user');
 
-    const formule = await updateFormule(c.env.DB, id, data);
+    const formule = await updateFormule(getDb(c), id, data);
 
     if (!formule) {
       return notFound(c, 'Formule non trouvée');
     }
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_garanties.update',
       entityType: 'sante_garanties',
@@ -155,7 +156,7 @@ garanties.get(
     }
 
     const annee = Number.parseInt(c.req.query('annee') ?? new Date().getFullYear().toString());
-    const plafonds = await listPlafondsConsommes(c.env.DB, adherentId, annee);
+    const plafonds = await listPlafondsConsommes(getDb(c), adherentId, annee);
 
     return success(c, plafonds);
   }
@@ -187,7 +188,7 @@ garanties.post(
 
     try {
       const result = await calculateCoverage(
-        c.env.DB,
+        getDb(c),
         data.formuleId,
         data.typeSoin,
         data.montantDemande,

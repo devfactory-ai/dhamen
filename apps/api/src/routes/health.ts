@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
 
 const health = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -24,7 +25,7 @@ health.get('/', async (c) => {
   // Check D1 database
   try {
     const dbStart = Date.now();
-    await c.env.DB.prepare('SELECT 1').first();
+    await getDb(c).prepare('SELECT 1').first();
     checks.database.latencyMs = Date.now() - dbStart;
   } catch (err) {
     checks.database.status = 'error';

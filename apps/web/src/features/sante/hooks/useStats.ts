@@ -240,7 +240,7 @@ export const STATUT_COLORS: Record<string, string> = {
   approuvee: '#10b981',
   en_paiement: '#3b82f6',
   payee: '#059669',
-  rejetee: '#ef4444',
+  rejetée: '#ef4444',
 };
 
 export const STATUT_LABELS: Record<string, string> = {
@@ -250,7 +250,7 @@ export const STATUT_LABELS: Record<string, string> = {
   approuvee: 'Approuvee',
   en_paiement: 'En paiement',
   payee: 'Payee',
-  rejetee: 'Rejetee',
+  rejetée: 'Rejetee',
 };
 
 // ============================================

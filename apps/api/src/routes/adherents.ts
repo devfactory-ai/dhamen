@@ -8,6 +8,7 @@ import {
 import {
   adherentCreateSchema,
   adherentFiltersSchema,
+  adherentImportSchema,
   adherentUpdateSchema,
   paginationSchema,
 } from '@dhamen/shared';
@@ -18,11 +19,283 @@ import { generateId } from '../lib/ulid';
 import { logAudit } from '../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../middleware/auth';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
 
 const adherents = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // Apply auth middleware to all routes
 adherents.use('*', authMiddleware());
+
+/**
+ * GET /api/v1/adherents/me
+ * Get the current logged-in adherent's profile
+ * Only accessible by ADHERENT role
+ */
+adherents.get('/me', requireRole('ADHERENT'), async (c) => {
+  const user = c.get('user');
+  if (!user?.email) {
+    return notFound(c, 'Utilisateur non authentifié');
+  }
+
+  // Find adherent linked to this user's email
+  const adherent = await getDb(c).prepare(
+    `SELECT a.*, c.contract_number, c.plan_type as contract_name, c.start_date as contract_start, c.end_date as contract_end, i.name as insurer_name
+     FROM adherents a
+     LEFT JOIN contracts c ON c.adherent_id = a.id AND UPPER(c.status) = 'ACTIVE'
+     LEFT JOIN insurers i ON c.insurer_id = i.id
+     WHERE a.email = ? AND a.deleted_at IS NULL`
+  )
+    .bind(user.email)
+    .first();
+
+  if (!adherent) {
+    return notFound(c, 'Profil adhérent non trouvé');
+  }
+
+  // Parse ayants droit JSON
+  let ayantsDroit = [];
+  try {
+    ayantsDroit = JSON.parse(String(adherent.ayants_droit_json) || '[]');
+  } catch {
+    ayantsDroit = [];
+  }
+
+  return success(c, {
+    adherent: {
+      id: adherent.id,
+      nationalId: String(adherent.national_id_encrypted).replace('ENC_', ''),
+      firstName: adherent.first_name,
+      lastName: adherent.last_name,
+      dateOfBirth: adherent.date_of_birth,
+      gender: adherent.gender,
+      phone: adherent.phone_encrypted ? String(adherent.phone_encrypted).replace('ENC_', '') : null,
+      email: adherent.email,
+      address: adherent.address,
+      city: adherent.city,
+      postalCode: adherent.postal_code,
+      contractNumber: adherent.contract_number || 'N/A',
+      insurerName: adherent.insurer_name || 'Dhamen',
+      relationship: 'PRINCIPAL',
+      startDate: adherent.contract_start,
+      endDate: adherent.contract_end,
+      isActive: true,
+      ayantsDroit: ayantsDroit,
+    },
+  });
+});
+
+/**
+ * GET /api/v1/adherents/me/ayants-droit
+ * Get the current adherent's beneficiaries (ayants droit)
+ */
+adherents.get('/me/ayants-droit', requireRole('ADHERENT'), async (c) => {
+  const user = c.get('user');
+  if (!user?.email) {
+    return notFound(c, 'Utilisateur non authentifié');
+  }
+
+  const adherent = await getDb(c).prepare(
+    `SELECT id, first_name, last_name, ayants_droit_json FROM adherents WHERE email = ? AND deleted_at IS NULL`
+  )
+    .bind(user.email)
+    .first();
+
+  if (!adherent) {
+    return notFound(c, 'Adhérent non trouvé');
+  }
+
+  // Parse ayants droit JSON
+  let ayantsDroit = [];
+  try {
+    ayantsDroit = JSON.parse(String(adherent.ayants_droit_json) || '[]');
+  } catch {
+    ayantsDroit = [];
+  }
+
+  return success(c, {
+    principal: {
+      id: adherent.id,
+      nom: adherent.last_name,
+      prenom: adherent.first_name,
+    },
+    ayantsDroit: ayantsDroit,
+    total: ayantsDroit.length,
+  });
+});
+
+/**
+ * GET /api/v1/adherents/me/contract
+ * Get the current adherent's contract details
+ */
+adherents.get('/me/contract', requireRole('ADHERENT'), async (c) => {
+  const user = c.get('user');
+  if (!user?.email) {
+    return notFound(c, 'Utilisateur non authentifié');
+  }
+
+  // Find adherent and their contract
+  const result = await getDb(c).prepare(
+    `SELECT c.*, i.name as insurer_name,
+     (SELECT COALESCE(SUM(covered_amount), 0) FROM claims WHERE adherent_id = a.id AND status = 'PAID' AND strftime('%Y', created_at) = strftime('%Y', 'now')) as used_amount
+     FROM adherents a
+     JOIN contracts c ON a.contract_id = c.id
+     JOIN insurers i ON c.insurer_id = i.id
+     WHERE a.email = ? AND a.deleted_at IS NULL`
+  )
+    .bind(user.email)
+    .first();
+
+  if (!result) {
+    return notFound(c, 'Contrat non trouvé');
+  }
+
+  const usedAmount = Number(result.used_amount) || 0;
+  const annualCeiling = Number(result.annual_ceiling) || 0;
+
+  return success(c, {
+    contract: {
+      id: result.id,
+      contractNumber: result.contract_number,
+      name: result.name,
+      type: result.type,
+      insurerName: result.insurer_name,
+      startDate: result.start_date,
+      endDate: result.end_date,
+      status: result.status,
+      coveragePharmacy: result.coverage_pharmacy,
+      coverageConsultation: result.coverage_consultation,
+      coverageLab: result.coverage_lab,
+      coverageHospitalization: result.coverage_hospitalization,
+      annualCeiling: annualCeiling,
+      usedAmount: usedAmount,
+      remainingAmount: Math.max(0, annualCeiling - usedAmount),
+    },
+  });
+});
+
+/**
+ * GET /api/v1/adherents/me/claims
+ * Get the current adherent's claims history
+ */
+adherents.get('/me/claims', requireRole('ADHERENT'), async (c) => {
+  const user = c.get('user');
+  if (!user?.email) {
+    return notFound(c, 'Utilisateur non authentifié');
+  }
+
+  const page = Number(c.req.query('page')) || 1;
+  const limit = Number(c.req.query('limit')) || 10;
+  const offset = (page - 1) * limit;
+
+  // Find adherent
+  const adherent = await getDb(c).prepare(
+    'SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL'
+  )
+    .bind(user.email)
+    .first();
+
+  if (!adherent) {
+    return notFound(c, 'Adhérent non trouvé');
+  }
+
+  // Get claims
+  const claims = await getDb(c).prepare(
+    `SELECT cl.*, p.name as provider_name
+     FROM claims cl
+     LEFT JOIN providers p ON cl.provider_id = p.id
+     WHERE cl.adherent_id = ?
+     ORDER BY cl.created_at DESC
+     LIMIT ? OFFSET ?`
+  )
+    .bind(adherent.id, limit, offset)
+    .all();
+
+  // Get total count
+  const countResult = await getDb(c).prepare(
+    'SELECT COUNT(*) as count FROM claims WHERE adherent_id = ?'
+  )
+    .bind(adherent.id)
+    .first();
+
+  const total = Number(countResult?.count) || 0;
+
+  return success(c, {
+    claims: claims.results.map((cl) => ({
+      id: cl.id,
+      claimNumber: cl.claim_number,
+      type: cl.type,
+      providerName: cl.provider_name || 'Inconnu',
+      date: cl.created_at,
+      totalAmount: cl.total_amount,
+      coveredAmount: cl.covered_amount,
+      status: cl.status,
+      items: [], // Could be expanded to include claim items
+    })),
+    total,
+  });
+});
+
+/**
+ * GET /api/v1/adherents/me/card
+ * Get the current adherent's virtual card
+ */
+adherents.get('/me/card', requireRole('ADHERENT'), async (c) => {
+  const user = c.get('user');
+  if (!user?.email) {
+    return notFound(c, 'Utilisateur non authentifié');
+  }
+
+  // Find adherent with contract and virtual card info
+  // contracts.adherent_id references adherents.id
+  const result = await getDb(c).prepare(
+    `SELECT a.*,
+            c.contract_number, c.end_date as contract_end_date,
+            i.name as insurer_name,
+            vc.id as card_id, vc.card_number, vc.status as card_status,
+            vc.expires_at as card_expires_at, vc.created_at as card_created_at
+     FROM adherents a
+     LEFT JOIN contracts c ON c.adherent_id = a.id AND UPPER(c.status) = 'ACTIVE'
+     LEFT JOIN insurers i ON c.insurer_id = i.id
+     LEFT JOIN virtual_cards vc ON vc.adherent_id = a.id AND UPPER(vc.status) = 'ACTIVE'
+     WHERE a.email = ? AND a.deleted_at IS NULL`
+  )
+    .bind(user.email)
+    .first<{
+      id: string;
+      first_name: string;
+      last_name: string;
+      created_at: string;
+      contract_number?: string;
+      contract_end_date?: string;
+      insurer_name?: string;
+      card_id?: string;
+      card_number?: string;
+      card_status?: string;
+      card_expires_at?: string;
+      card_created_at?: string;
+    }>();
+
+  if (!result) {
+    return notFound(c, 'Adhérent non trouvé');
+  }
+
+  // If no virtual card exists, generate card info from adherent data
+  const cardNumber = result.card_number || `DHM${String(result.id).slice(-12).toUpperCase()}`;
+
+  return success(c, {
+    card: {
+      id: result.card_id || result.id,
+      cardNumber: cardNumber,
+      holderName: `${result.first_name} ${result.last_name}`,
+      insurerName: result.insurer_name || 'Dhamen',
+      contractNumber: result.contract_number || 'N/A',
+      expiryDate: result.card_expires_at || result.contract_end_date || '2027-12-31',
+      status: result.card_status ? result.card_status.toUpperCase() : 'ACTIVE',
+      qrCode: null, // Could be generated on-the-fly
+      createdAt: result.card_created_at || result.created_at,
+    },
+  });
+});
 
 /**
  * GET /api/v1/adherents
@@ -35,7 +308,7 @@ adherents.get(
   async (c) => {
     const { city, search, page, limit } = c.req.valid('query');
 
-    const { data, total } = await listAdherents(c.env.DB, {
+    const { data, total } = await listAdherents(getDb(c), {
       city,
       search,
       page,
@@ -68,7 +341,7 @@ adherents.get(
   ),
   async (c) => {
     const id = c.req.param('id');
-    const adherent = await findAdherentById(c.env.DB, id);
+    const adherent = await findAdherentById(getDb(c), id);
 
     if (!adherent) {
       return notFound(c, 'Adhérent non trouvé');
@@ -96,10 +369,10 @@ adherents.post(
     const encryptedPhone = data.phone ? `ENC_${data.phone}` : undefined;
 
     const id = generateId();
-    const adherent = await createAdherent(c.env.DB, id, data, encryptedNationalId, encryptedPhone);
+    const adherent = await createAdherent(getDb(c), id, data, encryptedNationalId, encryptedPhone);
 
     // Audit log (without sensitive data)
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user?.sub,
       action: 'adherent.create',
       entityType: 'adherent',
@@ -133,14 +406,14 @@ adherents.put(
     // Encrypt phone if provided
     const encryptedPhone = data.phone ? `ENC_${data.phone}` : undefined;
 
-    const adherent = await updateAdherent(c.env.DB, id, data, encryptedPhone);
+    const adherent = await updateAdherent(getDb(c), id, data, encryptedPhone);
 
     if (!adherent) {
       return notFound(c, 'Adhérent non trouvé');
     }
 
     // Audit log
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user?.sub,
       action: 'adherent.update',
       entityType: 'adherent',
@@ -159,6 +432,101 @@ adherents.put(
 );
 
 /**
+ * POST /api/v1/adherents/import
+ * Bulk import adherents from CSV data
+ */
+adherents.post(
+  '/import',
+  requireRole('ADMIN', 'INSURER_ADMIN'),
+  zValidator('json', adherentImportSchema),
+  async (c) => {
+    const { adherents: rows, skipDuplicates } = c.req.valid('json');
+    const user = c.get('user');
+
+    const results = {
+      success: 0,
+      skipped: 0,
+      errors: [] as { row: number; nationalId: string; error: string }[],
+    };
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row) continue;
+      try {
+        // Check for existing adherent with same nationalId
+        const existingCheck = await getDb(c).prepare(
+          'SELECT id FROM adherents WHERE national_id_encrypted = ? AND deleted_at IS NULL'
+        )
+          .bind(`ENC_${row.nationalId}`)
+          .first();
+
+        if (existingCheck) {
+          if (skipDuplicates) {
+            results.skipped++;
+            continue;
+          }
+          results.errors.push({
+            row: i + 1,
+            nationalId: row.nationalId,
+            error: 'Adhérent déjà existant',
+          });
+          continue;
+        }
+
+        // Create adherent
+        const id = generateId();
+        const encryptedNationalId = `ENC_${row.nationalId}`;
+        const encryptedPhone = row.phone ? `ENC_${row.phone}` : null;
+
+        await getDb(c).prepare(
+          `INSERT INTO adherents (id, national_id_encrypted, first_name, last_name, date_of_birth, gender, phone_encrypted, email, address, city, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+        )
+          .bind(
+            id,
+            encryptedNationalId,
+            row.firstName,
+            row.lastName,
+            row.dateOfBirth,
+            row.gender || null,
+            encryptedPhone,
+            row.email || null,
+            row.address || null,
+            row.city || null
+          )
+          .run();
+
+        results.success++;
+      } catch (error) {
+        results.errors.push({
+          row: i + 1,
+          nationalId: row.nationalId,
+          error: error instanceof Error ? error.message : 'Erreur inconnue',
+        });
+      }
+    }
+
+    // Audit log
+    await logAudit(getDb(c), {
+      userId: user?.sub,
+      action: 'adherent.import',
+      entityType: 'adherent',
+      entityId: 'bulk',
+      changes: {
+        total: rows.length,
+        success: results.success,
+        skipped: results.skipped,
+        errors: results.errors.length,
+      },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return success(c, results);
+  }
+);
+
+/**
  * DELETE /api/v1/adherents/:id
  * Soft delete an adherent
  */
@@ -166,14 +534,14 @@ adherents.delete('/:id', requireRole('ADMIN'), async (c) => {
   const id = c.req.param('id');
   const user = c.get('user');
 
-  const deleted = await softDeleteAdherent(c.env.DB, id);
+  const deleted = await softDeleteAdherent(getDb(c), id);
 
   if (!deleted) {
     return notFound(c, 'Adhérent non trouvé');
   }
 
   // Audit log
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user?.sub,
     action: 'adherent.delete',
     entityType: 'adherent',

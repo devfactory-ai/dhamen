@@ -12,6 +12,7 @@ import { generateId } from '../lib/ulid';
 import { logAudit } from '../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../middleware/auth';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
 
 const contracts = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -36,7 +37,7 @@ contracts.get(
       effectiveInsurerId = user.insurerId;
     }
 
-    const { data, total } = await listContracts(c.env.DB, {
+    const { data, total } = await listContracts(getDb(c), {
       insurerId: effectiveInsurerId,
       adherentId,
       status,
@@ -71,7 +72,7 @@ contracts.get(
   ),
   async (c) => {
     const id = c.req.param('id');
-    const contract = await findContractById(c.env.DB, id);
+    const contract = await findContractById(getDb(c), id);
 
     if (!contract) {
       return notFound(c, 'Contrat non trouvé');
@@ -109,14 +110,31 @@ contracts.post(
       effectiveInsurerId = user.insurerId;
     }
 
+    if (!data.adherentId) {
+      return c.json(
+        { success: false, error: { code: 'VALIDATION_ERROR', message: 'adherentId requis' } },
+        400
+      );
+    }
+
+    // Default coverage if not provided
+    const defaultCoverage = {
+      pharmacy: { enabled: true, reimbursementRate: 80, annualLimit: null, genericOnly: false },
+      consultation: { enabled: true, reimbursementRate: 70, annualLimit: null, specialities: [] as string[] },
+      lab: { enabled: true, reimbursementRate: 80, annualLimit: null },
+      hospitalization: { enabled: true, reimbursementRate: 100, annualLimit: null, roomType: 'standard' as const },
+    };
+
     const id = generateId();
-    const contract = await createContract(c.env.DB, id, {
+    const contract = await createContract(getDb(c), id, {
       ...data,
+      adherentId: data.adherentId,
       insurerId: effectiveInsurerId,
+      coverage: data.coverage ?? defaultCoverage,
     });
 
     // Audit log
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user?.sub,
       action: 'contract.create',
       entityType: 'contract',
@@ -149,7 +167,7 @@ contracts.put(
     const user = c.get('user');
 
     // Check access
-    const existing = await findContractById(c.env.DB, id);
+    const existing = await findContractById(getDb(c), id);
     if (!existing) {
       return notFound(c, 'Contrat non trouvé');
     }
@@ -162,14 +180,14 @@ contracts.put(
       return notFound(c, 'Contrat non trouvé');
     }
 
-    const contract = await updateContract(c.env.DB, id, data);
+    const contract = await updateContract(getDb(c), id, data);
 
     if (!contract) {
       return notFound(c, 'Contrat non trouvé');
     }
 
     // Audit log
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user?.sub,
       action: 'contract.update',
       entityType: 'contract',

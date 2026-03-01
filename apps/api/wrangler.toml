@@ -14,15 +14,64 @@ JWT_ISSUER = "dhamen"
 JWT_EXPIRES_IN = "900"
 REFRESH_EXPIRES_IN = "86400"
 
+# Legacy single DB (kept for backward compatibility during migration)
 [[d1_databases]]
 binding = "DB"
 database_name = "dhamen-db"
 database_id = "83076129-b19e-49e9-a77c-6668252d38cc"
 migrations_dir = "../../packages/db/migrations"
 
+# ============================================
+# MULTI-TENANT D1 DATABASES
+# ============================================
+
+# Platform database (tenant registry, super admin, cross-tenant data)
+[[d1_databases]]
+binding = "DB_PLATFORM"
+database_name = "dhamen-platform"
+database_id = "177d1c79-e45e-4d8e-8d36-7322fc4034d6"
+migrations_dir = "../../packages/db/migrations"
+
+# STAR Assurances tenant database
+[[d1_databases]]
+binding = "DB_STAR"
+database_name = "dhamen-star"
+database_id = "359616bc-cf96-4613-a06c-a784af509abf"
+migrations_dir = "../../packages/db/migrations"
+
+# GAT Assurances tenant database
+[[d1_databases]]
+binding = "DB_GAT"
+database_name = "dhamen-gat"
+database_id = "7dac8e2c-d0e5-4b89-8431-0fb54cdf8ae4"
+migrations_dir = "../../packages/db/migrations"
+
+# COMAR tenant database
+[[d1_databases]]
+binding = "DB_COMAR"
+database_name = "dhamen-comar"
+database_id = "454bd8a2-e536-47e9-bf38-fd11da820bf5"
+migrations_dir = "../../packages/db/migrations"
+
+# AMI Assurances tenant database
+[[d1_databases]]
+binding = "DB_AMI"
+database_name = "dhamen-ami"
+database_id = "7575cb4b-ae0d-4fd6-9dd3-22b467d434b7"
+migrations_dir = "../../packages/db/migrations"
+
+# ============================================
+# KV NAMESPACES
+# ============================================
+
 [[kv_namespaces]]
 binding = "CACHE"
 id = "22194f538ced43e7aba76bc0c4dfbaaa"
+
+# Tenant registry for fast subdomain -> tenant lookup
+[[kv_namespaces]]
+binding = "TENANT_REGISTRY"
+id = "0b9124d8d7ea4deb97df39dc69bc3d90"
 
 [[r2_buckets]]
 binding = "STORAGE"

@@ -41,6 +41,7 @@ export interface Contract {
   insurerId: string;
   adherentId: string;
   contractNumber: string;
+  policyNumber?: string | null;
   planType: PlanType;
   startDate: string;
   endDate: string;
@@ -49,6 +50,8 @@ export interface Contract {
   coverageJson: CoverageConfig;
   exclusionsJson: string[];
   status: ContractStatus;
+  documentId?: string | null;
+  documentUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -73,6 +76,9 @@ export interface ContractUpdate {
   coverage?: Partial<CoverageConfig>;
   exclusions?: string[];
   status?: ContractStatus;
+  policyNumber?: string;
+  documentId?: string;
+  documentUrl?: string;
 }
 
 export interface ContractFilters {

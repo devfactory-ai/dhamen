@@ -1,21 +1,24 @@
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useNavigate } from 'react-router-dom';
+import { Upload, Plus, Download } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { toCSV, downloadCSV, formatDateExport, type ExportColumn } from '@/lib/export-utils';
+import { apiClient } from '@/lib/api-client';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { useAdherents, useCreateAdherent, useUpdateAdherent, useDeleteAdherent, type Adherent } from '../hooks/useAdherents';
-import { useInsurers } from '@/features/insurers/hooks/useInsurers';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Adherent, useAdherents, useDeleteAdherent } from '../hooks/useAdherents';
 import { useToast } from '@/stores/toast';
 
 const RELATIONSHIP_LABELS = {
@@ -27,107 +30,61 @@ const RELATIONSHIP_LABELS = {
 
 const GENDER_LABELS = {
   M: 'Masculin',
-  F: 'Féminin',
+  F: 'Feminin',
 };
 
 export function AdherentsPage() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [selectedAdherent, setSelectedAdherent] = useState<Adherent | undefined>();
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<Adherent | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const { toast } = useToast();
 
   const { data, isLoading } = useAdherents(page, 20, search || undefined);
-  const { data: insurersData } = useInsurers(1, 100);
-  const createAdherent = useCreateAdherent();
-  const updateAdherent = useUpdateAdherent();
   const deleteAdherent = useDeleteAdherent();
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    setValue,
-    watch,
-  } = useForm({
-    defaultValues: {
-      insurerId: '',
-      nationalId: '',
-      firstName: '',
-      lastName: '',
-      dateOfBirth: '',
-      gender: 'M',
-      phone: '',
-      email: '',
-      address: '',
-      city: '',
-      relationship: 'PRIMARY',
-    },
-  });
+  const exportColumns: ExportColumn<Adherent>[] = [
+    { key: 'nationalId', header: 'CIN' },
+    { key: 'firstName', header: 'Prénom' },
+    { key: 'lastName', header: 'Nom' },
+    { key: 'dateOfBirth', header: 'Date de naissance', format: (v) => formatDateExport(v as string) },
+    { key: 'gender', header: 'Genre' },
+    { key: 'phone', header: 'Téléphone' },
+    { key: 'email', header: 'Email' },
+    { key: 'city', header: 'Ville' },
+    { key: 'address', header: 'Adresse' },
+    { key: 'memberNumber', header: 'N° Adhérent' },
+    { key: 'relationship', header: 'Lien', format: (v) => RELATIONSHIP_LABELS[v as keyof typeof RELATIONSHIP_LABELS] || '' },
+    { key: 'isActive', header: 'Actif', format: (v) => v ? 'Oui' : 'Non' },
+  ];
 
-  const selectedGender = watch('gender');
-  const selectedRelationship = watch('relationship');
-  const selectedInsurerId = watch('insurerId');
-
-  const handleCreate = () => {
-    setSelectedAdherent(undefined);
-    reset({
-      insurerId: '',
-      nationalId: '',
-      firstName: '',
-      lastName: '',
-      dateOfBirth: '',
-      gender: 'M',
-      phone: '',
-      email: '',
-      address: '',
-      city: '',
-      relationship: 'PRIMARY',
-    });
-    setIsDialogOpen(true);
-  };
-
-  const handleEdit = (adherent: Adherent) => {
-    setSelectedAdherent(adherent);
-    reset({
-      insurerId: adherent.insurerId,
-      nationalId: adherent.nationalId,
-      firstName: adherent.firstName,
-      lastName: adherent.lastName,
-      dateOfBirth: adherent.dateOfBirth.split('T')[0],
-      gender: adherent.gender,
-      phone: adherent.phone || '',
-      email: adherent.email || '',
-      address: adherent.address || '',
-      city: adherent.city || '',
-      relationship: adherent.relationship,
-    });
-    setIsDialogOpen(true);
-  };
-
-  const onSubmit = async (formData: Record<string, string>) => {
+  const handleExportCSV = async () => {
+    setIsExporting(true);
     try {
-      if (selectedAdherent) {
-        await updateAdherent.mutateAsync({ id: selectedAdherent.id, data: formData });
-        toast({ title: 'Adherent modifie', variant: 'success' });
-      } else {
-        await createAdherent.mutateAsync(formData as unknown as Parameters<typeof createAdherent.mutateAsync>[0]);
-        toast({ title: 'Adherent cree', variant: 'success' });
-      }
-      setIsDialogOpen(false);
-    } catch {
-      toast({ title: 'Erreur lors de l\'enregistrement', description: 'Veuillez reessayer', variant: 'destructive' });
+      // Fetch all data for export
+      const response = await apiClient.get<{ data: Adherent[]; meta: { total: number } }>('/adherents?limit=10000');
+      if (!response.success) throw new Error(response.error?.message);
+
+      const allData = response.data?.data || [];
+      const csv = toCSV(allData, exportColumns);
+      downloadCSV(csv, 'adhérents');
+      toast({ title: `${allData.length} adhérents exportés`, variant: 'success' });
+    } catch (error) {
+      toast({ title: 'Erreur lors de l\'export', variant: 'destructive' });
+    } finally {
+      setIsExporting(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
     try {
-      await deleteAdherent.mutateAsync(id);
+      await deleteAdherent.mutateAsync(deleteConfirm.id);
       setDeleteConfirm(null);
-      toast({ title: 'Adherent supprime', variant: 'success' });
+      toast({ title: 'Adhérent supprimé avec succès', variant: 'success' });
     } catch {
-      toast({ title: 'Erreur lors de la suppression', description: 'Veuillez reessayer', variant: 'destructive' });
+      toast({ title: 'Erreur lors de la suppression', description: 'Veuillez réessayer', variant: 'destructive' });
     }
   };
 
@@ -197,14 +154,14 @@ export function AdherentsPage() {
       className: 'text-right',
       render: (adherent: Adherent) => (
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => handleEdit(adherent)}>
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/adherents/${adherent.id}/edit`)}>
             Modifier
           </Button>
           <Button
             variant="ghost"
             size="sm"
             className="text-destructive hover:text-destructive"
-            onClick={() => setDeleteConfirm(adherent.id)}
+            onClick={() => setDeleteConfirm(adherent)}
           >
             Supprimer
           </Button>
@@ -215,14 +172,26 @@ export function AdherentsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Adhérents"
-        description="Gérer les adhérents et leurs ayants droit"
-        action={{
-          label: 'Nouvel adhérent',
-          onClick: handleCreate,
-        }}
-      />
+      <div className="flex items-center justify-between">
+        <PageHeader
+          title="Adhérents"
+          description="Gérer les adhérents et leurs ayants droit"
+        />
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
+            <Download className="mr-2 h-4 w-4" />
+            {isExporting ? 'Export...' : 'Exporter'}
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/adhérents/import')}>
+            <Upload className="mr-2 h-4 w-4" />
+            Import CSV
+          </Button>
+          <Button onClick={() => navigate('/adhérents/new')}>
+            <Plus className="mr-2 h-4 w-4" />
+            Nouvel adhérent
+          </Button>
+        </div>
+      </div>
 
       {/* Search */}
       <div className="flex gap-4">
@@ -236,7 +205,7 @@ export function AdherentsPage() {
 
       <DataTable
         columns={columns}
-        data={data?.adherents || []}
+        data={data?.adhérents || []}
         isLoading={isLoading}
         emptyMessage="Aucun adhérent trouvé"
         pagination={
@@ -251,141 +220,30 @@ export function AdherentsPage() {
         }
       />
 
-      {/* Create/Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {selectedAdherent ? 'Modifier l\'adhérent' : 'Nouvel adhérent'}
-            </DialogTitle>
-            <DialogDescription>
-              {selectedAdherent
-                ? 'Modifier les informations de l\'adhérent'
-                : 'Ajouter un nouvel adhérent'}
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Assureur</Label>
-              <Select value={selectedInsurerId} onValueChange={(v) => setValue('insurerId', v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Sélectionner un assureur" />
-                </SelectTrigger>
-                <SelectContent>
-                  {insurersData?.insurers.map((insurer) => (
-                    <SelectItem key={insurer.id} value={insurer.id}>
-                      {insurer.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="firstName">Prénom</Label>
-                <Input id="firstName" {...register('firstName', { required: true })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="lastName">Nom</Label>
-                <Input id="lastName" {...register('lastName', { required: true })} />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="nationalId">N° CIN</Label>
-              <Input id="nationalId" {...register('nationalId', { required: true })} placeholder="12345678" />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="dateOfBirth">Date de naissance</Label>
-                <Input id="dateOfBirth" type="date" {...register('dateOfBirth', { required: true })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Genre</Label>
-                <Select value={selectedGender} onValueChange={(v) => setValue('gender', v)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="M">Masculin</SelectItem>
-                    <SelectItem value="F">Féminin</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Lien</Label>
-                <Select value={selectedRelationship} onValueChange={(v) => setValue('relationship', v)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(RELATIONSHIP_LABELS).map(([value, label]) => (
-                      <SelectItem key={value} value={value}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="phone">Téléphone</Label>
-                <Input id="phone" {...register('phone')} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" {...register('email')} />
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="address">Adresse</Label>
-                <Input id="address" {...register('address')} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="city">Ville</Label>
-                <Input id="city" {...register('city')} />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4">
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-                Annuler
-              </Button>
-              <Button type="submit" disabled={createAdherent.isPending || updateAdherent.isPending}>
-                {createAdherent.isPending || updateAdherent.isPending ? 'Enregistrement...' : selectedAdherent ? 'Mettre à jour' : 'Créer'}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-
       {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Confirmer la suppression</DialogTitle>
-            <DialogDescription>
-              Êtes-vous sûr de vouloir supprimer cet adhérent ? Cette action est irréversible.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-3 pt-4">
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
-              Annuler
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => deleteConfirm && handleDelete(deleteConfirm)}
-              disabled={deleteAdherent.isPending}
+      <AlertDialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+            <AlertDialogDescription>
+              Êtes-vous sûr de vouloir supprimer l'adhérent{' '}
+              <strong>{deleteConfirm?.firstName} {deleteConfirm?.lastName}</strong> ?
+              Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteAdherent.isPending ? 'Suppression...' : 'Supprimer'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
+
+export default AdherentsPage;

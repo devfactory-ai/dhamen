@@ -11,7 +11,7 @@ import {
 } from '../lib/cookies';
 import { signJWT, signRefreshToken, verifyRefreshToken, verifyJWT } from '../lib/jwt';
 import { verifyPassword } from '../lib/password';
-import { error, success, unauthorized } from '../lib/response';
+import { error, success, unauthorized, validationError } from '../lib/response';
 import {
   generateTOTPSecret,
   generateTOTPUri,
@@ -24,6 +24,19 @@ import {
 import { logAudit } from '../middleware/audit-trail';
 import { authMiddleware } from '../middleware/auth';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
+
+// Custom validation hook to handle errors gracefully
+const validationHook = (result: { success: boolean; data?: unknown; error?: z.ZodError }, c: any): Response | undefined => {
+  if (!result.success && result.error) {
+    const errors = result.error.errors.map((e) => ({
+      path: e.path.join('.'),
+      message: e.message,
+    }));
+    return validationError(c, errors);
+  }
+  return undefined;
+};
 
 /** Helper to check if running in production */
 function isProduction(c: { env: Bindings }): boolean {
@@ -47,10 +60,10 @@ const auth = new Hono<{ Bindings: Bindings; Variables: Variables }>();
  * POST /api/v1/auth/login
  * Authenticate user and return tokens
  */
-auth.post('/login', zValidator('json', loginRequestSchema), async (c) => {
+auth.post('/login', zValidator('json', loginRequestSchema, validationHook), async (c) => {
   const { email, password } = c.req.valid('json');
 
-  const user = await findUserByEmail(c.env.DB, email);
+  const user = await findUserByEmail(getDb(c), email);
 
   if (!user) {
     return error(c, 'INVALID_CREDENTIALS', 'Email ou mot de passe incorrect', 401);
@@ -71,7 +84,7 @@ auth.post('/login', zValidator('json', loginRequestSchema), async (c) => {
   if (mfaRequired && !user.mfaEnabled) {
     // User needs to set up MFA first
     const mfaSetupToken = await signJWT(
-      { sub: user.id, role: user.role, purpose: 'mfa_setup' },
+      { id: user.id, sub: user.id, email: user.email, role: user.role, purpose: 'mfa_setup' },
       c.env.JWT_SECRET,
       600 // 10 minutes
     );
@@ -87,7 +100,7 @@ auth.post('/login', zValidator('json', loginRequestSchema), async (c) => {
   if (user.mfaEnabled && user.mfaSecret) {
     // Generate MFA verification token
     const mfaToken = await signJWT(
-      { sub: user.id, role: user.role, purpose: 'mfa_verify' },
+      { id: user.id, sub: user.id, email: user.email, role: user.role, purpose: 'mfa_verify' },
       c.env.JWT_SECRET,
       300 // 5 minutes
     );
@@ -104,10 +117,15 @@ auth.post('/login', zValidator('json', loginRequestSchema), async (c) => {
 
   const accessToken = await signJWT(
     {
+      id: user.id,
       sub: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
       role: user.role,
       providerId: user.providerId ?? undefined,
       insurerId: user.insurerId ?? undefined,
+      companyId: user.companyId ?? undefined,
     },
     c.env.JWT_SECRET,
     jwtExpiresIn
@@ -126,10 +144,10 @@ auth.post('/login', zValidator('json', loginRequestSchema), async (c) => {
   setRefreshTokenCookie(c, refreshToken, refreshExpiresIn, isProd);
 
   // Update last login
-  await updateUser(c.env.DB, user.id, { lastLoginAt: new Date().toISOString() });
+  await updateUser(getDb(c), user.id, { lastLoginAt: new Date().toISOString() });
 
   // Audit log
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user.id,
     action: 'auth.login',
     entityType: 'user',
@@ -142,6 +160,11 @@ auth.post('/login', zValidator('json', loginRequestSchema), async (c) => {
     requiresMfa: false,
     expiresIn: jwtExpiresIn,
     user: userToPublic(user),
+    // Also return tokens in body for localStorage fallback (cross-origin cookie issues)
+    tokens: {
+      accessToken,
+      refreshToken,
+    },
   });
 });
 
@@ -156,7 +179,7 @@ auth.post('/mfa/setup', authMiddleware(), async (c) => {
     return unauthorized(c);
   }
 
-  const user = await findUserById(c.env.DB, jwtPayload.sub);
+  const user = await findUserById(getDb(c), jwtPayload.sub);
   if (!user) {
     return unauthorized(c, 'Utilisateur non trouve');
   }
@@ -175,7 +198,7 @@ auth.post('/mfa/setup', authMiddleware(), async (c) => {
   });
 
   // Audit log
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user.id,
     action: 'auth.mfa_setup_initiated',
     entityType: 'user',
@@ -203,7 +226,7 @@ auth.post('/mfa/setup/verify', authMiddleware(), zValidator('json', mfaSetupSche
     return unauthorized(c);
   }
 
-  const user = await findUserById(c.env.DB, jwtPayload.sub);
+  const user = await findUserById(getDb(c), jwtPayload.sub);
   if (!user) {
     return unauthorized(c, 'Utilisateur non trouve');
   }
@@ -225,7 +248,7 @@ auth.post('/mfa/setup/verify', authMiddleware(), zValidator('json', mfaSetupSche
   const hashedCodes = await Promise.all(backupCodes.map(hashBackupCode));
 
   // Enable MFA and store secret + backup codes
-  await updateUser(c.env.DB, user.id, {
+  await updateUser(getDb(c), user.id, {
     mfaEnabled: true,
     mfaSecret: secret,
   });
@@ -239,7 +262,7 @@ auth.post('/mfa/setup/verify', authMiddleware(), zValidator('json', mfaSetupSche
   await c.env.CACHE.delete(`mfa_setup:${user.id}`);
 
   // Audit log
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user.id,
     action: 'auth.mfa_enabled',
     entityType: 'user',
@@ -268,7 +291,7 @@ auth.post('/mfa/verify', zValidator('json', mfaVerifyRequestSchema), async (c) =
     return unauthorized(c, 'Token MFA invalide ou expire');
   }
 
-  const user = await findUserById(c.env.DB, payload.sub);
+  const user = await findUserById(getDb(c), payload.sub);
   if (!(user?.mfaSecret)) {
     return unauthorized(c, 'Utilisateur non trouve');
   }
@@ -277,7 +300,7 @@ auth.post('/mfa/verify', zValidator('json', mfaVerifyRequestSchema), async (c) =
   const isValid = await verifyTOTP(otpCode, user.mfaSecret);
   if (!isValid) {
     // Audit failed attempt
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.id,
       action: 'auth.mfa_failed',
       entityType: 'user',
@@ -296,10 +319,15 @@ auth.post('/mfa/verify', zValidator('json', mfaVerifyRequestSchema), async (c) =
 
   const accessToken = await signJWT(
     {
+      id: user.id,
       sub: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
       role: user.role,
       providerId: user.providerId ?? undefined,
       insurerId: user.insurerId ?? undefined,
+      companyId: user.companyId ?? undefined,
     },
     c.env.JWT_SECRET,
     jwtExpiresIn
@@ -318,10 +346,10 @@ auth.post('/mfa/verify', zValidator('json', mfaVerifyRequestSchema), async (c) =
   setRefreshTokenCookie(c, refreshToken, refreshExpiresIn, isProd);
 
   // Update last login
-  await updateUser(c.env.DB, user.id, { lastLoginAt: new Date().toISOString() });
+  await updateUser(getDb(c), user.id, { lastLoginAt: new Date().toISOString() });
 
   // Audit log
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user.id,
     action: 'auth.login_mfa_verified',
     entityType: 'user',
@@ -333,6 +361,11 @@ auth.post('/mfa/verify', zValidator('json', mfaVerifyRequestSchema), async (c) =
   return success(c, {
     expiresIn: jwtExpiresIn,
     user: userToPublic(user),
+    // Also return tokens in body for localStorage fallback
+    tokens: {
+      accessToken,
+      refreshToken,
+    },
   });
 });
 
@@ -349,7 +382,7 @@ auth.post('/mfa/backup', zValidator('json', backupCodeSchema), async (c) => {
     return unauthorized(c, 'Token MFA invalide ou expire');
   }
 
-  const user = await findUserById(c.env.DB, payload.sub);
+  const user = await findUserById(getDb(c), payload.sub);
   if (!user) {
     return unauthorized(c, 'Utilisateur non trouve');
   }
@@ -365,7 +398,7 @@ auth.post('/mfa/backup', zValidator('json', backupCodeSchema), async (c) => {
 
   if (matchIndex === -1) {
     // Audit failed attempt
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.id,
       action: 'auth.backup_code_failed',
       entityType: 'user',
@@ -387,10 +420,15 @@ auth.post('/mfa/backup', zValidator('json', backupCodeSchema), async (c) => {
 
   const accessToken = await signJWT(
     {
+      id: user.id,
       sub: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
       role: user.role,
       providerId: user.providerId ?? undefined,
       insurerId: user.insurerId ?? undefined,
+      companyId: user.companyId ?? undefined,
     },
     c.env.JWT_SECRET,
     jwtExpiresIn
@@ -407,10 +445,10 @@ auth.post('/mfa/backup', zValidator('json', backupCodeSchema), async (c) => {
   setAccessTokenCookie(c, accessToken, jwtExpiresIn, isProd);
   setRefreshTokenCookie(c, refreshToken, refreshExpiresIn, isProd);
 
-  await updateUser(c.env.DB, user.id, { lastLoginAt: new Date().toISOString() });
+  await updateUser(getDb(c), user.id, { lastLoginAt: new Date().toISOString() });
 
   // Audit log
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user.id,
     action: 'auth.login_backup_code_used',
     entityType: 'user',
@@ -425,6 +463,11 @@ auth.post('/mfa/backup', zValidator('json', backupCodeSchema), async (c) => {
     user: userToPublic(user),
     remainingBackupCodes: hashedCodes.length,
     warning: hashedCodes.length < 3 ? 'Attention: peu de codes de secours restants' : undefined,
+    // Also return tokens in body for localStorage fallback
+    tokens: {
+      accessToken,
+      refreshToken,
+    },
   });
 });
 
@@ -440,7 +483,7 @@ auth.post('/mfa/disable', authMiddleware(), zValidator('json', mfaSetupSchema), 
     return unauthorized(c);
   }
 
-  const user = await findUserById(c.env.DB, jwtPayload.sub);
+  const user = await findUserById(getDb(c), jwtPayload.sub);
   if (!(user?.mfaSecret)) {
     return error(c, 'MFA_NOT_ENABLED', 'MFA non active sur ce compte', 400);
   }
@@ -457,7 +500,7 @@ auth.post('/mfa/disable', authMiddleware(), zValidator('json', mfaSetupSchema), 
   }
 
   // Disable MFA
-  await updateUser(c.env.DB, user.id, {
+  await updateUser(getDb(c), user.id, {
     mfaEnabled: false,
     mfaSecret: undefined,
   });
@@ -466,7 +509,7 @@ auth.post('/mfa/disable', authMiddleware(), zValidator('json', mfaSetupSchema), 
   await c.env.CACHE.delete(`mfa_backup:${user.id}`);
 
   // Audit log
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user.id,
     action: 'auth.mfa_disabled',
     entityType: 'user',
@@ -492,7 +535,7 @@ auth.get('/mfa/status', authMiddleware(), async (c) => {
     return unauthorized(c);
   }
 
-  const user = await findUserById(c.env.DB, jwtPayload.sub);
+  const user = await findUserById(getDb(c), jwtPayload.sub);
   if (!user) {
     return unauthorized(c, 'Utilisateur non trouvé');
   }
@@ -524,7 +567,7 @@ auth.post('/mfa/backup/regenerate', authMiddleware(), zValidator('json', mfaSetu
     return unauthorized(c);
   }
 
-  const user = await findUserById(c.env.DB, jwtPayload.sub);
+  const user = await findUserById(getDb(c), jwtPayload.sub);
   if (!(user?.mfaSecret)) {
     return error(c, 'MFA_NOT_ENABLED', 'MFA non activé sur ce compte', 400);
   }
@@ -543,7 +586,7 @@ auth.post('/mfa/backup/regenerate', authMiddleware(), zValidator('json', mfaSetu
   await c.env.CACHE.put(`mfa_backup:${user.id}`, JSON.stringify(hashedCodes));
 
   // Audit log
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user.id,
     action: 'auth.backup_codes_regenerated',
     entityType: 'user',
@@ -592,7 +635,7 @@ auth.post('/refresh', async (c) => {
   }
 
   // Find user by ID
-  const user = await findUserById(c.env.DB, payload.sub);
+  const user = await findUserById(getDb(c), payload.sub);
   if (!user?.isActive) {
     return unauthorized(c, 'Utilisateur non trouve ou desactive');
   }
@@ -603,10 +646,13 @@ auth.post('/refresh', async (c) => {
 
   const newAccessToken = await signJWT(
     {
+      id: user.id,
       sub: user.id,
+      email: user.email,
       role: user.role,
       providerId: user.providerId ?? undefined,
       insurerId: user.insurerId ?? undefined,
+      companyId: user.companyId ?? undefined,
     },
     c.env.JWT_SECRET,
     jwtExpiresIn
@@ -626,6 +672,11 @@ auth.post('/refresh', async (c) => {
 
   return success(c, {
     expiresIn: jwtExpiresIn,
+    // Also return tokens in body for localStorage fallback
+    tokens: {
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+    },
   });
 });
 
@@ -641,7 +692,7 @@ auth.post('/logout', authMiddleware(), async (c) => {
     await c.env.CACHE.delete(`refresh:${user.sub}`);
 
     // Audit log
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'auth.logout',
       entityType: 'user',
@@ -669,7 +720,7 @@ auth.get('/me', authMiddleware(), async (c) => {
   }
 
   const { findUserById } = await import('@dhamen/db');
-  const user = await findUserById(c.env.DB, jwtPayload.sub);
+  const user = await findUserById(getDb(c), jwtPayload.sub);
 
   if (!user) {
     return unauthorized(c, 'Utilisateur non trouvé');

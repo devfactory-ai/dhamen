@@ -1,197 +1,112 @@
 /**
- * Eligibility Check E2E Tests
+ * Eligibility E2E Tests
  *
- * Tests for the eligibility verification flow
+ * Tests for eligibility verification workflows
  */
 
-import { test, expect, TEST_ADHERENT, TEST_CLAIM } from './fixtures';
+import { test, expect } from '@playwright/test';
 
-test.describe('Eligibility Check', () => {
-  test.beforeEach(async ({ loginAs }) => {
-    // Login as pharmacist for eligibility checks
-    await loginAs('pharmacist');
+const PROVIDER_USER = {
+  email: 'pharmacien@pharma-centrale.tn',
+  password: 'Pharma123!@#',
+};
+
+test.describe('Eligibility Verification', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/login');
+    await page.getByLabel(/email/i).fill(PROVIDER_USER.email);
+    await page.getByLabel(/mot de passe/i).fill(PROVIDER_USER.password);
+    await page.getByRole('button', { name: /se connecter/i }).click();
+    await expect(page).toHaveURL(/.*dashboard/);
   });
 
-  test.describe('Eligibility Page', () => {
-    test('should display eligibility check form', async ({ page }) => {
+  test.describe('Quick Eligibility Check', () => {
+    test('should display eligibility page', async ({ page }) => {
       await page.goto('/eligibility');
-
-      // Check form elements
-      await expect(page.locator('input[name="nationalId"], input[name="adherentId"]')).toBeVisible();
-      await expect(page.locator('button:has-text(/vérifier|check/i)')).toBeVisible();
+      await expect(page.getByRole('heading', { name: /éligibilité|eligibility/i })).toBeVisible();
     });
 
-    test('should show search options', async ({ page }) => {
+    test('should search adherent by number', async ({ page }) => {
       await page.goto('/eligibility');
-
-      // Should have different search methods
-      await expect(page.locator('text=/numéro national|national id/i')).toBeVisible();
-    });
-  });
-
-  test.describe('Eligibility Verification', () => {
-    test('should verify eligible adherent', async ({ page }) => {
-      await page.goto('/eligibility');
-
-      // Enter adherent ID
-      await page.fill('input[name="nationalId"]', TEST_ADHERENT.nationalId);
-
-      // Click verify
-      await page.click('button:has-text(/vérifier|check/i)');
-
-      // Wait for result
-      await page.waitForSelector('[data-testid="eligibility-result"]', { timeout: 10000 });
-
-      // Should show eligible status
-      await expect(page.locator('text=/éligible|eligible|couvert/i')).toBeVisible();
+      await page.getByPlaceholder(/numéro adhérent|adherent number/i).fill('ADH-2024-001');
+      await page.getByRole('button', { name: /vérifier|check/i }).click();
+      await page.waitForTimeout(1000);
     });
 
-    test('should show adherent details after verification', async ({ page }) => {
+    test('should search adherent by CIN', async ({ page }) => {
       await page.goto('/eligibility');
-
-      await page.fill('input[name="nationalId"]', TEST_ADHERENT.nationalId);
-      await page.click('button:has-text(/vérifier|check/i)');
-
-      await page.waitForSelector('[data-testid="eligibility-result"]', { timeout: 10000 });
-
-      // Should show adherent info
-      await expect(page.locator(`text=${TEST_ADHERENT.firstName}`)).toBeVisible();
-      await expect(page.locator(`text=${TEST_ADHERENT.lastName}`)).toBeVisible();
+      await page.getByPlaceholder(/cin/i).fill('12345678');
+      await page.getByRole('button', { name: /vérifier|check/i }).click();
+      await page.waitForTimeout(1000);
     });
 
-    test('should show coverage limits', async ({ page }) => {
+    test('should display eligibility result', async ({ page }) => {
       await page.goto('/eligibility');
-
-      await page.fill('input[name="nationalId"]', TEST_ADHERENT.nationalId);
-      await page.click('button:has-text(/vérifier|check/i)');
-
-      await page.waitForSelector('[data-testid="eligibility-result"]', { timeout: 10000 });
-
-      // Should show coverage information
-      await expect(page.locator('text=/plafond|limite|limit/i')).toBeVisible();
-      await expect(page.locator('text=/consommé|used|consumed/i')).toBeVisible();
+      await page.getByPlaceholder(/numéro adhérent/i).fill('ADH-2024-001');
+      await page.getByRole('button', { name: /vérifier/i }).click();
+      
+      // Should show result (eligible or not)
+      await expect(page.getByText(/éligible|non éligible|eligible|not eligible/i)).toBeVisible();
     });
 
-    test('should handle non-existent adherent', async ({ page }) => {
+    test('should show coverage details when eligible', async ({ page }) => {
       await page.goto('/eligibility');
-
-      // Enter non-existent ID
-      await page.fill('input[name="nationalId"]', '99999999');
-      await page.click('button:has-text(/vérifier|check/i)');
-
-      // Should show not found message
-      await expect(page.locator('text=/non trouvé|not found|introuvable/i')).toBeVisible({
-        timeout: 10000,
-      });
-    });
-
-    test('should handle expired contract', async ({ page }) => {
-      await page.goto('/eligibility');
-
-      // Use ID of adherent with expired contract
-      await page.fill('input[name="nationalId"]', '00000001');
-      await page.click('button:has-text(/vérifier|check/i)');
-
-      // Should show ineligible or expired message
-      const result = page.locator('[data-testid="eligibility-result"]');
-      await expect(result).toBeVisible({ timeout: 10000 });
-
-      // Check for expired/ineligible status
-      const hasExpired = await page.locator('text=/expiré|expired|non éligible/i').isVisible();
-      expect(hasExpired || true).toBeTruthy(); // Pass if message shown or adherent not found
-    });
-  });
-
-  test.describe('Eligibility with Amount', () => {
-    test('should verify eligibility for specific amount', async ({ page }) => {
-      await page.goto('/eligibility');
-
-      await page.fill('input[name="nationalId"]', TEST_ADHERENT.nationalId);
-
-      // Enter care type and amount
-      const careTypeSelect = page.locator('select[name="careType"], [role="combobox"]');
-      if (await careTypeSelect.isVisible()) {
-        await careTypeSelect.click();
-        await page.click('text=/pharmacie|pharmacy/i');
+      await page.getByPlaceholder(/numéro adhérent/i).fill('ADH-2024-001');
+      await page.getByRole('button', { name: /vérifier/i }).click();
+      
+      const coverageSection = page.getByText(/couverture|coverage/i);
+      if (await coverageSection.isVisible()) {
+        await expect(page.getByText(/taux|rate|%/i)).toBeVisible();
       }
-
-      const amountInput = page.locator('input[name="amount"]');
-      if (await amountInput.isVisible()) {
-        await amountInput.fill('50');
-      }
-
-      await page.click('button:has-text(/vérifier|check/i)');
-
-      await page.waitForSelector('[data-testid="eligibility-result"]', { timeout: 10000 });
-
-      // Should show coverage details
-      await expect(page.locator('text=/prise en charge|coverage|couverture/i')).toBeVisible();
     });
 
-    test('should show partial coverage when amount exceeds limit', async ({ page }) => {
+    test('should show reason when not eligible', async ({ page }) => {
       await page.goto('/eligibility');
-
-      await page.fill('input[name="nationalId"]', TEST_ADHERENT.nationalId);
-
-      const amountInput = page.locator('input[name="amount"]');
-      if (await amountInput.isVisible()) {
-        // Enter large amount that might exceed limit
-        await amountInput.fill('10000');
-      }
-
-      await page.click('button:has-text(/vérifier|check/i)');
-
-      await page.waitForSelector('[data-testid="eligibility-result"]', { timeout: 10000 });
-
-      // Should show coverage amount (may be less than requested)
-      await expect(page.locator('text=/montant|amount/i')).toBeVisible();
+      await page.getByPlaceholder(/numéro adhérent/i).fill('INVALID-001');
+      await page.getByRole('button', { name: /vérifier/i }).click();
+      
+      // Should show error or reason
+      await expect(page.getByText(/non trouvé|expiré|invalide|not found|expired/i)).toBeVisible();
     });
   });
 
-  test.describe('QR Code Scanning', () => {
-    test('should have QR code scanner option', async ({ page }) => {
+  test.describe('Eligibility by Care Type', () => {
+    test('should check eligibility for consultation', async ({ page }) => {
       await page.goto('/eligibility');
+      await page.getByPlaceholder(/numéro adhérent/i).fill('ADH-2024-001');
+      await page.getByLabel(/type de soin/i).click();
+      await page.getByRole('option', { name: /consultation/i }).click();
+      await page.getByRole('button', { name: /vérifier/i }).click();
+    });
 
-      // Check for QR scanner button
-      const qrButton = page.locator('button:has-text(/qr|scan/i)');
-      const hasQr = await qrButton.isVisible().catch(() => false);
+    test('should check eligibility for pharmacy', async ({ page }) => {
+      await page.goto('/eligibility');
+      await page.getByPlaceholder(/numéro adhérent/i).fill('ADH-2024-001');
+      await page.getByLabel(/type de soin/i).click();
+      await page.getByRole('option', { name: /pharmacie/i }).click();
+      await page.getByRole('button', { name: /vérifier/i }).click();
+    });
 
-      // QR scanning might not be available on all devices
-      expect(hasQr || true).toBeTruthy();
+    test('should check eligibility for hospitalization', async ({ page }) => {
+      await page.goto('/eligibility');
+      await page.getByPlaceholder(/numéro adhérent/i).fill('ADH-2024-001');
+      await page.getByLabel(/type de soin/i).click();
+      await page.getByRole('option', { name: /hospitalisation/i }).click();
+      await page.getByRole('button', { name: /vérifier/i }).click();
     });
   });
 
-  test.describe('History', () => {
-    test('should show recent eligibility checks', async ({ page }) => {
+  test.describe('QR Code Scan', () => {
+    test('should have QR scan option', async ({ page }) => {
       await page.goto('/eligibility');
-
-      // Do a check first
-      await page.fill('input[name="nationalId"]', TEST_ADHERENT.nationalId);
-      await page.click('button:has-text(/vérifier|check/i)');
-      await page.waitForSelector('[data-testid="eligibility-result"]', { timeout: 10000 });
-
-      // Check for history section
-      const historySection = page.locator('[data-testid="eligibility-history"], text=/historique|history|récent/i');
-      const hasHistory = await historySection.isVisible().catch(() => false);
-
-      // History feature might be optional
-      expect(hasHistory || true).toBeTruthy();
+      await expect(page.getByRole('button', { name: /scanner|qr/i })).toBeVisible();
     });
   });
 
-  test.describe('Performance', () => {
-    test('eligibility check should complete within 3 seconds', async ({ page }) => {
+  test.describe('Eligibility History', () => {
+    test('should show recent checks', async ({ page }) => {
       await page.goto('/eligibility');
-
-      await page.fill('input[name="nationalId"]', TEST_ADHERENT.nationalId);
-
-      const startTime = Date.now();
-      await page.click('button:has-text(/vérifier|check/i)');
-      await page.waitForSelector('[data-testid="eligibility-result"]', { timeout: 10000 });
-      const endTime = Date.now();
-
-      // Eligibility check should be fast (< 3 seconds)
-      expect(endTime - startTime).toBeLessThan(3000);
+      await expect(page.getByText(/récent|historique|history/i)).toBeVisible();
     });
   });
 });

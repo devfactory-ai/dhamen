@@ -43,6 +43,7 @@ export function clearTokens(): void {
   storage.removeItem(ACCESS_TOKEN_KEY);
   storage.removeItem(REFRESH_TOKEN_KEY);
   storage.removeItem(USER_KEY);
+  storage.removeItem('isAuthenticated');
 }
 
 export function setUser(user: UserPublic): void {
@@ -62,5 +63,15 @@ export function getUser(): UserPublic | null {
 }
 
 export function isAuthenticated(): boolean {
-  return !!getAccessToken();
+  // Check if we have both access token and user data
+  const token = storage.getItem(ACCESS_TOKEN_KEY);
+  return !!token && !!getUser();
+}
+
+export function setAuthenticated(value: boolean): void {
+  if (value) {
+    storage.setItem('isAuthenticated', 'true');
+  } else {
+    storage.removeItem('isAuthenticated');
+  }
 }

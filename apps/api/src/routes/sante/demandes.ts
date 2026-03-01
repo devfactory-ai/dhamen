@@ -21,6 +21,7 @@ import { generateId } from '../../lib/ulid';
 import { logAudit } from '../../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 
 const demandes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -38,7 +39,7 @@ demandes.get(
   async (c) => {
     const filters = c.req.valid('query');
 
-    const { data, total } = await listSanteDemandes(c.env.DB, {
+    const { data, total } = await listSanteDemandes(getDb(c), {
       ...filters,
       page: filters.page ?? 1,
       limit: filters.limit ?? 20,
@@ -66,7 +67,7 @@ demandes.get(
     const filters = c.req.valid('query');
 
     // Get adherent's demandes only
-    const { data, total } = await listSanteDemandes(c.env.DB, {
+    const { data, total } = await listSanteDemandes(getDb(c), {
       ...filters,
       adherentId: user.sub, // User sub is the adherent ID for mobile users
       page: filters.page ?? 1,
@@ -95,7 +96,7 @@ demandes.get(
     const filters = c.req.valid('query');
 
     // Get praticien's demandes only (via providerId)
-    const { data, total } = await listSanteDemandes(c.env.DB, {
+    const { data, total } = await listSanteDemandes(getDb(c), {
       ...filters,
       praticienId: user.providerId ?? undefined,
       page: filters.page ?? 1,
@@ -119,7 +120,7 @@ demandes.get(
   '/stats',
   requireRole('SOIN_GESTIONNAIRE', 'ADMIN'),
   async (c) => {
-    const stats = await getSanteDemandesStats(c.env.DB);
+    const stats = await getSanteDemandesStats(getDb(c));
     return success(c, stats);
   }
 );
@@ -134,7 +135,7 @@ demandes.get(
   async (c) => {
     const id = c.req.param('id');
     const user = c.get('user');
-    const demande = await findSanteDemandeAvecDetails(c.env.DB, id);
+    const demande = await findSanteDemandeAvecDetails(getDb(c), id);
 
     if (!demande) {
       return notFound(c, 'Demande non trouvée');
@@ -168,13 +169,13 @@ demandes.post(
     const adherentId = user.role === 'ADHERENT' ? user.sub : data.adherentId;
 
     const id = generateId();
-    const demande = await createSanteDemande(c.env.DB, id, {
+    const demande = await createSanteDemande(getDb(c), id, {
       ...data,
       adherentId,
       source: 'adherent',
     });
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_demandes.create',
       entityType: 'sante_demandes',
@@ -207,7 +208,7 @@ demandes.patch(
       return forbidden(c, 'Vous n\'avez pas les droits pour effectuer cette action');
     }
 
-    const demande = await updateSanteDemandeStatut(c.env.DB, id, data.statut, {
+    const demande = await updateSanteDemandeStatut(getDb(c), id, data.statut, {
       montantRembourse: data.montantRembourse,
       motifRejet: data.motifRejet,
       notesInternes: data.notesInternes,
@@ -218,7 +219,7 @@ demandes.patch(
       return notFound(c, 'Demande non trouvée');
     }
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_demandes.update',
       entityType: 'sante_demandes',

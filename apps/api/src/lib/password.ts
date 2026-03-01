@@ -1,10 +1,11 @@
 const encoder = new TextEncoder();
 
 /**
- * PBKDF2 iterations - OWASP 2023 recommends 600,000 for SHA-256
- * This provides strong protection against offline brute-force attacks
+ * PBKDF2 iterations - Reduced for Cloudflare Workers CPU limits
+ * 100,000 iterations is still secure and completes within Worker CPU budget
+ * Note: OWASP 2023 recommends 600,000 but that exceeds Worker CPU limits
  */
-const PBKDF2_ITERATIONS = 600000;
+const PBKDF2_ITERATIONS = 100000;
 
 /**
  * Hash a password using PBKDF2 (Web Crypto API compatible alternative to bcrypt)
@@ -47,6 +48,7 @@ export async function verifyPassword(password: string, storedHash: string): Prom
   }
 
   // PBKDF2 hash verification
+  // Support both new (100k) and legacy (600k) iteration counts
   if (!storedHash.startsWith('$pbkdf2$')) {
     return false;
   }

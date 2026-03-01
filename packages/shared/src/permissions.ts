@@ -13,6 +13,8 @@ export const RESOURCES = [
   'reconciliations',
   'conventions',
   'audit_logs',
+  'companies', // Entreprises with HR staff
+  'bulletins_soins', // Bulletins de soin (paper claims from adherents)
   // SoinFlow resources
   'sante_demandes',
   'sante_documents',
@@ -59,6 +61,7 @@ export const PERMISSIONS: Record<Role, Partial<Record<Resource, Action[]>>> = {
     reconciliations: ['create', 'read', 'update', 'delete', 'list'],
     conventions: ['create', 'read', 'update', 'delete', 'list'],
     audit_logs: ['read', 'list'],
+    companies: ['create', 'read', 'update', 'delete', 'list'],
   },
 
   INSURER_ADMIN: {
@@ -71,6 +74,14 @@ export const PERMISSIONS: Record<Role, Partial<Record<Resource, Action[]>>> = {
     reconciliations: ['create', 'read', 'list'],
     conventions: ['create', 'read', 'update', 'list'],
     audit_logs: ['read', 'list'],
+    companies: ['create', 'read', 'update', 'list'], // Manage client companies
+    // Bulletins de soin: full management
+    bulletins_soins: ['read', 'list', 'update', 'delete', 'validate', 'approve', 'reject'],
+    // SoinFlow: Insurers can view praticiens, demandes, garanties, paiements
+    sante_demandes: ['read', 'list', 'validate'],
+    sante_garanties: ['read', 'list'],
+    sante_praticiens: ['read', 'list'],
+    sante_paiements: ['read', 'list'],
   },
 
   INSURER_AGENT: {
@@ -80,6 +91,13 @@ export const PERMISSIONS: Record<Role, Partial<Record<Resource, Action[]>>> = {
     claims: ['read', 'list', 'approve', 'reject'],
     reconciliations: ['read', 'list'],
     conventions: ['read', 'list'],
+    // Bulletins de soin: validation workflow
+    bulletins_soins: ['read', 'list', 'update', 'validate', 'approve', 'reject'],
+    // SoinFlow: Insurer agents can view praticiens, demandes, garanties
+    sante_demandes: ['read', 'list'],
+    sante_garanties: ['read', 'list'],
+    sante_praticiens: ['read', 'list'],
+    sante_paiements: ['read', 'list'],
   },
 
   PHARMACIST: {
@@ -114,9 +132,23 @@ export const PERMISSIONS: Record<Role, Partial<Record<Resource, Action[]>>> = {
     adherents: ['read'], // Only own profile
     contracts: ['read'], // Only own contracts
     claims: ['read', 'list'], // Only own claims
+    // Bulletins de soin: submit and track own bulletins
+    bulletins_soins: ['create', 'read', 'list', 'upload'],
     // SoinFlow: adhérents peuvent soumettre et voir leurs demandes
     sante_demandes: ['create', 'read', 'list'],
     sante_documents: ['upload', 'read'],
+  },
+
+  /**
+   * HR role - Company HR staff
+   * Manage employees (adherents) for their company
+   * Can create, update, list adherents linked to their company
+   */
+  HR: {
+    adherents: ['create', 'read', 'update', 'list'], // Manage company employees
+    contracts: ['read', 'list'], // View company contracts
+    claims: ['read', 'list'], // View employee claims
+    companies: ['read', 'update'], // View/update own company info
   },
 
   /**
@@ -159,6 +191,51 @@ export const PERMISSIONS: Record<Role, Partial<Record<Resource, Action[]>>> = {
     sante_garanties: ['read'], // Check coverage
     sante_actes: ['create', 'read', 'list'], // Own acts only
     sante_paiements: ['read'], // Own payments only
+  },
+
+  /**
+   * SOIN_RESPONSABLE role - SoinFlow department heads
+   * Manage team operations, approvals
+   */
+  SOIN_RESPONSABLE: {
+    adherents: ['read', 'list'],
+    sante_demandes: ['read', 'list', 'update', 'validate'],
+    sante_documents: ['read', 'list', 'download'],
+    sante_garanties: ['read', 'list'],
+    sante_praticiens: ['read', 'list', 'update'],
+    sante_actes: ['read', 'list', 'validate'],
+    sante_paiements: ['read', 'list', 'initiate'],
+    audit_logs: ['read', 'list'],
+  },
+
+  /**
+   * SOIN_DIRECTEUR role - SoinFlow directors
+   * Full oversight, strategic decisions
+   */
+  SOIN_DIRECTEUR: {
+    adherents: ['read', 'list'],
+    sante_demandes: ['read', 'list', 'validate'],
+    sante_documents: ['read', 'list', 'download'],
+    sante_garanties: ['read', 'list'],
+    sante_praticiens: ['read', 'list'],
+    sante_actes: ['read', 'list'],
+    sante_paiements: ['read', 'list', 'initiate'],
+    audit_logs: ['read', 'list'],
+    reconciliations: ['read', 'list'],
+  },
+
+  /**
+   * COMPLIANCE_OFFICER role - Regulatory compliance
+   * Audit, compliance reports, read-only access
+   */
+  COMPLIANCE_OFFICER: {
+    adherents: ['read', 'list'],
+    providers: ['read', 'list'],
+    contracts: ['read', 'list'],
+    claims: ['read', 'list'],
+    reconciliations: ['read', 'list'],
+    audit_logs: ['read', 'list'],
+    companies: ['read', 'list'],
   },
 };
 

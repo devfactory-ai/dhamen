@@ -9,6 +9,7 @@ import { generateId } from '../../lib/ulid';
 import { logAudit } from '../../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 import {
   santeStatutPaiementSchema,
   santeMethodePaiementSchema,
@@ -114,13 +115,13 @@ paiements.get(
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const countResult = await c.env.DB.prepare(
+    const countResult = await getDb(c).prepare(
       `SELECT COUNT(*) as count FROM sante_paiements ${whereClause}`
     )
       .bind(...params)
       .first<{ count: number }>();
 
-    const { results } = await c.env.DB.prepare(
+    const { results } = await getDb(c).prepare(
       `SELECT * FROM sante_paiements ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`
     )
       .bind(...params, limit, offset)
@@ -142,13 +143,13 @@ paiements.get(
  * Get payment statistics
  */
 paiements.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
-  const { results: statusCounts } = await c.env.DB.prepare(`
+  const { results: statusCounts } = await getDb(c).prepare(`
     SELECT statut, COUNT(*) as count, COALESCE(SUM(montant), 0) as total
     FROM sante_paiements
     GROUP BY statut
   `).all<{ statut: string; count: number; total: number }>();
 
-  const totals = await c.env.DB.prepare(`
+  const totals = await getDb(c).prepare(`
     SELECT
       COUNT(*) as total,
       COALESCE(SUM(CASE WHEN statut = 'execute' THEN montant ELSE 0 END), 0) as totalExecute,
@@ -176,7 +177,7 @@ paiements.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => 
 paiements.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
   const id = c.req.param('id');
 
-  const row = await c.env.DB.prepare('SELECT * FROM sante_paiements WHERE id = ?')
+  const row = await getDb(c).prepare('SELECT * FROM sante_paiements WHERE id = ?')
     .bind(id)
     .first<PaiementRow>();
 
@@ -185,7 +186,7 @@ paiements.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
   }
 
   // Get associated demande info
-  const demande = await c.env.DB.prepare(`
+  const demande = await getDb(c).prepare(`
     SELECT d.numero_demande, d.adherent_id, d.montant_demande,
            a.first_name, a.last_name
     FROM sante_demandes d
@@ -228,7 +229,7 @@ paiements.post(
 
     // Check idempotency
     if (data.idempotencyKey) {
-      const existing = await c.env.DB.prepare(
+      const existing = await getDb(c).prepare(
         'SELECT id FROM sante_paiements WHERE idempotency_key = ?'
       )
         .bind(data.idempotencyKey)
@@ -240,7 +241,7 @@ paiements.post(
     }
 
     // Verify demande exists and is approved
-    const demande = await c.env.DB.prepare(
+    const demande = await getDb(c).prepare(
       'SELECT id, statut, montant_rembourse FROM sante_demandes WHERE id = ?'
     )
       .bind(data.demandeId)
@@ -257,7 +258,7 @@ paiements.post(
     const now = new Date().toISOString();
     const id = generateId();
 
-    await c.env.DB.prepare(`
+    await getDb(c).prepare(`
       INSERT INTO sante_paiements (
         id, demande_id, type_beneficiaire, beneficiaire_id, montant, methode,
         rib_encrypted, statut, idempotency_key, initie_par, created_at, updated_at
@@ -279,13 +280,13 @@ paiements.post(
       .run();
 
     // Update demande status to en_paiement
-    await c.env.DB.prepare(
+    await getDb(c).prepare(
       'UPDATE sante_demandes SET statut = ?, updated_at = ? WHERE id = ?'
     )
       .bind('en_paiement', now, data.demandeId)
       .run();
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_paiements.create',
       entityType: 'sante_paiements',
@@ -293,7 +294,7 @@ paiements.post(
       changes: { demandeId: data.demandeId, montant: data.montant, methode: data.methode },
     });
 
-    const paiement = await c.env.DB.prepare('SELECT * FROM sante_paiements WHERE id = ?')
+    const paiement = await getDb(c).prepare('SELECT * FROM sante_paiements WHERE id = ?')
       .bind(id)
       .first<PaiementRow>();
 
@@ -314,7 +315,7 @@ paiements.patch(
     const data = c.req.valid('json');
     const user = c.get('user');
 
-    const existing = await c.env.DB.prepare('SELECT * FROM sante_paiements WHERE id = ?')
+    const existing = await getDb(c).prepare('SELECT * FROM sante_paiements WHERE id = ?')
       .bind(id)
       .first<PaiementRow>();
 
@@ -349,7 +350,7 @@ paiements.patch(
 
     params.push(id);
 
-    await c.env.DB.prepare(
+    await getDb(c).prepare(
       `UPDATE sante_paiements SET ${updates.join(', ')} WHERE id = ?`
     )
       .bind(...params)
@@ -357,14 +358,14 @@ paiements.patch(
 
     // If payment executed, update demande to payee
     if (data.statut === 'execute') {
-      await c.env.DB.prepare(
+      await getDb(c).prepare(
         'UPDATE sante_demandes SET statut = ?, updated_at = ? WHERE id = ?'
       )
         .bind('payee', now, existing.demande_id)
         .run();
     }
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_paiements.update_status',
       entityType: 'sante_paiements',
@@ -372,7 +373,7 @@ paiements.patch(
       changes: { oldStatut: existing.statut, newStatut: data.statut },
     });
 
-    const paiement = await c.env.DB.prepare('SELECT * FROM sante_paiements WHERE id = ?')
+    const paiement = await getDb(c).prepare('SELECT * FROM sante_paiements WHERE id = ?')
       .bind(id)
       .first<PaiementRow>();
 
@@ -404,7 +405,7 @@ paiements.post(
 
     for (const demandeId of demandeIds) {
       // Get demande with adherent info
-      const demande = await c.env.DB.prepare(`
+      const demande = await getDb(c).prepare(`
         SELECT d.id, d.statut, d.montant_rembourse, d.adherent_id
         FROM sante_demandes d
         WHERE d.id = ?
@@ -434,7 +435,7 @@ paiements.post(
 
       const id = generateId();
 
-      await c.env.DB.prepare(`
+      await getDb(c).prepare(`
         INSERT INTO sante_paiements (
           id, demande_id, type_beneficiaire, beneficiaire_id, montant, methode,
           statut, initie_par, created_at, updated_at
@@ -452,7 +453,7 @@ paiements.post(
         )
         .run();
 
-      await c.env.DB.prepare(
+      await getDb(c).prepare(
         'UPDATE sante_demandes SET statut = ?, updated_at = ? WHERE id = ?'
       )
         .bind('en_paiement', now, demandeId)
@@ -461,7 +462,7 @@ paiements.post(
       created.push({ demandeId, paiementId: id });
     }
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_paiements.batch_create',
       entityType: 'sante_paiements',

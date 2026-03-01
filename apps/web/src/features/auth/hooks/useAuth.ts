@@ -6,13 +6,15 @@ import { setTokens, clearTokens, getUser, setUser, isAuthenticated } from '@/lib
 
 interface LoginResponse {
   requiresMfa: boolean;
+  requiresMfaSetup?: boolean;
   mfaToken?: string;
+  mfaSetupToken?: string;
+  expiresIn?: number;
+  user?: UserPublic;
   tokens?: {
     accessToken: string;
     refreshToken: string;
-    expiresIn: number;
   };
-  user?: UserPublic;
 }
 
 export function useAuth() {
@@ -49,14 +51,24 @@ export function useAuth() {
 
         const data = response.data;
 
+        // Handle MFA setup required
+        if (data.requiresMfaSetup) {
+          return { success: true, requiresMfaSetup: true, mfaSetupToken: data.mfaSetupToken };
+        }
+
+        // Handle MFA verification required
         if (data.requiresMfa) {
           return { success: true, requiresMfa: true, mfaToken: data.mfaToken };
         }
 
-        if (data.tokens && data.user) {
+        // Login successful - store tokens and user
+        if (data.user && data.tokens) {
+          // Store tokens in localStorage for Bearer auth
           setTokens(data.tokens);
           setUser(data.user);
           setUserState(data.user);
+          // Mark as authenticated in localStorage
+          localStorage.setItem('isAuthenticated', 'true');
           navigate('/dashboard');
           return { success: true, requiresMfa: false };
         }

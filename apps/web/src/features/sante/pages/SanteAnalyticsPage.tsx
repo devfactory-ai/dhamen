@@ -51,7 +51,7 @@ const PERIOD_LABELS: Record<Period, string> = {
   week: 'Cette semaine',
   month: 'Ce mois',
   quarter: 'Ce trimestre',
-  year: 'Cette annee',
+  year: 'Cette année',
 };
 
 const CHART_COLORS = [
@@ -186,7 +186,7 @@ export function SanteAnalyticsPage() {
         <TabsList>
           <TabsTrigger value="overview">Vue d'ensemble</TabsTrigger>
           <TabsTrigger value="trends">Tendances</TabsTrigger>
-          <TabsTrigger value="distribution">Repartition</TabsTrigger>
+          <TabsTrigger value="distribution">Répartition</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
         </TabsList>
 
@@ -196,8 +196,8 @@ export function SanteAnalyticsPage() {
             {/* Activity Chart */}
             <Card>
               <CardHeader>
-                <CardTitle>Activite quotidienne</CardTitle>
-                <CardDescription>Demandes et remboursements sur la periode</CardDescription>
+                <CardTitle>Activité quotidienne</CardTitle>
+                <CardDescription>Demandes et remboursements sur la période</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-80">
@@ -238,8 +238,8 @@ export function SanteAnalyticsPage() {
             {/* Distribution by Type */}
             <Card>
               <CardHeader>
-                <CardTitle>Repartition par type de soin</CardTitle>
-                <CardDescription>Volume de demandes par categorie</CardDescription>
+                <CardTitle>Répartition par type de soin</CardTitle>
+                <CardDescription>Volume de demandes par catégorie</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-80">
@@ -276,7 +276,7 @@ export function SanteAnalyticsPage() {
           {/* Status Distribution */}
           <Card>
             <CardHeader>
-              <CardTitle>Repartition par statut</CardTitle>
+              <CardTitle>Répartition par statut</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="h-64">
@@ -398,7 +398,7 @@ export function SanteAnalyticsPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Repartition par statut</CardTitle>
+                <CardTitle>Répartition par statut</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="h-80">
@@ -564,7 +564,7 @@ function ComparisonCard({ title, current, previous, format, invertTrend }: Compa
                   </span>
                 </>
               )}
-              <span className="text-xs text-muted-foreground ml-1">vs periode precedente</span>
+              <span className="text-xs text-muted-foreground ml-1">vs période précédénte</span>
             </div>
           </div>
         </div>

@@ -189,9 +189,9 @@ export function useUpdateBordereauStatut() {
 
 export const BORDEREAU_STATUTS_LABELS: Record<BordereauStatut, string> = {
   genere: 'Genere',
-  valide: 'Valide',
+  valide: 'Validé',
   envoye: 'Envoye',
-  paye: 'Paye',
+  paye: 'Payé',
   annule: 'Annule',
 };
 

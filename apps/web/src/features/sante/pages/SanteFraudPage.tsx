@@ -95,7 +95,7 @@ export function SanteFraudPage() {
   const handleInvestigate = async (alertId: string) => {
     try {
       await startInvestigation.mutateAsync(alertId);
-      toast({ title: 'Investigation demarree', variant: 'success' });
+      toast({ title: 'Investigation démarrée', variant: 'success' });
       setShowInvestigateDialog(false);
       refetch();
     } catch (error) {
@@ -107,7 +107,7 @@ export function SanteFraudPage() {
     }
   };
 
-  const handleResolve = async (resolution: 'confirmee' | 'rejetee', notes: string) => {
+  const handleResolve = async (resolution: 'confirmée' | 'rejetée', notes: string) => {
     if (!selectedAlert) return;
     try {
       await resolveAlert.mutateAsync({
@@ -132,7 +132,7 @@ export function SanteFraudPage() {
   const niveauChartData = stats ? [
     { name: 'Faible', value: stats.parNiveau.faible, color: NIVEAU_CHART_COLORS.faible },
     { name: 'Moyen', value: stats.parNiveau.moyen, color: NIVEAU_CHART_COLORS.moyen },
-    { name: 'Eleve', value: stats.parNiveau.eleve, color: NIVEAU_CHART_COLORS.eleve },
+    { name: 'Élevé', value: stats.parNiveau.eleve, color: NIVEAU_CHART_COLORS.eleve },
     { name: 'Critique', value: stats.parNiveau.critique, color: NIVEAU_CHART_COLORS.critique },
   ] : [];
 
@@ -234,7 +234,7 @@ export function SanteFraudPage() {
               <div className="grid gap-6 lg:grid-cols-2">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Repartition par niveau</CardTitle>
+                    <CardTitle>Répartition par niveau</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="h-64">
@@ -284,12 +284,12 @@ export function SanteFraudPage() {
               {/* Recent Critical Alerts */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Alertes critiques recentes</CardTitle>
+                  <CardTitle>Alertes critiques récentes</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
                     {alerts
-                      .filter((a) => a.niveau === 'critique' || a.niveau === 'eleve')
+                      .filter((a) => a.niveau === 'critique' || a.niveau === 'élevé')
                       .slice(0, 5)
                       .map((alert) => (
                         <AlertRow
@@ -301,7 +301,7 @@ export function SanteFraudPage() {
                           }}
                         />
                       ))}
-                    {alerts.filter((a) => a.niveau === 'critique' || a.niveau === 'eleve').length === 0 && (
+                    {alerts.filter((a) => a.niveau === 'critique' || a.niveau === 'élevé').length === 0 && (
                       <p className="text-center text-muted-foreground py-8">
                         Aucune alerte critique
                       </p>
@@ -364,7 +364,7 @@ export function SanteFraudPage() {
           ) : alerts.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center text-muted-foreground">
-                Aucune alerte trouvee
+                Aucune alerte trouvée
               </CardContent>
             </Card>
           ) : (
@@ -411,7 +411,7 @@ export function SanteFraudPage() {
                     </div>
                   </div>
                   <div className="mt-4">
-                    <p className="text-sm text-muted-foreground">Praticiens impliques:</p>
+                    <p className="text-sm text-muted-foreground">Praticiens impliqués:</p>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {pattern.praticiens.slice(0, 3).map((p, i) => (
                         <Badge key={i} variant="outline" className="text-xs">{p}</Badge>
@@ -427,7 +427,7 @@ export function SanteFraudPage() {
             {(!patterns || patterns.length === 0) && (
               <Card className="col-span-2">
                 <CardContent className="py-12 text-center text-muted-foreground">
-                  Aucun pattern detecte
+                  Aucun pattern détecté
                 </CardContent>
               </Card>
             )}
@@ -472,7 +472,7 @@ function AlertRow({ alert, onView }: { alert: FraudAlert; onView: () => void }) 
           }`} />
         </div>
         <div>
-          <p className="font-medium">{alert.demande?.numero || alert.demandeId.slice(0, 8)}</p>
+          <p className="font-medium">{alert.demande?.numéro || alert.demandeId.slice(0, 8)}</p>
           <p className="text-sm text-muted-foreground">
             Score: <span className={getScoreColor(alert.score)}>{alert.score}</span>
           </p>
@@ -518,7 +518,7 @@ function AlertCard({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground">Demande</p>
-                <p className="font-medium">{alert.demande?.numero || alert.demandeId.slice(0, 8)}</p>
+                <p className="font-medium">{alert.demande?.numéro || alert.demandeId.slice(0, 8)}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Montant</p>
@@ -531,16 +531,16 @@ function AlertCard({
                 <p className="font-medium">{alert.demande?.praticienNom || '-'}</p>
               </div>
               <div>
-                <p className="text-muted-foreground">Adherent</p>
-                <p className="font-medium">{alert.demande?.adherentNom || '-'}</p>
+                <p className="text-muted-foreground">Adhérent</p>
+                <p className="font-medium">{alert.demande?.adhérentNom || '-'}</p>
               </div>
             </div>
 
-            {alert.reglesActivees.length > 0 && (
+            {alert.règlesActivees.length > 0 && (
               <div className="mt-3">
-                <p className="text-sm text-muted-foreground mb-1">Regles activees:</p>
+                <p className="text-sm text-muted-foreground mb-1">Règles activées:</p>
                 <div className="flex flex-wrap gap-1">
-                  {alert.reglesActivees.map((rule, i) => (
+                  {alert.règlesActivees.map((rule, i) => (
                     <Badge key={i} variant="outline" className="text-xs">
                       {rule.nom} (+{rule.impactScore})
                     </Badge>
@@ -570,7 +570,7 @@ function AlertCard({
             {alert.statut === 'en_investigation' && (
               <Button size="sm" onClick={onResolve}>
                 <CheckCircle className="h-4 w-4 mr-1" />
-                Resoudre
+                Résoudre
               </Button>
             )}
           </div>
@@ -600,16 +600,16 @@ function InvestigateDialog({
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Demarrer l'investigation</DialogTitle>
+          <DialogTitle>Démarrer l'investigation</DialogTitle>
           <DialogDescription>
-            Alerte {alert.demande?.numero || alert.id.slice(0, 8)} - Score: {alert.score}
+            Alerte {alert.demande?.numéro || alert.id.slice(0, 8)} - Score: {alert.score}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="p-4 bg-red-50 rounded-lg">
-            <h4 className="font-medium text-red-800 mb-2">Regles declenchees</h4>
-            {alert.reglesActivees.map((rule, i) => (
+            <h4 className="font-medium text-red-800 mb-2">Règles déclenchées</h4>
+            {alert.règlesActivees.map((rule, i) => (
               <div key={i} className="flex justify-between text-sm py-1 border-b last:border-0">
                 <span>{rule.nom}</span>
                 <span className="text-red-600">+{rule.impactScore}</span>
@@ -634,7 +634,7 @@ function InvestigateDialog({
           <Button variant="outline" onClick={onClose}>Annuler</Button>
           <Button onClick={() => onInvestigate(alert.id)} disabled={isLoading}>
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            Demarrer l'investigation
+            Démarrer l'investigation
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -653,10 +653,10 @@ function ResolveDialog({
   open: boolean;
   onClose: () => void;
   alert: FraudAlert | null;
-  onResolve: (resolution: 'confirmee' | 'rejetee', notes: string) => void;
+  onResolve: (resolution: 'confirmée' | 'rejetée', notes: string) => void;
   isLoading: boolean;
 }) {
-  const [resolution, setResolution] = useState<'confirmee' | 'rejetee'>('rejetee');
+  const [resolution, setResolution] = useState<'confirmée' | 'rejetée'>('rejetée');
   const [notes, setNotes] = useState('');
 
   if (!alert) return null;
@@ -665,31 +665,31 @@ function ResolveDialog({
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Resoudre l'alerte</DialogTitle>
+          <DialogTitle>Résoudre l'alerte</DialogTitle>
           <DialogDescription>
-            Alerte {alert.demande?.numero || alert.id.slice(0, 8)}
+            Alerte {alert.demande?.numéro || alert.id.slice(0, 8)}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div>
-            <Label>Decision</Label>
+            <Label>Décision</Label>
             <div className="flex gap-2 mt-2">
               <Button
-                variant={resolution === 'rejetee' ? 'default' : 'outline'}
+                variant={resolution === 'rejetée' ? 'default' : 'outline'}
                 className="flex-1"
-                onClick={() => setResolution('rejetee')}
+                onClick={() => setResolution('rejetée')}
               >
                 <CheckCircle className="h-4 w-4 mr-2" />
                 Fausse alerte
               </Button>
               <Button
-                variant={resolution === 'confirmee' ? 'destructive' : 'outline'}
+                variant={resolution === 'confirmée' ? 'destructive' : 'outline'}
                 className="flex-1"
-                onClick={() => setResolution('confirmee')}
+                onClick={() => setResolution('confirmée')}
               >
                 <XCircle className="h-4 w-4 mr-2" />
-                Fraude confirmee
+                Fraude confirmée
               </Button>
             </div>
           </div>
@@ -700,7 +700,7 @@ function ResolveDialog({
               id="notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Justification de la decision..."
+              placeholder="Justification de la décision..."
               rows={4}
             />
           </div>
@@ -709,7 +709,7 @@ function ResolveDialog({
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Annuler</Button>
           <Button
-            variant={resolution === 'confirmee' ? 'destructive' : 'default'}
+            variant={resolution === 'confirmée' ? 'destructive' : 'default'}
             onClick={() => onResolve(resolution, notes)}
             disabled={isLoading || !notes}
           >

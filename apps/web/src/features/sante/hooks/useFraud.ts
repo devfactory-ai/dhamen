@@ -18,7 +18,7 @@ export interface FraudAlert {
     adherentNom: string;
   };
   score: number;
-  niveau: 'faible' | 'moyen' | 'eleve' | 'critique';
+  niveau: 'faible' | 'moyen' | 'élevé' | 'critique';
   reglesActivees: FraudRule[];
   analyseIA?: {
     score: number;
@@ -26,7 +26,7 @@ export interface FraudAlert {
     reasoning: string;
     flags: string[];
   };
-  statut: 'nouvelle' | 'en_investigation' | 'confirmee' | 'rejetee';
+  statut: 'nouvelle' | 'en_investigation' | 'confirmée' | 'rejetée';
   investigateurId?: string;
   investigateurNom?: string;
   notes?: string;
@@ -48,8 +48,8 @@ export interface FraudStats {
   totalAlertes: number;
   nouvelles: number;
   enInvestigation: number;
-  confirmees: number;
-  rejetees: number;
+  confirmées: number;
+  rejetées: number;
   scoreMoyen: number;
   montantSuspect: number;
   parNiveau: {
@@ -79,7 +79,7 @@ export interface FraudPattern {
 export const FRAUD_NIVEAU_LABELS: Record<string, string> = {
   faible: 'Faible',
   moyen: 'Moyen',
-  eleve: 'Eleve',
+  eleve: 'Élevé',
   critique: 'Critique',
 };
 
@@ -93,15 +93,15 @@ export const FRAUD_NIVEAU_COLORS: Record<string, string> = {
 export const FRAUD_STATUT_LABELS: Record<string, string> = {
   nouvelle: 'Nouvelle',
   en_investigation: 'En investigation',
-  confirmee: 'Confirmee',
-  rejetee: 'Rejetee',
+  confirmée: 'Confirmee',
+  rejetée: 'Rejetee',
 };
 
 export const FRAUD_STATUT_COLORS: Record<string, string> = {
   nouvelle: 'bg-blue-100 text-blue-800',
   en_investigation: 'bg-purple-100 text-purple-800',
-  confirmee: 'bg-red-100 text-red-800',
-  rejetee: 'bg-green-100 text-green-800',
+  confirmée: 'bg-red-100 text-red-800',
+  rejetée: 'bg-green-100 text-green-800',
 };
 
 // Hooks
@@ -124,8 +124,8 @@ export function useFraudStats() {
         totalAlertes: 0,
         nouvelles: 0,
         enInvestigation: 0,
-        confirmees: 0,
-        rejetees: 0,
+        confirmées: 0,
+        rejetées: 0,
         scoreMoyen: 0,
         montantSuspect: 0,
         parNiveau: { faible: 0, moyen: 0, eleve: 0, critique: 0 },
@@ -219,7 +219,7 @@ export function useResolveFraudAlert() {
   return useMutation({
     mutationFn: async (data: {
       alertId: string;
-      resolution: 'confirmee' | 'rejetee';
+      resolution: 'confirmée' | 'rejetée';
       notes: string;
       actions?: string[];
     }) => {
@@ -296,7 +296,7 @@ export function getScoreColor(score: number): string {
  */
 export function getNiveauFromScore(score: number): FraudAlert['niveau'] {
   if (score >= 80) return 'critique';
-  if (score >= 60) return 'eleve';
+  if (score >= 60) return 'élevé';
   if (score >= 40) return 'moyen';
   return 'faible';
 }

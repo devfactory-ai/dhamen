@@ -7,8 +7,9 @@
 
 import { Hono } from 'hono';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 import { requireAuth, requireRole } from '../../middleware/auth';
-import { success, error } from '../../lib/response';
+import { successData as success, errorData as error } from '../../lib/response';
 import {
   createRealtimeNotificationsService,
   NotificationTemplates,

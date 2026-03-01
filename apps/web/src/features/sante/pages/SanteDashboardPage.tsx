@@ -89,7 +89,7 @@ export default function SanteDashboardPage() {
           <SelectContent>
             <SelectItem value="week">Cette semaine</SelectItem>
             <SelectItem value="month">Ce mois</SelectItem>
-            <SelectItem value="year">Cette annee</SelectItem>
+            <SelectItem value="year">Cette année</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -167,9 +167,9 @@ export default function SanteDashboardPage() {
           color={kpis.alertesFraude > 0 ? 'red' : 'green'}
         />
         <KPICard
-          title="Adherents actifs"
-          value={kpis.adherentsActifs}
-          subtitle={`+${kpis.nouveauxAdherents} ce mois`}
+          title="Adhérents actifs"
+          value={kpis.adhérentsActifs}
+          subtitle={`+${kpis.nouveauxAdhérents} ce mois`}
           icon={Users}
           trend="up"
         />
@@ -211,7 +211,7 @@ export default function SanteDashboardPage() {
         {/* Par Type Soin */}
         <Card>
           <CardHeader>
-            <CardTitle>Repartition par type de soin</CardTitle>
+            <CardTitle>Répartition par type de soin</CardTitle>
           </CardHeader>
           <CardContent>
             <TypeSoinChart data={parTypeSoin} />
@@ -224,7 +224,7 @@ export default function SanteDashboardPage() {
         {/* Par Statut */}
         <Card>
           <CardHeader>
-            <CardTitle>Repartition par statut</CardTitle>
+            <CardTitle>Répartition par statut</CardTitle>
           </CardHeader>
           <CardContent>
             <StatutChart data={parStatut} />
@@ -301,7 +301,7 @@ function KPICard({
 
 function TendancesChart({ data }: { data: StatsTendance[] }) {
   if (data.length === 0) {
-    return <p className="text-center text-muted-foreground py-8">Aucune donnee</p>;
+    return <p className="text-center text-muted-foreground py-8">Aucune donnée</p>;
   }
 
   const maxDemandes = Math.max(...data.map((d) => d.demandes));
@@ -345,7 +345,7 @@ function TendancesChart({ data }: { data: StatsTendance[] }) {
 
 function TypeSoinChart({ data }: { data: StatsParTypeSoin[] }) {
   if (data.length === 0) {
-    return <p className="text-center text-muted-foreground py-8">Aucune donnee</p>;
+    return <p className="text-center text-muted-foreground py-8">Aucune donnée</p>;
   }
 
   const total = data.reduce((s, d) => s + d.count, 0);
@@ -380,7 +380,7 @@ function TypeSoinChart({ data }: { data: StatsParTypeSoin[] }) {
 
 function StatutChart({ data }: { data: StatsParStatut[] }) {
   if (data.length === 0) {
-    return <p className="text-center text-muted-foreground py-8">Aucune donnee</p>;
+    return <p className="text-center text-muted-foreground py-8">Aucune donnée</p>;
   }
 
   return (
@@ -408,7 +408,7 @@ function StatutChart({ data }: { data: StatsParStatut[] }) {
 
 function TopPraticiensTable({ data }: { data: TopPraticien[] }) {
   if (data.length === 0) {
-    return <p className="text-center text-muted-foreground py-8">Aucune donnee</p>;
+    return <p className="text-center text-muted-foreground py-8">Aucune donnée</p>;
   }
 
   return (
@@ -424,7 +424,7 @@ function TopPraticiensTable({ data }: { data: TopPraticien[] }) {
             </span>
             <div>
               <p className="text-sm font-medium">{praticien.nom}</p>
-              <p className="text-xs text-muted-foreground">{praticien.specialite}</p>
+              <p className="text-xs text-muted-foreground">{praticien.spécialité}</p>
             </div>
           </div>
           <div className="text-right">

@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { success, badRequest } from '../../lib/response';
 import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 import { santeTypeSoinSchema } from '@dhamen/shared';
 import { checkSanteEligibility } from '../../agents/sante';
 import { calculateSanteTarification } from '../../agents/sante';
@@ -238,7 +239,7 @@ eligibility.get(
 
     // Find adherent by matricule or national ID
     const adherentQuery = matricule
-      ? c.env.DB.prepare(`
+      ? getDb(c).prepare(`
           SELECT a.id, a.first_name, a.last_name, a.birth_date, a.national_id, a.is_active,
                  COALESCE(sa.matricule, a.id) as matricule,
                  sa.formule_id, sa.plafond_global,
@@ -250,7 +251,7 @@ eligibility.get(
           LEFT JOIN contracts c ON a.contract_id = c.id
           WHERE (sa.matricule = ? OR a.id = ?) AND a.deleted_at IS NULL
         `).bind(matricule, matricule)
-      : c.env.DB.prepare(`
+      : getDb(c).prepare(`
           SELECT a.id, a.first_name, a.last_name, a.birth_date, a.national_id, a.is_active,
                  COALESCE(sa.matricule, a.id) as matricule,
                  sa.formule_id, sa.plafond_global,
@@ -289,7 +290,7 @@ eligibility.get(
 
     // Get consumed plafonds
     const year = new Date().getFullYear();
-    const { results: plafonds } = await c.env.DB.prepare(`
+    const { results: plafonds } = await getDb(c).prepare(`
       SELECT type_soin, montant_consomme, montant_plafond
       FROM sante_plafonds_consommes
       WHERE adherent_id = ? AND annee = ?
@@ -399,7 +400,7 @@ eligibility.get(
     const today = new Date().toISOString().split('T')[0];
 
     // Get adherent with formule info
-    const adherent = await c.env.DB.prepare(`
+    const adherent = await getDb(c).prepare(`
       SELECT
         a.id, a.first_name, a.last_name, a.is_active,
         COALESCE(sa.matricule, a.id) as matricule,
@@ -429,7 +430,7 @@ eligibility.get(
 
     // Get consumed plafonds
     const year = new Date().getFullYear();
-    const { results: plafonds } = await c.env.DB.prepare(`
+    const { results: plafonds } = await getDb(c).prepare(`
       SELECT type_soin, montant_consomme, montant_plafond
       FROM sante_plafonds_consommes
       WHERE adherent_id = ? AND annee = ?

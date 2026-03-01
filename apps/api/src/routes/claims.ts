@@ -22,6 +22,7 @@ import { generateId } from '../lib/ulid';
 import { logAudit } from '../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../middleware/auth';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
 
 const claims = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -55,7 +56,7 @@ claims.get(
       filters.insurerId = user.insurerId;
     }
 
-    const { claims: claimsList, total } = await findClaimsByFilters(c.env.DB, filters, page, limit);
+    const { claims: claimsList, total } = await findClaimsByFilters(getDb(c), filters, page, limit);
 
     return paginated(c, claimsList, { page, limit, total });
   }
@@ -69,7 +70,7 @@ claims.get('/stats', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), asy
   const user = c.get('user');
   const insurerId = user?.insurerId ?? undefined;
 
-  const stats = await getClaimsStats(c.env.DB, insurerId);
+  const stats = await getClaimsStats(getDb(c), insurerId);
   return success(c, stats);
 });
 
@@ -81,7 +82,7 @@ claims.get('/:id', async (c) => {
   const { id } = c.req.param();
   const user = c.get('user');
 
-  const claim = await findClaimById(c.env.DB, id);
+  const claim = await findClaimById(getDb(c), id);
 
   if (!claim) {
     return notFound(c, 'Demande non trouvée');
@@ -96,7 +97,7 @@ claims.get('/:id', async (c) => {
   }
 
   // Get claim items
-  const items = await findClaimItems(c.env.DB, id);
+  const items = await findClaimItems(getDb(c), id);
 
   return success(c, { ...claim, items });
 });
@@ -124,7 +125,7 @@ claims.post(
     }
 
     // Get contract to determine adherent and insurer
-    const contract = await findContractById(c.env.DB, data.contractId);
+    const contract = await findContractById(getDb(c), data.contractId);
     if (!contract) {
       return error(c, 'CONTRACT_NOT_FOUND', 'Contrat non trouvé', 404);
     }
@@ -146,7 +147,7 @@ claims.post(
 
     // Create claim
     const claimId = generateId();
-    const claim = await createClaim(c.env.DB, {
+    const claim = await createClaim(getDb(c), {
       id: claimId,
       type: data.type,
       contractId: data.contractId,
@@ -165,7 +166,7 @@ claims.post(
       const lineTotal = item.quantity * item.unitPrice;
       const itemCovered = Math.round(lineTotal * coverageRate);
 
-      await createClaimItem(c.env.DB, {
+      await createClaimItem(getDb(c), {
         id: generateId(),
         claimId,
         code: item.code,
@@ -181,10 +182,10 @@ claims.post(
     }
 
     // Get full claim with items
-    const items = await findClaimItems(c.env.DB, claimId);
+    const items = await findClaimItems(getDb(c), claimId);
 
     // Audit log
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user?.sub ?? 'system',
       action: 'claims.create',
       entityType: 'claim',
@@ -211,7 +212,7 @@ claims.patch(
     const user = c.get('user');
     const data = c.req.valid('json');
 
-    const existing = await findClaimById(c.env.DB, id);
+    const existing = await findClaimById(getDb(c), id);
     if (!existing) {
       return notFound(c, 'Demande non trouvée');
     }
@@ -225,10 +226,10 @@ claims.patch(
       return error(c, 'VALIDATION_ERROR', 'Aucune modification fournie', 400);
     }
 
-    const claim = await updateClaimStatus(c.env.DB, id, data.status ?? existing.status, data.notes);
+    const claim = await updateClaimStatus(getDb(c), id, data.status ?? existing.status, data.notes);
 
     // Audit log
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user?.sub ?? 'system',
       action: 'claims.update',
       entityType: 'claim',
@@ -250,7 +251,7 @@ claims.post('/:id/approve', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT
   const { id } = c.req.param();
   const user = c.get('user');
 
-  const existing = await findClaimById(c.env.DB, id);
+  const existing = await findClaimById(getDb(c), id);
   if (!existing) {
     return notFound(c, 'Demande non trouvée');
   }
@@ -268,9 +269,9 @@ claims.post('/:id/approve', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT
     );
   }
 
-  const claim = await updateClaimStatus(c.env.DB, id, 'approved');
+  const claim = await updateClaimStatus(getDb(c), id, 'approved');
 
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user?.sub ?? 'system',
     action: 'claims.approve',
     entityType: 'claim',
@@ -296,7 +297,7 @@ claims.post(
     const user = c.get('user');
     const { reason } = c.req.valid('json');
 
-    const existing = await findClaimById(c.env.DB, id);
+    const existing = await findClaimById(getDb(c), id);
     if (!existing) {
       return notFound(c, 'Demande non trouvée');
     }
@@ -314,9 +315,9 @@ claims.post(
       );
     }
 
-    const claim = await updateClaimStatus(c.env.DB, id, 'rejected', reason);
+    const claim = await updateClaimStatus(getDb(c), id, 'rejected', reason);
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user?.sub ?? 'system',
       action: 'claims.reject',
       entityType: 'claim',

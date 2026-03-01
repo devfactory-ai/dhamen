@@ -117,3 +117,23 @@ export function internalError(c: Context, message = 'Erreur interne du serveur')
 export function rateLimitExceeded(c: Context): Response {
   return error(c, 'RATE_LIMIT_EXCEEDED', 'Trop de requêtes, veuillez réessayer plus tard', 429);
 }
+
+/**
+ * Simple success data wrapper (for use with c.json())
+ * @deprecated Use success(c, data) instead
+ */
+export function successData<T>(data: T): ApiResponse<T> {
+  return { success: true, data };
+}
+
+/**
+ * Simple error data wrapper (for use with c.json())
+ * @deprecated Use error(c, code, message, status) instead
+ */
+export function errorData(code: string, message: string, details?: unknown): { success: false; error: ApiError } {
+  const apiError: ApiError = { code, message };
+  if (details) {
+    apiError.details = details;
+  }
+  return { success: false, error: apiError };
+}

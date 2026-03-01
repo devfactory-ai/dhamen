@@ -1,8 +1,8 @@
 /**
- * Digital Insurance Card Screen for SoinFlow Mobile
- * Shows the adherent's digital card with QR code for quick verification
+ * Digital Insurance Card Screen for Dhamen Mobile
+ * Shows the adherent's digital card with QR code and flip animation
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,11 +12,16 @@ import {
   RefreshControl,
   Share,
   Dimensions,
+  Animated,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { getUser } from '@/lib/auth';
+import { colors, typography, spacing, borderRadius, shadows } from '@/theme';
+import { Skeleton } from '@/components';
 import type { UserPublic } from '@dhamen/shared';
 
 interface CarteData {
@@ -48,16 +53,51 @@ interface CarteData {
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH - 32;
-const CARD_HEIGHT = CARD_WIDTH * 0.63; // Standard credit card ratio
+const CARD_WIDTH = SCREEN_WIDTH - 40;
+const CARD_HEIGHT = CARD_WIDTH * 0.63;
+
+function CardSkeleton() {
+  return (
+    <View style={styles.cardContainer}>
+      <View style={[styles.card, styles.cardFront]}>
+        <View style={styles.skeletonHeader}>
+          <Skeleton width={100} height={28} />
+          <Skeleton width={70} height={24} borderRadius={12} />
+        </View>
+        <View style={styles.skeletonBody}>
+          <Skeleton width={180} height={22} />
+          <Skeleton width={140} height={16} style={{ marginTop: 8 }} />
+        </View>
+        <View style={styles.skeletonFooter}>
+          <View>
+            <Skeleton width={60} height={10} />
+            <Skeleton width={80} height={14} style={{ marginTop: 4 }} />
+          </View>
+          <View>
+            <Skeleton width={60} height={10} />
+            <Skeleton width={80} height={14} style={{ marginTop: 4 }} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
 
 export default function CarteScreen() {
   const [user, setUserState] = useState<UserPublic | null>(null);
   const [isFlipped, setIsFlipped] = useState(false);
+  const flipAnimation = useRef(new Animated.Value(0)).current;
+  const cardScaleAnim = useRef(new Animated.Value(0.9)).current;
 
   useEffect(() => {
     getUser().then(setUserState);
-  }, []);
+    Animated.spring(cardScaleAnim, {
+      toValue: 1,
+      friction: 8,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  }, [cardScaleAnim]);
 
   const { data: carte, isLoading, refetch } = useQuery({
     queryKey: ['ma-carte-sante'],
@@ -73,12 +113,23 @@ export default function CarteScreen() {
     retry: false,
   });
 
+  const flipCard = useCallback(() => {
+    const toValue = isFlipped ? 0 : 1;
+    Animated.spring(flipAnimation, {
+      toValue,
+      friction: 8,
+      tension: 10,
+      useNativeDriver: true,
+    }).start();
+    setIsFlipped(!isFlipped);
+  }, [isFlipped, flipAnimation]);
+
   const handleShare = useCallback(async () => {
     if (!carte) return;
 
     try {
       await Share.share({
-        message: `Ma carte sante Dhamen\n\nAdherent: ${carte.adherent.prenom} ${carte.adherent.nom}\nMatricule: ${carte.adherent.matricule}\nAssureur: ${carte.assureur.nom}\nFormule: ${carte.formule.nom}\n\nPour verification: ${carte.qrCodeData}`,
+        message: `Ma carte sante Dhamen\n\nAdherent: ${carte.adherent.prenom} ${carte.adherent.nom}\nMatricule: ${carte.adherent.matricule}\nAssureur: ${carte.assureur.nom}\nFormule: ${carte.formule.nom}`,
         title: 'Ma Carte Sante Dhamen',
       });
     } catch {
@@ -103,38 +154,90 @@ export default function CarteScreen() {
     ? new Date(carte.contrat.dateFin) < new Date()
     : false;
 
+  const frontInterpolate = flipAnimation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '180deg'],
+  });
+
+  const backInterpolate = flipAnimation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['180deg', '360deg'],
+  });
+
+  const frontAnimatedStyle = {
+    transform: [{ rotateY: frontInterpolate }],
+  };
+
+  const backAnimatedStyle = {
+    transform: [{ rotateY: backInterpolate }],
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Ma Carte Sante</Text>
-        <Text style={styles.headerSubtitle}>Carte numerique d'adherent</Text>
-      </View>
+    <View style={styles.container}>
+      {/* Header */}
+      <LinearGradient
+        colors={[colors.primary[600], colors.primary[500]]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.header}
+      >
+        <SafeAreaView edges={['top']}>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>Ma Carte Sante</Text>
+            <Text style={styles.headerSubtitle}>Carte numerique d'adherent</Text>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
 
       <ScrollView
         style={styles.content}
         contentContainerStyle={styles.contentContainer}
         refreshControl={
-          <RefreshControl refreshing={isLoading} onRefresh={refetch} />
+          <RefreshControl
+            refreshing={isLoading}
+            onRefresh={refetch}
+            tintColor={colors.primary[500]}
+          />
         }
+        showsVerticalScrollIndicator={false}
       >
-        {carte ? (
+        {isLoading ? (
+          <CardSkeleton />
+        ) : carte ? (
           <>
-            {/* Insurance Card */}
-            <TouchableOpacity
-              activeOpacity={0.9}
-              onPress={() => setIsFlipped(!isFlipped)}
-            >
-              <View style={styles.cardContainer}>
-                {!isFlipped ? (
-                  // Front of card
-                  <View style={[styles.card, styles.cardFront]}>
+            {/* Flip Card */}
+            <Animated.View style={[styles.cardContainer, { transform: [{ scale: cardScaleAnim }] }]}>
+              <TouchableOpacity activeOpacity={0.95} onPress={flipCard}>
+                {/* Front */}
+                <Animated.View
+                  style={[styles.cardWrapper, frontAnimatedStyle, { backfaceVisibility: 'hidden' }]}
+                >
+                  <LinearGradient
+                    colors={[colors.primary[700], colors.primary[500]]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[styles.card, styles.cardFront]}
+                  >
+                    {/* Card Pattern */}
+                    <View style={styles.cardPattern}>
+                      <View style={styles.patternCircle} />
+                      <View style={[styles.patternCircle, styles.patternCircle2]} />
+                    </View>
+
                     {/* Card Header */}
                     <View style={styles.cardHeader}>
                       <View>
-                        <Text style={styles.cardTitle}>DHAMEN</Text>
-                        <Text style={styles.cardSubtitle}>Carte Sante</Text>
+                        <Text style={styles.cardBrand}>DHAMEN</Text>
+                        <Text style={styles.cardType}>Carte Sante</Text>
                       </View>
-                      <View style={styles.statusBadge}>
+                      <View
+                        style={[
+                          styles.statusBadge,
+                          carte.adherent.estActif && !isContractExpired
+                            ? styles.statusBadgeActive
+                            : styles.statusBadgeInactive,
+                        ]}
+                      >
                         <View
                           style={[
                             styles.statusDot,
@@ -149,7 +252,7 @@ export default function CarteScreen() {
                       </View>
                     </View>
 
-                    {/* Adherent Info */}
+                    {/* Card Body */}
                     <View style={styles.cardBody}>
                       <Text style={styles.adherentName}>
                         {carte.adherent.prenom} {carte.adherent.nom}
@@ -159,33 +262,47 @@ export default function CarteScreen() {
 
                     {/* Card Footer */}
                     <View style={styles.cardFooter}>
-                      <View style={styles.footerItem}>
+                      <View>
                         <Text style={styles.footerLabel}>Assureur</Text>
                         <Text style={styles.footerValue}>{carte.assureur.nom}</Text>
                       </View>
-                      <View style={styles.footerItem}>
+                      <View>
                         <Text style={styles.footerLabel}>Formule</Text>
                         <Text style={styles.footerValue}>{carte.formule.nom}</Text>
                       </View>
                     </View>
 
-                    {/* Flip Indicator */}
-                    <Text style={styles.flipHint}>Appuyer pour voir le QR code</Text>
-                  </View>
-                ) : (
-                  // Back of card (QR Code)
+                    {/* Flip Hint */}
+                    <View style={styles.flipHint}>
+                      <Text style={styles.flipHintText}>Appuyer pour voir le QR</Text>
+                      <Text style={styles.flipHintIcon}>↻</Text>
+                    </View>
+                  </LinearGradient>
+                </Animated.View>
+
+                {/* Back */}
+                <Animated.View
+                  style={[
+                    styles.cardWrapper,
+                    styles.cardWrapperBack,
+                    backAnimatedStyle,
+                    { backfaceVisibility: 'hidden' },
+                  ]}
+                >
                   <View style={[styles.card, styles.cardBack]}>
-                    <View style={styles.qrContainer}>
-                      {/* Simple QR representation - in production, use react-native-qrcode-svg */}
-                      <View style={styles.qrPlaceholder}>
-                        <Text style={styles.qrText}>QR</Text>
-                        <Text style={styles.qrSubtext}>Code</Text>
+                    {/* QR Code */}
+                    <View style={styles.qrSection}>
+                      <View style={styles.qrContainer}>
+                        <View style={styles.qrPlaceholder}>
+                          <Text style={styles.qrIcon}>📱</Text>
+                          <Text style={styles.qrText}>QR CODE</Text>
+                        </View>
                       </View>
                       <Text style={styles.qrMatricule}>{carte.adherent.matricule}</Text>
                     </View>
 
                     {/* Contract Info */}
-                    <View style={styles.contractInfo}>
+                    <View style={styles.contractSection}>
                       <View style={styles.contractRow}>
                         <Text style={styles.contractLabel}>Contrat N°</Text>
                         <Text style={styles.contractValue}>{carte.contrat.numero}</Text>
@@ -197,412 +314,595 @@ export default function CarteScreen() {
                         </Text>
                       </View>
                       {isContractExpired && (
-                        <Text style={styles.expiredWarning}>⚠️ Contrat expire</Text>
+                        <View style={styles.expiredBadge}>
+                          <Text style={styles.expiredText}>⚠️ Contrat expire</Text>
+                        </View>
                       )}
                     </View>
 
-                    <Text style={styles.flipHint}>Appuyer pour retourner</Text>
+                    {/* Flip Hint */}
+                    <View style={styles.flipHintBack}>
+                      <Text style={styles.flipHintTextBack}>Appuyer pour retourner</Text>
+                      <Text style={styles.flipHintIconBack}>↻</Text>
+                    </View>
                   </View>
-                )}
-              </View>
-            </TouchableOpacity>
+                </Animated.View>
+              </TouchableOpacity>
+            </Animated.View>
 
-            {/* Card Details */}
+            {/* Details Card */}
             <View style={styles.detailsCard}>
               <Text style={styles.detailsTitle}>Details de la couverture</Text>
 
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Date de naissance</Text>
-                <Text style={styles.detailValue}>
-                  {formatDate(carte.adherent.dateNaissance)}
-                </Text>
+                <View style={styles.detailIconContainer}>
+                  <Text style={styles.detailIcon}>🎂</Text>
+                </View>
+                <View style={styles.detailContent}>
+                  <Text style={styles.detailLabel}>Date de naissance</Text>
+                  <Text style={styles.detailValue}>{formatDate(carte.adherent.dateNaissance)}</Text>
+                </View>
               </View>
 
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Formule</Text>
-                <Text style={styles.detailValue}>
-                  {carte.formule.nom} ({carte.formule.code})
-                </Text>
+                <View style={styles.detailIconContainer}>
+                  <Text style={styles.detailIcon}>🏷️</Text>
+                </View>
+                <View style={styles.detailContent}>
+                  <Text style={styles.detailLabel}>Formule</Text>
+                  <Text style={styles.detailValue}>
+                    {carte.formule.nom} ({carte.formule.code})
+                  </Text>
+                </View>
               </View>
 
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Plafond annuel</Text>
-                <Text style={styles.detailValue}>
-                  {formatAmount(carte.formule.plafondGlobal)}
-                </Text>
+                <View style={styles.detailIconContainer}>
+                  <Text style={styles.detailIcon}>💰</Text>
+                </View>
+                <View style={styles.detailContent}>
+                  <Text style={styles.detailLabel}>Plafond annuel</Text>
+                  <Text style={[styles.detailValue, styles.detailValueHighlight]}>
+                    {formatAmount(carte.formule.plafondGlobal)}
+                  </Text>
+                </View>
               </View>
 
-              <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Statut contrat</Text>
-                <Text
-                  style={[
-                    styles.detailValue,
-                    carte.contrat.estActif && !isContractExpired
-                      ? styles.statusActive
-                      : styles.statusInactive,
-                  ]}
-                >
-                  {carte.contrat.estActif && !isContractExpired ? 'Actif' : 'Inactif'}
-                </Text>
+              <View style={[styles.detailRow, styles.detailRowLast]}>
+                <View style={styles.detailIconContainer}>
+                  <Text style={styles.detailIcon}>📋</Text>
+                </View>
+                <View style={styles.detailContent}>
+                  <Text style={styles.detailLabel}>Statut contrat</Text>
+                  <View
+                    style={[
+                      styles.statusTag,
+                      carte.contrat.estActif && !isContractExpired
+                        ? styles.statusTagActive
+                        : styles.statusTagInactive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusTagText,
+                        carte.contrat.estActif && !isContractExpired
+                          ? styles.statusTagTextActive
+                          : styles.statusTagTextInactive,
+                      ]}
+                    >
+                      {carte.contrat.estActif && !isContractExpired ? 'Actif' : 'Inactif'}
+                    </Text>
+                  </View>
+                </View>
               </View>
             </View>
 
             {/* Actions */}
-            <View style={styles.actions}>
+            <View style={styles.actionsContainer}>
               <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
-                <Text style={styles.actionIcon}>📤</Text>
-                <Text style={styles.actionText}>Partager</Text>
+                <LinearGradient
+                  colors={[colors.primary[500], colors.primary[600]]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.actionButtonGradient}
+                >
+                  <Text style={styles.actionIcon}>📤</Text>
+                  <Text style={styles.actionText}>Partager ma carte</Text>
+                </LinearGradient>
               </TouchableOpacity>
             </View>
 
-            {/* Usage instructions */}
+            {/* Instructions */}
             <View style={styles.instructionsCard}>
               <Text style={styles.instructionsTitle}>Comment utiliser votre carte</Text>
+
               <View style={styles.instruction}>
-                <Text style={styles.instructionNumber}>1</Text>
+                <View style={styles.instructionNumber}>
+                  <Text style={styles.instructionNumberText}>1</Text>
+                </View>
                 <Text style={styles.instructionText}>
                   Presentez cette carte lors de vos soins
                 </Text>
               </View>
+
               <View style={styles.instruction}>
-                <Text style={styles.instructionNumber}>2</Text>
+                <View style={styles.instructionNumber}>
+                  <Text style={styles.instructionNumberText}>2</Text>
+                </View>
                 <Text style={styles.instructionText}>
                   Le praticien scanne le QR code pour verifier votre eligibilite
                 </Text>
               </View>
-              <View style={styles.instruction}>
-                <Text style={styles.instructionNumber}>3</Text>
+
+              <View style={[styles.instruction, styles.instructionLast]}>
+                <View style={styles.instructionNumber}>
+                  <Text style={styles.instructionNumberText}>3</Text>
+                </View>
                 <Text style={styles.instructionText}>
                   Profitez du tiers payant sans avance de frais
                 </Text>
               </View>
             </View>
           </>
-        ) : !isLoading ? (
+        ) : (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>💳</Text>
+            <View style={styles.emptyIconContainer}>
+              <Text style={styles.emptyIcon}>💳</Text>
+            </View>
             <Text style={styles.emptyTitle}>Pas de carte disponible</Text>
             <Text style={styles.emptyText}>
               Votre carte numerique sera disponible une fois votre compte adherent active.
             </Text>
           </View>
-        ) : null}
+        )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: colors.background.primary,
   },
   header: {
-    padding: 16,
-    backgroundColor: '#1e3a5f',
+    paddingBottom: spacing[6],
+    borderBottomLeftRadius: borderRadius['2xl'],
+    borderBottomRightRadius: borderRadius['2xl'],
+  },
+  headerContent: {
+    paddingHorizontal: spacing[5],
+    paddingTop: Platform.OS === 'android' ? spacing[10] : spacing[4],
+    paddingBottom: spacing[2],
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: typography.fontSize['2xl'],
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.inverse,
   },
   headerSubtitle: {
-    fontSize: 14,
-    color: '#a0c4e8',
-    marginTop: 4,
+    fontSize: typography.fontSize.sm,
+    color: colors.primary[200],
+    marginTop: spacing[1],
   },
   content: {
     flex: 1,
+    marginTop: -spacing[4],
   },
   contentContainer: {
-    padding: 16,
+    padding: spacing[5],
+    paddingBottom: spacing[24],
   },
   cardContainer: {
     alignItems: 'center',
-    marginBottom: 24,
+    height: CARD_HEIGHT + 20,
+    marginBottom: spacing[5],
+  },
+  cardWrapper: {
+    position: 'absolute',
+    width: CARD_WIDTH,
+  },
+  cardWrapperBack: {
+    position: 'absolute',
   },
   card: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 5,
+    borderRadius: borderRadius.xl,
+    padding: spacing[5],
+    ...shadows.xl,
   },
   cardFront: {
-    backgroundColor: '#1e3a5f',
+    overflow: 'hidden',
+  },
+  cardPattern: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  patternCircle: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    top: -80,
+    right: -80,
+  },
+  patternCircle2: {
+    top: undefined,
+    bottom: -100,
+    left: -100,
+    right: undefined,
   },
   cardBack: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.background.secondary,
     borderWidth: 2,
-    borderColor: '#1e3a5f',
+    borderColor: colors.primary[500],
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
-  cardTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-    letterSpacing: 2,
+  cardBrand: {
+    fontSize: typography.fontSize['2xl'],
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.inverse,
+    letterSpacing: 3,
   },
-  cardSubtitle: {
-    fontSize: 12,
-    color: '#a0c4e8',
+  cardType: {
+    fontSize: typography.fontSize.xs,
+    color: colors.primary[200],
     marginTop: 2,
   },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1],
+    borderRadius: borderRadius.full,
+  },
+  statusBadgeActive: {
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+  },
+  statusBadgeInactive: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
   },
   statusDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    marginRight: 6,
+    marginRight: spacing[2],
   },
   statusDotActive: {
-    backgroundColor: '#28a745',
+    backgroundColor: colors.success.main,
   },
   statusDotInactive: {
-    backgroundColor: '#dc3545',
+    backgroundColor: colors.error.main,
   },
   statusText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.inverse,
   },
   cardBody: {
     flex: 1,
     justifyContent: 'center',
   },
   adherentName: {
-    fontSize: 22,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: typography.fontSize.xl,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.inverse,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
   matricule: {
-    fontSize: 16,
-    color: '#a0c4e8',
-    marginTop: 4,
-    fontFamily: 'monospace',
+    fontSize: typography.fontSize.md,
+    color: colors.primary[200],
+    marginTop: spacing[1],
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   cardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  footerItem: {},
   footerLabel: {
-    fontSize: 10,
-    color: '#a0c4e8',
+    fontSize: typography.fontSize.xs,
+    color: colors.primary[300],
     textTransform: 'uppercase',
   },
   footerValue: {
-    fontSize: 12,
-    color: '#fff',
-    fontWeight: '500',
+    fontSize: typography.fontSize.sm,
+    color: colors.text.inverse,
+    fontWeight: typography.fontWeight.medium,
     marginTop: 2,
   },
   flipHint: {
     position: 'absolute',
-    bottom: 8,
-    right: 12,
-    fontSize: 10,
+    bottom: spacing[3],
+    right: spacing[3],
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  flipHintText: {
+    fontSize: typography.fontSize.xs,
+    color: 'rgba(255,255,255,0.5)',
+    marginRight: spacing[1],
+  },
+  flipHintIcon: {
+    fontSize: 14,
     color: 'rgba(255,255,255,0.5)',
   },
-  qrContainer: {
+  flipHintBack: {
+    position: 'absolute',
+    bottom: spacing[3],
+    right: spacing[3],
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  flipHintTextBack: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.tertiary,
+    marginRight: spacing[1],
+  },
+  flipHintIconBack: {
+    fontSize: 14,
+    color: colors.text.tertiary,
+  },
+  qrSection: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  qrContainer: {
+    padding: spacing[3],
+    backgroundColor: colors.gray[50],
+    borderRadius: borderRadius.lg,
+    ...shadows.sm,
+  },
   qrPlaceholder: {
-    width: 120,
-    height: 120,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
+    width: 100,
+    height: 100,
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.md,
     borderWidth: 2,
-    borderColor: '#1e3a5f',
+    borderColor: colors.primary[500],
     alignItems: 'center',
     justifyContent: 'center',
   },
-  qrText: {
+  qrIcon: {
     fontSize: 32,
-    fontWeight: '700',
-    color: '#1e3a5f',
+    marginBottom: spacing[1],
   },
-  qrSubtext: {
-    fontSize: 16,
-    color: '#1e3a5f',
+  qrText: {
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[500],
   },
   qrMatricule: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1e3a5f',
-    marginTop: 12,
-    fontFamily: 'monospace',
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.primary[500],
+    marginTop: spacing[3],
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
-  contractInfo: {
-    marginTop: 16,
-    paddingTop: 16,
+  contractSection: {
     borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderTopColor: colors.border.light,
+    paddingTop: spacing[3],
   },
   contractRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: spacing[2],
   },
   contractLabel: {
-    fontSize: 12,
-    color: '#666',
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
   },
   contractValue: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#333',
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.primary,
   },
-  expiredWarning: {
-    fontSize: 12,
-    color: '#dc3545',
-    fontWeight: '600',
-    marginTop: 8,
-    textAlign: 'center',
+  expiredBadge: {
+    alignSelf: 'center',
+    backgroundColor: colors.error.light,
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1],
+    borderRadius: borderRadius.md,
+    marginTop: spacing[2],
+  },
+  expiredText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.error.dark,
   },
   detailsCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.xl,
+    padding: spacing[5],
+    marginBottom: spacing[4],
+    ...shadows.md,
   },
   detailsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 16,
-    paddingBottom: 12,
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+    marginBottom: spacing[4],
+    paddingBottom: spacing[3],
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: colors.border.light,
   },
   detailRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
-  },
-  detailLabel: {
-    fontSize: 14,
-    color: '#666',
-  },
-  detailValue: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
-  },
-  statusActive: {
-    color: '#28a745',
-  },
-  statusInactive: {
-    color: '#dc3545',
-  },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
-    marginBottom: 24,
-  },
-  actionButton: {
-    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    paddingVertical: spacing[3],
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border.light,
   },
-  actionIcon: {
+  detailRowLast: {
+    borderBottomWidth: 0,
+  },
+  detailIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.primary[50],
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing[3],
+  },
+  detailIcon: {
     fontSize: 18,
   },
+  detailContent: {
+    flex: 1,
+  },
+  detailLabel: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
+  },
+  detailValue: {
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.primary,
+    marginTop: 2,
+  },
+  detailValueHighlight: {
+    color: colors.success.main,
+  },
+  statusTag: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing[3],
+    paddingVertical: spacing[1],
+    borderRadius: borderRadius.full,
+    marginTop: spacing[1],
+  },
+  statusTagActive: {
+    backgroundColor: colors.success.light,
+  },
+  statusTagInactive: {
+    backgroundColor: colors.error.light,
+  },
+  statusTagText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+  },
+  statusTagTextActive: {
+    color: colors.success.dark,
+  },
+  statusTagTextInactive: {
+    color: colors.error.dark,
+  },
+  actionsContainer: {
+    marginBottom: spacing[4],
+  },
+  actionButton: {
+    borderRadius: borderRadius.xl,
+    overflow: 'hidden',
+    ...shadows.md,
+  },
+  actionButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing[4],
+    paddingHorizontal: spacing[5],
+  },
+  actionIcon: {
+    fontSize: 20,
+    marginRight: spacing[3],
+  },
   actionText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1e3a5f',
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.inverse,
   },
   instructionsCard: {
-    backgroundColor: '#e8f4fd',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    backgroundColor: colors.primary[50],
+    borderRadius: borderRadius.xl,
+    padding: spacing[5],
+    marginBottom: spacing[6],
   },
   instructionsTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1e3a5f',
-    marginBottom: 16,
+    fontSize: typography.fontSize.md,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[700],
+    marginBottom: spacing[4],
   },
   instruction: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: spacing[4],
+  },
+  instructionLast: {
+    marginBottom: 0,
   },
   instructionNumber: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#1e3a5f',
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginRight: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.primary[500],
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing[3],
+  },
+  instructionNumberText: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.inverse,
   },
   instructionText: {
     flex: 1,
-    fontSize: 14,
-    color: '#333',
-    lineHeight: 20,
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
+    lineHeight: 22,
+    paddingTop: 4,
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 48,
+    paddingVertical: spacing[12],
+    paddingHorizontal: spacing[6],
+  },
+  emptyIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: colors.primary[50],
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing[5],
   },
   emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
-    opacity: 0.5,
+    fontSize: 48,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
+    fontSize: typography.fontSize.xl,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.text.primary,
+    marginBottom: spacing[2],
   },
   emptyText: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: typography.fontSize.base,
+    color: colors.text.secondary,
     textAlign: 'center',
-    paddingHorizontal: 32,
+    lineHeight: 22,
+  },
+  skeletonHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing[3],
+  },
+  skeletonBody: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  skeletonFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
 });

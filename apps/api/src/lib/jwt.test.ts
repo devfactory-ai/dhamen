@@ -17,7 +17,9 @@ describe('JWT Library', () => {
   describe('signJWT', () => {
     it('should create a valid JWT token', async () => {
       const payload = {
+        id: 'user-123',
         sub: 'user-123',
+        email: 'admin@test.com',
         role: 'ADMIN' as const,
       };
 
@@ -30,7 +32,9 @@ describe('JWT Library', () => {
 
     it('should include iat, exp, and iss claims', async () => {
       const payload = {
+        id: 'user-123',
         sub: 'user-123',
+        email: 'pharmacist@test.com',
         role: 'PHARMACIST' as const,
       };
 
@@ -49,7 +53,9 @@ describe('JWT Library', () => {
   describe('verifyJWT', () => {
     it('should verify a valid token', async () => {
       const payload = {
+        id: 'user-456',
         sub: 'user-456',
+        email: 'doctor@test.com',
         role: 'DOCTOR' as const,
       };
 
@@ -64,7 +70,9 @@ describe('JWT Library', () => {
 
     it('should reject an expired token', async () => {
       const payload = {
+        id: 'user-789',
         sub: 'user-789',
+        email: 'admin@test.com',
         role: 'ADMIN' as const,
       };
 
@@ -79,7 +87,9 @@ describe('JWT Library', () => {
 
     it('should reject a token with invalid signature', async () => {
       const payload = {
+        id: 'user-000',
         sub: 'user-000',
+        email: 'admin@test.com',
         role: 'ADMIN' as const,
       };
 
@@ -92,7 +102,9 @@ describe('JWT Library', () => {
 
     it('should reject a token signed with different secret', async () => {
       const payload = {
+        id: 'user-111',
         sub: 'user-111',
+        email: 'admin@test.com',
         role: 'ADMIN' as const,
       };
 
@@ -152,7 +164,7 @@ describe('JWT Library', () => {
 
     it('should reject a regular JWT as refresh token', async () => {
       const regularJwt = await signJWT(
-        { sub: 'user-regular', role: 'ADMIN' as const },
+        { id: 'user-regular', sub: 'user-regular', email: 'admin@test.com', role: 'ADMIN' as const },
         TEST_SECRET,
         3600
       );

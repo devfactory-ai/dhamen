@@ -44,7 +44,7 @@ import { useQueryClient } from '@tanstack/react-query';
 
 export function SanteReportsPage() {
   const [activeTab, setActiveTab] = useState('templates');
-  const [selectedCategorie, setSelectedCategorie] = useState<string>('');
+  const [selectedCatégorie, setSelectedCatégorie] = useState<string>('all');
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<ReportTemplate | null>(null);
   const [generateParams, setGenerateParams] = useState<Record<string, unknown>>({});
@@ -52,7 +52,7 @@ export function SanteReportsPage() {
 
   const queryClient = useQueryClient();
   const { data: templates, isLoading: templatesLoading } = useReportTemplates(
-    selectedCategorie || undefined
+    selectedCatégorie === 'all' ? undefined : selectedCatégorie || undefined
   );
   const { data: reportsData, isLoading: reportsLoading } = useGeneratedReports();
   const { data: stats } = useReportStats();
@@ -94,7 +94,7 @@ export function SanteReportsPage() {
       queryClient.invalidateQueries({ queryKey: ['generated-reports'] });
       setActiveTab('history');
     } catch {
-      toast.error('Erreur lors de la generation du rapport');
+      toast.error('Erreur lors de la génération du rapport');
     }
   };
 
@@ -106,18 +106,18 @@ export function SanteReportsPage() {
     try {
       const extension = report.format === 'excel' ? 'xlsx' : report.format;
       await downloadReport(report.id, `${report.templateNom}_${report.id}.${extension}`);
-      toast.success('Telechargement demarre');
+      toast.success('Téléchargement démarré');
     } catch {
       toast.error('Erreur lors du telechargement');
     }
   };
 
-  // Categories count
-  const categoriesCount = useMemo(() => {
+  // Catégories count
+  const catégoriesCount = useMemo(() => {
     if (!templates) return {};
     const counts: Record<string, number> = {};
     for (const t of templates) {
-      counts[t.categorie] = (counts[t.categorie] || 0) + 1;
+      counts[t.catégorie] = (counts[t.catégorie] || 0) + 1;
     }
     return counts;
   }, [templates]);
@@ -134,7 +134,7 @@ export function SanteReportsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total generes
+              Total générés
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -175,23 +175,23 @@ export function SanteReportsPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="templates">Modeles de rapports</TabsTrigger>
+          <TabsTrigger value="templates">Modèles de rapports</TabsTrigger>
           <TabsTrigger value="history">Historique</TabsTrigger>
         </TabsList>
 
         <TabsContent value="templates" className="space-y-4">
           {/* Category Filter */}
           <div className="flex items-center gap-2">
-            <Label>Categorie:</Label>
-            <Select value={selectedCategorie} onValueChange={setSelectedCategorie}>
+            <Label>Catégorie:</Label>
+            <Select value={selectedCatégorie} onValueChange={setSelectedCatégorie}>
               <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Toutes les categories" />
+                <SelectValue placeholder="Toutes les catégories" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Toutes les categories</SelectItem>
+                <SelectItem value="all">Toutes les catégories</SelectItem>
                 {Object.entries(REPORT_CATEGORIE_LABELS).map(([key, label]) => (
                   <SelectItem key={key} value={key}>
-                    {label} ({categoriesCount[key] || 0})
+                    {label} ({catégoriesCount[key] || 0})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -224,7 +224,7 @@ export function SanteReportsPage() {
                         <CardDescription>{template.description}</CardDescription>
                       </div>
                       <Badge variant="outline">
-                        {REPORT_CATEGORIE_LABELS[template.categorie]}
+                        {REPORT_CATEGORIE_LABELS[template.catégorie]}
                       </Badge>
                     </div>
                   </CardHeader>
@@ -242,7 +242,7 @@ export function SanteReportsPage() {
 
                       {/* Parameters count */}
                       <div className="text-sm text-muted-foreground">
-                        {template.parametres.length} parametre(s)
+                        {template.parametres.length} paramètre(s)
                         {template.parametres.some((p) => p.required) && (
                           <span className="text-red-500"> *</span>
                         )}
@@ -253,7 +253,7 @@ export function SanteReportsPage() {
                         className="w-full"
                         onClick={() => handleOpenGenerate(template)}
                       >
-                        Generer ce rapport
+                        Générer ce rapport
                       </Button>
                     </div>
                   </CardContent>
@@ -362,7 +362,7 @@ export function SanteReportsPage() {
                           disabled={row.original.statut !== 'termine'}
                           onClick={() => handleDownload(row.original)}
                         >
-                          Telecharger
+                          Télécharger
                         </Button>
                       ),
                     },
@@ -424,7 +424,7 @@ function GenerateReportDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Generer: {template.nom}</DialogTitle>
+          <DialogTitle>Générer: {template.nom}</DialogTitle>
           <DialogDescription>{template.description}</DialogDescription>
         </DialogHeader>
 
@@ -505,7 +505,7 @@ function GenerateReportDialog({
                   onValueChange={(value) => updateParam(param.code, value)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder={`Selectionner ${param.label.toLowerCase()}`} />
+                    <SelectValue placeholder={`Sélectionner ${param.label.toLowerCase()}`} />
                   </SelectTrigger>
                   <SelectContent>
                     {param.options.map((opt) => (
@@ -572,7 +572,7 @@ function GenerateReportDialog({
             Annuler
           </Button>
           <Button onClick={onGenerate} disabled={isGenerating}>
-            {isGenerating ? 'Generation en cours...' : 'Generer le rapport'}
+            {isGenerating ? 'Generation en cours...' : 'Générer le rapport'}
           </Button>
         </DialogFooter>
       </DialogContent>

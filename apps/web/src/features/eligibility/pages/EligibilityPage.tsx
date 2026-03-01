@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { apiClient } from '@/lib/api-client';
 
 interface EligibilityResult {
-  adherent: {
+  adhérent: {
     id: string;
     memberNumber: string;
     firstName: string;
@@ -159,7 +159,7 @@ export function EligibilityPage() {
           </Card>
 
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* Adherent Info */}
+            {/* Adhérent Info */}
             <Card>
               <CardHeader>
                 <CardTitle>Informations Adhérent</CardTitle>

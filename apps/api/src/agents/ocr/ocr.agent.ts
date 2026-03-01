@@ -72,20 +72,21 @@ export async function extractBulletinData(
   }
 
   try {
-    // Prepare image for AI
-    let imageInput: Uint8Array | string;
+    // Prepare image for AI - convert to number array for API compatibility
+    let imageArray: number[];
     if (typeof imageData === 'string') {
-      // URL or base64
-      imageInput = imageData;
+      // URL or base64 - encode as bytes
+      const encoder = new TextEncoder();
+      imageArray = Array.from(encoder.encode(imageData));
     } else {
-      // ArrayBuffer
-      imageInput = new Uint8Array(imageData) as unknown as string;
+      // ArrayBuffer - convert to number array
+      imageArray = Array.from(new Uint8Array(imageData));
     }
 
     // Call Workers AI vision model
     const response = await c.env.AI.run(VISION_MODEL, {
       prompt: EXTRACTION_PROMPT,
-      image: [imageInput],
+      image: imageArray,
     });
 
     // Parse AI response

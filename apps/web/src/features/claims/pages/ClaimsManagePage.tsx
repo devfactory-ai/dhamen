@@ -1,22 +1,12 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { useClaims, useProcessClaim, type Claim } from '../hooks/useClaims';
-import { useToast } from '@/stores/toast';
+import { useClaims, type Claim } from '../hooks/useClaims';
 
 const CLAIM_TYPES = {
   PHARMACY: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
@@ -33,24 +23,11 @@ const CLAIM_STATUS = {
 };
 
 export function ClaimsManagePage() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('PENDING');
-  const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
-  const [processingData, setProcessingData] = useState<{
-    status: 'APPROVED' | 'REJECTED';
-    coveredAmount: string;
-    rejectionReason: string;
-    notes: string;
-  }>({
-    status: 'APPROVED',
-    coveredAmount: '',
-    rejectionReason: '',
-    notes: '',
-  });
-  const { toast } = useToast();
 
   const { data, isLoading } = useClaims(page, 20, { status: statusFilter });
-  const processClaim = useProcessClaim();
 
   const formatAmount = (amount: number) => {
     return new Intl.NumberFormat('fr-TN', {
@@ -69,37 +46,6 @@ export function ClaimsManagePage() {
     });
   };
 
-  const handleProcess = async () => {
-    if (!selectedClaim) { return; }
-
-    try {
-      await processClaim.mutateAsync({
-        id: selectedClaim.id,
-        data: {
-          status: processingData.status,
-          coveredAmount: processingData.status === 'APPROVED' ? Number.parseFloat(processingData.coveredAmount) * 1000 : undefined,
-          rejectionReason: processingData.status === 'REJECTED' ? processingData.rejectionReason : undefined,
-          notes: processingData.notes || undefined,
-        },
-      });
-      toast({ title: processingData.status === 'APPROVED' ? 'PEC approuvee' : 'PEC rejetee', variant: processingData.status === 'APPROVED' ? 'success' : 'destructive' });
-      setSelectedClaim(null);
-      setProcessingData({ status: 'APPROVED', coveredAmount: '', rejectionReason: '', notes: '' });
-    } catch {
-      toast({ title: 'Erreur lors du traitement', description: 'Veuillez reessayer', variant: 'destructive' });
-    }
-  };
-
-  const openProcessDialog = (claim: Claim) => {
-    setSelectedClaim(claim);
-    setProcessingData({
-      status: 'APPROVED',
-      coveredAmount: (claim.amount / 1000).toString(),
-      rejectionReason: '',
-      notes: '',
-    });
-  };
-
   const columns = [
     {
       key: 'claim',
@@ -112,12 +58,12 @@ export function ClaimsManagePage() {
       ),
     },
     {
-      key: 'adherent',
+      key: 'adhérent',
       header: 'Adhérent',
       render: (claim: Claim) => (
         <div>
-          <p className="text-sm">{claim.adherentName || '-'}</p>
-          <p className='text-muted-foreground text-xs'>{claim.adherentNationalId || '-'}</p>
+          <p className="text-sm">{claim.adhérentName || '-'}</p>
+          <p className='text-muted-foreground text-xs'>{claim.adhérentNationalId || '-'}</p>
         </div>
       ),
     },
@@ -175,15 +121,13 @@ export function ClaimsManagePage() {
       render: (claim: Claim) => (
         <div className="flex justify-end gap-2">
           {claim.status === 'PENDING' && (
-            <Button size="sm" onClick={() => openProcessDialog(claim)}>
+            <Button size="sm" onClick={() => navigate(`/claims/manage/${claim.id}/process`)}>
               Traiter
             </Button>
           )}
-          {claim.status !== 'PENDING' && (
-            <Button variant="ghost" size="sm" onClick={() => setSelectedClaim(claim)}>
-              Détails
-            </Button>
-          )}
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/claims/${claim.id}`)}>
+            Details
+          </Button>
         </div>
       ),
     },
@@ -252,114 +196,6 @@ export function ClaimsManagePage() {
             : undefined
         }
       />
-
-      {/* Process Claim Dialog */}
-      <Dialog open={!!selectedClaim && selectedClaim.status === 'PENDING'} onOpenChange={() => setSelectedClaim(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Traiter la PEC {selectedClaim?.claimNumber}</DialogTitle>
-            <DialogDescription>
-              Valider ou rejeter cette demande de prise en charge
-            </DialogDescription>
-          </DialogHeader>
-          {selectedClaim && (
-            <div className="space-y-4">
-              {/* Claim Info */}
-              <div className="rounded-lg bg-muted p-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-muted-foreground">Adhérent</p>
-                    <p className="font-medium">{selectedClaim.adherentName}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Montant demandé</p>
-                    <p className="font-medium">{formatAmount(selectedClaim.amount)}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Prestataire</p>
-                    <p className="font-medium">{selectedClaim.providerName}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Score anti-fraude</p>
-                    <p className={`font-medium ${selectedClaim.fraudScore && selectedClaim.fraudScore > 70 ? 'text-destructive' : ''}`}>
-                      {selectedClaim.fraudScore ?? 'N/A'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Decision */}
-              <div className="space-y-2">
-                <Label>Décision</Label>
-                <div className="flex gap-2">
-                  <Button
-                    variant={processingData.status === 'APPROVED' ? 'default' : 'outline'}
-                    className="flex-1"
-                    onClick={() => setProcessingData({ ...processingData, status: 'APPROVED' })}
-                  >
-                    Approuver
-                  </Button>
-                  <Button
-                    variant={processingData.status === 'REJECTED' ? 'destructive' : 'outline'}
-                    className="flex-1"
-                    onClick={() => setProcessingData({ ...processingData, status: 'REJECTED' })}
-                  >
-                    Rejeter
-                  </Button>
-                </div>
-              </div>
-
-              {processingData.status === 'APPROVED' && (
-                <div className="space-y-2">
-                  <Label htmlFor="coveredAmount">Montant couvert (TND)</Label>
-                  <Input
-                    id="coveredAmount"
-                    type="number"
-                    step="0.001"
-                    value={processingData.coveredAmount}
-                    onChange={(e) => setProcessingData({ ...processingData, coveredAmount: e.target.value })}
-                  />
-                </div>
-              )}
-
-              {processingData.status === 'REJECTED' && (
-                <div className="space-y-2">
-                  <Label htmlFor="rejectionReason">Motif du rejet</Label>
-                  <Textarea
-                    id="rejectionReason"
-                    value={processingData.rejectionReason}
-                    onChange={(e) => setProcessingData({ ...processingData, rejectionReason: e.target.value })}
-                    placeholder="Indiquer le motif du rejet..."
-                  />
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="notes">Notes (optionnel)</Label>
-                <Textarea
-                  id="notes"
-                  value={processingData.notes}
-                  onChange={(e) => setProcessingData({ ...processingData, notes: e.target.value })}
-                  rows={2}
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4">
-                <Button variant="outline" onClick={() => setSelectedClaim(null)}>
-                  Annuler
-                </Button>
-                <Button
-                  onClick={handleProcess}
-                  disabled={processClaim.isPending}
-                  variant={processingData.status === 'REJECTED' ? 'destructive' : 'default'}
-                >
-                  {processClaim.isPending ? 'Traitement...' : processingData.status === 'APPROVED' ? 'Approuver' : 'Rejeter'}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

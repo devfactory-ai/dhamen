@@ -28,6 +28,7 @@ import { generateId } from '../../lib/ulid';
 import { logAudit } from '../../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 
 const actes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -45,7 +46,7 @@ actes.get(
   async (c) => {
     const filters = c.req.valid('query');
 
-    const { data, total } = await listActes(c.env.DB, {
+    const { data, total } = await listActes(getDb(c), {
       ...filters,
       page: filters.page ?? 1,
       limit: filters.limit ?? 20,
@@ -76,7 +77,7 @@ actes.get(
       return forbidden(c, 'Praticien non associé');
     }
 
-    const { data, total } = await listActes(c.env.DB, {
+    const { data, total } = await listActes(getDb(c), {
       ...filters,
       praticienId: user.providerId,
       page: filters.page ?? 1,
@@ -111,7 +112,7 @@ actes.get(
       return forbidden(c, 'Praticien non associé');
     }
 
-    const stats = await getActesStatsByPraticien(c.env.DB, user.providerId, {
+    const stats = await getActesStatsByPraticien(getDb(c), user.providerId, {
       dateDebut,
       dateFin,
     });
@@ -131,7 +132,7 @@ actes.get(
     const id = c.req.param('id');
     const user = c.get('user');
 
-    const acte = await findActeAvecDetails(c.env.DB, id);
+    const acte = await findActeAvecDetails(getDb(c), id);
     if (!acte) {
       return notFound(c, 'Acte non trouvé');
     }
@@ -166,7 +167,7 @@ actes.post(
     }
 
     // Verify praticien exists and is active
-    const praticien = await findPraticienById(c.env.DB, user.providerId);
+    const praticien = await findPraticienById(getDb(c), user.providerId);
     if (!praticien) {
       return notFound(c, 'Praticien non trouvé');
     }
@@ -175,21 +176,21 @@ actes.post(
     }
 
     // Verify adherent exists and has coverage
-    const adherent = await findAdherentById(c.env.DB, data.adherentId);
+    const adherent = await findAdherentById(getDb(c), data.adherentId);
     if (!adherent) {
       return notFound(c, 'Adhérent non trouvé');
     }
 
     // Check plafond disponible (simplified - full eligibility check in future sprint)
     const currentYear = new Date().getFullYear();
-    const plafondConsomme = await getPlafondConsomme(c.env.DB, data.adherentId, 'global', currentYear);
+    const plafondConsomme = await getPlafondConsomme(getDb(c), data.adherentId, 'global', currentYear);
     // For now, just validate adherent exists - full formule check will be added later
 
     // Create acte
     const praticienId = user.providerId!; // Already checked above
     const today = new Date().toISOString().split('T')[0];
     const id = generateId();
-    const acte = await createActe(c.env.DB, id, {
+    const acte = await createActe(getDb(c), id, {
       praticienId,
       adherentId: data.adherentId,
       codeActe: data.codeActe,
@@ -202,7 +203,7 @@ actes.post(
       qrCodeAdherent: data.qrCodeAdherent,
     });
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_actes.create',
       entityType: 'sante_actes_praticiens',
@@ -229,7 +230,7 @@ actes.post(
     const id = c.req.param('id');
     const user = c.get('user');
 
-    const acte = await findActeById(c.env.DB, id);
+    const acte = await findActeById(getDb(c), id);
     if (!acte) {
       return notFound(c, 'Acte non trouvé');
     }
@@ -245,11 +246,11 @@ actes.post(
     }
 
     // Update status with signature
-    const updated = await updateActeStatut(c.env.DB, id, 'valide_adherent', {
+    const updated = await updateActeStatut(getDb(c), id, 'valide_adherent', {
       signatureAdherent: true,
     });
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_actes.sign',
       entityType: 'sante_actes_praticiens',
@@ -272,7 +273,7 @@ actes.post(
     const id = c.req.param('id');
     const user = c.get('user');
 
-    const acte = await findActeById(c.env.DB, id);
+    const acte = await findActeById(getDb(c), id);
     if (!acte) {
       return notFound(c, 'Acte non trouvé');
     }
@@ -289,7 +290,7 @@ actes.post(
 
     // Create linked demande for gestionnaire processing
     const demandeId = generateId();
-    await createSanteDemande(c.env.DB, demandeId, {
+    await createSanteDemande(getDb(c), demandeId, {
       adherentId: acte.adherentId,
       typeSoin: 'consultation', // Will be determined by code_acte mapping
       source: 'praticien',
@@ -299,11 +300,11 @@ actes.post(
     });
 
     // Update acte with demande link and status
-    const updated = await updateActeStatut(c.env.DB, id, 'soumis', {
+    const updated = await updateActeStatut(getDb(c), id, 'soumis', {
       demandeId,
     });
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_actes.submit',
       entityType: 'sante_actes_praticiens',
@@ -328,7 +329,7 @@ actes.patch(
     const data = c.req.valid('json');
     const user = c.get('user');
 
-    const acte = await findActeById(c.env.DB, id);
+    const acte = await findActeById(getDb(c), id);
     if (!acte) {
       return notFound(c, 'Acte non trouvé');
     }
@@ -342,12 +343,12 @@ actes.patch(
     // If approving, record plafond consumption
     if (data.statut === 'rembourse') {
       const currentYear = new Date().getFullYear();
-      await recordConsommation(c.env.DB, acte.adherentId, currentYear, acte.montantCouvert);
+      await recordConsommation(getDb(c), acte.adherentId, currentYear, acte.montantCouvert);
     }
 
-    const updated = await updateActeStatut(c.env.DB, id, data.statut);
+    const updated = await updateActeStatut(getDb(c), id, data.statut);
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_actes.update_status',
       entityType: 'sante_actes_praticiens',
@@ -381,7 +382,7 @@ actes.post(
 
     if (matricule) {
       // Find adherent by matricule
-      const result = await c.env.DB
+      const result = await getDb(c)
         .prepare('SELECT * FROM adherents WHERE matricule = ? AND deleted_at IS NULL')
         .bind(matricule)
         .first();
@@ -398,7 +399,7 @@ actes.post(
     // Get coverage info
     const currentYear = new Date().getFullYear();
     const plafondConsomme = await getPlafondConsomme(
-      c.env.DB,
+      getDb(c),
       adherent.id as string,
       'global',
       currentYear

@@ -24,18 +24,21 @@ const DEFAULT_OPTIONS: CookieOptions = {
 
 /**
  * Set the access token cookie
+ * Note: For cross-origin requests (different domains), we need SameSite=None + Secure
  */
 export function setAccessTokenCookie(
   c: Context,
   token: string,
   expiresIn: number,
-  isProduction: boolean
+  isProduction: boolean,
+  isCrossOrigin = true
 ): void {
   const options: CookieOptions = {
     ...DEFAULT_OPTIONS,
     maxAge: expiresIn,
-    secure: isProduction,
-    sameSite: isProduction ? 'Strict' : 'Lax',
+    // Cross-origin requires Secure=true and SameSite=None
+    secure: true, // Always secure for cross-origin cookie to work
+    sameSite: isCrossOrigin ? 'None' : (isProduction ? 'Strict' : 'Lax'),
   };
 
   setCookie(c, 'access_token', token, options);
@@ -43,19 +46,22 @@ export function setAccessTokenCookie(
 
 /**
  * Set the refresh token cookie
+ * Note: For cross-origin requests (different domains), we need SameSite=None + Secure
  */
 export function setRefreshTokenCookie(
   c: Context,
   token: string,
   expiresIn: number,
-  isProduction: boolean
+  isProduction: boolean,
+  isCrossOrigin = true
 ): void {
   const options: CookieOptions = {
     ...DEFAULT_OPTIONS,
     maxAge: expiresIn,
     path: '/api/v1/auth/refresh', // Only sent to refresh endpoint
-    secure: isProduction,
-    sameSite: isProduction ? 'Strict' : 'Lax',
+    // Cross-origin requires Secure=true and SameSite=None
+    secure: true, // Always secure for cross-origin cookie to work
+    sameSite: isCrossOrigin ? 'None' : (isProduction ? 'Strict' : 'Lax'),
   };
 
   setCookie(c, 'refresh_token', token, options);
@@ -64,12 +70,12 @@ export function setRefreshTokenCookie(
 /**
  * Clear authentication cookies
  */
-export function clearAuthCookies(c: Context, isProduction: boolean): void {
+export function clearAuthCookies(c: Context, isProduction: boolean, isCrossOrigin = true): void {
   const options: CookieOptions = {
     ...DEFAULT_OPTIONS,
     maxAge: 0,
-    secure: isProduction,
-    sameSite: isProduction ? 'Strict' : 'Lax',
+    secure: true,
+    sameSite: isCrossOrigin ? 'None' : (isProduction ? 'Strict' : 'Lax'),
   };
 
   setCookie(c, 'access_token', '', options);

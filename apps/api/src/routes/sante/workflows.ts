@@ -10,8 +10,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 import { requireAuth, requireRole } from '../../middleware/auth';
-import { success, error } from '../../lib/response';
+import { successData as success, errorData as error } from '../../lib/response';
 import {
   createWorkflowService,
   DEFAULT_VALIDATION_CONFIG,
@@ -358,7 +359,7 @@ workflows.get(
     const user = c.get('user');
 
     try {
-      const results = await c.env.DB.prepare(`
+      const results = await getDb(c).prepare(`
         SELECT w.id, w.demande_id, w.type, w.status, w.current_step,
                w.steps_json, w.metadata_json, w.created_at,
                d.numero_demande, d.montant_demande, d.type_soin

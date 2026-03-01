@@ -5,7 +5,7 @@
  * Caisse Nationale d'Assurance Maladie
  */
 import type { Bindings } from '../types';
-import { generateId } from '../lib/ulid';
+import { generatePrefixedId } from '../lib/ulid';
 
 export interface CNAMAffiliate {
   matriculeCNAM: string;
@@ -88,7 +88,7 @@ export class CNAMService {
    * Verify affiliate status with CNAM
    */
   async verifyAffiliate(matricule: string): Promise<CNAMAffiliate | null> {
-    const requestId = generateId('CNAM');
+    const requestId = generatePrefixedId('CNAM');
 
     try {
       // In production, make actual API call to CNAM
@@ -149,7 +149,7 @@ export class CNAMService {
    * Search for affiliate by various criteria
    */
   async searchAffiliate(criteria: CNAMRechercheAffilie): Promise<CNAMAffiliate[]> {
-    const requestId = generateId('CNAM');
+    const requestId = generatePrefixedId('CNAM');
 
     try {
       // In production, make actual API call
@@ -174,7 +174,7 @@ export class CNAMService {
    * Request authorization for care (PEC - Prise En Charge)
    */
   async requestPEC(request: CNAMPrestationRequest): Promise<CNAMPrestationResponse> {
-    const requestId = generateId('PEC');
+    const requestId = generatePrefixedId('PEC');
 
     try {
       // Validate affiliate first
@@ -238,7 +238,7 @@ export class CNAMService {
 
       // Generate PEC number
       const numeroPEC = `PEC-${new Date().getFullYear()}-${requestId.slice(-8)}`;
-      const dateValidite = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const dateValidite = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] ?? '';
 
       return {
         numeroPEC,
@@ -318,7 +318,7 @@ export class CNAMService {
     dateTraitement?: string;
     message: string;
   }> {
-    const claimId = generateId('RMB');
+    const claimId = generatePrefixedId('RMB');
 
     // In production, submit to CNAM API
     return {

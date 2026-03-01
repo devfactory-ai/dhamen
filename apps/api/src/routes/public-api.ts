@@ -7,8 +7,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import type { Bindings, Variables } from '../types';
-import { generateId } from '../lib/ulid';
+import type { Bindings, Variables, ApiKeyContext } from '../types';
+import { getDb } from '../lib/db';
+import { generateId, generatePrefixedId } from '../lib/ulid';
 import { logAudit } from '../middleware/audit-trail';
 
 const publicApi = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -17,15 +18,8 @@ const publicApi = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 // API Key Middleware
 // =============================================================================
 
-interface ApiKeyInfo {
-  id: string;
-  name: string;
-  partnerId: string;
-  partnerType: 'insurer' | 'provider' | 'pharmacy' | 'lab' | 'third_party';
-  permissions: string[];
-  rateLimit: number;
-  isActive: boolean;
-}
+// Use shared ApiKeyContext type from types.ts
+type ApiKeyInfo = Required<Pick<ApiKeyContext, 'id' | 'name' | 'partnerId' | 'partnerType' | 'permissions' | 'rateLimit' | 'isActive'>>;
 
 async function apiKeyAuth(c: any, next: () => Promise<void>) {
   const apiKey = c.req.header('X-API-Key');
@@ -191,7 +185,7 @@ publicApi.post(
       timestamp: new Date().toISOString(),
     };
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: `API:${apiKey.partnerId}`,
       action: 'public_api.eligibility.check',
       entityType: 'eligibility',
@@ -217,7 +211,7 @@ publicApi.post(
     const now = new Date().toISOString();
 
     // Generate claim ID
-    const claimId = generateId('CLM');
+    const claimId = generatePrefixedId('CLM');
     const numeroDemande = `DEM-${new Date().getFullYear()}-${claimId.slice(-6)}`;
 
     // Calculate totals
@@ -227,7 +221,7 @@ publicApi.post(
     const ticketModerateur = montantTotal - montantRembourse;
 
     // In production, insert into D1
-    // await c.env.DB.prepare(`INSERT INTO sante_demandes ...`)
+    // await getDb(c).prepare(`INSERT INTO sante_demandes ...`)
 
     const response = {
       id: claimId,
@@ -250,7 +244,7 @@ publicApi.post(
       estimatedProcessingTime: '24-48h',
     };
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: `API:${apiKey.partnerId}`,
       action: 'public_api.claims.create',
       entityType: 'sante_demandes',
@@ -295,7 +289,7 @@ publicApi.get('/claims/:id', requirePermission('claims:read'), async (c) => {
     ],
   };
 
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: `API:${apiKey.partnerId}`,
     action: 'public_api.claims.get',
     entityType: 'sante_demandes',
@@ -431,7 +425,7 @@ publicApi.post('/documents/upload', requirePermission('claims:write'), async (c)
   const apiKey = c.get('apiKey') as ApiKeyInfo;
   const { filename, contentType } = await c.req.json();
 
-  const documentId = generateId('DOC');
+  const documentId = generatePrefixedId('DOC');
   const key = `partners/${apiKey.partnerId}/${documentId}/${filename}`;
 
   // In production, generate presigned URL for R2

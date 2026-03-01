@@ -4,17 +4,16 @@
  * Lists all conventioned practitioners with filters
  */
 import { useState } from 'react';
-import { Search, MapPin, Phone, Mail, Building, Filter, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, MapPin, Phone, Building, Filter, X } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   usePraticiens,
-  usePraticienById,
   CONVENTIONNEMENT_LABELS,
   CONVENTIONNEMENT_COLORS,
   SPECIALITES_COMMON,
@@ -51,18 +50,16 @@ const VILLES_TUNISIE = [
 ];
 
 export default function SantePraticiensPage() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<PraticiensFilters>({});
-  const [selectedPraticienId, setSelectedPraticienId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
   const { data, isLoading, isError } = usePraticiens(page, 20, {
     ...filters,
     search: search || undefined,
   });
-
-  const { data: selectedPraticien } = usePraticienById(selectedPraticienId);
 
   const praticiens = data?.data || [];
   const meta = data?.meta || { page: 1, limit: 20, total: 0, totalPages: 1 };
@@ -86,7 +83,7 @@ export default function SantePraticiensPage() {
     setPage(1);
   };
 
-  const hasActiveFilters = filters.specialite || filters.ville || filters.conventionnement || search;
+  const hasActiveFilters = filters.spécialité || filters.ville || filters.conventionnement || search;
 
   return (
     <div className="space-y-6">
@@ -105,7 +102,7 @@ export default function SantePraticiensPage() {
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   type="text"
-                  placeholder="Rechercher par nom, specialite..."
+                  placeholder="Rechercher par nom, spécialité..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-10"
@@ -131,14 +128,14 @@ export default function SantePraticiensPage() {
             {showFilters && (
               <div className="grid gap-4 md:grid-cols-4 pt-4 border-t">
                 <Select
-                  value={filters.specialite || 'all'}
-                  onValueChange={(v) => handleFilterChange('specialite', v)}
+                  value={filters.spécialité || 'all'}
+                  onValueChange={(v) => handleFilterChange('spécialité', v)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Specialite" />
+                    <SelectValue placeholder="Spécialité" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Toutes specialites</SelectItem>
+                    <SelectItem value="all">Toutes spécialités</SelectItem>
                     {SPECIALITES_COMMON.map((s) => (
                       <SelectItem key={s} value={s}>{s}</SelectItem>
                     ))}
@@ -169,9 +166,9 @@ export default function SantePraticiensPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Tous</SelectItem>
-                    <SelectItem value="conventionne">Conventionne</SelectItem>
+                    <SelectItem value="conventionné">Conventionne</SelectItem>
                     <SelectItem value="partiellement">Partiellement</SelectItem>
-                    <SelectItem value="non_conventionne">Non conventionne</SelectItem>
+                    <SelectItem value="non_conventionné">Non conventionne</SelectItem>
                   </SelectContent>
                 </Select>
 
@@ -211,7 +208,7 @@ export default function SantePraticiensPage() {
               <PraticienCard
                 key={praticien.id}
                 praticien={praticien}
-                onSelect={() => setSelectedPraticienId(praticien.id)}
+                onSelect={() => navigate(`/sante/praticiens/${praticien.id}`)}
               />
             ))}
           </div>
@@ -221,7 +218,7 @@ export default function SantePraticiensPage() {
             <Card>
               <CardContent className="py-12 text-center text-muted-foreground">
                 <Building className="mx-auto h-12 w-12 opacity-20" />
-                <p className="mt-4">Aucun praticien trouve</p>
+                <p className="mt-4">Aucun praticien trouvé</p>
                 {hasActiveFilters && (
                   <Button variant="link" onClick={clearFilters} className="mt-2">
                     Effacer les filtres
@@ -239,7 +236,7 @@ export default function SantePraticiensPage() {
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
               >
-                Precedent
+                Précédént
               </Button>
               <span className="flex items-center px-4 text-sm text-muted-foreground">
                 Page {page} sur {meta.totalPages}
@@ -255,18 +252,6 @@ export default function SantePraticiensPage() {
           )}
         </>
       )}
-
-      {/* Detail Dialog */}
-      <Dialog open={!!selectedPraticienId} onOpenChange={() => setSelectedPraticienId(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Detail Praticien</DialogTitle>
-          </DialogHeader>
-          {selectedPraticien && (
-            <PraticienDetail praticien={selectedPraticien} />
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -293,7 +278,7 @@ function PraticienCard({
             <CardTitle className="text-base">
               {praticien.prenom ? `${praticien.prenom} ${praticien.nom}` : praticien.nom}
             </CardTitle>
-            <p className="text-sm text-muted-foreground">{praticien.specialite}</p>
+            <p className="text-sm text-muted-foreground">{praticien.spécialité}</p>
           </div>
           <Badge className={CONVENTIONNEMENT_COLORS[praticien.conventionnement]}>
             {CONVENTIONNEMENT_LABELS[praticien.conventionnement]}
@@ -308,10 +293,10 @@ function PraticienCard({
             {praticien.adresse && ` - ${praticien.adresse}`}
           </div>
         )}
-        {praticien.telephone && (
+        {praticien.téléphone && (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Phone className="h-4 w-4" />
-            {praticien.telephone}
+            {praticien.téléphone}
           </div>
         )}
         {praticien.tauxRemboursement && (
@@ -324,81 +309,3 @@ function PraticienCard({
   );
 }
 
-function PraticienDetail({ praticien }: { praticien: SantePraticien }) {
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h3 className="text-lg font-semibold">
-            {praticien.prenom ? `${praticien.prenom} ${praticien.nom}` : praticien.nom}
-          </h3>
-          <p className="text-muted-foreground">{praticien.specialite}</p>
-        </div>
-        <Badge className={CONVENTIONNEMENT_COLORS[praticien.conventionnement]}>
-          {CONVENTIONNEMENT_LABELS[praticien.conventionnement]}
-        </Badge>
-      </div>
-
-      {/* Contact */}
-      <div className="space-y-3">
-        {praticien.adresse && (
-          <div className="flex items-start gap-3">
-            <MapPin className="h-5 w-5 text-muted-foreground mt-0.5" />
-            <div>
-              <p>{praticien.adresse}</p>
-              {praticien.codePostal && praticien.ville && (
-                <p className="text-muted-foreground">
-                  {praticien.codePostal} {praticien.ville}
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {praticien.telephone && (
-          <div className="flex items-center gap-3">
-            <Phone className="h-5 w-5 text-muted-foreground" />
-            <a href={`tel:${praticien.telephone}`} className="text-primary hover:underline">
-              {praticien.telephone}
-            </a>
-          </div>
-        )}
-
-        {praticien.email && (
-          <div className="flex items-center gap-3">
-            <Mail className="h-5 w-5 text-muted-foreground" />
-            <a href={`mailto:${praticien.email}`} className="text-primary hover:underline">
-              {praticien.email}
-            </a>
-          </div>
-        )}
-      </div>
-
-      {/* Details */}
-      {(praticien.tauxRemboursement || praticien.horaires) && (
-        <div className="border-t pt-4 space-y-2">
-          {praticien.tauxRemboursement && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Taux de remboursement</span>
-              <span className="font-medium">{praticien.tauxRemboursement}%</span>
-            </div>
-          )}
-          {praticien.horaires && (
-            <div>
-              <span className="text-muted-foreground">Horaires</span>
-              <p className="mt-1">{praticien.horaires}</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Status */}
-      <div className="border-t pt-4">
-        <Badge variant={praticien.estActif ? 'success' : 'secondary'}>
-          {praticien.estActif ? 'Actif' : 'Inactif'}
-        </Badge>
-      </div>
-    </div>
-  );
-}

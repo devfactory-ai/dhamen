@@ -23,6 +23,7 @@ interface ContractRow {
   insurer_id: string;
   adherent_id: string;
   contract_number: string;
+  policy_number: string | null;
   plan_type: PlanType;
   start_date: string;
   end_date: string;
@@ -31,6 +32,8 @@ interface ContractRow {
   coverage_json: string;
   exclusions_json: string;
   status: ContractStatus;
+  document_id: string | null;
+  document_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -41,14 +44,17 @@ function rowToContract(row: ContractRow): Contract {
     insurerId: row.insurer_id,
     adherentId: row.adherent_id,
     contractNumber: row.contract_number,
+    policyNumber: row.policy_number,
     planType: row.plan_type,
     startDate: row.start_date,
     endDate: row.end_date,
     carenceDays: row.carence_days,
     annualLimit: row.annual_limit,
-    coverageJson: JSON.parse(row.coverage_json) as CoverageConfig,
-    exclusionsJson: JSON.parse(row.exclusions_json) as string[],
+    coverageJson: JSON.parse(row.coverage_json || '{}') as CoverageConfig,
+    exclusionsJson: JSON.parse(row.exclusions_json || '[]') as string[],
     status: row.status,
+    documentId: row.document_id,
+    documentUrl: row.document_url,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -209,6 +215,18 @@ export async function updateContract(
   if (data.status !== undefined) {
     updates.push('status = ?');
     params.push(data.status);
+  }
+  if (data.policyNumber !== undefined) {
+    updates.push('policy_number = ?');
+    params.push(data.policyNumber);
+  }
+  if (data.documentId !== undefined) {
+    updates.push('document_id = ?');
+    params.push(data.documentId);
+  }
+  if (data.documentUrl !== undefined) {
+    updates.push('document_url = ?');
+    params.push(data.documentUrl);
   }
 
   if (updates.length === 0) {

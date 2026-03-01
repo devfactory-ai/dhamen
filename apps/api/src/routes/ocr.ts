@@ -7,10 +7,11 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
 import { authMiddleware, requireRole } from '../middleware/auth';
 import { OCRService } from '../services/ocr.service';
 import { logAudit } from '../middleware/audit-trail';
-import { generateId } from '../lib/ulid';
+import { generatePrefixedId, generateId } from '../lib/ulid';
 
 const ocr = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -56,7 +57,7 @@ ocr.post(
     const { imageData, documentType, language } = c.req.valid('json');
     const user = c.get('user');
 
-    const documentId = generateId('DOC');
+    const documentId = generatePrefixedId('DOC');
     const ocrService = new OCRService(c.env);
 
     const result = await ocrService.processDocument({
@@ -69,7 +70,7 @@ ocr.post(
     // Validate the extraction
     const validation = await ocrService.validateExtraction(result);
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'ocr.process',
       entityType: 'documents',
@@ -125,7 +126,7 @@ ocr.post(
       }
     }
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'ocr.batch_process',
       entityType: 'documents',
@@ -164,7 +165,7 @@ ocr.post(
     const { imageData } = c.req.valid('json');
     const user = c.get('user');
 
-    const documentId = generateId('ORD');
+    const documentId = generatePrefixedId('ORD');
     const ocrService = new OCRService(c.env);
 
     const result = await ocrService.processDocument({
@@ -190,7 +191,7 @@ ocr.post(
       })
     );
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'ocr.extract_ordonnance',
       entityType: 'ordonnances',
@@ -228,7 +229,7 @@ ocr.post(
     const { imageData } = c.req.valid('json');
     const user = c.get('user');
 
-    const documentId = generateId('FAC');
+    const documentId = generatePrefixedId('FAC');
     const ocrService = new OCRService(c.env);
 
     const result = await ocrService.processDocument({
@@ -237,7 +238,7 @@ ocr.post(
       documentType: 'facture',
     });
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'ocr.extract_facture',
       entityType: 'factures',
@@ -277,7 +278,7 @@ ocr.post(
     const { imageData } = c.req.valid('json');
     const user = c.get('user');
 
-    const documentId = generateId('CRT');
+    const documentId = generatePrefixedId('CRT');
     const ocrService = new OCRService(c.env);
 
     const result = await ocrService.processDocument({
@@ -297,7 +298,7 @@ ocr.post(
     if (result.structuredData.assure?.numeroSecuriteSociale) {
       // In production, query adherents table
       const matricule = result.structuredData.assure.numeroSecuriteSociale;
-      const adherent = await c.env.DB.prepare(
+      const adherent = await getDb(c).prepare(
         'SELECT a.*, c.status as contrat_status FROM adherents a LEFT JOIN contracts c ON a.contract_id = c.id WHERE a.matricule = ?'
       )
         .bind(matricule)
@@ -322,7 +323,7 @@ ocr.post(
       }
     }
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'ocr.verify_carte',
       entityType: 'cartes',

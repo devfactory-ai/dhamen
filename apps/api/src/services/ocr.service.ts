@@ -4,7 +4,7 @@
  * Document text extraction using Cloudflare Workers AI
  */
 import type { Bindings } from '../types';
-import { generateId } from '../lib/ulid';
+import { generatePrefixedId } from '../lib/ulid';
 
 export interface OCRRequest {
   documentId: string;
@@ -86,7 +86,7 @@ export class OCRService {
    */
   async processDocument(request: OCRRequest): Promise<OCRResult> {
     const startTime = Date.now();
-    const resultId = generateId('OCR');
+    const resultId = generatePrefixedId('OCR');
 
     try {
       // Extract text using Workers AI
@@ -129,7 +129,7 @@ export class OCRService {
       imageInput = await response.arrayBuffer();
     } else if (imageData.startsWith('data:image')) {
       // Extract base64 data
-      const base64Data = imageData.split(',')[1];
+      const base64Data = imageData.split(',')[1] ?? '';
       imageInput = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0)).buffer;
     } else {
       // Assume raw base64
@@ -170,7 +170,7 @@ export class OCRService {
       try {
         const prompt = this.getStructuringPrompt(documentType, rawText);
 
-        const result = await this.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        const result = await this.env.AI.run('@cf/meta/llama-3.1-8b-instruct' as Parameters<typeof this.env.AI.run>[0], {
           messages: [
             {
               role: 'system',
@@ -267,7 +267,7 @@ export class OCRService {
 
     // Amount extraction
     const amountMatch = rawText.match(/(\d+[.,]\d{3})\s*(TND|DT|dinars?)/i);
-    if (amountMatch) {
+    if (amountMatch?.[1]) {
       data.montantTotal = parseFloat(amountMatch[1].replace(',', '.')) * 1000;
     }
 
@@ -283,7 +283,7 @@ export class OCRService {
 
     // Name extraction (simple heuristic)
     const nameMatch = rawText.match(/(?:Nom|Patient|Assuré)\s*:?\s*([A-ZÀ-Ü][a-zà-ü]+(?:\s+[A-ZÀ-Ü][a-zà-ü]+)?)/i);
-    if (nameMatch) {
+    if (nameMatch?.[1]) {
       const names = nameMatch[1].split(/\s+/);
       if (documentType === 'ordonnance') {
         data.patient = {

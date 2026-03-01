@@ -1,7 +1,7 @@
 /**
  * SoinFlow Eligibility Check Page
  *
- * Allows practitioners and pharmacists to verify adherent coverage
+ * Allows practitioners and pharmacists to verify adhérent coverage
  */
 import { useState } from 'react';
 import { Search, CheckCircle, XCircle, AlertCircle, User, CreditCard } from 'lucide-react';
@@ -46,8 +46,8 @@ export default function SanteEligibilityPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Verification Eligibilite"
-        description="Verifier les droits et plafonds d'un adherent"
+        title="Vérification Éligibilité"
+        description="Vérifier les droits et plafonds d'un adhérent"
       />
 
       {/* Search Form */}
@@ -55,7 +55,7 @@ export default function SanteEligibilityPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Search className="h-5 w-5" />
-            Rechercher un adherent
+            Rechercher un adhérent
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -84,13 +84,13 @@ export default function SanteEligibilityPage() {
             <div className="flex gap-2">
               <Input
                 type="text"
-                placeholder={searchType === 'matricule' ? 'Entrez le matricule...' : 'Entrez le numero CIN...'}
+                placeholder={searchType === 'matricule' ? 'Entrez le matricule...' : 'Entrez le numéro CIN...'}
                 value={searchValue}
                 onChange={(e) => setSearchValue(e.target.value)}
                 className="flex-1"
               />
               <Button type="submit" disabled={checkEligibility.isPending}>
-                {checkEligibility.isPending ? 'Recherche...' : 'Verifier'}
+                {checkEligibility.isPending ? 'Recherche...' : 'Vérifier'}
               </Button>
               {result && (
                 <Button type="button" variant="outline" onClick={handleClear}>
@@ -133,12 +133,12 @@ export default function SanteEligibilityPage() {
                   )}
                   <div>
                     <h3 className="text-lg font-semibold">
-                      {result.eligible ? 'Adherent Eligible' : 'Non Eligible'}
+                      {result.eligible ? 'Adhérent Eligible' : 'Non Eligible'}
                     </h3>
                     <p className="text-sm text-muted-foreground">
                       {result.eligible
                         ? 'Couverture active avec droits disponibles'
-                        : 'Veuillez verifier les details ci-dessous'}
+                        : 'Veuillez vérifiér les details ci-dessous'}
                     </p>
                   </div>
                 </div>
@@ -161,13 +161,13 @@ export default function SanteEligibilityPage() {
             </CardContent>
           </Card>
 
-          {/* Adherent Info */}
+          {/* Adhérent Info */}
           <div className="grid gap-6 md:grid-cols-2">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <User className="h-4 w-4" />
-                  Informations Adherent
+                  Informations Adhérent
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -244,7 +244,7 @@ export default function SanteEligibilityPage() {
                         />
                       </div>
                       <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Consomme: {formatAmount(plafond.montantConsomme)}</span>
+                        <span>Consommé: {formatAmount(plafond.montantConsomme)}</span>
                         <span>Plafond: {formatAmount(plafond.montantPlafond)}</span>
                       </div>
                     </div>
@@ -262,8 +262,8 @@ export default function SanteEligibilityPage() {
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-3">
                 <div>
-                  <span className="text-sm text-muted-foreground">Numero</span>
-                  <p className="font-medium font-mono">{result.contrat.numero}</p>
+                  <span className="text-sm text-muted-foreground">Numéro</span>
+                  <p className="font-medium font-mono">{result.contrat.numéro}</p>
                 </div>
                 <div>
                   <span className="text-sm text-muted-foreground">Debut</span>
@@ -290,7 +290,7 @@ export default function SanteEligibilityPage() {
             <div className="text-center text-muted-foreground">
               <Search className="mx-auto h-12 w-12 opacity-20" />
               <p className="mt-4">
-                Entrez un matricule ou numero CIN pour verifier l'eligibilite
+                Entrez un matricule ou numéro CIN pour vérifiér l'éligibilité
               </p>
             </div>
           </CardContent>

@@ -4,9 +4,11 @@ import { errorHandler } from './middleware/error-handler';
 import { requestIdMiddleware } from './middleware/request-id';
 import { apiRateLimit, authRateLimit } from './middleware/rate-limit';
 import { securityHeaders } from './middleware/security-headers';
+import { tenantResolverMiddleware } from './middleware/tenant-resolver';
 import {
   adherents,
   auth,
+  users,
   claims,
   contracts,
   health,
@@ -26,6 +28,27 @@ import {
   compliance,
   ocr,
   cnam,
+  analytics,
+  documents,
+  audit,
+  webhooksOutbound,
+  publicApiV2,
+  batch,
+  payments,
+  dashboardRealtime,
+  contractManagement,
+  aiReconciliation,
+  mobile,
+  monitoring,
+  docs,
+  virtualCards,
+  sms,
+  mfVerification,
+  medications,
+  bulletinsSoins,
+  bulletinTemplates,
+  consommation,
+  companies,
 } from './routes';
 import type { Bindings, Variables } from './types';
 
@@ -48,6 +71,10 @@ app.use('*', async (c, next) => {
   const corsHandler = createCorsMiddleware(c.env.ENVIRONMENT);
   return corsHandler(c, next);
 });
+
+// Tenant resolution - routes to correct D1 database based on subdomain
+app.use('*', tenantResolverMiddleware);
+
 app.use('*', requestIdMiddleware);
 app.onError(errorHandler);
 
@@ -63,6 +90,7 @@ api.use('*', apiRateLimit);
 // Mount routes
 api.route('/health', health);
 api.route('/auth', auth);
+api.route('/users', users);
 api.route('/providers', providers);
 api.route('/adherents', adherents);
 api.route('/contracts', contracts);
@@ -100,6 +128,68 @@ api.route('/ocr', ocr);
 
 // CNAM Integration
 api.route('/cnam', cnam);
+
+// Analytics
+api.route('/analytics', analytics);
+
+// Documents (R2)
+api.route('/documents', documents);
+
+// Audit logs
+api.route('/audit', audit);
+
+// Sprint 13: Webhooks Outbound
+api.route('/webhooks-outbound', webhooksOutbound);
+
+// Sprint 13: Batch Processing
+api.route('/batch', batch);
+
+// Sprint 13: Payments
+api.route('/payments', payments);
+
+// Sprint 13: Public API V2 (uses API key auth)
+app.route('/public/v2', publicApiV2);
+
+// Sprint 14: Dashboard Realtime
+api.route('/dashboard', dashboardRealtime);
+
+// Sprint 14: Contract Management
+api.route('/contract-management', contractManagement);
+
+// Sprint 14: AI Reconciliation
+api.route('/ai-reconciliation', aiReconciliation);
+
+// Sprint 14: Mobile Backend (separate base path)
+app.route('/mobile/v1', mobile);
+
+// Sprint 15: Monitoring (public health endpoints)
+app.route('/monitoring', monitoring);
+
+// Sprint 15: API Documentation
+app.route('/docs', docs);
+
+// Virtual Cards (Digital Adherent Cards)
+api.route('/cards', virtualCards);
+
+// SMS Gateway
+api.route('/sms', sms);
+
+// MF Verification (Matricule Fiscal)
+api.route('/mf-verification', mfVerification);
+
+// Medications (Pharmacie Centrale Tunisie)
+api.route('/medications', medications);
+
+// Bulletins de soins (adherent paper forms)
+api.route('/bulletins-soins', bulletinsSoins);
+// Bulletin templates (public - no auth required for downloading blank forms)
+api.route('/bulletins-soins/templates', bulletinTemplates);
+
+// Consommation garanties (adherent coverage tracking)
+api.route('/consommation', consommation);
+
+// Companies (entreprises with HR)
+api.route('/companies', companies);
 
 // Root redirect
 app.get('/', (c) => {

@@ -12,6 +12,9 @@ import {
   SANTE_STATUTS_PAIEMENT,
   SANTE_TYPES_BENEFICIAIRE,
   SANTE_METHODES_PAIEMENT,
+  SANTE_STATUTS_CONTRE_VISITE,
+  SANTE_CONCLUSIONS_CONTRE_VISITE,
+  SANTE_IMPACTS_CONTRE_VISITE,
 } from '../types/sante';
 
 // ============================================
@@ -199,6 +202,53 @@ export const adherentSanteExtensionSchema = z.object({
   companyId: z.string().optional(),
 });
 
+// ============================================
+// Contre-Visite schemas
+// ============================================
+
+export const santeStatutContreVisiteSchema = z.enum(SANTE_STATUTS_CONTRE_VISITE);
+export const santeConclusionContreVisiteSchema = z.enum(SANTE_CONCLUSIONS_CONTRE_VISITE);
+export const santeImpactContreVisiteSchema = z.enum(SANTE_IMPACTS_CONTRE_VISITE);
+
+export const santeContreVisiteCreateSchema = z.object({
+  motif: z.string().min(10, 'Le motif doit contenir au moins 10 caractères').max(500),
+  description: z.string().max(2000).optional(),
+  praticienId: z.string().optional(),
+  datePlanifiee: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide (YYYY-MM-DD)').optional(),
+  dateLimite: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide (YYYY-MM-DD)').optional(),
+  lieu: z.string().max(255).optional(),
+  adresse: z.string().max(500).optional(),
+  ville: z.string().max(100).optional(),
+});
+
+export const santeContreVisitePlanifierSchema = z.object({
+  praticienId: z.string().min(1, 'Praticien requis'),
+  datePlanifiee: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide (YYYY-MM-DD)'),
+  lieu: z.string().max(255).optional(),
+  adresse: z.string().max(500).optional(),
+  ville: z.string().max(100).optional(),
+});
+
+export const santeContreVisiteRapportSchema = z.object({
+  rapport: z.string().min(20, 'Le rapport doit contenir au moins 20 caractères').max(5000),
+  conclusion: santeConclusionContreVisiteSchema,
+  impactMontant: z.number().optional(),
+  impactDecision: santeImpactContreVisiteSchema.optional(),
+  notesInternes: z.string().max(2000).optional(),
+});
+
+export const santeContreVisiteUpdateStatutSchema = z.object({
+  statut: santeStatutContreVisiteSchema,
+  notesInternes: z.string().max(2000).optional(),
+});
+
+export const santeContreVisiteFiltersSchema = z.object({
+  statut: santeStatutContreVisiteSchema.optional(),
+  praticienId: z.string().optional(),
+  dateDebut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  dateFin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
 // Type exports
 export type SanteGarantieFormuleCreate = z.infer<typeof santeGarantieFormuleCreateSchema>;
 export type SanteGarantieFormuleUpdate = z.infer<typeof santeGarantieFormuleUpdateSchema>;
@@ -216,3 +266,8 @@ export type SanteActeFilters = z.infer<typeof santeActeFiltersSchema>;
 export type SantePaiementInitiate = z.infer<typeof santePaiementInitiateSchema>;
 export type AyantDroitInput = z.infer<typeof ayantDroitSchema>;
 export type AdherentSanteExtension = z.infer<typeof adherentSanteExtensionSchema>;
+export type SanteContreVisiteCreate = z.infer<typeof santeContreVisiteCreateSchema>;
+export type SanteContreVisitePlanifier = z.infer<typeof santeContreVisitePlanifierSchema>;
+export type SanteContreVisiteRapport = z.infer<typeof santeContreVisiteRapportSchema>;
+export type SanteContreVisiteUpdateStatut = z.infer<typeof santeContreVisiteUpdateStatutSchema>;
+export type SanteContreVisiteFilters = z.infer<typeof santeContreVisiteFiltersSchema>;

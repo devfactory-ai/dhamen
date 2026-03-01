@@ -16,6 +16,7 @@ import { generateId } from '../../lib/ulid';
 import { logAudit } from '../../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 
 const documents = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -45,7 +46,7 @@ documents.get(
     const user = c.get('user');
 
     // Verify access to the demande
-    const demande = await findSanteDemandeById(c.env.DB, demandeId);
+    const demande = await findSanteDemandeById(getDb(c), demandeId);
     if (!demande) {
       return notFound(c, 'Demande non trouvée');
     }
@@ -58,7 +59,7 @@ documents.get(
       return forbidden(c, 'Accès non autorisé');
     }
 
-    const docs = await listDocumentsByDemande(c.env.DB, demandeId);
+    const docs = await listDocumentsByDemande(getDb(c), demandeId);
     return success(c, docs);
   }
 );
@@ -74,13 +75,13 @@ documents.get(
     const id = c.req.param('id');
     const user = c.get('user');
 
-    const doc = await findDocumentById(c.env.DB, id);
+    const doc = await findDocumentById(getDb(c), id);
     if (!doc) {
       return notFound(c, 'Document non trouvé');
     }
 
     // Verify access through demande
-    const demande = await findSanteDemandeById(c.env.DB, doc.demandeId);
+    const demande = await findSanteDemandeById(getDb(c), doc.demandeId);
     if (!demande) {
       return notFound(c, 'Demande associée non trouvée');
     }
@@ -107,13 +108,13 @@ documents.get(
     const id = c.req.param('id');
     const user = c.get('user');
 
-    const doc = await findDocumentById(c.env.DB, id);
+    const doc = await findDocumentById(getDb(c), id);
     if (!doc) {
       return notFound(c, 'Document non trouvé');
     }
 
     // Verify access through demande
-    const demande = await findSanteDemandeById(c.env.DB, doc.demandeId);
+    const demande = await findSanteDemandeById(getDb(c), doc.demandeId);
     if (!demande) {
       return notFound(c, 'Demande associée non trouvée');
     }
@@ -132,7 +133,7 @@ documents.get(
     }
 
     // Log download
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_documents.download',
       entityType: 'sante_documents',
@@ -192,7 +193,7 @@ documents.post(
     }
 
     // Verify access to the demande
-    const demande = await findSanteDemandeById(c.env.DB, demandeId);
+    const demande = await findSanteDemandeById(getDb(c), demandeId);
     if (!demande) {
       return notFound(c, 'Demande non trouvée');
     }
@@ -223,7 +224,7 @@ documents.post(
     });
 
     // Create document record
-    const doc = await createDocument(c.env.DB, id, {
+    const doc = await createDocument(getDb(c), id, {
       demandeId,
       typeDocument: typeDocument as typeof SANTE_TYPES_DOCUMENT[number],
       r2Key,
@@ -234,7 +235,7 @@ documents.post(
       uploadedBy: user.sub,
     });
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_documents.upload',
       entityType: 'sante_documents',
@@ -257,13 +258,13 @@ documents.post(
     const id = c.req.param('id');
     const user = c.get('user');
 
-    const doc = await findDocumentById(c.env.DB, id);
+    const doc = await findDocumentById(getDb(c), id);
     if (!doc) {
       return notFound(c, 'Document non trouve');
     }
 
     // Verify access through demande
-    const demande = await findSanteDemandeById(c.env.DB, doc.demandeId);
+    const demande = await findSanteDemandeById(getDb(c), doc.demandeId);
     if (!demande) {
       return notFound(c, 'Demande associee non trouvee');
     }
@@ -284,12 +285,12 @@ documents.post(
     }
 
     // Mark as processing
-    await updateDocumentOcrStatus(c.env.DB, id, 'processing');
+    await updateDocumentOcrStatus(getDb(c), id, 'processing');
 
     // Get file from R2
     const object = await c.env.STORAGE.get(doc.r2Key);
     if (!object) {
-      await updateDocumentOcrStatus(c.env.DB, id, 'failed');
+      await updateDocumentOcrStatus(getDb(c), id, 'failed');
       return notFound(c, 'Fichier non trouve dans le stockage');
     }
 
@@ -302,7 +303,7 @@ documents.post(
       const extractedData = await extractBulletinData(c, imageData);
 
       // Save OCR result
-      await c.env.DB.prepare(`
+      await getDb(c).prepare(`
         UPDATE sante_documents
         SET ocr_status = 'completed',
             ocr_result_json = ?,
@@ -311,7 +312,7 @@ documents.post(
         WHERE id = ?
       `).bind(JSON.stringify(extractedData), id).run();
 
-      await logAudit(c.env.DB, {
+      await logAudit(getDb(c), {
         userId: user.sub,
         action: 'sante_documents.ocr_completed',
         entityType: 'sante_documents',
@@ -329,9 +330,9 @@ documents.post(
       });
     } catch (error) {
       // Mark as failed
-      await updateDocumentOcrStatus(c.env.DB, id, 'failed');
+      await updateDocumentOcrStatus(getDb(c), id, 'failed');
 
-      await logAudit(c.env.DB, {
+      await logAudit(getDb(c), {
         userId: user.sub,
         action: 'sante_documents.ocr_failed',
         entityType: 'sante_documents',
@@ -355,7 +356,7 @@ documents.delete(
     const id = c.req.param('id');
     const user = c.get('user');
 
-    const doc = await findDocumentById(c.env.DB, id);
+    const doc = await findDocumentById(getDb(c), id);
     if (!doc) {
       return notFound(c, 'Document non trouvé');
     }
@@ -376,9 +377,9 @@ documents.delete(
     }
 
     // Delete from database
-    await deleteDocument(c.env.DB, id);
+    await deleteDocument(getDb(c), id);
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_documents.delete',
       entityType: 'sante_documents',

@@ -56,7 +56,20 @@ export function createCorsMiddleware(environment: string) {
       // Allow Cloudflare Pages deployments only for the dhamen project
       // and only in non-production environments
       if (environment !== 'production') {
+        // Main pages domain (production)
+        if (origin === 'https://dhamen-web.pages.dev') {
+          return origin;
+        }
+        // Staging pages domain
+        if (origin === 'https://dhamen-web-staging.pages.dev') {
+          return origin;
+        }
+        // Preview deployments for production (with hash prefix)
         if (origin.match(/^https:\/\/[a-z0-9-]+\.dhamen-web\.pages\.dev$/)) {
+          return origin;
+        }
+        // Preview deployments for staging (with hash prefix)
+        if (origin.match(/^https:\/\/[a-z0-9-]+\.dhamen-web-staging\.pages\.dev$/)) {
           return origin;
         }
       }
@@ -64,7 +77,7 @@ export function createCorsMiddleware(environment: string) {
       return null;
     },
     allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-Tenant-Code'],
     exposeHeaders: ['X-Request-ID', 'X-Total-Count', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
     maxAge: 86400,
     credentials: true,

@@ -74,7 +74,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </h1>
               <p className="mt-2 text-muted-foreground">
                 Nous sommes desoles, une erreur inattendue s'est produite.
-                Veuillez reessayer ou recharger la page.
+                Veuillez réessayer ou recharger la page.
               </p>
             </div>
             {import.meta.env.DEV && this.state.error && (

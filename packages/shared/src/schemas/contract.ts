@@ -40,15 +40,27 @@ export const coverageConfigSchema = z.object({
 
 export const contractCreateSchema = z.object({
   insurerId: z.string().min(1, 'Assureur requis'),
-  adherentId: z.string().min(1, 'Adhérent requis'),
+  adherentId: z.string().min(1, 'Adhérent requis').optional(),
   contractNumber: z.string().min(1, 'Numéro de contrat requis'),
   planType: planTypeSchema,
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide'),
   carenceDays: z.number().min(0).optional(),
   annualLimit: z.number().positive().optional(),
-  coverage: coverageConfigSchema,
+  coverage: coverageConfigSchema.optional(),
   exclusions: z.array(z.string()).optional(),
+  // Document fields
+  policyNumber: z.string().optional(),
+  documentId: z.string().optional(),
+  documentUrl: z.string().optional(),
+  // Simple coverage fields (used by frontend form)
+  name: z.string().optional(),
+  type: z.enum(['INDIVIDUAL', 'GROUP', 'CORPORATE']).optional(),
+  coveragePharmacy: z.number().min(0).max(100).optional(),
+  coverageConsultation: z.number().min(0).max(100).optional(),
+  coverageLab: z.number().min(0).max(100).optional(),
+  coverageHospitalization: z.number().min(0).max(100).optional(),
+  annualCeiling: z.number().min(0).optional(),
 });
 
 export const contractUpdateSchema = z.object({
@@ -61,6 +73,10 @@ export const contractUpdateSchema = z.object({
   coverage: coverageConfigSchema.partial().optional(),
   exclusions: z.array(z.string()).optional(),
   status: contractStatusSchema.optional(),
+  // Document fields
+  policyNumber: z.string().optional(),
+  documentId: z.string().optional(),
+  documentUrl: z.string().optional(),
 });
 
 export const contractFiltersSchema = z.object({

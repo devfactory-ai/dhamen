@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
@@ -6,16 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
-import { Download, Send, Loader2 } from 'lucide-react';
+import { Send, Loader2 } from 'lucide-react';
 
 interface Bordereau {
   id: string;
@@ -45,10 +39,9 @@ const BORDEREAU_STATUS = {
 };
 
 export function BordereauxPage() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
-  const [selectedBordereau, setSelectedBordereau] = useState<Bordereau | null>(null);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -92,35 +85,6 @@ export function BordereauxPage() {
       toast.error(error.message || 'Erreur lors de la soumission');
     },
   });
-
-  const handleDownloadPdf = async (bordereau: Bordereau) => {
-    try {
-      setDownloadingId(bordereau.id);
-      const response = await apiClient.get<Blob>(`/bordereaux/${bordereau.id}/pdf`, {
-        responseType: 'blob',
-      });
-
-      if (!response.success) {
-        throw new Error(response.error?.message || 'Erreur lors du téléchargement');
-      }
-
-      // Create download link
-      const url = window.URL.createObjectURL(response.data);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `bordereau-${bordereau.bordereauNumber}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-      toast.success('PDF téléchargé avec succès');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Erreur lors du téléchargement');
-    } finally {
-      setDownloadingId(null);
-    }
-  };
 
   const handleSubmitBordereau = (bordereauId: string) => {
     submitMutation.mutate(bordereauId);
@@ -175,8 +139,8 @@ export function BordereauxPage() {
       className: 'text-right',
       render: (bordereau: Bordereau) => (
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setSelectedBordereau(bordereau)}>
-            Détails
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/bordereaux/${bordereau.id}`)}>
+            Details
           </Button>
           {bordereau.status === 'DRAFT' && (
             <Button
@@ -274,92 +238,6 @@ export function BordereauxPage() {
             : undefined
         }
       />
-
-      {/* Bordereau Details Dialog */}
-      <Dialog open={!!selectedBordereau} onOpenChange={() => setSelectedBordereau(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Bordereau {selectedBordereau?.bordereauNumber}</DialogTitle>
-            <DialogDescription>
-              Période: {selectedBordereau && formatDate(selectedBordereau.periodStart)} - {selectedBordereau && formatDate(selectedBordereau.periodEnd)}
-            </DialogDescription>
-          </DialogHeader>
-          {selectedBordereau && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className='text-muted-foreground text-sm'>Assureur</p>
-                  <p className="font-medium">{selectedBordereau.insurerName}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Nombre de PEC</p>
-                  <p className="font-medium">{selectedBordereau.claimCount}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Montant total</p>
-                  <p className="font-medium">{formatAmount(selectedBordereau.totalAmount)}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Montant couvert</p>
-                  <p className="font-medium text-primary">{formatAmount(selectedBordereau.coveredAmount)}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Montant payé</p>
-                  <p className="font-medium text-green-600">{formatAmount(selectedBordereau.paidAmount)}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Statut</p>
-                  <Badge variant={BORDEREAU_STATUS[selectedBordereau.status].variant}>
-                    {BORDEREAU_STATUS[selectedBordereau.status].label}
-                  </Badge>
-                </div>
-              </div>
-              {selectedBordereau.submittedAt && (
-                <div>
-                  <p className='text-muted-foreground text-sm'>Soumis le</p>
-                  <p className="font-medium">{formatDate(selectedBordereau.submittedAt)}</p>
-                </div>
-              )}
-              {selectedBordereau.paidAt && (
-                <div>
-                  <p className='text-muted-foreground text-sm'>Payé le</p>
-                  <p className="font-medium">{formatDate(selectedBordereau.paidAt)}</p>
-                </div>
-              )}
-              <div className="flex justify-end gap-2 pt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => handleDownloadPdf(selectedBordereau)}
-                  disabled={downloadingId === selectedBordereau.id}
-                >
-                  {downloadingId === selectedBordereau.id ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="mr-2 h-4 w-4" />
-                  )}
-                  Télécharger PDF
-                </Button>
-                {selectedBordereau.status === 'DRAFT' && (
-                  <Button
-                    onClick={() => {
-                      handleSubmitBordereau(selectedBordereau.id);
-                      setSelectedBordereau(null);
-                    }}
-                    disabled={submitMutation.isPending}
-                  >
-                    {submitMutation.isPending ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="mr-2 h-4 w-4" />
-                    )}
-                    Soumettre
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

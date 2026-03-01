@@ -9,6 +9,7 @@ import { zValidator } from '@hono/zod-validator';
 import { success } from '../../lib/response';
 import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 
 const stats = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -34,7 +35,7 @@ stats.get(
       .split('T')[0];
 
     // Demandes stats
-    const demandesStats = await c.env.DB.prepare(`
+    const demandesStats = await getDb(c).prepare(`
       SELECT
         COUNT(*) as total,
         COUNT(CASE WHEN statut IN ('soumise', 'en_examen', 'info_requise') THEN 1 END) as en_cours,
@@ -62,7 +63,7 @@ stats.get(
     }>();
 
     // Fraud alerts
-    const fraudStats = await c.env.DB.prepare(`
+    const fraudStats = await getDb(c).prepare(`
       SELECT
         COUNT(CASE WHEN score_fraude >= 70 THEN 1 END) as alertes,
         AVG(score_fraude) as score_moyen
@@ -71,7 +72,7 @@ stats.get(
     `).first<{ alertes: number; score_moyen: number | null }>();
 
     // Adherents stats
-    const adherentsStats = await c.env.DB.prepare(`
+    const adherentsStats = await getDb(c).prepare(`
       SELECT
         COUNT(CASE WHEN a.is_active = 1 THEN 1 END) as actifs,
         COUNT(CASE WHEN DATE(a.created_at) >= ? THEN 1 END) as nouveaux
@@ -81,7 +82,7 @@ stats.get(
     `).bind(startOfMonth).first<{ actifs: number; nouveaux: number }>();
 
     // Praticiens stats
-    const praticiensStats = await c.env.DB.prepare(`
+    const praticiensStats = await getDb(c).prepare(`
       SELECT
         COUNT(*) as actifs,
         COUNT(CASE WHEN conventionnement = 'conventionne' THEN 1 END) as conventionnes
@@ -145,7 +146,7 @@ stats.get(
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - daysBack);
 
-    const { results } = await c.env.DB.prepare(`
+    const { results } = await getDb(c).prepare(`
       SELECT
         strftime('${dateFormat}', created_at) as date,
         COUNT(*) as demandes,
@@ -198,7 +199,7 @@ stats.get(
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - daysBack);
 
-    const { results } = await c.env.DB.prepare(`
+    const { results } = await getDb(c).prepare(`
       SELECT
         type_soin,
         COUNT(*) as count,
@@ -236,7 +237,7 @@ stats.get(
   '/par-statut',
   requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
   async (c) => {
-    const { results } = await c.env.DB.prepare(`
+    const { results } = await getDb(c).prepare(`
       SELECT
         statut,
         COUNT(*) as count
@@ -267,7 +268,7 @@ stats.get(
   async (c) => {
     const { limit } = c.req.valid('query');
 
-    const { results } = await c.env.DB.prepare(`
+    const { results } = await getDb(c).prepare(`
       SELECT
         p.id,
         p.nom,
@@ -319,7 +320,7 @@ stats.get(
           .split('T')[0];
 
         const [demandesStats, fraudStats, adherentsStats, praticiensStats] = await Promise.all([
-          c.env.DB.prepare(`
+          getDb(c).prepare(`
             SELECT
               COUNT(*) as total,
               COUNT(CASE WHEN statut IN ('soumise', 'en_examen', 'info_requise') THEN 1 END) as en_cours,
@@ -335,14 +336,14 @@ stats.get(
             FROM sante_demandes
             WHERE deleted_at IS NULL
           `).bind(today).first(),
-          c.env.DB.prepare(`
+          getDb(c).prepare(`
             SELECT
               COUNT(CASE WHEN score_fraude >= 70 THEN 1 END) as alertes,
               AVG(score_fraude) as score_moyen
             FROM sante_demandes
             WHERE deleted_at IS NULL AND score_fraude IS NOT NULL
           `).first(),
-          c.env.DB.prepare(`
+          getDb(c).prepare(`
             SELECT
               COUNT(CASE WHEN a.is_active = 1 THEN 1 END) as actifs,
               COUNT(CASE WHEN DATE(a.created_at) >= ? THEN 1 END) as nouveaux
@@ -350,7 +351,7 @@ stats.get(
             JOIN sante_adherents sa ON a.id = sa.adherent_id
             WHERE a.deleted_at IS NULL
           `).bind(startOfMonth).first(),
-          c.env.DB.prepare(`
+          getDb(c).prepare(`
             SELECT
               COUNT(*) as actifs,
               COUNT(CASE WHEN conventionnement = 'conventionne' THEN 1 END) as conventionnes
@@ -408,7 +409,7 @@ stats.get(
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - daysBack);
 
-        const { results } = await c.env.DB.prepare(`
+        const { results } = await getDb(c).prepare(`
           SELECT
             strftime('${dateFormat}', created_at) as date,
             COUNT(*) as demandes,
@@ -444,7 +445,7 @@ stats.get(
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - daysBack);
 
-        const { results } = await c.env.DB.prepare(`
+        const { results } = await getDb(c).prepare(`
           SELECT
             type_soin,
             COUNT(*) as count,
@@ -468,7 +469,7 @@ stats.get(
 
       // Par statut
       (async () => {
-        const { results } = await c.env.DB.prepare(`
+        const { results } = await getDb(c).prepare(`
           SELECT statut, COUNT(*) as count
           FROM sante_demandes
           WHERE deleted_at IS NULL
@@ -486,7 +487,7 @@ stats.get(
 
       // Top praticiens
       (async () => {
-        const { results } = await c.env.DB.prepare(`
+        const { results } = await getDb(c).prepare(`
           SELECT
             p.id, p.nom, p.specialite,
             COUNT(d.id) as nb_demandes,

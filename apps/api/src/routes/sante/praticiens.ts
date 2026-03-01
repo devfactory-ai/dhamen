@@ -23,6 +23,7 @@ import { generateId } from '../../lib/ulid';
 import { logAudit } from '../../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 
 const praticiens = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -35,12 +36,12 @@ praticiens.use('*', authMiddleware());
  */
 praticiens.get(
   '/',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('query', santePraticienFiltersSchema.merge(paginationSchema)),
   async (c) => {
     const filters = c.req.valid('query');
 
-    const { data, total } = await listPraticiens(c.env.DB, {
+    const { data, total } = await listPraticiens(getDb(c), {
       ...filters,
       page: filters.page ?? 1,
       limit: filters.limit ?? 20,
@@ -61,9 +62,9 @@ praticiens.get(
  */
 praticiens.get(
   '/specialites',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
-    const { results } = await c.env.DB.prepare(`
+    const { results } = await getDb(c).prepare(`
       SELECT DISTINCT specialite
       FROM sante_praticiens
       WHERE deleted_at IS NULL AND est_actif = 1
@@ -80,9 +81,9 @@ praticiens.get(
  */
 praticiens.get(
   '/villes',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
-    const villes = await listVillesAvecPraticiens(c.env.DB);
+    const villes = await listVillesAvecPraticiens(getDb(c));
     return success(c, villes);
   }
 );
@@ -93,10 +94,10 @@ praticiens.get(
  */
 praticiens.get(
   '/conventionnes/:ville',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const ville = c.req.param('ville');
-    const data = await listConventionnesByVille(c.env.DB, ville);
+    const data = await listConventionnesByVille(getDb(c), ville);
     return success(c, data);
   }
 );
@@ -107,10 +108,10 @@ praticiens.get(
  */
 praticiens.get(
   '/:id',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
-    const praticien = await findPraticienById(c.env.DB, id);
+    const praticien = await findPraticienById(getDb(c), id);
 
     if (!praticien) {
       return notFound(c, 'Praticien non trouvé');
@@ -133,9 +134,9 @@ praticiens.post(
     const user = c.get('user');
 
     const id = generateId();
-    const praticien = await createPraticien(c.env.DB, id, data);
+    const praticien = await createPraticien(getDb(c), id, data);
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_praticiens.create',
       entityType: 'sante_praticiens',
@@ -160,13 +161,13 @@ praticiens.patch(
     const data = c.req.valid('json');
     const user = c.get('user');
 
-    const praticien = await updatePraticien(c.env.DB, id, data);
+    const praticien = await updatePraticien(getDb(c), id, data);
 
     if (!praticien) {
       return notFound(c, 'Praticien non trouvé');
     }
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_praticiens.update',
       entityType: 'sante_praticiens',
@@ -189,13 +190,13 @@ praticiens.delete(
     const id = c.req.param('id');
     const user = c.get('user');
 
-    const deleted = await softDeletePraticien(c.env.DB, id);
+    const deleted = await softDeletePraticien(getDb(c), id);
 
     if (!deleted) {
       return notFound(c, 'Praticien non trouvé');
     }
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'sante_praticiens.delete',
       entityType: 'sante_praticiens',

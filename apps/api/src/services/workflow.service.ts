@@ -741,8 +741,8 @@ export function createWorkflowService(
 export const DEFAULT_VALIDATION_CONFIG: MultiValidationConfig = {
   levels: [
     { role: 'SOIN_AGENT', required: true },
-    { role: 'SOIN_GESTIONNAIRE', minAmount: 500000 }, // 500 TND
-    { role: 'SOIN_RESPONSABLE', minAmount: 2000000 }, // 2000 TND
-    { role: 'SOIN_DIRECTEUR', minAmount: 10000000 }, // 10000 TND
+    { role: 'SOIN_GESTIONNAIRE', minAmount: 500000, required: false }, // 500 TND
+    { role: 'SOIN_RESPONSABLE', minAmount: 2000000, required: false }, // 2000 TND
+    { role: 'SOIN_DIRECTEUR', minAmount: 10000000, required: false }, // 10000 TND
   ],
 };

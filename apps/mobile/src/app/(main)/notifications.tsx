@@ -1,7 +1,7 @@
 /**
- * Notifications Screen for SoinFlow Mobile
+ * Notifications Screen with enhanced design
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,13 +9,17 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
-  ActivityIndicator,
+  Animated,
+  Platform,
 } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { usePushNotifications, setBadgeCount } from '@/hooks/usePushNotifications';
+import { Skeleton } from '@/components/Skeleton';
+import { colors, typography, spacing, borderRadius, shadows } from '@/theme';
 
 interface Notification {
   id: string;
@@ -29,10 +33,155 @@ interface Notification {
   createdAt: string;
 }
 
+function NotificationCard({
+  notification,
+  index,
+  onPress,
+}: {
+  notification: Notification;
+  index: number;
+  onPress: () => void;
+}) {
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const isUnread = notification.status !== 'READ';
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 300,
+        delay: index * 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 300,
+        delay: index * 60,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [index, slideAnim, opacityAnim]);
+
+  const getNotificationIcon = (eventType: string) => {
+    if (eventType.includes('APPROUVEE')) return '✅';
+    if (eventType.includes('REJETEE')) return '❌';
+    if (eventType.includes('PAIEMENT')) return '💰';
+    if (eventType.includes('INFO_REQUISE')) return 'ℹ️';
+    if (eventType.includes('REMBOURSEMENT')) return '💳';
+    return '🔔';
+  };
+
+  const getNotificationColors = (eventType: string) => {
+    if (eventType.includes('APPROUVEE') || eventType.includes('PAIEMENT') || eventType.includes('REMBOURSEMENT'))
+      return { bg: colors.success[50], color: colors.success[600] };
+    if (eventType.includes('REJETEE'))
+      return { bg: colors.error[50], color: colors.error[600] };
+    if (eventType.includes('INFO_REQUISE'))
+      return { bg: colors.warning[50], color: colors.warning[600] };
+    return { bg: colors.primary[50], color: colors.primary[600] };
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return "A l'instant";
+    if (diffMins < 60) return `Il y a ${diffMins} min`;
+    if (diffHours < 24) return `Il y a ${diffHours}h`;
+    if (diffDays < 7) return `Il y a ${diffDays}j`;
+    return date.toLocaleDateString('fr-TN');
+  };
+
+  const notifColors = getNotificationColors(notification.eventType);
+
+  return (
+    <Animated.View
+      style={[
+        styles.notificationCardContainer,
+        {
+          transform: [{ translateX: slideAnim }],
+          opacity: opacityAnim,
+        },
+      ]}
+    >
+      <TouchableOpacity
+        style={[
+          styles.notificationCard,
+          isUnread && styles.unreadCard,
+        ]}
+        onPress={onPress}
+        activeOpacity={0.7}
+      >
+        <View
+          style={[
+            styles.iconContainer,
+            { backgroundColor: notifColors.bg },
+          ]}
+        >
+          <Text style={styles.iconText}>
+            {getNotificationIcon(notification.eventType)}
+          </Text>
+        </View>
+        <View style={styles.notificationContent}>
+          <View style={styles.titleRow}>
+            <Text
+              style={[styles.notificationTitle, isUnread && styles.unreadText]}
+              numberOfLines={1}
+            >
+              {notification.title}
+            </Text>
+            {isUnread && <View style={[styles.unreadDot, { backgroundColor: notifColors.color }]} />}
+          </View>
+          <Text style={styles.notificationBody} numberOfLines={2}>
+            {notification.body}
+          </Text>
+          <Text style={styles.notificationTime}>
+            {formatDate(notification.createdAt)}
+          </Text>
+        </View>
+        <View style={styles.chevronContainer}>
+          <Text style={styles.chevron}>›</Text>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <View style={styles.listContainer}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <View key={i} style={styles.skeletonCard}>
+          <Skeleton width={48} height={48} borderRadius={24} />
+          <View style={styles.skeletonContent}>
+            <Skeleton width="70%" height={16} borderRadius={8} />
+            <Skeleton width="100%" height={14} borderRadius={6} style={{ marginTop: 8 }} />
+            <Skeleton width="30%" height={12} borderRadius={6} style={{ marginTop: 8 }} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function NotificationsScreen() {
   const queryClient = useQueryClient();
   const { isEnabled, requestPermission, registerToken } = usePushNotifications();
   const [showPermissionBanner, setShowPermissionBanner] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
 
   // Fetch notifications
   const { data, isLoading, refetch, isRefetching } = useQuery({
@@ -73,7 +222,9 @@ export default function NotificationsScreen() {
 
   // Update badge count
   const updateBadge = useCallback(async () => {
-    const response = await apiClient.get<{ unreadCount: number }>('/sante/notifications/count');
+    const response = await apiClient.get<{ unreadCount: number }>(
+      '/sante/notifications/count'
+    );
     if (response.success) {
       setBadgeCount(response.data?.unreadCount || 0);
     }
@@ -88,12 +239,10 @@ export default function NotificationsScreen() {
 
   // Handle notification tap
   const handleNotificationPress = (notification: Notification) => {
-    // Mark as read
     if (notification.status !== 'READ') {
       markAsReadMutation.mutate(notification.id);
     }
 
-    // Navigate based on entity
     if (notification.entityType === 'DEMANDE' && notification.entityId) {
       router.push(`/(main)/demandes/${notification.entityId}`);
     }
@@ -108,130 +257,103 @@ export default function NotificationsScreen() {
     }
   };
 
-  // Format date
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'A l\'instant';
-    if (diffMins < 60) return `Il y a ${diffMins} min`;
-    if (diffHours < 24) return `Il y a ${diffHours}h`;
-    if (diffDays < 7) return `Il y a ${diffDays}j`;
-    return date.toLocaleDateString('fr-TN');
-  };
-
-  // Get icon for notification type
-  const getNotificationIcon = (eventType: string) => {
-    if (eventType.includes('APPROUVEE')) return '\u2713';
-    if (eventType.includes('REJETEE')) return '\u2717';
-    if (eventType.includes('PAIEMENT')) return '\u20AC';
-    if (eventType.includes('INFO_REQUISE')) return '\u2139';
-    return '\u2709';
-  };
-
-  // Get color for notification type
-  const getNotificationColor = (eventType: string) => {
-    if (eventType.includes('APPROUVEE') || eventType.includes('PAIEMENT')) return '#28a745';
-    if (eventType.includes('REJETEE')) return '#dc3545';
-    if (eventType.includes('INFO_REQUISE')) return '#ffc107';
-    return '#1e3a5f';
-  };
-
   const notifications = data?.notifications || [];
   const unreadCount = notifications.filter((n) => n.status !== 'READ').length;
 
-  const renderNotification = ({ item }: { item: Notification }) => {
-    const isUnread = item.status !== 'READ';
-    const icon = getNotificationIcon(item.eventType);
-    const color = getNotificationColor(item.eventType);
-
-    return (
-      <TouchableOpacity
-        style={[styles.notificationCard, isUnread && styles.unreadCard]}
-        onPress={() => handleNotificationPress(item)}
-        activeOpacity={0.7}
-      >
-        <View style={[styles.iconContainer, { backgroundColor: color }]}>
-          <Text style={styles.iconText}>{icon}</Text>
-        </View>
-        <View style={styles.notificationContent}>
-          <Text style={[styles.notificationTitle, isUnread && styles.unreadText]}>
-            {item.title}
-          </Text>
-          <Text style={styles.notificationBody} numberOfLines={2}>
-            {item.body}
-          </Text>
-          <Text style={styles.notificationTime}>{formatDate(item.createdAt)}</Text>
-        </View>
-        {isUnread && <View style={styles.unreadDot} />}
-      </TouchableOpacity>
-    );
-  };
-
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Text style={styles.backButtonText}>&larr;</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Notifications</Text>
-        {unreadCount > 0 && (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Header */}
+      <LinearGradient
+        colors={[colors.primary[600], colors.primary[700]]}
+        style={styles.header}
+      >
+        <View style={styles.headerRow}>
           <TouchableOpacity
-            style={styles.markAllButton}
-            onPress={() => markAllAsReadMutation.mutate()}
-            disabled={markAllAsReadMutation.isPending}
+            onPress={() => router.back()}
+            style={styles.backButton}
           >
-            <Text style={styles.markAllText}>Tout lire</Text>
+            <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
-        )}
-      </View>
-
-      {showPermissionBanner && (
-        <View style={styles.permissionBanner}>
-          <Text style={styles.permissionText}>
-            Activez les notifications pour recevoir des alertes sur vos demandes
-          </Text>
-          <TouchableOpacity
-            style={styles.enableButton}
-            onPress={handleEnableNotifications}
-          >
-            <Text style={styles.enableButtonText}>Activer</Text>
-          </TouchableOpacity>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>Notifications</Text>
+            {unreadCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unreadCount}</Text>
+              </View>
+            )}
+          </View>
+          {unreadCount > 0 && (
+            <TouchableOpacity
+              style={styles.markAllButton}
+              onPress={() => markAllAsReadMutation.mutate()}
+              disabled={markAllAsReadMutation.isPending}
+            >
+              <Text style={styles.markAllText}>Tout lire</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      )}
+      </LinearGradient>
 
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1e3a5f" />
-        </View>
-      ) : (
-        <FlatList
-          data={notifications}
-          renderItem={renderNotification}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContainer}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={refetch}
-              colors={['#1e3a5f']}
-            />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyIcon}>🔔</Text>
-              <Text style={styles.emptyText}>Aucune notification</Text>
-              <Text style={styles.emptySubtext}>
-                Vous recevrez des notifications lorsque vos demandes seront traitees
+      <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
+        {/* Permission Banner */}
+        {showPermissionBanner && (
+          <View style={styles.permissionBanner}>
+            <View style={styles.permissionIconContainer}>
+              <Text style={styles.permissionIcon}>🔔</Text>
+            </View>
+            <View style={styles.permissionContent}>
+              <Text style={styles.permissionTitle}>Restez informé</Text>
+              <Text style={styles.permissionText}>
+                Activez les notifications pour suivre vos demandes en temps réel
               </Text>
             </View>
-          }
-        />
-      )}
+            <TouchableOpacity
+              style={styles.enableButton}
+              onPress={handleEnableNotifications}
+            >
+              <Text style={styles.enableButtonText}>Activer</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {isLoading ? (
+          <LoadingSkeleton />
+        ) : (
+          <FlatList
+            data={notifications}
+            renderItem={({ item, index }) => (
+              <NotificationCard
+                notification={item}
+                index={index}
+                onPress={() => handleNotificationPress(item)}
+              />
+            )}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContainer}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefetching}
+                onRefresh={refetch}
+                colors={[colors.primary[500]]}
+                tintColor={colors.primary[500]}
+              />
+            }
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <View style={styles.emptyIconContainer}>
+                  <Text style={styles.emptyIcon}>🔔</Text>
+                </View>
+                <Text style={styles.emptyText}>Aucune notification</Text>
+                <Text style={styles.emptySubtext}>
+                  Vous recevrez des notifications lorsque vos demandes seront
+                  traitées
+                </Text>
+              </View>
+            }
+          />
+        )}
+      </Animated.View>
     </SafeAreaView>
   );
 }
@@ -239,149 +361,234 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: colors.background.primary,
   },
   header: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
+  },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#1e3a5f',
   },
   backButton: {
-    padding: 8,
-    marginRight: 8,
-  },
-  backButtonText: {
-    color: '#fff',
-    fontSize: 24,
-  },
-  headerTitle: {
-    flex: 1,
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  markAllButton: {
-    padding: 8,
-  },
-  markAllText: {
-    color: '#a0c4e8',
-    fontSize: 14,
-  },
-  permissionBanner: {
-    backgroundColor: '#fff3cd',
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ffc107',
-  },
-  permissionText: {
-    flex: 1,
-    color: '#856404',
-    fontSize: 14,
-  },
-  enableButton: {
-    backgroundColor: '#1e3a5f',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 4,
-    marginLeft: 12,
-  },
-  enableButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  listContainer: {
-    padding: 16,
-    flexGrow: 1,
-  },
-  notificationCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  unreadCard: {
-    backgroundColor: '#f0f7ff',
-    borderLeftWidth: 3,
-    borderLeftColor: '#1e3a5f',
-  },
-  iconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+  },
+  backIcon: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: typography.fontWeight.bold,
+  },
+  headerCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: spacing.md,
+  },
+  headerTitle: {
+    fontSize: typography.fontSize['2xl'],
+    fontWeight: typography.fontWeight.bold,
+    color: '#fff',
+  },
+  badge: {
+    backgroundColor: colors.error[500],
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: borderRadius.full,
+    marginLeft: spacing.sm,
+    minWidth: 24,
+    alignItems: 'center',
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: typography.fontSize.xs,
+    fontWeight: typography.fontWeight.bold,
+  },
+  markAllButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  markAllText: {
+    color: colors.primary[100],
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+  },
+  content: {
+    flex: 1,
+    marginTop: -spacing.lg,
+    borderTopLeftRadius: borderRadius['2xl'],
+    borderTopRightRadius: borderRadius['2xl'],
+    backgroundColor: colors.background.primary,
+    overflow: 'hidden',
+  },
+  permissionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.warning[50],
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.lg,
+    padding: spacing.md,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.warning[200],
+  },
+  permissionIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.warning[100],
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
+  },
+  permissionIcon: {
+    fontSize: 20,
+  },
+  permissionContent: {
+    flex: 1,
+  },
+  permissionTitle: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.warning[800],
+    marginBottom: 2,
+  },
+  permissionText: {
+    fontSize: typography.fontSize.xs,
+    color: colors.warning[700],
+  },
+  enableButton: {
+    backgroundColor: colors.primary[500],
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.lg,
+    marginLeft: spacing.sm,
+  },
+  enableButtonText: {
+    color: '#fff',
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+  },
+  listContainer: {
+    padding: spacing.lg,
+    flexGrow: 1,
+  },
+  notificationCardContainer: {
+    marginBottom: spacing.md,
+  },
+  notificationCard: {
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.xl,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    ...shadows.sm,
+  },
+  unreadCard: {
+    backgroundColor: colors.primary[50],
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary[500],
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
   },
   iconText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 20,
   },
   notificationContent: {
     flex: 1,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
   notificationTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: 4,
+    flex: 1,
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.primary,
   },
   unreadText: {
-    fontWeight: '700',
-  },
-  notificationBody: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 8,
-    lineHeight: 20,
-  },
-  notificationTime: {
-    fontSize: 12,
-    color: '#999',
+    fontWeight: typography.fontWeight.bold,
   },
   unreadDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#1e3a5f',
-    marginLeft: 8,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginLeft: spacing.sm,
+  },
+  notificationBody: {
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
+    lineHeight: 20,
+    marginBottom: spacing.xs,
+  },
+  notificationTime: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.tertiary,
+  },
+  chevronContainer: {
+    justifyContent: 'center',
+    paddingLeft: spacing.sm,
+  },
+  chevron: {
+    fontSize: 24,
+    color: colors.text.tertiary,
+  },
+  skeletonCard: {
+    flexDirection: 'row',
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.xl,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    ...shadows.sm,
+  },
+  skeletonContent: {
+    flex: 1,
+    marginLeft: spacing.md,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 48,
+    paddingVertical: spacing['3xl'],
+    paddingHorizontal: spacing.xl,
+  },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.neutral[100],
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
   },
   emptyIcon: {
-    fontSize: 48,
-    marginBottom: 16,
+    fontSize: 36,
+    opacity: 0.5,
   },
   emptyText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.primary,
+    marginBottom: spacing.sm,
   },
   emptySubtext: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
     textAlign: 'center',
-    paddingHorizontal: 32,
+    lineHeight: 22,
   },
 });

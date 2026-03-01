@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { ulid } from 'ulid';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
 import { authMiddleware, requireRole } from '../middleware/auth';
 
 const bordereaux = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -64,10 +65,10 @@ bordereaux.get('/', zValidator('query', listQuerySchema), async (c) => {
 
   try {
     [countResult, bordereaux] = await Promise.all([
-      c.env.DB.prepare(`SELECT COUNT(*) as total FROM bordereaux b ${whereClause}`)
+      getDb(c).prepare(`SELECT COUNT(*) as total FROM bordereaux b ${whereClause}`)
         .bind(...params)
         .first<{ total: number }>(),
-      c.env.DB.prepare(`
+      getDb(c).prepare(`
         SELECT b.*,
                i.name as insurer_name,
                p.name as provider_name
@@ -124,7 +125,7 @@ bordereaux.get('/', zValidator('query', listQuerySchema), async (c) => {
 bordereaux.get('/:id', async (c) => {
   const bordereauId = c.req.param('id');
 
-  const bordereau = await c.env.DB.prepare(`
+  const bordereau = await getDb(c).prepare(`
     SELECT b.*,
            i.name as insurer_name,
            p.name as provider_name
@@ -144,7 +145,7 @@ bordereaux.get('/:id', async (c) => {
   }
 
   // Get claims included in this bordereau
-  const claims = await c.env.DB.prepare(`
+  const claims = await getDb(c).prepare(`
     SELECT c.id, c.claim_number, c.total_amount, c.covered_amount, c.status,
            a.first_name || ' ' || a.last_name as adherent_name
     FROM claims c
@@ -196,7 +197,7 @@ bordereaux.post('/:id/submit', async (c) => {
   const bordereauId = c.req.param('id');
 
   // Get the bordereau
-  const bordereau = await c.env.DB.prepare(
+  const bordereau = await getDb(c).prepare(
     'SELECT * FROM bordereaux WHERE id = ?'
   )
     .bind(bordereauId)
@@ -225,7 +226,7 @@ bordereaux.post('/:id/submit', async (c) => {
   }
 
   // Update status
-  await c.env.DB.prepare(`
+  await getDb(c).prepare(`
     UPDATE bordereaux
     SET status = 'SUBMITTED', submitted_at = datetime('now'), updated_at = datetime('now')
     WHERE id = ?
@@ -234,7 +235,7 @@ bordereaux.post('/:id/submit', async (c) => {
     .run();
 
   // Log audit
-  await c.env.DB.prepare(`
+  await getDb(c).prepare(`
     INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
   `)
@@ -263,7 +264,7 @@ bordereaux.post(
     const user = c.get('user');
     const bordereauId = c.req.param('id');
 
-    const bordereau = await c.env.DB.prepare(
+    const bordereau = await getDb(c).prepare(
       'SELECT * FROM bordereaux WHERE id = ?'
     )
       .bind(bordereauId)
@@ -283,7 +284,7 @@ bordereaux.post(
       );
     }
 
-    await c.env.DB.prepare(`
+    await getDb(c).prepare(`
       UPDATE bordereaux
       SET status = 'VALIDATED', validated_at = datetime('now'), updated_at = datetime('now')
       WHERE id = ?
@@ -291,7 +292,7 @@ bordereaux.post(
       .bind(bordereauId)
       .run();
 
-    await c.env.DB.prepare(`
+    await getDb(c).prepare(`
       INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
     `)
@@ -326,7 +327,7 @@ bordereaux.post(
     const bordereauId = c.req.param('id');
     const { paymentReference, paymentDate } = c.req.valid('json');
 
-    const bordereau = await c.env.DB.prepare(
+    const bordereau = await getDb(c).prepare(
       'SELECT * FROM bordereaux WHERE id = ?'
     )
       .bind(bordereauId)
@@ -348,7 +349,7 @@ bordereaux.post(
 
     const paidAt = paymentDate || new Date().toISOString();
 
-    await c.env.DB.prepare(`
+    await getDb(c).prepare(`
       UPDATE bordereaux
       SET status = 'PAID',
           paid_at = ?,
@@ -360,7 +361,7 @@ bordereaux.post(
       .bind(paidAt, paymentReference, bordereauId)
       .run();
 
-    await c.env.DB.prepare(`
+    await getDb(c).prepare(`
       INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
     `)
@@ -387,7 +388,7 @@ bordereaux.post(
 bordereaux.get('/:id/pdf', async (c) => {
   const bordereauId = c.req.param('id');
 
-  const bordereau = await c.env.DB.prepare(`
+  const bordereau = await getDb(c).prepare(`
     SELECT b.*,
            i.name as insurer_name, i.address as insurer_address,
            p.name as provider_name, p.address as provider_address
@@ -407,7 +408,7 @@ bordereaux.get('/:id/pdf', async (c) => {
   }
 
   // Get claims
-  const claims = await c.env.DB.prepare(`
+  const claims = await getDb(c).prepare(`
     SELECT c.claim_number, c.total_amount, c.covered_amount, c.care_date,
            a.first_name || ' ' || a.last_name as adherent_name,
            a.national_id

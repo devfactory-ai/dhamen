@@ -240,8 +240,8 @@ describe('OCR Rules', () => {
 
       const items = parseLineItems(text);
       expect(items.length).toBe(2);
-      expect(items[0].montantTotal).toBe(10000);
-      expect(items[1].montantTotal).toBe(5000);
+      expect(items[0]?.montantTotal).toBe(10000);
+      expect(items[1]?.montantTotal).toBe(5000);
     });
 
     it('extracts medical act items', () => {

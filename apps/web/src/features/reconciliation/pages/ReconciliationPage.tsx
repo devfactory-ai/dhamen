@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,13 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/ui/data-table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
 import { Download, CheckCircle, Loader2, Eye } from 'lucide-react';
@@ -38,7 +32,7 @@ interface ReconciliationItem {
   providerName: string;
   period: string;
   claimCount: number;
-  declaredAmount: number;
+  déclarédAmount: number;
   verifiedAmount: number;
   difference: number;
   status: 'MATCHED' | 'UNMATCHED' | 'DISPUTED' | 'RESOLVED';
@@ -53,9 +47,9 @@ const RECONCILIATION_STATUS = {
 };
 
 export function ReconciliationPage() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [periodFilter, setPeriodFilter] = useState<string>('2024-01');
-  const [selectedItem, setSelectedItem] = useState<ReconciliationItem | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
   const queryClient = useQueryClient();
@@ -154,10 +148,10 @@ export function ReconciliationPage() {
       render: (item: ReconciliationItem) => item.claimCount,
     },
     {
-      key: 'declared',
+      key: 'déclaréd',
       header: 'Déclaré',
       render: (item: ReconciliationItem) => (
-        <span className="text-right font-medium">{formatAmount(item.declaredAmount)}</span>
+        <span className="text-right font-medium">{formatAmount(item.déclarédAmount)}</span>
       ),
     },
     {
@@ -194,7 +188,7 @@ export function ReconciliationPage() {
       className: 'text-right',
       render: (item: ReconciliationItem) => (
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setSelectedItem(item)}>
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/reconciliation/${item.id}`)}>
             <Eye className="mr-1 h-3 w-3" />
             Détails
           </Button>
@@ -317,84 +311,6 @@ export function ReconciliationPage() {
             : undefined
         }
       />
-
-      {/* Details Dialog */}
-      <Dialog open={!!selectedItem} onOpenChange={() => setSelectedItem(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Détails de la réconciliation</DialogTitle>
-            <DialogDescription>
-              Bordereau {selectedItem?.bordereauNumber}
-            </DialogDescription>
-          </DialogHeader>
-          {selectedItem && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className='text-muted-foreground text-sm'>Prestataire</p>
-                  <p className="font-medium">{selectedItem.providerName}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Période</p>
-                  <p className="font-medium">{selectedItem.period}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Nombre de PEC</p>
-                  <p className="font-medium">{selectedItem.claimCount}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Statut</p>
-                  <Badge variant={RECONCILIATION_STATUS[selectedItem.status].variant}>
-                    {RECONCILIATION_STATUS[selectedItem.status].label}
-                  </Badge>
-                </div>
-              </div>
-
-              <div className="space-y-2 pt-4 border-t">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Montant déclaré</span>
-                  <span className="font-medium">{formatAmount(selectedItem.declaredAmount)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Montant vérifié</span>
-                  <span className="font-medium">{formatAmount(selectedItem.verifiedAmount)}</span>
-                </div>
-                <div className="flex justify-between pt-2 border-t">
-                  <span className="font-medium">Écart</span>
-                  <span className={`font-bold ${
-                    selectedItem.difference === 0 ? '' :
-                    selectedItem.difference > 0 ? 'text-green-600' : 'text-destructive'
-                  }`}>
-                    {selectedItem.difference > 0 ? '+' : ''}{formatAmount(selectedItem.difference)}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t">
-                <Button variant="outline" onClick={() => setSelectedItem(null)}>
-                  Fermer
-                </Button>
-                {selectedItem.status === 'UNMATCHED' && (
-                  <Button
-                    onClick={() => {
-                      handleReconcile(selectedItem.id);
-                      setSelectedItem(null);
-                    }}
-                    disabled={reconcileMutation.isPending}
-                  >
-                    {reconcileMutation.isPending ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <CheckCircle className="mr-2 h-4 w-4" />
-                    )}
-                    Rapprocher
-                  </Button>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

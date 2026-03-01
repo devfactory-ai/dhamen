@@ -21,6 +21,7 @@ import { realtime } from './realtime';
 import { fraud } from './fraud';
 import { reports } from './reports';
 import { carte } from './carte';
+import { contreVisites } from './contre-visites';
 
 const sante = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -42,5 +43,6 @@ sante.route('/realtime', realtime);
 sante.route('/fraud', fraud);
 sante.route('/reports', reports);
 sante.route('/carte', carte);
+sante.route('/contre-visites', contreVisites);
 
 export { sante };

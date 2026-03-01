@@ -54,8 +54,8 @@ import { useToast } from '@/stores/toast';
 const OCR_STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   pending: { label: 'En attente', color: 'bg-gray-100 text-gray-800', icon: <Clock className="h-3 w-3" /> },
   processing: { label: 'Traitement...', color: 'bg-blue-100 text-blue-800', icon: <Loader2 className="h-3 w-3 animate-spin" /> },
-  completed: { label: 'Termine', color: 'bg-green-100 text-green-800', icon: <CheckCircle className="h-3 w-3" /> },
-  failed: { label: 'Echec', color: 'bg-red-100 text-red-800', icon: <XCircle className="h-3 w-3" /> },
+  completed: { label: 'Terminé', color: 'bg-green-100 text-green-800', icon: <CheckCircle className="h-3 w-3" /> },
+  failed: { label: 'Échec', color: 'bg-red-100 text-red-800', icon: <XCircle className="h-3 w-3" /> },
 };
 
 export function SanteDocumentsPage() {
@@ -82,7 +82,7 @@ export function SanteDocumentsPage() {
 
   const handleUpload = async (file: File, typeDocument: string) => {
     if (!selectedDemandeId) {
-      toast({ title: 'Erreur', description: 'Veuillez selectionner une demande', variant: 'destructive' });
+      toast({ title: 'Erreur', description: 'Veuillez sélectionner une demande', variant: 'destructive' });
       return;
     }
 
@@ -213,7 +213,7 @@ export function SanteDocumentsPage() {
       ) : filteredDocuments.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            Aucun document trouve
+            Aucun document trouvé
           </CardContent>
         </Card>
       ) : (
@@ -430,7 +430,7 @@ function UploadDialog({
             <Label>Type de document</Label>
             <Select value={typeDocument} onValueChange={setTypeDocument}>
               <SelectTrigger>
-                <SelectValue placeholder="Selectionnez le type" />
+                <SelectValue placeholder="Sélectionnez le type" />
               </SelectTrigger>
               <SelectContent>
                 {Object.entries(DOCUMENT_TYPE_LABELS).map(([value, label]) => (
@@ -553,7 +553,7 @@ function OcrResultDialog({
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Resultats OCR</DialogTitle>
+          <DialogTitle>Résultats OCR</DialogTitle>
           <DialogDescription>
             Confiance: {ocrResult?.confidence}%
           </DialogDescription>
@@ -568,7 +568,7 @@ function OcrResultDialog({
 
           {ocrResult?.lignes && ocrResult.lignes.length > 0 && (
             <div>
-              <h4 className="font-medium mb-2">Lignes detectees:</h4>
+              <h4 className="font-medium mb-2">Lignes détectées:</h4>
               <div className="border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-muted">
@@ -585,7 +585,7 @@ function OcrResultDialog({
                       <tr key={i} className="border-t">
                         <td className="px-3 py-2 font-mono text-xs">{ligne.code}</td>
                         <td className="px-3 py-2">{ligne.designation}</td>
-                        <td className="px-3 py-2 text-right">{ligne.quantite}</td>
+                        <td className="px-3 py-2 text-right">{ligne.quantité}</td>
                         <td className="px-3 py-2 text-right font-mono">{(ligne.prixUnitaire / 1000).toFixed(3)}</td>
                         <td className="px-3 py-2 text-right font-mono">{(ligne.montant / 1000).toFixed(3)}</td>
                       </tr>

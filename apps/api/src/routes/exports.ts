@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
 import { authMiddleware, requireRole } from '../middleware/auth';
 import { PDFService } from '../services/pdf.service';
 import { logAudit } from '../middleware/audit-trail';
@@ -54,7 +55,7 @@ exports.post(
     const pdfService = new PDFService(c.env);
     const result = await pdfService.generatePDF(request);
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'export.pdf.generate',
       entityType: 'exports',
@@ -81,7 +82,7 @@ exports.post(
     const user = c.get('user');
 
     // Fetch bordereau data
-    const bordereau = await c.env.DB.prepare(`
+    const bordereau = await getDb(c).prepare(`
       SELECT b.*, p.nom as praticien_nom, p.adresse as praticien_adresse
       FROM sante_bordereaux b
       LEFT JOIN providers p ON b.praticien_id = p.id
@@ -103,7 +104,7 @@ exports.post(
     }
 
     // Fetch bordereau lines
-    const { results: lignes } = await c.env.DB.prepare(`
+    const { results: lignes } = await getDb(c).prepare(`
       SELECT d.numero_demande, a.first_name, a.last_name, d.montant_rembourse, d.date_soin
       FROM sante_demandes d
       LEFT JOIN adherents a ON d.adherent_id = a.id
@@ -141,7 +142,7 @@ exports.post(
       },
     });
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'export.bordereau.pdf',
       entityType: 'sante_bordereaux',
@@ -162,7 +163,7 @@ exports.post('/attestation/:adherentId', async (c) => {
   const user = c.get('user');
 
   // Fetch adherent data
-  const adherent = await c.env.DB.prepare(`
+  const adherent = await getDb(c).prepare(`
     SELECT a.*, c.contract_number, c.name as contrat_nom, c.start_date, c.end_date,
            i.name as assureur_nom
     FROM adherents a
@@ -216,7 +217,7 @@ exports.post('/attestation/:adherentId', async (c) => {
     },
   });
 
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user.sub,
     action: 'export.attestation.generate',
     entityType: 'adherents',
@@ -238,7 +239,7 @@ exports.post('/releve/:adherentId', async (c) => {
   const dateTo = c.req.query('dateTo') || new Date().toISOString().split('T')[0];
 
   // Fetch adherent
-  const adherent = await c.env.DB.prepare('SELECT * FROM adherents WHERE id = ?')
+  const adherent = await getDb(c).prepare('SELECT * FROM adherents WHERE id = ?')
     .bind(adherentId)
     .first<{ id: string; first_name: string; last_name: string; matricule: string }>();
 
@@ -247,7 +248,7 @@ exports.post('/releve/:adherentId', async (c) => {
   }
 
   // Fetch demandes
-  const { results: demandes } = await c.env.DB.prepare(`
+  const { results: demandes } = await getDb(c).prepare(`
     SELECT numero_demande, type_soin, date_soin, montant_rembourse
     FROM sante_demandes
     WHERE adherent_id = ? AND date_soin BETWEEN ? AND ? AND statut = 'payee'
@@ -277,7 +278,7 @@ exports.post('/releve/:adherentId', async (c) => {
     },
   });
 
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user.sub,
     action: 'export.releve.generate',
     entityType: 'adherents',

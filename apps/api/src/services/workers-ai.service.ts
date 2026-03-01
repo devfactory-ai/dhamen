@@ -78,9 +78,9 @@ Reponds UNIQUEMENT au format JSON suivant:
       const parsed = this.parseJSONResponse(response);
 
       return {
-        score: Math.max(0, Math.min(100, parsed.score ?? 0)),
-        confidence: Math.max(0, Math.min(100, parsed.confidence ?? 50)),
-        reasoning: parsed.reasoning ?? 'Analyse non disponible',
+        score: Math.max(0, Math.min(100, Number(parsed.score) || 0)),
+        confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 50)),
+        reasoning: String(parsed.reasoning ?? 'Analyse non disponible'),
         flags: Array.isArray(parsed.flags) ? parsed.flags : [],
         processingTimeMs: Date.now() - startTime,
       };
@@ -124,8 +124,8 @@ Reponds UNIQUEMENT au format JSON:
       const parsed = this.parseJSONResponse(response);
 
       return {
-        typeSoin: parsed.typeSoin ?? 'autre',
-        confidence: parsed.confidence ?? 50,
+        typeSoin: String(parsed.typeSoin ?? 'autre'),
+        confidence: Number(parsed.confidence) || 50,
       };
     } catch {
       return { typeSoin: 'autre', confidence: 0 };
@@ -212,9 +212,9 @@ Reponds UNIQUEMENT au format JSON:
 
       return {
         isAnomaly: parsed.isAnomaly === true,
-        anomalyScore: parsed.anomalyScore ?? 0,
-        anomalyType: parsed.anomalyType ?? null,
-        explanation: parsed.explanation ?? '',
+        anomalyScore: Number(parsed.anomalyScore) || 0,
+        anomalyType: parsed.anomalyType ? String(parsed.anomalyType) : null,
+        explanation: String(parsed.explanation ?? ''),
       };
     } catch {
       return {
@@ -231,13 +231,12 @@ Reponds UNIQUEMENT au format JSON:
    */
   async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
     try {
-      // @ts-expect-error - Workers AI types not fully defined
       const response = await this.c.env.AI.run(MODELS.embeddings, {
         text: texts,
       });
 
-      if (response?.data) {
-        return response.data.map((vector: number[]) => ({
+      if (response && 'data' in response && Array.isArray(response.data)) {
+        return (response.data as number[][]).map((vector: number[]) => ({
           vector,
           dimensions: vector.length,
         }));
@@ -280,14 +279,17 @@ Reponds UNIQUEMENT au format JSON:
   ): Promise<string> {
     const { maxTokens = 500, temperature = 0.3 } = options;
 
-    // @ts-expect-error - Workers AI types not fully defined
+    // @ts-expect-error - Workers AI model name is valid but not in types
     const response = await this.c.env.AI.run(MODELS.textGeneration, {
       prompt,
       max_tokens: maxTokens,
       temperature,
     });
 
-    return response?.response ?? '';
+    if (response && typeof response === 'object' && 'response' in response) {
+      return String((response as { response: string }).response);
+    }
+    return '';
   }
 
   /**

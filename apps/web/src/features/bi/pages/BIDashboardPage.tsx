@@ -49,8 +49,8 @@ interface BIStats {
     delaiChange: number;
     scoreFraudeMoyen: number;
     fraudeChange: number;
-    adherentsActifs: number;
-    adherentsChange: number;
+    adhérentsActifs: number;
+    adhérentsChange: number;
   };
   tendanceMensuelle: Array<{
     mois: string;
@@ -92,11 +92,11 @@ interface BIStats {
 }
 
 export function BIDashboardPage() {
-  const [periode, setPeriode] = useState('30j');
+  const [période, setPériode] = useState('30j');
   const [assureur, setAssureur] = useState('all');
 
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['bi-stats', periode, assureur],
+    queryKey: ['bi-stats', période, assureur],
     queryFn: async () => {
       // Mock data for now
       return getMockBIStats();
@@ -140,7 +140,7 @@ export function BIDashboardPage() {
 
       {/* Filters */}
       <div className="flex gap-4">
-        <Select value={periode} onValueChange={setPeriode}>
+        <Select value={période} onValueChange={setPériode}>
           <SelectTrigger className="w-[150px]">
             <SelectValue placeholder="Période" />
           </SelectTrigger>
@@ -216,8 +216,8 @@ export function BIDashboardPage() {
         <Card>
           <CardContent className="pt-4">
             <p className="text-muted-foreground text-sm">Adhérents actifs</p>
-            <p className="font-bold text-2xl">{stats.kpis.adherentsActifs}</p>
-            <p className="text-xs">{renderChange(stats.kpis.adherentsChange)} vs période préc.</p>
+            <p className="font-bold text-2xl">{stats.kpis.adhérentsActifs}</p>
+            <p className="text-xs">{renderChange(stats.kpis.adhérentsChange)} vs période préc.</p>
           </CardContent>
         </Card>
       </div>
@@ -474,8 +474,8 @@ function getMockBIStats(): BIStats {
       delaiChange: 15,
       scoreFraudeMoyen: 12,
       fraudeChange: -5.2,
-      adherentsActifs: 15420,
-      adherentsChange: 4.8,
+      adhérentsActifs: 15420,
+      adhérentsChange: 4.8,
     },
     tendanceMensuelle: [
       { mois: 'Sep', demandes: 450, montantRembourse: 65000000, montantDemande: 82000000 },

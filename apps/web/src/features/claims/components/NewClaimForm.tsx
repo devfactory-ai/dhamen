@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useCreateClaim } from '../hooks/useClaims';
-import { useSearchAdherent } from '@/features/adherents/hooks/useAdherents';
+import { Adherent, useSearchAdherent } from '@/features/adherents/hooks/useAdherents';
 import { useToast } from '@/stores/toast';
 
 interface NewClaimFormProps {
@@ -57,12 +57,12 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
   const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
 
   const onSubmit = async (formData: { serviceDate?: string; diagnosis: string; notes: string }) => {
-    if (!adherent || items.length === 0) { return; }
+    if (!adhérent || items.length === 0) { return; }
 
     const today = new Date().toISOString().split('T')[0] ?? '';
     try {
       await createClaim.mutateAsync({
-        adherentId: adherent.id,
+        adhérentId: adherent.id,
         type: 'PHARMACY', // Default, could be dynamic
         amount: totalAmount * 1000, // Convert to millimes
         serviceDate: formData.serviceDate ?? today,
@@ -70,16 +70,16 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
         notes: formData.notes || undefined,
         items: items.map(({ id: _id, ...rest }) => rest),
       });
-      toast({ title: 'PEC creee avec succes', variant: 'success' });
+      toast({ title: 'PEC créée avec succès', variant: 'success' });
       onSuccess();
     } catch {
-      toast({ title: 'Erreur lors de la creation', description: 'Veuillez reessayer', variant: 'destructive' });
+      toast({ title: 'Erreur lors de la création', description: 'Veuillez réessayer', variant: 'destructive' });
     }
   };
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-      {/* Adherent Search */}
+      {/* Adhérent Search */}
       <div className="space-y-2">
         <Label>Rechercher l'adhérent par CIN</Label>
         <div className="flex gap-2">

@@ -32,6 +32,28 @@ export const adherentFiltersSchema = z.object({
   search: z.string().optional(),
 });
 
+/**
+ * Schema for CSV import row validation
+ */
+export const adherentCsvRowSchema = z.object({
+  nationalId: z.string().min(8, 'Numéro national invalide'),
+  firstName: z.string().min(1, 'Prénom requis'),
+  lastName: z.string().min(1, 'Nom requis'),
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide (YYYY-MM-DD)'),
+  gender: genderSchema.optional(),
+  phone: z.string().optional(),
+  email: z.string().email().optional().or(z.literal('')),
+  address: z.string().optional(),
+  city: z.string().optional(),
+});
+
+export const adherentImportSchema = z.object({
+  adherents: z.array(adherentCsvRowSchema).min(1, 'Au moins un adhérent requis').max(1000, 'Maximum 1000 adhérents par import'),
+  skipDuplicates: z.boolean().optional().default(true),
+});
+
 export type AdherentCreateInput = z.infer<typeof adherentCreateSchema>;
 export type AdherentUpdateInput = z.infer<typeof adherentUpdateSchema>;
 export type AdherentFiltersInput = z.infer<typeof adherentFiltersSchema>;
+export type AdherentCsvRow = z.infer<typeof adherentCsvRowSchema>;
+export type AdherentImportInput = z.infer<typeof adherentImportSchema>;

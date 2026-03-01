@@ -1,19 +1,12 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { useClaims, type Claim } from '../hooks/useClaims';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { NewClaimForm } from '../components/NewClaimForm';
 
 const CLAIM_TYPES = {
   PHARMACY: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
@@ -31,11 +24,10 @@ const CLAIM_STATUS = {
 
 export function ClaimsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [typeFilter, setTypeFilter] = useState<string | undefined>();
-  const [isNewClaimOpen, setIsNewClaimOpen] = useState(false);
-  const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
 
   const isProvider = ['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN'].includes(user?.role || '');
 
@@ -71,12 +63,12 @@ export function ClaimsPage() {
       ),
     },
     {
-      key: 'adherent',
+      key: 'adhérent',
       header: 'Adhérent',
       render: (claim: Claim) => (
         <div>
-          <p className="text-sm">{claim.adherentName || '-'}</p>
-          <p className='text-muted-foreground text-xs'>{claim.adherentNationalId || '-'}</p>
+          <p className="text-sm">{claim.adhérentName || '-'}</p>
+          <p className='text-muted-foreground text-xs'>{claim.adhérentNationalId || '-'}</p>
         </div>
       ),
     },
@@ -117,7 +109,7 @@ export function ClaimsPage() {
       header: '',
       className: 'text-right',
       render: (claim: Claim) => (
-        <Button variant="ghost" size="sm" onClick={() => setSelectedClaim(claim)}>
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/claims/${claim.id}`)}>
           Détails
         </Button>
       ),
@@ -133,7 +125,7 @@ export function ClaimsPage() {
           isProvider
             ? {
                 label: 'Nouvelle PEC',
-                onClick: () => setIsNewClaimOpen(true),
+                onClick: () => navigate('/claims/new'),
               }
             : undefined
         }
@@ -181,88 +173,6 @@ export function ClaimsPage() {
             : undefined
         }
       />
-
-      {/* New Claim Dialog */}
-      <Dialog open={isNewClaimOpen} onOpenChange={setIsNewClaimOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Nouvelle Prise en Charge</DialogTitle>
-            <DialogDescription>
-              Créer une nouvelle demande de prise en charge
-            </DialogDescription>
-          </DialogHeader>
-          <NewClaimForm onSuccess={() => setIsNewClaimOpen(false)} onCancel={() => setIsNewClaimOpen(false)} />
-        </DialogContent>
-      </Dialog>
-
-      {/* Claim Details Dialog */}
-      <Dialog open={!!selectedClaim} onOpenChange={() => setSelectedClaim(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Détails PEC {selectedClaim?.claimNumber}</DialogTitle>
-          </DialogHeader>
-          {selectedClaim && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className='text-muted-foreground text-sm'>Adhérent</p>
-                  <p className="font-medium">{selectedClaim.adherentName}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>CIN</p>
-                  <p className="font-medium">{selectedClaim.adherentNationalId}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Type</p>
-                  <p className="font-medium">{CLAIM_TYPES[selectedClaim.type].label}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Date</p>
-                  <p className="font-medium">{formatDate(selectedClaim.serviceDate)}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Montant total</p>
-                  <p className="font-medium">{formatAmount(selectedClaim.amount)}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Montant couvert</p>
-                  <p className="font-medium text-green-600">{formatAmount(selectedClaim.coveredAmount)}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Ticket modérateur</p>
-                  <p className="font-medium">{formatAmount(selectedClaim.copayAmount)}</p>
-                </div>
-                <div>
-                  <p className='text-muted-foreground text-sm'>Statut</p>
-                  <Badge variant={CLAIM_STATUS[selectedClaim.status].variant}>
-                    {CLAIM_STATUS[selectedClaim.status].label}
-                  </Badge>
-                </div>
-              </div>
-              {selectedClaim.diagnosis && (
-                <div>
-                  <p className='text-muted-foreground text-sm'>Diagnostic</p>
-                  <p>{selectedClaim.diagnosis}</p>
-                </div>
-              )}
-              {selectedClaim.rejectionReason && (
-                <div>
-                  <p className='text-muted-foreground text-sm'>Motif de rejet</p>
-                  <p className="text-destructive">{selectedClaim.rejectionReason}</p>
-                </div>
-              )}
-              {selectedClaim.fraudScore !== null && (
-                <div>
-                  <p className='text-muted-foreground text-sm'>Score anti-fraude</p>
-                  <p className={selectedClaim.fraudScore > 70 ? 'text-destructive' : selectedClaim.fraudScore > 40 ? 'text-yellow-600' : 'text-green-600'}>
-                    {selectedClaim.fraudScore}/100
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

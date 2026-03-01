@@ -9,6 +9,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { ulid } from 'ulid';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
 import { authMiddleware, requireRole } from '../middleware/auth';
 
 const reconciliation = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -83,7 +84,7 @@ reconciliation.get('/', zValidator('query', listQuerySchema), async (c) => {
   }
 
   const [countResult, items] = await Promise.all([
-    c.env.DB.prepare(`
+    getDb(c).prepare(`
       SELECT COUNT(*) as total
       FROM reconciliation_items r
       JOIN bordereaux b ON r.bordereau_id = b.id
@@ -91,7 +92,7 @@ reconciliation.get('/', zValidator('query', listQuerySchema), async (c) => {
     `)
       .bind(...params)
       .first<{ total: number }>(),
-    c.env.DB.prepare(`
+    getDb(c).prepare(`
       SELECT r.*,
              b.bordereau_number,
              b.period_start,
@@ -151,7 +152,7 @@ reconciliation.get('/summary', zValidator('query', summaryQuerySchema), async (c
     params.push(insurerId);
   }
 
-  const summary = await c.env.DB.prepare(`
+  const summary = await getDb(c).prepare(`
     SELECT
       COUNT(*) as total_claims,
       COALESCE(SUM(r.declared_amount), 0) as total_amount,
@@ -196,7 +197,7 @@ reconciliation.get('/summary', zValidator('query', summaryQuerySchema), async (c
 reconciliation.get('/:id', async (c) => {
   const itemId = c.req.param('id');
 
-  const item = await c.env.DB.prepare(`
+  const item = await getDb(c).prepare(`
     SELECT r.*,
            b.bordereau_number,
            b.period_start,
@@ -221,7 +222,7 @@ reconciliation.get('/:id', async (c) => {
   }
 
   // Get discrepancy details if any
-  const discrepancies = await c.env.DB.prepare(`
+  const discrepancies = await getDb(c).prepare(`
     SELECT * FROM reconciliation_discrepancies
     WHERE reconciliation_item_id = ?
     ORDER BY created_at DESC
@@ -279,7 +280,7 @@ reconciliation.post(
       bordereauParams.push(providerId);
     }
 
-    const bordereaux = await c.env.DB.prepare(`
+    const bordereaux = await getDb(c).prepare(`
       SELECT b.*,
              COALESCE(SUM(c.total_amount), 0) as claims_total,
              COALESCE(SUM(c.covered_amount), 0) as claims_covered,
@@ -308,7 +309,7 @@ reconciliation.post(
         status = 'UNMATCHED';
       }
 
-      await c.env.DB.prepare(`
+      await getDb(c).prepare(`
         INSERT INTO reconciliation_items (
           id, bordereau_id, claim_count, declared_amount, verified_amount,
           difference, status, created_at, updated_at
@@ -330,7 +331,7 @@ reconciliation.post(
 
       // Log discrepancy if unmatched
       if (status === 'UNMATCHED') {
-        await c.env.DB.prepare(`
+        await getDb(c).prepare(`
           INSERT INTO reconciliation_discrepancies (
             id, reconciliation_item_id, discrepancy_type, description,
             amount, status, created_at
@@ -358,7 +359,7 @@ reconciliation.post(
     }
 
     // Audit log
-    await c.env.DB.prepare(`
+    await getDb(c).prepare(`
       INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
@@ -396,7 +397,7 @@ reconciliation.post(
     const user = c.get('user');
     const itemId = c.req.param('id');
 
-    const item = await c.env.DB.prepare('SELECT * FROM reconciliation_items WHERE id = ?')
+    const item = await getDb(c).prepare('SELECT * FROM reconciliation_items WHERE id = ?')
       .bind(itemId)
       .first();
 
@@ -416,7 +417,7 @@ reconciliation.post(
 
     const now = new Date().toISOString();
 
-    await c.env.DB.prepare(`
+    await getDb(c).prepare(`
       UPDATE reconciliation_items
       SET status = 'MATCHED', updated_at = ?
       WHERE id = ?
@@ -425,7 +426,7 @@ reconciliation.post(
       .run();
 
     // Update any pending discrepancies
-    await c.env.DB.prepare(`
+    await getDb(c).prepare(`
       UPDATE reconciliation_discrepancies
       SET status = 'RESOLVED', resolution = 'Rapprochement manuel', resolved_at = ?
       WHERE reconciliation_item_id = ? AND status = 'PENDING'
@@ -434,7 +435,7 @@ reconciliation.post(
       .run();
 
     // Audit log
-    await c.env.DB.prepare(`
+    await getDb(c).prepare(`
       INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
@@ -473,7 +474,7 @@ reconciliation.post(
     const discrepancyId = c.req.param('id');
     const { resolution, adjustedAmount } = c.req.valid('json');
 
-    const discrepancy = await c.env.DB.prepare(
+    const discrepancy = await getDb(c).prepare(
       'SELECT * FROM reconciliation_discrepancies WHERE id = ?'
     )
       .bind(discrepancyId)
@@ -495,7 +496,7 @@ reconciliation.post(
 
     const now = new Date().toISOString();
 
-    await c.env.DB.prepare(`
+    await getDb(c).prepare(`
       UPDATE reconciliation_discrepancies
       SET status = 'RESOLVED', resolution = ?, adjusted_amount = ?, resolved_at = ?
       WHERE id = ?
@@ -504,7 +505,7 @@ reconciliation.post(
       .run();
 
     // Check if all discrepancies for this item are resolved
-    const pendingCount = await c.env.DB.prepare(`
+    const pendingCount = await getDb(c).prepare(`
       SELECT COUNT(*) as count FROM reconciliation_discrepancies
       WHERE reconciliation_item_id = ? AND status = 'PENDING'
     `)
@@ -513,7 +514,7 @@ reconciliation.post(
 
     // If no more pending discrepancies, mark item as resolved
     if (pendingCount?.count === 0) {
-      await c.env.DB.prepare(`
+      await getDb(c).prepare(`
         UPDATE reconciliation_items SET status = 'RESOLVED', updated_at = ?
         WHERE id = ?
       `)
@@ -522,7 +523,7 @@ reconciliation.post(
     }
 
     // Audit log
-    await c.env.DB.prepare(`
+    await getDb(c).prepare(`
       INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
@@ -571,7 +572,7 @@ reconciliation.get(
       params.push(insurerId);
     }
 
-    const items = await c.env.DB.prepare(`
+    const items = await getDb(c).prepare(`
       SELECT r.*,
              b.bordereau_number,
              b.period_start,

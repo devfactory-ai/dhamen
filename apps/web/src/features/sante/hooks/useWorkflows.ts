@@ -184,7 +184,7 @@ export function useStartInfoRequest() {
         data
       );
       if (!response.success) {
-        throw new Error(response.error?.message || 'Erreur lors de la creation');
+        throw new Error(response.error?.message || 'Erreur lors de la création');
       }
       return response.data?.data;
     },
@@ -291,7 +291,7 @@ export function useStartValidation() {
 }
 
 /**
- * Submit validation decision
+ * Submit validation décision
  */
 export function useSubmitValidation() {
   const queryClient = useQueryClient();

@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 import {
   generatePDFHTML,
   generateCSV,
@@ -89,7 +90,7 @@ exports.get(
 
     query += ` ORDER BY d.created_at DESC LIMIT 500`;
 
-    const stmt = c.env.DB.prepare(query);
+    const stmt = getDb(c).prepare(query);
     const { results } = await stmt.bind(...params).all<{
       numero_demande: string;
       type_soin: string;
@@ -191,7 +192,7 @@ exports.get(
     const { format } = c.req.valid('query');
 
     // Get bordereau info
-    const bordereau = await c.env.DB.prepare(`
+    const bordereau = await getDb(c).prepare(`
       SELECT
         b.*,
         p.nom as praticien_nom,
@@ -221,7 +222,7 @@ exports.get(
     }
 
     // Get demandes
-    const { results: demandes } = await c.env.DB.prepare(`
+    const { results: demandes } = await getDb(c).prepare(`
       SELECT
         d.numero_demande,
         d.type_soin,
@@ -350,7 +351,7 @@ exports.get(
 
     // Get stats
     const [globalStats, byTypeSoin, byStatut] = await Promise.all([
-      c.env.DB.prepare(`
+      getDb(c).prepare(`
         SELECT
           COUNT(*) as total,
           SUM(montant_demande) as montant_demande,
@@ -361,7 +362,7 @@ exports.get(
         .bind(startDate.toISOString())
         .first<{ total: number; montant_demande: number; montant_rembourse: number }>(),
 
-      c.env.DB.prepare(`
+      getDb(c).prepare(`
         SELECT
           type_soin,
           COUNT(*) as count,
@@ -374,7 +375,7 @@ exports.get(
         .bind(startDate.toISOString())
         .all<{ type_soin: string; count: number; montant: number }>(),
 
-      c.env.DB.prepare(`
+      getDb(c).prepare(`
         SELECT
           statut,
           COUNT(*) as count
@@ -458,7 +459,7 @@ exports.get(
     const adherentId = c.req.param('adherentId');
 
     // Get adherent and formule info
-    const adherent = await c.env.DB.prepare(`
+    const adherent = await getDb(c).prepare(`
       SELECT
         a.id, a.first_name, a.last_name, a.birth_date, a.national_id,
         COALESCE(sa.matricule, a.id) as matricule,
@@ -487,7 +488,7 @@ exports.get(
 
     // Get plafonds
     const year = new Date().getFullYear();
-    const { results: plafonds } = await c.env.DB.prepare(`
+    const { results: plafonds } = await getDb(c).prepare(`
       SELECT type_soin, montant_plafond, montant_consomme
       FROM sante_plafonds_consommes
       WHERE adherent_id = ? AND annee = ?

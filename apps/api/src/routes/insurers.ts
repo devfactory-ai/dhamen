@@ -19,6 +19,7 @@ import { generateId } from '../lib/ulid';
 import { logAudit } from '../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../middleware/auth';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
 
 const insurers = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -36,7 +37,7 @@ insurers.get(
   async (c) => {
     const { isActive, search, page, limit } = c.req.valid('query');
 
-    const { data, total } = await listInsurers(c.env.DB, {
+    const { data, total } = await listInsurers(getDb(c), {
       isActive,
       search,
       page,
@@ -65,7 +66,7 @@ insurers.get('/:id', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
     return notFound(c, 'Assureur non trouvé');
   }
 
-  const insurer = await findInsurerById(c.env.DB, id);
+  const insurer = await findInsurerById(getDb(c), id);
 
   if (!insurer) {
     return notFound(c, 'Assureur non trouvé');
@@ -83,16 +84,16 @@ insurers.post('/', requireRole('ADMIN'), zValidator('json', insurerCreateSchema)
   const user = c.get('user');
 
   // Check if code already exists
-  const existing = await findInsurerByCode(c.env.DB, data.code);
+  const existing = await findInsurerByCode(getDb(c), data.code);
   if (existing) {
     return conflict(c, 'Un assureur avec ce code existe déjà');
   }
 
   const id = generateId();
-  const insurer = await createInsurer(c.env.DB, id, data);
+  const insurer = await createInsurer(getDb(c), id, data);
 
   // Audit log
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user?.sub,
     action: 'insurer.create',
     entityType: 'insurer',
@@ -126,14 +127,14 @@ insurers.put(
       return notFound(c, 'Assureur non trouvé');
     }
 
-    const insurer = await updateInsurer(c.env.DB, id, data);
+    const insurer = await updateInsurer(getDb(c), id, data);
 
     if (!insurer) {
       return notFound(c, 'Assureur non trouvé');
     }
 
     // Audit log
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user?.sub,
       action: 'insurer.update',
       entityType: 'insurer',
@@ -155,14 +156,14 @@ insurers.delete('/:id', requireRole('ADMIN'), async (c) => {
   const id = c.req.param('id');
   const user = c.get('user');
 
-  const deleted = await softDeleteInsurer(c.env.DB, id);
+  const deleted = await softDeleteInsurer(getDb(c), id);
 
   if (!deleted) {
     return notFound(c, 'Assureur non trouvé');
   }
 
   // Audit log
-  await logAudit(c.env.DB, {
+  await logAudit(getDb(c), {
     userId: user?.sub,
     action: 'insurer.delete',
     entityType: 'insurer',

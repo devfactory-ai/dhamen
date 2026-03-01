@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { Bindings, Variables } from '../types';
+import { getDb } from '../lib/db';
 import { authMiddleware, requireRole } from '../middleware/auth';
 import { CNAMService } from '../services/cnam.service';
 import { logAudit } from '../middleware/audit-trail';
@@ -84,7 +85,7 @@ cnam.post(
     const cnamService = new CNAMService(c.env);
     const affiliate = await cnamService.verifyAffiliate(matricule);
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'cnam.verify_affiliate',
       entityType: 'cnam_affiliates',
@@ -127,7 +128,7 @@ cnam.post(
     const cnamService = new CNAMService(c.env);
     const results = await cnamService.searchAffiliate(criteria);
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'cnam.search_affiliate',
       entityType: 'cnam_affiliates',
@@ -160,7 +161,7 @@ cnam.post(
     const cnamService = new CNAMService(c.env);
     const response = await cnamService.requestPEC(request);
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'cnam.request_pec',
       entityType: 'cnam_pec',
@@ -195,7 +196,7 @@ cnam.post(
     const cnamService = new CNAMService(c.env);
     const result = await cnamService.submitClaim(data);
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'cnam.submit_claim',
       entityType: 'cnam_claims',

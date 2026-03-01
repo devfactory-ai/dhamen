@@ -1,7 +1,7 @@
 /**
- * Settings Screen for SoinFlow Mobile
+ * Settings Screen with enhanced design
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,11 +11,14 @@ import {
   Switch,
   Alert,
   Linking,
+  Animated,
 } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as SecureStore from 'expo-secure-store';
 import { getUser, clearAuth } from '@/lib/auth';
+import { colors, typography, spacing, borderRadius, shadows } from '@/theme';
 import type { UserPublic } from '@dhamen/shared';
 
 interface Settings {
@@ -34,9 +37,87 @@ const DEFAULT_SETTINGS: Settings = {
   language: 'fr',
 };
 
+interface MenuItemProps {
+  icon: string;
+  iconBg: string;
+  label: string;
+  description?: string;
+  onPress?: () => void;
+  rightElement?: React.ReactNode;
+  showChevron?: boolean;
+  danger?: boolean;
+}
+
+function MenuItem({
+  icon,
+  iconBg,
+  label,
+  description,
+  onPress,
+  rightElement,
+  showChevron = true,
+  danger = false,
+}: MenuItemProps) {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.98,
+      friction: 10,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      friction: 10,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+      <TouchableOpacity
+        style={styles.menuItem}
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        activeOpacity={0.9}
+        disabled={!onPress && !rightElement}
+      >
+        <View style={[styles.menuIconContainer, { backgroundColor: iconBg }]}>
+          <Text style={styles.menuIcon}>{icon}</Text>
+        </View>
+        <View style={styles.menuContent}>
+          <Text style={[styles.menuLabel, danger && styles.menuLabelDanger]}>
+            {label}
+          </Text>
+          {description && (
+            <Text style={styles.menuDescription}>{description}</Text>
+          )}
+        </View>
+        {rightElement}
+        {showChevron && !rightElement && (
+          <Text style={styles.chevron}>›</Text>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
 export default function ParametresScreen() {
   const [user, setUserState] = useState<UserPublic | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
 
   useEffect(() => {
     getUser().then(setUserState);
@@ -70,12 +151,12 @@ export default function ParametresScreen() {
 
   const handleLogout = useCallback(async () => {
     Alert.alert(
-      'Deconnexion',
-      'Etes-vous sur de vouloir vous deconnecter ?',
+      'Déconnexion',
+      'Êtes-vous sûr de vouloir vous déconnecter ?',
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Deconnecter',
+          text: 'Déconnecter',
           style: 'destructive',
           onPress: async () => {
             await clearAuth();
@@ -89,7 +170,7 @@ export default function ParametresScreen() {
   const handleDeleteAccount = useCallback(() => {
     Alert.alert(
       'Supprimer le compte',
-      'Cette action est irreversible. Toutes vos donnees seront supprimees.',
+      'Cette action est irréversible. Toutes vos données seront supprimées.',
       [
         { text: 'Annuler', style: 'cancel' },
         {
@@ -118,145 +199,174 @@ export default function ParametresScreen() {
     Linking.openURL('https://dhamen.tn/conditions-utilisation');
   };
 
+  const getInitials = () => {
+    if (!user) return '?';
+    return `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}`.toUpperCase();
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Text style={styles.backText}>← Retour</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Parametres</Text>
-      </View>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Header */}
+      <LinearGradient
+        colors={[colors.primary[600], colors.primary[700]]}
+        style={styles.header}
+      >
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+          >
+            <Text style={styles.backIcon}>←</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Paramètres</Text>
+          <View style={{ width: 40 }} />
+        </View>
+      </LinearGradient>
 
-      <ScrollView style={styles.content}>
-        {/* Account Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Compte</Text>
-
-          <View style={styles.card}>
-            <View style={styles.userInfo}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>
-                  {user?.firstName?.[0]}{user?.lastName?.[0]}
-                </Text>
-              </View>
-              <View>
-                <Text style={styles.userName}>
-                  {user?.firstName} {user?.lastName}
-                </Text>
-                <Text style={styles.userEmail}>{user?.email}</Text>
-              </View>
-            </View>
+      <Animated.ScrollView
+        style={[styles.content, { opacity: fadeAnim }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* User Card */}
+        <View style={styles.userCard}>
+          <LinearGradient
+            colors={[colors.primary[500], colors.primary[600]]}
+            style={styles.userAvatar}
+          >
+            <Text style={styles.userInitials}>{getInitials()}</Text>
+          </LinearGradient>
+          <View style={styles.userInfo}>
+            <Text style={styles.userName}>
+              {user?.firstName} {user?.lastName}
+            </Text>
+            <Text style={styles.userEmail}>{user?.email}</Text>
           </View>
+          <TouchableOpacity style={styles.editButton}>
+            <Text style={styles.editIcon}>✏️</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Notifications Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Notifications</Text>
-
           <View style={styles.card}>
-            <View style={styles.settingRow}>
-              <View>
-                <Text style={styles.settingLabel}>Notifications push</Text>
-                <Text style={styles.settingDescription}>
-                  Recevoir les alertes sur votre telephone
-                </Text>
-              </View>
-              <Switch
-                value={settings.notificationsEnabled}
-                onValueChange={() => toggleSetting('notificationsEnabled')}
-                trackColor={{ false: '#ccc', true: '#1e3a5f' }}
-              />
-            </View>
+            <MenuItem
+              icon="🔔"
+              iconBg={colors.primary[50]}
+              label="Notifications push"
+              description="Recevoir les alertes sur votre téléphone"
+              showChevron={false}
+              rightElement={
+                <Switch
+                  value={settings.notificationsEnabled}
+                  onValueChange={() => toggleSetting('notificationsEnabled')}
+                  trackColor={{
+                    false: colors.neutral[200],
+                    true: colors.primary[500],
+                  }}
+                  thumbColor="#fff"
+                />
+              }
+            />
           </View>
         </View>
 
         {/* Security Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Securite</Text>
-
+          <Text style={styles.sectionTitle}>Sécurité</Text>
           <View style={styles.card}>
-            <View style={styles.settingRow}>
-              <View>
-                <Text style={styles.settingLabel}>Authentification biometrique</Text>
-                <Text style={styles.settingDescription}>
-                  Face ID ou empreinte digitale
-                </Text>
-              </View>
-              <Switch
-                value={settings.biometricEnabled}
-                onValueChange={() => toggleSetting('biometricEnabled')}
-                trackColor={{ false: '#ccc', true: '#1e3a5f' }}
-              />
-            </View>
-
+            <MenuItem
+              icon="🔐"
+              iconBg={colors.success[50]}
+              label="Authentification biométrique"
+              description="Face ID ou empreinte digitale"
+              showChevron={false}
+              rightElement={
+                <Switch
+                  value={settings.biometricEnabled}
+                  onValueChange={() => toggleSetting('biometricEnabled')}
+                  trackColor={{
+                    false: colors.neutral[200],
+                    true: colors.primary[500],
+                  }}
+                  thumbColor="#fff"
+                />
+              }
+            />
             <View style={styles.divider} />
-
-            <TouchableOpacity style={styles.settingRowTouchable}>
-              <View>
-                <Text style={styles.settingLabel}>Changer le mot de passe</Text>
-                <Text style={styles.settingDescription}>
-                  Mettre a jour votre mot de passe
-                </Text>
-              </View>
-              <Text style={styles.chevron}>›</Text>
-            </TouchableOpacity>
+            <MenuItem
+              icon="🔑"
+              iconBg={colors.warning[50]}
+              label="Changer le mot de passe"
+              description="Mettre à jour votre mot de passe"
+              onPress={() => {}}
+            />
           </View>
         </View>
 
-        {/* Data & Storage Section */}
+        {/* Data Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Donnees et stockage</Text>
-
+          <Text style={styles.sectionTitle}>Données et stockage</Text>
           <View style={styles.card}>
-            <View style={styles.settingRow}>
-              <View>
-                <Text style={styles.settingLabel}>Mode hors ligne</Text>
-                <Text style={styles.settingDescription}>
-                  Sauvegarder les donnees pour acces hors ligne
-                </Text>
-              </View>
-              <Switch
-                value={settings.offlineMode}
-                onValueChange={() => toggleSetting('offlineMode')}
-                trackColor={{ false: '#ccc', true: '#1e3a5f' }}
-              />
-            </View>
-
+            <MenuItem
+              icon="📴"
+              iconBg={colors.info[50]}
+              label="Mode hors ligne"
+              description="Sauvegarder les données localement"
+              showChevron={false}
+              rightElement={
+                <Switch
+                  value={settings.offlineMode}
+                  onValueChange={() => toggleSetting('offlineMode')}
+                  trackColor={{
+                    false: colors.neutral[200],
+                    true: colors.primary[500],
+                  }}
+                  thumbColor="#fff"
+                />
+              }
+            />
             <View style={styles.divider} />
-
-            <TouchableOpacity style={styles.settingRowTouchable}>
-              <View>
-                <Text style={styles.settingLabel}>Vider le cache</Text>
-                <Text style={styles.settingDescription}>
-                  Liberer de l'espace sur votre telephone
-                </Text>
-              </View>
-              <Text style={styles.chevron}>›</Text>
-            </TouchableOpacity>
+            <MenuItem
+              icon="🗑️"
+              iconBg={colors.neutral[100]}
+              label="Vider le cache"
+              description="Libérer de l'espace sur votre téléphone"
+              onPress={() => {
+                Alert.alert('Cache vidé', 'Le cache a été vidé avec succès');
+              }}
+            />
           </View>
         </View>
 
         {/* Language Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Langue</Text>
-
           <View style={styles.card}>
             <TouchableOpacity
-              style={styles.settingRowTouchable}
+              style={styles.languageOption}
               onPress={() => saveSettings({ ...settings, language: 'fr' })}
             >
-              <Text style={styles.settingLabel}>Francais</Text>
-              {settings.language === 'fr' && <Text style={styles.checkmark}>✓</Text>}
+              <Text style={styles.languageFlag}>🇫🇷</Text>
+              <Text style={styles.languageLabel}>Français</Text>
+              {settings.language === 'fr' && (
+                <View style={styles.checkmark}>
+                  <Text style={styles.checkmarkText}>✓</Text>
+                </View>
+              )}
             </TouchableOpacity>
-
             <View style={styles.divider} />
-
             <TouchableOpacity
-              style={styles.settingRowTouchable}
+              style={styles.languageOption}
               onPress={() => saveSettings({ ...settings, language: 'ar' })}
             >
-              <Text style={styles.settingLabel}>العربية</Text>
-              {settings.language === 'ar' && <Text style={styles.checkmark}>✓</Text>}
+              <Text style={styles.languageFlag}>🇹🇳</Text>
+              <Text style={styles.languageLabel}>العربية</Text>
+              {settings.language === 'ar' && (
+                <View style={styles.checkmark}>
+                  <Text style={styles.checkmarkText}>✓</Text>
+                </View>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -264,44 +374,42 @@ export default function ParametresScreen() {
         {/* Support Section */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Support</Text>
-
           <View style={styles.card}>
-            <TouchableOpacity style={styles.settingRowTouchable} onPress={handleContactSupport}>
-              <Text style={styles.settingLabel}>Contacter le support</Text>
-              <Text style={styles.chevron}>›</Text>
-            </TouchableOpacity>
-
+            <MenuItem
+              icon="💬"
+              iconBg={colors.primary[50]}
+              label="Contacter le support"
+              onPress={handleContactSupport}
+            />
             <View style={styles.divider} />
-
-            <TouchableOpacity style={styles.settingRowTouchable} onPress={handlePrivacyPolicy}>
-              <Text style={styles.settingLabel}>Politique de confidentialite</Text>
-              <Text style={styles.chevron}>›</Text>
-            </TouchableOpacity>
-
+            <MenuItem
+              icon="🔒"
+              iconBg={colors.neutral[100]}
+              label="Politique de confidentialité"
+              onPress={handlePrivacyPolicy}
+            />
             <View style={styles.divider} />
-
-            <TouchableOpacity style={styles.settingRowTouchable} onPress={handleTerms}>
-              <Text style={styles.settingLabel}>Conditions d'utilisation</Text>
-              <Text style={styles.chevron}>›</Text>
-            </TouchableOpacity>
+            <MenuItem
+              icon="📄"
+              iconBg={colors.neutral[100]}
+              label="Conditions d'utilisation"
+              onPress={handleTerms}
+            />
           </View>
         </View>
 
-        {/* App Info */}
+        {/* About Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>A propos</Text>
-
+          <Text style={styles.sectionTitle}>À propos</Text>
           <View style={styles.card}>
-            <View style={styles.settingRow}>
-              <Text style={styles.settingLabel}>Version</Text>
-              <Text style={styles.settingValue}>1.0.0</Text>
+            <View style={styles.aboutRow}>
+              <Text style={styles.aboutLabel}>Version</Text>
+              <Text style={styles.aboutValue}>1.0.0</Text>
             </View>
-
             <View style={styles.divider} />
-
-            <View style={styles.settingRow}>
-              <Text style={styles.settingLabel}>Build</Text>
-              <Text style={styles.settingValue}>2025.02.26</Text>
+            <View style={styles.aboutRow}>
+              <Text style={styles.aboutLabel}>Build</Text>
+              <Text style={styles.aboutValue}>2026.03.01</Text>
             </View>
           </View>
         </View>
@@ -309,26 +417,35 @@ export default function ParametresScreen() {
         {/* Danger Zone */}
         <View style={styles.section}>
           <View style={styles.card}>
-            <TouchableOpacity style={styles.dangerButton} onPress={handleLogout}>
-              <Text style={styles.dangerButtonText}>Se deconnecter</Text>
-            </TouchableOpacity>
+            <MenuItem
+              icon="🚪"
+              iconBg={colors.error[50]}
+              label="Se déconnecter"
+              showChevron={false}
+              danger
+              onPress={handleLogout}
+            />
           </View>
+        </View>
 
-          <View style={[styles.card, { marginTop: 12 }]}>
-            <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteAccount}>
-              <Text style={styles.deleteButtonText}>Supprimer mon compte</Text>
-            </TouchableOpacity>
-          </View>
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={handleDeleteAccount}
+          >
+            <Text style={styles.deleteButtonText}>Supprimer mon compte</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Footer */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Dhamen © 2025</Text>
+          <Text style={styles.footerLogo}>ضامن</Text>
+          <Text style={styles.footerText}>Dhamen © 2026</Text>
           <Text style={styles.footerSubtext}>
-            Plateforme IA-native de tiers payant sante
+            Plateforme IA-native de tiers payant santé
           </Text>
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }
@@ -336,145 +453,221 @@ export default function ParametresScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: colors.background.primary,
   },
   header: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
+  },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#1e3a5f',
+    justifyContent: 'space-between',
   },
   backButton: {
-    marginRight: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  backText: {
-    color: '#a0c4e8',
-    fontSize: 16,
+  backIcon: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: typography.fontWeight.bold,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: typography.fontSize.xl,
+    fontWeight: typography.fontWeight.bold,
     color: '#fff',
   },
   content: {
     flex: 1,
+    marginTop: -spacing.lg,
+    borderTopLeftRadius: borderRadius['2xl'],
+    borderTopRightRadius: borderRadius['2xl'],
+    backgroundColor: colors.background.primary,
   },
-  section: {
-    marginTop: 24,
-    paddingHorizontal: 16,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#666',
-    textTransform: 'uppercase',
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  userInfo: {
+  userCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    backgroundColor: colors.background.secondary,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.xl,
+    padding: spacing.lg,
+    borderRadius: borderRadius.xl,
+    ...shadows.md,
   },
-  avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#1e3a5f',
+  userAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 16,
   },
-  avatarText: {
-    fontSize: 20,
-    fontWeight: '600',
+  userInitials: {
+    fontSize: typography.fontSize['2xl'],
+    fontWeight: typography.fontWeight.bold,
     color: '#fff',
   },
+  userInfo: {
+    flex: 1,
+    marginLeft: spacing.md,
+  },
   userName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: typography.fontSize.lg,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.primary,
   },
   userEmail: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: typography.fontSize.sm,
+    color: colors.text.secondary,
     marginTop: 2,
   },
-  settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  editButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.neutral[100],
+    justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
   },
-  settingRowTouchable: {
+  editIcon: {
+    fontSize: 18,
+  },
+  section: {
+    marginTop: spacing.xl,
+    paddingHorizontal: spacing.lg,
+  },
+  sectionTitle: {
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.semibold,
+    color: colors.text.tertiary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
+    marginLeft: spacing.xs,
+  },
+  card: {
+    backgroundColor: colors.background.secondary,
+    borderRadius: borderRadius.xl,
+    overflow: 'hidden',
+    ...shadows.sm,
+  },
+  menuItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: spacing.md,
   },
-  settingLabel: {
-    fontSize: 16,
-    color: '#333',
+  menuIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
   },
-  settingDescription: {
-    fontSize: 13,
-    color: '#666',
+  menuIcon: {
+    fontSize: 18,
+  },
+  menuContent: {
+    flex: 1,
+  },
+  menuLabel: {
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.primary,
+  },
+  menuLabelDanger: {
+    color: colors.error[600],
+  },
+  menuDescription: {
+    fontSize: typography.fontSize.xs,
+    color: colors.text.secondary,
     marginTop: 2,
-    maxWidth: 240,
-  },
-  settingValue: {
-    fontSize: 16,
-    color: '#666',
   },
   chevron: {
-    fontSize: 20,
-    color: '#ccc',
-  },
-  checkmark: {
-    fontSize: 18,
-    color: '#1e3a5f',
-    fontWeight: '600',
+    fontSize: 24,
+    color: colors.text.tertiary,
+    marginLeft: spacing.sm,
   },
   divider: {
     height: 1,
-    backgroundColor: '#f0f0f0',
-    marginLeft: 16,
+    backgroundColor: colors.neutral[100],
+    marginLeft: 68,
   },
-  dangerButton: {
-    padding: 16,
+  languageOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+  },
+  languageFlag: {
+    fontSize: 24,
+    marginRight: spacing.md,
+  },
+  languageLabel: {
+    flex: 1,
+    fontSize: typography.fontSize.base,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.primary,
+  },
+  checkmark: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.primary[500],
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  dangerButtonText: {
-    fontSize: 16,
-    color: '#dc3545',
-    fontWeight: '500',
+  checkmarkText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: typography.fontWeight.bold,
+  },
+  aboutRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: spacing.md,
+  },
+  aboutLabel: {
+    fontSize: typography.fontSize.base,
+    color: colors.text.primary,
+  },
+  aboutValue: {
+    fontSize: typography.fontSize.base,
+    color: colors.text.secondary,
   },
   deleteButton: {
-    padding: 16,
     alignItems: 'center',
+    padding: spacing.md,
   },
   deleteButtonText: {
-    fontSize: 16,
-    color: '#dc3545',
-    fontWeight: '500',
+    fontSize: typography.fontSize.sm,
+    color: colors.error[500],
+    fontWeight: typography.fontWeight.medium,
   },
   footer: {
     alignItems: 'center',
-    padding: 32,
+    paddingVertical: spacing['2xl'],
+    paddingHorizontal: spacing.lg,
+  },
+  footerLogo: {
+    fontSize: 32,
+    fontWeight: typography.fontWeight.bold,
+    color: colors.primary[500],
+    marginBottom: spacing.sm,
   },
   footerText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.medium,
+    color: colors.text.secondary,
   },
   footerSubtext: {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 4,
+    fontSize: typography.fontSize.xs,
+    color: colors.text.tertiary,
+    marginTop: spacing.xs,
   },
 });

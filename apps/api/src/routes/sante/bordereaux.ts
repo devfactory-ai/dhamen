@@ -12,6 +12,7 @@ import { generateId } from '../../lib/ulid';
 import { logAudit } from '../../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 import { paginationSchema } from '@dhamen/shared';
 
 const bordereaux = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -109,13 +110,13 @@ bordereaux.get(
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    const countResult = await c.env.DB.prepare(
+    const countResult = await getDb(c).prepare(
       `SELECT COUNT(*) as count FROM sante_bordereaux ${whereClause}`
     )
       .bind(...params)
       .first<{ count: number }>();
 
-    const { results } = await c.env.DB.prepare(
+    const { results } = await getDb(c).prepare(
       `SELECT * FROM sante_bordereaux ${whereClause} ORDER BY date_generation DESC LIMIT ? OFFSET ?`
     )
       .bind(...params, limit, offset)
@@ -137,13 +138,13 @@ bordereaux.get(
  * Get bordereau statistics
  */
 bordereaux.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
-  const { results: statusCounts } = await c.env.DB.prepare(`
+  const { results: statusCounts } = await getDb(c).prepare(`
     SELECT statut, COUNT(*) as count, COALESCE(SUM(montant_total), 0) as total
     FROM sante_bordereaux
     GROUP BY statut
   `).all<{ statut: string; count: number; total: number }>();
 
-  const totals = await c.env.DB.prepare(`
+  const totals = await getDb(c).prepare(`
     SELECT
       COUNT(*) as totalBordereaux,
       COALESCE(SUM(nombre_demandes), 0) as totalDemandes,
@@ -172,7 +173,7 @@ bordereaux.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) =>
 bordereaux.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
   const id = c.req.param('id');
 
-  const row = await c.env.DB.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
+  const row = await getDb(c).prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
     .bind(id)
     .first<BordereauRow>();
 
@@ -181,7 +182,7 @@ bordereaux.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
   }
 
   // Get bordereau lines
-  const { results: lignes } = await c.env.DB.prepare(`
+  const { results: lignes } = await getDb(c).prepare(`
     SELECT
       bl.id, bl.bordereau_id, bl.demande_id,
       d.numero_demande, d.type_soin, d.date_soin,
@@ -224,7 +225,7 @@ bordereaux.post(
     const user = c.get('user');
 
     // Find approved demandes in the period that are not in any bordereau
-    const { results: demandesEligibles } = await c.env.DB.prepare(`
+    const { results: demandesEligibles } = await getDb(c).prepare(`
       SELECT d.id, d.montant_rembourse
       FROM sante_demandes d
       LEFT JOIN sante_bordereau_lignes bl ON d.id = bl.demande_id
@@ -247,7 +248,7 @@ bordereaux.post(
     const montantTotal = demandesEligibles.reduce((sum, d) => sum + d.montant_rembourse, 0);
 
     // Create bordereau
-    await c.env.DB.prepare(`
+    await getDb(c).prepare(`
       INSERT INTO sante_bordereaux (
         id, numero_bordereau, periode_debut, periode_fin,
         nombre_demandes, montant_total, statut, date_generation,
@@ -272,7 +273,7 @@ bordereaux.post(
     // Create bordereau lines
     for (const demande of demandesEligibles) {
       const ligneId = generateId();
-      await c.env.DB.prepare(`
+      await getDb(c).prepare(`
         INSERT INTO sante_bordereau_lignes (id, bordereau_id, demande_id, created_at)
         VALUES (?, ?, ?, ?)
       `)
@@ -280,7 +281,7 @@ bordereaux.post(
         .run();
     }
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'bordereaux.create',
       entityType: 'bordereaux',
@@ -294,7 +295,7 @@ bordereaux.post(
       },
     });
 
-    const bordereau = await c.env.DB.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
+    const bordereau = await getDb(c).prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
       .bind(id)
       .first<BordereauRow>();
 
@@ -315,7 +316,7 @@ bordereaux.patch(
     const data = c.req.valid('json');
     const user = c.get('user');
 
-    const existing = await c.env.DB.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
+    const existing = await getDb(c).prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
       .bind(id)
       .first<BordereauRow>();
 
@@ -362,7 +363,7 @@ bordereaux.patch(
 
     params.push(id);
 
-    await c.env.DB.prepare(
+    await getDb(c).prepare(
       `UPDATE sante_bordereaux SET ${updates.join(', ')} WHERE id = ?`
     )
       .bind(...params)
@@ -370,7 +371,7 @@ bordereaux.patch(
 
     // If marked as paid, update all demandes to payee
     if (data.statut === 'paye') {
-      await c.env.DB.prepare(`
+      await getDb(c).prepare(`
         UPDATE sante_demandes
         SET statut = 'payee', updated_at = ?
         WHERE id IN (SELECT demande_id FROM sante_bordereau_lignes WHERE bordereau_id = ?)
@@ -379,7 +380,7 @@ bordereaux.patch(
         .run();
     }
 
-    await logAudit(c.env.DB, {
+    await logAudit(getDb(c), {
       userId: user.sub,
       action: 'bordereaux.update_status',
       entityType: 'bordereaux',
@@ -387,7 +388,7 @@ bordereaux.patch(
       changes: { oldStatut: existing.statut, newStatut: data.statut },
     });
 
-    const bordereau = await c.env.DB.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
+    const bordereau = await getDb(c).prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
       .bind(id)
       .first<BordereauRow>();
 
@@ -402,7 +403,7 @@ bordereaux.patch(
 bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
   const id = c.req.param('id');
 
-  const bordereau = await c.env.DB.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
+  const bordereau = await getDb(c).prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
     .bind(id)
     .first<BordereauRow>();
 
@@ -410,7 +411,7 @@ bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (
     return notFound(c, 'Bordereau non trouvé');
   }
 
-  const { results: lignes } = await c.env.DB.prepare(`
+  const { results: lignes } = await getDb(c).prepare(`
     SELECT
       d.numero_demande, d.type_soin, d.date_soin,
       d.montant_demande, d.montant_rembourse,

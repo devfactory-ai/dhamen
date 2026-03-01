@@ -99,7 +99,7 @@ const DEFAULT_TEMPLATES: ReportTemplate[] = [
         options: [
           { value: 'en_attente', label: 'En attente' },
           { value: 'approuvee', label: 'Approuvee' },
-          { value: 'rejetee', label: 'Rejetee' },
+          { value: 'rejetée', label: 'Rejetee' },
           { value: 'payee', label: 'Payee' },
         ],
       },
@@ -123,7 +123,7 @@ const DEFAULT_TEMPLATES: ReportTemplate[] = [
     id: 'tpl-2',
     code: 'paiements-praticiens',
     nom: 'Paiements par praticien',
-    description: 'Detail des paiements effectues par praticien',
+    description: 'Detail des paiements effectués par praticien',
     categorie: 'paiements',
     parametres: [
       {
@@ -179,7 +179,7 @@ const DEFAULT_TEMPLATES: ReportTemplate[] = [
         options: [
           { value: 'faible', label: 'Faible' },
           { value: 'moyen', label: 'Moyen' },
-          { value: 'eleve', label: 'Eleve' },
+          { value: 'élevé', label: 'Élevé' },
           { value: 'critique', label: 'Critique' },
         ],
       },
@@ -341,7 +341,7 @@ export function useGenerateReport() {
       }>('/sante/reports/generate', data);
 
       if (!response.success) {
-        throw new Error(response.error?.message || 'Erreur lors de la generation');
+        throw new Error(response.error?.message || 'Erreur lors de la génération');
       }
       return response.data?.data;
     },

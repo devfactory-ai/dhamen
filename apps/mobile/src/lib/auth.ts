@@ -51,3 +51,35 @@ export async function isAuthenticated(): Promise<boolean> {
     return false;
   }
 }
+
+// Biometric login credentials storage
+export async function storeCredentials(email: string, password: string): Promise<void> {
+  try {
+    await SecureStore.setItemAsync('biometric_email', email);
+    await SecureStore.setItemAsync('biometric_password', password);
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export async function getStoredCredentials(): Promise<{ email: string; password: string } | null> {
+  try {
+    const email = await SecureStore.getItemAsync('biometric_email');
+    const password = await SecureStore.getItemAsync('biometric_password');
+    if (email && password) {
+      return { email, password };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearStoredCredentials(): Promise<void> {
+  try {
+    await SecureStore.deleteItemAsync('biometric_email');
+    await SecureStore.deleteItemAsync('biometric_password');
+  } catch {
+    // Ignore storage errors
+  }
+}

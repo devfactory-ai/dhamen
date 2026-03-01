@@ -4,7 +4,7 @@
  * Generates PDF documents for reports, invoices, and summaries
  */
 import type { Bindings } from '../types';
-import { generateId } from '../lib/ulid';
+import { generatePrefixedId } from '../lib/ulid';
 
 export interface PDFExportRequest {
   type: 'report' | 'bordereau' | 'facture' | 'attestation' | 'releve';
@@ -37,7 +37,7 @@ export class PDFService {
    * Generate PDF document
    */
   async generatePDF(request: PDFExportRequest): Promise<PDFExportResult> {
-    const documentId = generateId('PDF');
+    const documentId = generatePrefixedId('PDF');
     const now = new Date();
 
     // Generate HTML content based on type
@@ -65,7 +65,7 @@ export class PDFService {
       id: documentId,
       filename,
       contentType: 'application/pdf',
-      size: pdfData.length,
+      size: pdfData.byteLength,
       url,
       content: this.arrayBufferToBase64(pdfData),
       createdAt: now.toISOString(),
@@ -188,7 +188,7 @@ export class PDFService {
         </div>
       ` : ''}
 
-      ${report.details && report.details.length > 0 ? `
+      ${report.details && report.details.length > 0 && report.details[0] ? `
         <div class="section">
           <div class="section-title">Détails</div>
           <table>
@@ -533,14 +533,14 @@ export class PDFService {
     // For now, return HTML content as buffer
     // Client can use html2pdf.js or similar for actual conversion
     const encoder = new TextEncoder();
-    return encoder.encode(html).buffer;
+    return encoder.encode(html).buffer as ArrayBuffer;
   }
 
   private arrayBufferToBase64(buffer: ArrayBuffer): string {
     const bytes = new Uint8Array(buffer);
     let binary = '';
     for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
+      binary += String.fromCharCode(bytes[i] ?? 0);
     }
     return btoa(binary);
   }

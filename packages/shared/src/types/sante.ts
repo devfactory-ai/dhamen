@@ -373,3 +373,74 @@ export interface SantePraticienFilterParams {
   estConventionne?: boolean;
   search?: string;
 }
+
+// ============================================
+// Contre-Visites (Follow-up examinations)
+// ============================================
+
+export const SANTE_STATUTS_CONTRE_VISITE = [
+  'demandee',
+  'planifiee',
+  'en_attente',
+  'effectuee',
+  'rapport_soumis',
+  'validee',
+  'annulee',
+] as const;
+
+export type SanteStatutContreVisite = (typeof SANTE_STATUTS_CONTRE_VISITE)[number];
+
+export const SANTE_CONCLUSIONS_CONTRE_VISITE = [
+  'confirme',
+  'partiellement_confirme',
+  'non_confirme',
+  'examen_complementaire',
+] as const;
+
+export type SanteConclusionContreVisite = (typeof SANTE_CONCLUSIONS_CONTRE_VISITE)[number];
+
+export const SANTE_IMPACTS_CONTRE_VISITE = [
+  'maintenir',
+  'reduire',
+  'rejeter',
+  'approuver',
+] as const;
+
+export type SanteImpactContreVisite = (typeof SANTE_IMPACTS_CONTRE_VISITE)[number];
+
+export interface SanteContreVisite {
+  id: string;
+  demandeId: string;
+  numeroContreVisite: string;
+  praticienId: string | null;
+  statut: SanteStatutContreVisite;
+  motif: string;
+  description: string | null;
+  dateDemande: string;
+  datePlanifiee: string | null;
+  dateLimite: string | null;
+  dateEffectuee: string | null;
+  lieu: string | null;
+  adresse: string | null;
+  ville: string | null;
+  rapport: string | null;
+  conclusion: SanteConclusionContreVisite | null;
+  impactMontant: number | null;
+  impactDecision: SanteImpactContreVisite | null;
+  documentsJson: string;
+  demandePar: string | null;
+  traitePar: string | null;
+  notesInternes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SanteContreVisiteAvecDetails extends SanteContreVisite {
+  demande?: SanteDemande;
+  praticien?: SantePraticienPublic | null;
+  demandeur?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+  };
+}

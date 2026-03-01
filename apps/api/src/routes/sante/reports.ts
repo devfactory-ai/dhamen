@@ -7,8 +7,9 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { Bindings, Variables } from '../../types';
+import { getDb } from '../../lib/db';
 import { authMiddleware, requireRole } from '../../middleware/auth';
-import { generateId } from '../../lib/ulid';
+import { generatePrefixedId } from '../../lib/ulid';
 
 const reports = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -245,7 +246,7 @@ reports.post(
     }
 
     // Create report record
-    const reportId = generateId('RPT');
+    const reportId = generatePrefixedId('RPT');
     const report = {
       id: reportId,
       templateId,

@@ -1,4 +1,5 @@
 import type { ApiResponse, PaginatedResponse, ApiError as SharedApiError } from '@dhamen/shared';
+import { getTenantHeader } from './tenant';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 const REQUEST_TIMEOUT_MS = 30000;
@@ -120,8 +121,10 @@ class ApiClient {
     try {
       // Add authorization header if token exists
       const token = this.getAccessToken();
+      const tenantHeaders = getTenantHeader();
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
+        ...tenantHeaders,
         ...init.headers,
       };
 
@@ -133,6 +136,7 @@ class ApiClient {
         ...init,
         headers,
         signal: controller.signal,
+        credentials: 'include', // Send cookies with cross-origin requests
       });
 
       // Handle blob responses (for file downloads)
@@ -165,6 +169,7 @@ class ApiClient {
           // Retry the request with new token
           const retryHeaders: HeadersInit = {
             'Content-Type': 'application/json',
+            ...tenantHeaders,
             ...init.headers,
             Authorization: `Bearer ${this.getAccessToken()}`,
           };
@@ -177,6 +182,7 @@ class ApiClient {
               ...init,
               headers: retryHeaders,
               signal: retryController.signal,
+              credentials: 'include', // Send cookies with cross-origin requests
             });
             return retryResponse.json();
           } finally {
@@ -239,6 +245,7 @@ class ApiClient {
 
   /**
    * Actual refresh token logic
+   * Uses Bearer token from localStorage and receives new tokens in response body
    */
   private async doRefreshToken(): Promise<boolean> {
     const refreshToken = this.getRefreshToken();
@@ -255,6 +262,7 @@ class ApiClient {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken }),
         signal: controller.signal,
+        credentials: 'include',
       });
 
       if (!response.ok) {

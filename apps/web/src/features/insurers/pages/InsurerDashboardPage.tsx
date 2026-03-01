@@ -13,7 +13,7 @@ import { apiClient } from '@/lib/api-client';
 
 // Types
 interface InsurerStats {
-  adherentsActifs: number;
+  adhérentsActifs: number;
   contratsActifs: number;
   prestatairesConventionnes: number;
   demandesEnCours: number;
@@ -25,8 +25,8 @@ interface InsurerStats {
 
 interface DemandeRecente {
   id: string;
-  numeroDemande: string;
-  adherent: string;
+  numéroDemande: string;
+  adhérent: string;
   typeSoin: string;
   montant: number;
   statut: string;
@@ -35,8 +35,8 @@ interface DemandeRecente {
 }
 
 interface PerformanceMetric {
-  periode: string;
-  demandesTraitees: number;
+  période: string;
+  demandesTraitées: number;
   delaiMoyenTraitement: number;
   tauxApprobation: number;
   montantRembourse: number;
@@ -44,7 +44,7 @@ interface PerformanceMetric {
 
 // Mock data
 const mockStats: InsurerStats = {
-  adherentsActifs: 15420,
+  adhérentsActifs: 15420,
   contratsActifs: 342,
   prestatairesConventionnes: 1250,
   demandesEnCours: 89,
@@ -57,8 +57,8 @@ const mockStats: InsurerStats = {
 const mockDemandes: DemandeRecente[] = [
   {
     id: '1',
-    numeroDemande: 'DEM-2025-001234',
-    adherent: 'Mohamed Ben Ali',
+    numéroDemande: 'DEM-2025-001234',
+    adhérent: 'Mohamed Ben Ali',
     typeSoin: 'pharmacie',
     montant: 125500,
     statut: 'en_examen',
@@ -67,8 +67,8 @@ const mockDemandes: DemandeRecente[] = [
   },
   {
     id: '2',
-    numeroDemande: 'DEM-2025-001235',
-    adherent: 'Fatma Trabelsi',
+    numéroDemande: 'DEM-2025-001235',
+    adhérent: 'Fatma Trabelsi',
     typeSoin: 'consultation',
     montant: 85000,
     statut: 'approuvee',
@@ -77,8 +77,8 @@ const mockDemandes: DemandeRecente[] = [
   },
   {
     id: '3',
-    numeroDemande: 'DEM-2025-001236',
-    adherent: 'Ahmed Mansouri',
+    numéroDemande: 'DEM-2025-001236',
+    adhérent: 'Ahmed Mansouri',
     typeSoin: 'hospitalisation',
     montant: 2500000,
     statut: 'en_examen',
@@ -87,8 +87,8 @@ const mockDemandes: DemandeRecente[] = [
   },
   {
     id: '4',
-    numeroDemande: 'DEM-2025-001237',
-    adherent: 'Sarra Gharbi',
+    numéroDemande: 'DEM-2025-001237',
+    adhérent: 'Sarra Gharbi',
     typeSoin: 'laboratoire',
     montant: 75000,
     statut: 'approuvee',
@@ -97,20 +97,20 @@ const mockDemandes: DemandeRecente[] = [
   },
   {
     id: '5',
-    numeroDemande: 'DEM-2025-001238',
-    adherent: 'Karim Chaabane',
+    numéroDemande: 'DEM-2025-001238',
+    adhérent: 'Karim Chaabane',
     typeSoin: 'optique',
     montant: 350000,
-    statut: 'rejetee',
+    statut: 'rejetée',
     dateSoumission: '2025-02-25T14:10:00Z',
     scoreFraude: 72,
   },
 ];
 
 const mockPerformance: PerformanceMetric[] = [
-  { periode: 'Janvier 2025', demandesTraitees: 4520, delaiMoyenTraitement: 1.2, tauxApprobation: 85.3, montantRembourse: 2150000000 },
-  { periode: 'Décembre 2024', demandesTraitees: 4180, delaiMoyenTraitement: 1.5, tauxApprobation: 82.1, montantRembourse: 1980000000 },
-  { periode: 'Novembre 2024', demandesTraitees: 3920, delaiMoyenTraitement: 1.8, tauxApprobation: 80.5, montantRembourse: 1850000000 },
+  { période: 'Janvier 2025', demandesTraitées: 4520, delaiMoyenTraitement: 1.2, tauxApprobation: 85.3, montantRembourse: 2150000000 },
+  { période: 'Décembre 2024', demandesTraitées: 4180, delaiMoyenTraitement: 1.5, tauxApprobation: 82.1, montantRembourse: 1980000000 },
+  { période: 'Novembre 2024', demandesTraitées: 3920, delaiMoyenTraitement: 1.8, tauxApprobation: 80.5, montantRembourse: 1850000000 },
 ];
 
 export function InsurerDashboardPage() {
@@ -123,7 +123,7 @@ export function InsurerDashboardPage() {
   });
 
   const { data: demandes } = useQuery({
-    queryKey: ['insurer-demandes-recentes'],
+    queryKey: ['insurer-demandes-récentes'],
     queryFn: async () => mockDemandes,
   });
 
@@ -154,14 +154,14 @@ export function InsurerDashboardPage() {
       soumise: 'secondary',
       en_examen: 'warning',
       approuvee: 'success',
-      rejetee: 'destructive',
+      rejetée: 'destructive',
       payee: 'success',
     };
     const labels: Record<string, string> = {
       soumise: 'Soumise',
       en_examen: 'En examen',
       approuvee: 'Approuvée',
-      rejetee: 'Rejetée',
+      rejetée: 'Rejetée',
       payee: 'Payée',
     };
     return <Badge variant={variants[statut] || 'default'}>{labels[statut] || statut}</Badge>;
@@ -174,8 +174,8 @@ export function InsurerDashboardPage() {
   };
 
   const demandesColumns: Column<DemandeRecente>[] = [
-    { key: 'numeroDemande', header: 'N° Demande', sortable: true },
-    { key: 'adherent', header: 'Adhérent', sortable: true },
+    { key: 'numéroDemande', header: 'N° Demande', sortable: true },
+    { key: 'adhérent', header: 'Adhérent', sortable: true },
     {
       key: 'typeSoin',
       header: 'Type',
@@ -238,7 +238,7 @@ export function InsurerDashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.adherentsActifs.toLocaleString()}</div>
+            <div className="text-2xl font-bold">{stats?.adhérentsActifs.toLocaleString()}</div>
             <p className="text-xs text-muted-foreground">
               +2.5% vs mois précédent
             </p>
@@ -368,9 +368,9 @@ export function InsurerDashboardPage() {
               </thead>
               <tbody>
                 {performance?.map((metric, index) => (
-                  <tr key={metric.periode} className={index % 2 === 0 ? 'bg-muted/50' : ''}>
-                    <td className="py-3 px-4 font-medium">{metric.periode}</td>
-                    <td className="text-right py-3 px-4">{metric.demandesTraitees.toLocaleString()}</td>
+                  <tr key={metric.période} className={index % 2 === 0 ? 'bg-muted/50' : ''}>
+                    <td className="py-3 px-4 font-medium">{metric.période}</td>
+                    <td className="text-right py-3 px-4">{metric.demandesTraitées.toLocaleString()}</td>
                     <td className="text-right py-3 px-4">{metric.delaiMoyenTraitement}</td>
                     <td className="text-right py-3 px-4">
                       <Badge variant={metric.tauxApprobation >= 80 ? 'success' : 'warning'}>

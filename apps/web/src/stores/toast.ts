@@ -1,11 +1,11 @@
 import { create } from 'zustand';
-import type { ToastActionElement } from '@/components/ui/toaster';
+import type { ReactElement } from 'react';
 
 export interface ToasterToast {
   id: string;
   title?: string;
   description?: string;
-  action?: ToastActionElement;
+  action?: ReactElement;
   variant?: 'default' | 'destructive' | 'success';
 }
 

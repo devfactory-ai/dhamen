@@ -185,8 +185,8 @@ export function useBatchPaiements() {
 
 export const PAIEMENT_STATUTS_LABELS: Record<PaiementStatut, string> = {
   en_attente: 'En attente',
-  valide: 'Valide',
-  paye: 'Paye',
+  valide: 'Validé',
+  paye: 'Payé',
   annule: 'Annule',
 };
 
