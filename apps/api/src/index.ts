@@ -47,6 +47,7 @@ import {
   medications,
   bulletinsSoins,
   bulletinTemplates,
+  bulletinsAgent,
   consommation,
   companies,
 } from './routes';
@@ -180,10 +181,14 @@ api.route('/mf-verification', mfVerification);
 // Medications (Pharmacie Centrale Tunisie)
 api.route('/medications', medications);
 
+// Bulletin templates (public - no auth required for downloading blank forms)
+// Must be mounted BEFORE /bulletins-soins to prevent route conflict
+api.route('/bulletins-soins/templates', bulletinTemplates);
+// Bulletins agent routes (saisie, batches, export)
+api.route('/bulletins-soins/agent', bulletinsAgent);
+api.route('/bulletins-soins/batches', bulletinsAgent);
 // Bulletins de soins (adherent paper forms)
 api.route('/bulletins-soins', bulletinsSoins);
-// Bulletin templates (public - no auth required for downloading blank forms)
-api.route('/bulletins-soins/templates', bulletinTemplates);
 
 // Consommation garanties (adherent coverage tracking)
 api.route('/consommation', consommation);

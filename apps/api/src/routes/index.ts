@@ -91,6 +91,7 @@ export { medications } from './medications';
 // Bulletins de soins (adherent paper forms)
 export { bulletinsSoins } from './bulletins-soins';
 export { bulletinTemplates } from './bulletin-templates';
+export { bulletinsAgent } from './bulletins-agent';
 
 // Consommation garanties (adherent coverage tracking)
 export { consommation } from './consommation';

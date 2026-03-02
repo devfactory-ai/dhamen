@@ -189,7 +189,6 @@ function generateSimplePDF(
   careType: string,
   adherentData: AdherentPrefillData | null = null
 ): Uint8Array {
-  // PDF header and basic structure
   const careTypeLabels: Record<string, string> = {
     consultation: 'CONSULTATION MEDICALE',
     pharmacy: 'PHARMACIE',
@@ -201,123 +200,157 @@ function generateSimplePDF(
   const typeLabel = careTypeLabels[careType] || 'SOINS';
 
   // Prepare field values (pre-filled or blank)
-  const lastName = adherentData ? padField(adherentData.lastName, 32) : '________________________________';
-  const firstName = adherentData ? padField(adherentData.firstName, 32) : '________________________________';
+  const lastName = adherentData ? padField(adherentData.lastName, 30) : '______________________________';
+  const firstName = adherentData ? padField(adherentData.firstName, 30) : '______________________________';
   const dob = adherentData ? formatDateForPdf(adherentData.dateOfBirth) : '____/____/________';
-  const matricule = adherentData ? padField(adherentData.matricule, 28) : '____________________________';
-  const address = adherentData ? padField(adherentData.address, 68) : '____________________________________________________________________';
-  const phone = adherentData ? padField(adherentData.phone, 20) : '____________________';
+  const matricule = adherentData ? padField(adherentData.matricule, 24) : '________________________';
+  const address = adherentData ? padField(adherentData.address, 60) : '____________________________________________________________';
+  const phone = adherentData ? padField(adherentData.phone, 16) : '________________';
 
-  // Header text indicating if pre-filled
-  const headerNote = adherentData
-    ? '(PRE-REMPLI - Verifiez les informations)'
-    : '';
+  const headerNote = adherentData ? '\\(PRE-REMPLI - Verifiez les informations\\)' : '';
 
-  // Create a simple PDF (minimal valid PDF structure)
-  const pdfLines = [
-    '%PDF-1.4',
-    '1 0 obj',
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    'endobj',
-    '2 0 obj',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    'endobj',
-    '3 0 obj',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
-    'endobj',
-    '4 0 obj',
-    '<< /Length 6 0 R >>',
-    'stream',
+  // Build content stream
+  const contentLines: string[] = [
     'BT',
-    '/F1 24 Tf',
-    '50 780 Td',
-    `(DHAMEN - BULLETIN DE SOINS) Tj`,
-    '/F1 18 Tf',
-    '0 -35 Td',
+    '/F1 20 Tf',
+    '50 800 Td',
+    '(DHAMEN - BULLETIN DE SOINS) Tj',
+    '/F1 14 Tf',
+    '0 -30 Td',
     `(${typeLabel}) Tj`,
-    ...(headerNote ? [
-      '/F1 10 Tf',
-      '0 -20 Td',
-      `(${headerNote}) Tj`,
-      '0 -30 Td',
-    ] : [
-      '0 -50 Td',
-    ]),
-    '/F1 12 Tf',
-    '(INFORMATIONS ADHERENT) Tj',
-    '0 -20 Td',
-    `(Nom: ${lastName}  Prenom: ${firstName}) Tj`,
-    '0 -20 Td',
-    `(Date de naissance: ${dob}  N. Adherent: ${matricule}) Tj`,
-    '0 -20 Td',
-    `(Adresse: ${address}) Tj`,
-    ...(adherentData?.phone ? [
-      '0 -20 Td',
-      `(Telephone: ${phone}) Tj`,
-      '0 -20 Td',
-    ] : [
-      '0 -40 Td',
-    ]),
-    '(INFORMATIONS BENEFICIAIRE \\(si different de l adherent\\)) Tj',
-    '0 -20 Td',
-    '(Nom: ________________________________  Prenom: ________________________________) Tj',
-    '0 -20 Td',
-    '(Lien de parente: __________________________) Tj',
-    '0 -40 Td',
-    '(INFORMATIONS PRATICIEN) Tj',
-    '0 -20 Td',
-    '(Nom du praticien: ____________________________________________________________) Tj',
-    '0 -20 Td',
-    '(Specialite: __________________________  N. Ordre: ______________________________) Tj',
-    '0 -20 Td',
-    '(Adresse cabinet: ____________________________________________________________) Tj',
-    '0 -40 Td',
-    '(DETAILS DES SOINS) Tj',
-    '0 -20 Td',
-    '(Date des soins: ____/____/________) Tj',
-    '0 -20 Td',
-    '(Nature des soins: ____________________________________________________________) Tj',
-    '0 -20 Td',
-    '(____________________________________________________________________________) Tj',
-    '0 -20 Td',
-    '(Montant total: ________________ TND) Tj',
-    '0 -40 Td',
-    '(CACHET ET SIGNATURE DU PRATICIEN) Tj',
-    '0 -60 Td',
-    '(                                                          ) Tj',
-    '0 -20 Td',
-    '(Date: ____/____/________                    Signature:) Tj',
-    '0 -80 Td',
-    '/F1 10 Tf',
-    '(Document a remplir et a scanner dans l application DHAMEN Mobile) Tj',
-    '0 -15 Td',
-    '(Conservez l original pour vos archives - Delai de traitement: 2 a 5 jours ouvrables) Tj',
-    'ET',
-    'endstream',
-    'endobj',
-    '5 0 obj',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
-    'endobj',
-    '6 0 obj',
-    '1800',
-    'endobj',
-    'xref',
-    '0 7',
-    '0000000000 65535 f ',
-    '0000000009 00000 n ',
-    '0000000058 00000 n ',
-    '0000000115 00000 n ',
-    '0000000266 00000 n ',
-    '0000002100 00000 n ',
-    '0000002197 00000 n ',
-    'trailer',
-    '<< /Size 7 /Root 1 0 R >>',
-    'startxref',
-    '2217',
-    '%%EOF',
   ];
 
-  const pdfString = pdfLines.join('\n');
+  if (headerNote) {
+    contentLines.push('/F1 9 Tf', '0 -18 Td', `(${headerNote}) Tj`);
+  }
+
+  contentLines.push(
+    '/F1 11 Tf',
+    '0 -35 Td',
+    '(INFORMATIONS ADHERENT) Tj',
+    '/F1 10 Tf',
+    '0 -18 Td',
+    `(Nom: ${lastName}) Tj`,
+    '0 -16 Td',
+    `(Prenom: ${firstName}) Tj`,
+    '0 -16 Td',
+    `(Date de naissance: ${dob}) Tj`,
+    '0 -16 Td',
+    `(N. Adherent: ${matricule}) Tj`,
+    '0 -16 Td',
+    `(Adresse: ${address}) Tj`,
+  );
+
+  if (adherentData?.phone) {
+    contentLines.push('0 -16 Td', `(Telephone: ${phone}) Tj`);
+  }
+
+  contentLines.push(
+    '/F1 11 Tf',
+    '0 -28 Td',
+    '(BENEFICIAIRE \\(si different\\)) Tj',
+    '/F1 10 Tf',
+    '0 -16 Td',
+    '(Nom: ______________________________  Prenom: ______________________________) Tj',
+    '0 -16 Td',
+    '(Lien de parente: ______________________) Tj',
+    '/F1 11 Tf',
+    '0 -28 Td',
+    '(INFORMATIONS PRATICIEN) Tj',
+    '/F1 10 Tf',
+    '0 -16 Td',
+    '(Nom: ____________________________________________________________) Tj',
+    '0 -16 Td',
+    '(Specialite: ________________________  N. Ordre: ____________________) Tj',
+    '0 -16 Td',
+    '(Adresse: ____________________________________________________________) Tj',
+    '/F1 11 Tf',
+    '0 -28 Td',
+    '(DETAILS DES SOINS) Tj',
+    '/F1 10 Tf',
+    '0 -16 Td',
+    '(Date des soins: ____/____/________) Tj',
+    '0 -16 Td',
+    '(Nature: ____________________________________________________________) Tj',
+    '0 -16 Td',
+    '(________________________________________________________________________) Tj',
+    '0 -16 Td',
+    '(Montant total: ________________ TND) Tj',
+    '/F1 11 Tf',
+    '0 -28 Td',
+    '(CACHET ET SIGNATURE DU PRATICIEN) Tj',
+    '/F1 10 Tf',
+    '0 -50 Td',
+    '(Date: ____/____/________              Signature:) Tj',
+    '/F1 8 Tf',
+    '0 -60 Td',
+    '(Document a remplir et scanner dans DHAMEN Mobile - Delai: 2 a 5 jours ouvrables) Tj',
+    'ET',
+  );
+
+  const contentStream = contentLines.join('\n');
+  const contentLength = contentStream.length;
+
+  // Build PDF with correct structure
+  const objects: string[] = [];
+  const offsets: number[] = [];
+  let currentOffset = 0;
+
+  // Header
+  const header = '%PDF-1.4\n';
+  currentOffset = header.length;
+
+  // Object 1: Catalog
+  offsets.push(currentOffset);
+  const obj1 = '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n';
+  objects.push(obj1);
+  currentOffset += obj1.length;
+
+  // Object 2: Pages
+  offsets.push(currentOffset);
+  const obj2 = '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n';
+  objects.push(obj2);
+  currentOffset += obj2.length;
+
+  // Object 3: Page
+  offsets.push(currentOffset);
+  const obj3 = '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n';
+  objects.push(obj3);
+  currentOffset += obj3.length;
+
+  // Object 4: Content stream
+  offsets.push(currentOffset);
+  const obj4 = `4 0 obj\n<< /Length ${contentLength} >>\nstream\n${contentStream}\nendstream\nendobj\n`;
+  objects.push(obj4);
+  currentOffset += obj4.length;
+
+  // Object 5: Font
+  offsets.push(currentOffset);
+  const obj5 = '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n';
+  objects.push(obj5);
+  currentOffset += obj5.length;
+
+  // Xref
+  const xrefOffset = currentOffset;
+  const xrefLines = [
+    'xref',
+    '0 6',
+    '0000000000 65535 f ',
+  ];
+  for (const offset of offsets) {
+    xrefLines.push(offset.toString().padStart(10, '0') + ' 00000 n ');
+  }
+
+  const trailer = [
+    ...xrefLines,
+    'trailer',
+    '<< /Size 6 /Root 1 0 R >>',
+    'startxref',
+    xrefOffset.toString(),
+    '%%EOF',
+  ].join('\n');
+
+  const pdfString = header + objects.join('') + trailer;
   return new TextEncoder().encode(pdfString);
 }
 

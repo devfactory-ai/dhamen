@@ -1,5 +1,12 @@
 import { Button } from './button';
 
+interface ActionObject {
+  label: string;
+  onClick: () => void;
+  icon?: React.ReactNode;
+  variant?: 'default' | 'outline' | 'secondary';
+}
+
 interface PageHeaderProps {
   title: string;
   description?: string;
@@ -8,18 +15,17 @@ interface PageHeaderProps {
     label: string;
     variant?: 'default' | 'success' | 'warning' | 'danger' | 'info';
   };
-  action?: {
-    label: string;
-    onClick: () => void;
-    icon?: React.ReactNode;
-    variant?: 'default' | 'outline' | 'secondary';
-  };
+  action?: ActionObject | React.ReactNode;
   secondaryAction?: {
     label: string;
     onClick: () => void;
     icon?: React.ReactNode;
   };
   breadcrumb?: Array<{ label: string; href?: string }>;
+}
+
+function isActionObject(action: ActionObject | React.ReactNode): action is ActionObject {
+  return action !== null && typeof action === 'object' && 'label' in action && 'onClick' in action;
 }
 
 const badgeVariants = {
@@ -102,14 +108,18 @@ export function PageHeader({
             </Button>
           )}
           {action && (
-            <Button
-              variant={action.variant || 'default'}
-              onClick={action.onClick}
-              className="gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-lg shadow-blue-600/25"
-            >
-              {action.icon}
-              {action.label}
-            </Button>
+            isActionObject(action) ? (
+              <Button
+                variant={action.variant || 'default'}
+                onClick={action.onClick}
+                className="gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-lg shadow-blue-600/25"
+              >
+                {action.icon}
+                {action.label}
+              </Button>
+            ) : (
+              action
+            )
           )}
         </div>
       </div>

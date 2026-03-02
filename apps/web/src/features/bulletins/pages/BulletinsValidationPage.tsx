@@ -56,6 +56,10 @@ import {
   Calendar,
   User,
   CreditCard,
+  FileDown,
+  ChevronRight,
+  Info,
+  Printer,
 } from 'lucide-react';
 
 // Types for bulletin workflow

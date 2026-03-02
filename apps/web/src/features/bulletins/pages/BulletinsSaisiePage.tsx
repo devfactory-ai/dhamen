@@ -1,0 +1,951 @@
+import { useState, useRef } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { PageHeader } from '@/components/ui/page-header';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { DataTable } from '@/components/ui/data-table';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { FilePreviewList } from '@/components/ui/file-preview';
+import { apiClient } from '@/lib/api-client';
+import { toast } from 'sonner';
+import {
+  FileText,
+  Upload,
+  Download,
+  Clock,
+  CheckCircle,
+  Loader2,
+  Eye,
+  FileImage,
+  Stethoscope,
+  Pill,
+  FlaskConical,
+  Building2,
+  Plus,
+  Trash2,
+  FileSpreadsheet,
+  Send,
+  Package,
+  Calendar,
+  User,
+  Search,
+  FolderPlus,
+  Check,
+} from 'lucide-react';
+
+// Types
+interface BulletinSaisie {
+  id: string;
+  bulletin_number: string;
+  bulletin_date: string;
+  adherent_matricule: string;
+  adherent_first_name: string;
+  adherent_last_name: string;
+  adherent_national_id: string;
+  beneficiary_name: string | null;
+  beneficiary_relationship: string | null;
+  provider_name: string;
+  provider_specialty: string;
+  care_type: string;
+  care_description: string;
+  total_amount: number;
+  scan_url: string | null;
+  batch_id: string | null;
+  batch_name: string | null;
+  created_at: string;
+  status: 'draft' | 'in_batch' | 'exported';
+}
+
+interface Batch {
+  id: string;
+  name: string;
+  created_at: string;
+  bulletins_count: number;
+  total_amount: number;
+  status: 'open' | 'closed' | 'exported';
+  exported_at: string | null;
+}
+
+const careTypeConfig = {
+  consultation: { label: 'Consultation', icon: Stethoscope },
+  pharmacy: { label: 'Pharmacie', icon: Pill },
+  lab: { label: 'Analyses', icon: FlaskConical },
+  hospital: { label: 'Hospitalisation', icon: Building2 },
+};
+
+// Form schema
+const bulletinFormSchema = z.object({
+  bulletin_date: z.string().min(1, 'Date requise'),
+  adherent_matricule: z.string().min(1, 'Matricule requis'),
+  adherent_first_name: z.string().min(2, 'Prenom requis'),
+  adherent_last_name: z.string().min(2, 'Nom requis'),
+  adherent_national_id: z.string().min(8, 'CIN requis'),
+  beneficiary_name: z.string().optional(),
+  beneficiary_relationship: z.string().optional(),
+  provider_name: z.string().min(2, 'Nom du praticien requis'),
+  provider_specialty: z.string().optional(),
+  care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']),
+  care_description: z.string().optional(),
+  total_amount: z.number().min(0.01, 'Montant requis'),
+});
+
+type BulletinFormData = z.infer<typeof bulletinFormSchema>;
+
+export function BulletinsSaisiePage() {
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState('saisie');
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedBulletins, setSelectedBulletins] = useState<string[]>([]);
+  const [showBatchDialog, setShowBatchDialog] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
+  const [newBatchName, setNewBatchName] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    reset,
+    formState: { errors },
+  } = useForm<BulletinFormData>({
+    resolver: zodResolver(bulletinFormSchema),
+    defaultValues: {
+      care_type: 'consultation',
+      bulletin_date: new Date().toISOString().split('T')[0],
+    },
+  });
+
+  const selectedCareType = watch('care_type');
+
+  // Fetch bulletins (drafts and in_batch)
+  const { data: bulletinsData, isLoading: loadingBulletins } = useQuery({
+    queryKey: ['agent-bulletins', searchQuery],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.append('status', 'draft,in_batch');
+      if (searchQuery) params.append('search', searchQuery);
+
+      const response = await apiClient.get<BulletinSaisie[]>(`/bulletins-soins/agent?${params}`);
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data || [];
+    },
+  });
+
+  // Fetch batches
+  const { data: batchesData, isLoading: loadingBatches } = useQuery({
+    queryKey: ['agent-batches'],
+    queryFn: async () => {
+      const response = await apiClient.get<Batch[]>('/bulletins-soins/batches');
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data || [];
+    },
+  });
+
+  // Submit bulletin mutation
+  const submitMutation = useMutation({
+    mutationFn: async (data: { formData: BulletinFormData; files: File[] }) => {
+      const form = new FormData();
+
+      Object.entries(data.formData).forEach(([key, value]) => {
+        if (value !== undefined && value !== '') {
+          form.append(key, String(value));
+        }
+      });
+
+      data.files.forEach((file, index) => {
+        form.append(`scan_${index}`, file);
+      });
+
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL || '/api/v1'}/bulletins-soins/agent/create`,
+        {
+          method: 'POST',
+          body: form,
+          credentials: 'include',
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Erreur lors de la saisie');
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
+      toast.success('Bulletin saisi avec succes!');
+      reset();
+      setSelectedFiles([]);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors de la saisie');
+    },
+  });
+
+  // Create batch mutation
+  const createBatchMutation = useMutation({
+    mutationFn: async (data: { name: string; bulletinIds: string[] }) => {
+      const response = await apiClient.post('/bulletins-soins/batches', data);
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
+      queryClient.invalidateQueries({ queryKey: ['agent-batches'] });
+      toast.success('Lot cree avec succes!');
+      setShowBatchDialog(false);
+      setSelectedBulletins([]);
+      setNewBatchName('');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors de la creation du lot');
+    },
+  });
+
+  // Export batch mutation
+  const exportBatchMutation = useMutation({
+    mutationFn: async (batchId: string) => {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL || '/api/v1'}/bulletins-soins/batches/${batchId}/export`,
+        {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Erreur lors de l\'export');
+      }
+
+      // Get the CSV content
+      const csvContent = await response.text();
+      return { csvContent, batchName: selectedBatch?.name || 'lot' };
+    },
+    onSuccess: ({ csvContent, batchName }) => {
+      // Create and download the CSV file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${batchName}_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      queryClient.invalidateQueries({ queryKey: ['agent-batches'] });
+      toast.success('Export CSV telecharge!');
+      setShowExportDialog(false);
+      setSelectedBatch(null);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors de l\'export');
+    },
+  });
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const validFiles = files.filter(file => {
+      const isValidType = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'].includes(file.type);
+      const isValidSize = file.size <= 10 * 1024 * 1024;
+      return isValidType && isValidSize;
+    });
+
+    if (validFiles.length !== files.length) {
+      toast.error('Certains fichiers ont ete ignores (format ou taille invalide)');
+    }
+
+    setSelectedFiles(prev => [...prev, ...validFiles]);
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const onSubmitForm = async (data: BulletinFormData) => {
+    if (selectedFiles.length === 0) {
+      toast.error('Veuillez ajouter au moins un scan du bulletin');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await submitMutation.mutateAsync({ formData: data, files: selectedFiles });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleToggleBulletin = (id: string) => {
+    setSelectedBulletins(prev =>
+      prev.includes(id) ? prev.filter(b => b !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAll = () => {
+    const draftBulletins = (bulletinsData || []).filter(b => b.status === 'draft');
+    if (selectedBulletins.length === draftBulletins.length) {
+      setSelectedBulletins([]);
+    } else {
+      setSelectedBulletins(draftBulletins.map(b => b.id));
+    }
+  };
+
+  const handleCreateBatch = () => {
+    if (!newBatchName.trim()) {
+      toast.error('Veuillez entrer un nom pour le lot');
+      return;
+    }
+    createBatchMutation.mutate({
+      name: newBatchName.trim(),
+      bulletinIds: selectedBulletins,
+    });
+  };
+
+  const handleExportBatch = (batch: Batch) => {
+    setSelectedBatch(batch);
+    setShowExportDialog(true);
+  };
+
+  const formatAmount = (amount: number) => {
+    return new Intl.NumberFormat('fr-TN', {
+      style: 'currency',
+      currency: 'TND',
+      minimumFractionDigits: 3,
+    }).format(amount);
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('fr-TN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  };
+
+  const bulletinColumns = [
+    {
+      key: 'select',
+      header: (
+        <input
+          type="checkbox"
+          checked={selectedBulletins.length > 0 && selectedBulletins.length === (bulletinsData || []).filter(b => b.status === 'draft').length}
+          onChange={handleSelectAll}
+          className="h-4 w-4 rounded border-gray-300"
+        />
+      ),
+      render: (row: BulletinSaisie) => (
+        row.status === 'draft' ? (
+          <input
+            type="checkbox"
+            checked={selectedBulletins.includes(row.id)}
+            onChange={() => handleToggleBulletin(row.id)}
+            className="h-4 w-4 rounded border-gray-300"
+          />
+        ) : null
+      ),
+    },
+    {
+      key: 'bulletin',
+      header: 'Bulletin',
+      render: (row: BulletinSaisie) => (
+        <div className="flex items-center gap-3">
+          <FileText className="h-5 w-5 text-gray-400" />
+          <div>
+            <p className="font-mono text-sm font-medium">{row.bulletin_number || 'Brouillon'}</p>
+            <p className="text-xs text-muted-foreground">{formatDate(row.bulletin_date)}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'adherent',
+      header: 'Adherent',
+      render: (row: BulletinSaisie) => (
+        <div>
+          <p className="font-medium">{row.adherent_first_name} {row.adherent_last_name}</p>
+          <p className="text-xs text-muted-foreground font-mono">{row.adherent_matricule}</p>
+        </div>
+      ),
+    },
+    {
+      key: 'care_type',
+      header: 'Type',
+      render: (row: BulletinSaisie) => {
+        const config = careTypeConfig[row.care_type as keyof typeof careTypeConfig] || careTypeConfig.consultation;
+        const Icon = config.icon;
+        return (
+          <div className="flex items-center gap-2">
+            <Icon className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm">{config.label}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'amount',
+      header: 'Montant',
+      render: (row: BulletinSaisie) => (
+        <p className="font-medium text-right">{formatAmount(row.total_amount)}</p>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Statut',
+      render: (row: BulletinSaisie) => (
+        <Badge variant={row.status === 'draft' ? 'secondary' : row.status === 'in_batch' ? 'default' : 'outline'}>
+          {row.status === 'draft' ? 'Brouillon' : row.status === 'in_batch' ? `Lot: ${row.batch_name}` : 'Exporte'}
+        </Badge>
+      ),
+    },
+  ];
+
+  const batchColumns = [
+    {
+      key: 'name',
+      header: 'Nom du lot',
+      render: (row: Batch) => (
+        <div className="flex items-center gap-3">
+          <Package className="h-5 w-5 text-blue-500" />
+          <div>
+            <p className="font-medium">{row.name}</p>
+            <p className="text-xs text-muted-foreground">{formatDate(row.created_at)}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'count',
+      header: 'Bulletins',
+      render: (row: Batch) => (
+        <p className="font-medium">{row.bulletins_count}</p>
+      ),
+    },
+    {
+      key: 'total',
+      header: 'Montant total',
+      render: (row: Batch) => (
+        <p className="font-medium">{formatAmount(row.total_amount)}</p>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Statut',
+      render: (row: Batch) => (
+        <Badge variant={row.status === 'open' ? 'default' : row.status === 'exported' ? 'outline' : 'secondary'}>
+          {row.status === 'open' ? 'Ouvert' : row.status === 'exported' ? 'Exporte' : 'Ferme'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (row: Batch) => (
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => handleExportBatch(row)}
+            className="gap-1"
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            Export CSV
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  const draftCount = (bulletinsData || []).filter(b => b.status === 'draft').length;
+  const totalAmount = (bulletinsData || []).reduce((sum, b) => sum + b.total_amount, 0);
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Saisie des Bulletins de Soins"
+        description="Scannez et saisissez les bulletins recus, puis exportez par lot"
+        action={
+          <div className="flex gap-2">
+            {selectedBulletins.length > 0 && (
+              <Button onClick={() => setShowBatchDialog(true)}>
+                <FolderPlus className="mr-2 h-4 w-4" />
+                Creer un lot ({selectedBulletins.length})
+              </Button>
+            )}
+          </div>
+        }
+      />
+
+      {/* Stats */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
+                <FileText className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{draftCount}</p>
+                <p className="text-sm text-muted-foreground">Brouillons</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
+                <Package className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{(batchesData || []).filter(b => b.status === 'open').length}</p>
+                <p className="text-sm text-muted-foreground">Lots ouverts</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100">
+                <FileSpreadsheet className="h-5 w-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{(batchesData || []).filter(b => b.status === 'exported').length}</p>
+                <p className="text-sm text-muted-foreground">Lots exportes</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+          <CardContent className="pt-6">
+            <div>
+              <p className="text-2xl font-bold text-blue-700">{formatAmount(totalAmount)}</p>
+              <p className="text-sm text-blue-600">Montant total saisi</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="saisie">Nouveau bulletin</TabsTrigger>
+          <TabsTrigger value="liste">Liste des bulletins ({(bulletinsData || []).length})</TabsTrigger>
+          <TabsTrigger value="lots">Gestion des lots ({(batchesData || []).length})</TabsTrigger>
+        </TabsList>
+
+        {/* Tab: Saisie */}
+        <TabsContent value="saisie">
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Plus className="h-5 w-5" />
+                    Saisir un nouveau bulletin
+                  </CardTitle>
+                  <CardDescription>
+                    Scannez le bulletin puis renseignez les informations
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleSubmit(onSubmitForm)} className="space-y-6">
+                    {/* Scan upload */}
+                    <div className="space-y-2">
+                      <Label>Scan du bulletin *</Label>
+                      {selectedFiles.length > 0 ? (
+                        <div className="space-y-3">
+                          <FilePreviewList
+                            files={selectedFiles}
+                            onRemove={handleRemoveFile}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => fileInputRef.current?.click()}
+                          >
+                            <Upload className="h-4 w-4 mr-2" />
+                            Ajouter un autre fichier
+                          </Button>
+                        </div>
+                      ) : (
+                        <div
+                          className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 transition-colors"
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          <FileImage className="h-10 w-10 text-muted-foreground/50 mb-2" />
+                          <p className="font-medium text-sm">Scanner ou deposer le bulletin</p>
+                          <p className="text-xs text-muted-foreground">PDF, JPG, PNG (max 10 Mo)</p>
+                        </div>
+                      )}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        multiple
+                        onChange={handleFileChange}
+                        className="hidden"
+                      />
+                    </div>
+
+                    {/* Date */}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Date du bulletin *</Label>
+                        <Input type="date" {...register('bulletin_date')} />
+                        {errors.bulletin_date && (
+                          <p className="text-sm text-destructive">{errors.bulletin_date.message}</p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Type de soin *</Label>
+                        <Select
+                          value={selectedCareType}
+                          onValueChange={(v) => setValue('care_type', v as 'consultation' | 'pharmacy' | 'lab' | 'hospital')}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="consultation">Consultation</SelectItem>
+                            <SelectItem value="pharmacy">Pharmacie</SelectItem>
+                            <SelectItem value="lab">Analyses</SelectItem>
+                            <SelectItem value="hospital">Hospitalisation</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Adherent info */}
+                    <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                      <h4 className="font-medium flex items-center gap-2">
+                        <User className="h-4 w-4" />
+                        Informations Adherent
+                      </h4>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>Matricule *</Label>
+                          <Input {...register('adherent_matricule')} placeholder="MAT-XXXXXX" />
+                          {errors.adherent_matricule && (
+                            <p className="text-sm text-destructive">{errors.adherent_matricule.message}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label>CIN *</Label>
+                          <Input {...register('adherent_national_id')} placeholder="12345678" />
+                          {errors.adherent_national_id && (
+                            <p className="text-sm text-destructive">{errors.adherent_national_id.message}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Nom *</Label>
+                          <Input {...register('adherent_last_name')} />
+                          {errors.adherent_last_name && (
+                            <p className="text-sm text-destructive">{errors.adherent_last_name.message}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Prenom *</Label>
+                          <Input {...register('adherent_first_name')} />
+                          {errors.adherent_first_name && (
+                            <p className="text-sm text-destructive">{errors.adherent_first_name.message}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>Nom du beneficiaire (si different)</Label>
+                          <Input {...register('beneficiary_name')} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Lien de parente</Label>
+                          <Select onValueChange={(v) => setValue('beneficiary_relationship', v)}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Choisir..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="spouse">Conjoint(e)</SelectItem>
+                              <SelectItem value="child">Enfant</SelectItem>
+                              <SelectItem value="parent">Parent</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Provider info */}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Nom du praticien *</Label>
+                        <Input {...register('provider_name')} placeholder="Dr. Mohamed Ali" />
+                        {errors.provider_name && (
+                          <p className="text-sm text-destructive">{errors.provider_name.message}</p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Specialite</Label>
+                        <Input {...register('provider_specialty')} placeholder="Generaliste, Cardiologue..." />
+                      </div>
+                    </div>
+
+                    {/* Amount */}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Montant total (TND) *</Label>
+                        <Input
+                          type="number"
+                          step="0.001"
+                          {...register('total_amount', { valueAsNumber: true })}
+                          placeholder="150.000"
+                        />
+                        {errors.total_amount && (
+                          <p className="text-sm text-destructive">{errors.total_amount.message}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    <div className="space-y-2">
+                      <Label>Description des soins</Label>
+                      <Textarea
+                        {...register('care_description')}
+                        placeholder="Ex: Consultation + analyses sanguines"
+                        rows={2}
+                      />
+                    </div>
+
+                    <Button type="submit" className="w-full" disabled={isSubmitting || selectedFiles.length === 0}>
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Enregistrement...
+                        </>
+                      ) : (
+                        <>
+                          <Check className="mr-2 h-4 w-4" />
+                          Enregistrer le bulletin
+                        </>
+                      )}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Info panel */}
+            <div className="space-y-4">
+              <Card className="bg-blue-50 border-blue-200">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base text-blue-900">Workflow</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm text-blue-800 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs font-bold">1</div>
+                    <span>Scanner le bulletin papier</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs font-bold">2</div>
+                    <span>Saisir les informations</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs font-bold">3</div>
+                    <span>Regrouper en lot</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs font-bold">4</div>
+                    <span>Exporter en CSV</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Raccourcis clavier</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm space-y-1">
+                  <p><kbd className="px-1 bg-gray-100 rounded">Tab</kbd> Champ suivant</p>
+                  <p><kbd className="px-1 bg-gray-100 rounded">Ctrl+S</kbd> Enregistrer</p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Tab: Liste */}
+        <TabsContent value="liste" className="space-y-4">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex gap-4 mb-4">
+                <div className="flex-1">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Rechercher par nom, matricule..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+                {selectedBulletins.length > 0 && (
+                  <Button onClick={() => setShowBatchDialog(true)}>
+                    <FolderPlus className="mr-2 h-4 w-4" />
+                    Creer un lot ({selectedBulletins.length})
+                  </Button>
+                )}
+              </div>
+              <DataTable
+                columns={bulletinColumns}
+                data={bulletinsData || []}
+                isLoading={loadingBulletins}
+                emptyMessage="Aucun bulletin saisi"
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Tab: Lots */}
+        <TabsContent value="lots" className="space-y-4">
+          <Card>
+            <CardContent className="pt-6">
+              <DataTable
+                columns={batchColumns}
+                data={batchesData || []}
+                isLoading={loadingBatches}
+                emptyMessage="Aucun lot cree"
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Create Batch Dialog */}
+      <Dialog open={showBatchDialog} onOpenChange={setShowBatchDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Creer un nouveau lot</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nom du lot</Label>
+              <Input
+                value={newBatchName}
+                onChange={(e) => setNewBatchName(e.target.value)}
+                placeholder={`Lot_${new Date().toISOString().split('T')[0]}`}
+              />
+            </div>
+            <div className="p-3 rounded-lg bg-muted">
+              <p className="text-sm font-medium">{selectedBulletins.length} bulletins selectionnes</p>
+              <p className="text-sm text-muted-foreground">
+                Montant total: {formatAmount(
+                  (bulletinsData || [])
+                    .filter(b => selectedBulletins.includes(b.id))
+                    .reduce((sum, b) => sum + b.total_amount, 0)
+                )}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBatchDialog(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleCreateBatch} disabled={createBatchMutation.isPending}>
+              {createBatchMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creation...
+                </>
+              ) : (
+                <>
+                  <FolderPlus className="mr-2 h-4 w-4" />
+                  Creer le lot
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Export Dialog */}
+      <AlertDialog open={showExportDialog} onOpenChange={setShowExportDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Exporter le lot en CSV</AlertDialogTitle>
+            <AlertDialogDescription>
+              Voulez-vous exporter le lot "{selectedBatch?.name}" ?
+              <br />
+              <span className="font-medium">{selectedBatch?.bulletins_count} bulletins</span> pour un total de <span className="font-medium">{formatAmount(selectedBatch?.total_amount || 0)}</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => selectedBatch && exportBatchMutation.mutate(selectedBatch.id)}
+              disabled={exportBatchMutation.isPending}
+            >
+              {exportBatchMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Export...
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Telecharger CSV
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+export default BulletinsSaisiePage;
