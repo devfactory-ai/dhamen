@@ -16,8 +16,8 @@ CREATE TABLE IF NOT EXISTS bulletin_batches (
 -- Add created_by to bulletins_soins if not exists
 -- ALTER TABLE bulletins_soins ADD COLUMN created_by TEXT REFERENCES users(id);
 
--- Create indexes
+-- Create indexes for bulletin_batches
 CREATE INDEX IF NOT EXISTS idx_bulletin_batches_created_by ON bulletin_batches(created_by);
 CREATE INDEX IF NOT EXISTS idx_bulletin_batches_status ON bulletin_batches(status);
-CREATE INDEX IF NOT EXISTS idx_bulletins_soins_batch_id ON bulletins_soins(batch_id);
-CREATE INDEX IF NOT EXISTS idx_bulletins_soins_created_by ON bulletins_soins(created_by);
+-- Note: indexes on bulletins_soins.batch_id and bulletins_soins.created_by will be created
+-- in the bulletins_soins migration (0044) when those columns are defined

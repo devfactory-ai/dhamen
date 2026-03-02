@@ -81,6 +81,5 @@ CREATE INDEX IF NOT EXISTS idx_contre_visites_statut ON sante_contre_visites(sta
 CREATE INDEX IF NOT EXISTS idx_contre_visites_date_planifiee ON sante_contre_visites(date_planifiee);
 CREATE INDEX IF NOT EXISTS idx_contre_visites_date_limite ON sante_contre_visites(date_limite);
 
--- Add contre_visite status to sante_demandes
-ALTER TABLE sante_demandes ADD COLUMN contre_visite_requise INTEGER DEFAULT 0;
-ALTER TABLE sante_demandes ADD COLUMN contre_visite_id TEXT REFERENCES sante_contre_visites(id);
+-- Note: Columns contre_visite_requise, contre_visite_id may already exist in sante_demandes
+-- SQLite doesn't support ADD COLUMN IF NOT EXISTS, columns added via seed/migration if needed

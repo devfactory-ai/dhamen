@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS users_new (
 );
 
 -- Copy existing data (add NULL for company_id)
-INSERT INTO users_new (id, email, password_hash, role, provider_id, insurer_id, company_id, first_name, last_name, phone, mfa_enabled, mfa_secret, last_login_at, is_active, created_at, updated_at)
+INSERT OR IGNORE INTO users_new (id, email, password_hash, role, provider_id, insurer_id, company_id, first_name, last_name, phone, mfa_enabled, mfa_secret, last_login_at, is_active, created_at, updated_at)
 SELECT id, email, password_hash, role, provider_id, insurer_id, NULL, first_name, last_name, phone, mfa_enabled, mfa_secret, last_login_at, is_active, created_at, updated_at FROM users;
 
 -- Drop old table and rename

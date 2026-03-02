@@ -91,6 +91,7 @@ const HRClaimsPage = lazy(() => import('@/features/hr-portal/pages/HRClaimsPage'
 const BulletinsValidationPage = lazy(() => import('@/features/bulletins/pages/BulletinsValidationPage').then(m => ({ default: m.default })));
 const BulletinsPaymentPage = lazy(() => import('@/features/bulletins/pages/BulletinsPaymentPage').then(m => ({ default: m.default })));
 const BulletinsSaisiePage = lazy(() => import('@/features/bulletins/pages/BulletinsSaisiePage').then(m => ({ default: m.default })));
+const BulletinsArchivePage = lazy(() => import('@/features/bulletins/pages/BulletinsArchivePage').then(m => ({ default: m.default })));
 
 /**
  * Loading spinner for lazy-loaded routes
@@ -201,6 +202,7 @@ function App() {
                     <Route path="/bulletins/validation" element={<BulletinsValidationPage />} />
                     <Route path="/bulletins/payments" element={<BulletinsPaymentPage />} />
                     <Route path="/bulletins/saisie" element={<BulletinsSaisiePage />} />
+                    <Route path="/bulletins/archive" element={<BulletinsArchivePage />} />
                     <Route path="/reconciliation" element={<ReconciliationPage />} />
                     <Route path="/reconciliation/:id" element={<ReconciliationDetailsPage />} />
                     {/* Provider routes */}

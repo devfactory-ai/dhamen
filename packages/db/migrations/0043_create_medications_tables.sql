@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS medication_families (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
-CREATE INDEX idx_medication_families_code ON medication_families(code);
-CREATE INDEX idx_medication_families_parent ON medication_families(parent_id);
+CREATE INDEX IF NOT EXISTS idx_medication_families_code ON medication_families(code);
+CREATE INDEX IF NOT EXISTS idx_medication_families_parent ON medication_families(parent_id);
 
 -- Medications master table
 CREATE TABLE IF NOT EXISTS medications (
@@ -46,12 +46,12 @@ CREATE TABLE IF NOT EXISTS medications (
   deleted_at TEXT
 );
 
-CREATE INDEX idx_medications_code_pct ON medications(code_pct);
-CREATE INDEX idx_medications_code_cnam ON medications(code_cnam);
-CREATE INDEX idx_medications_dci ON medications(dci);
-CREATE INDEX idx_medications_brand ON medications(brand_name);
-CREATE INDEX idx_medications_family ON medications(family_id);
-CREATE INDEX idx_medications_batch ON medications(import_batch_id);
+CREATE INDEX IF NOT EXISTS idx_medications_code_pct ON medications(code_pct);
+CREATE INDEX IF NOT EXISTS idx_medications_code_cnam ON medications(code_cnam);
+CREATE INDEX IF NOT EXISTS idx_medications_dci ON medications(dci);
+CREATE INDEX IF NOT EXISTS idx_medications_brand ON medications(brand_name);
+CREATE INDEX IF NOT EXISTS idx_medications_family ON medications(family_id);
+CREATE INDEX IF NOT EXISTS idx_medications_batch ON medications(import_batch_id);
 
 -- Import batches history
 CREATE TABLE IF NOT EXISTS medication_import_batches (
@@ -74,9 +74,9 @@ CREATE TABLE IF NOT EXISTS medication_import_batches (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
-CREATE INDEX idx_medication_imports_status ON medication_import_batches(status);
-CREATE INDEX idx_medication_imports_source ON medication_import_batches(source);
-CREATE INDEX idx_medication_imports_date ON medication_import_batches(created_at);
+CREATE INDEX IF NOT EXISTS idx_medication_imports_status ON medication_import_batches(status);
+CREATE INDEX IF NOT EXISTS idx_medication_imports_source ON medication_import_batches(source);
+CREATE INDEX IF NOT EXISTS idx_medication_imports_date ON medication_import_batches(created_at);
 
 -- Medication history (track changes)
 CREATE TABLE IF NOT EXISTS medication_history (
@@ -91,6 +91,6 @@ CREATE TABLE IF NOT EXISTS medication_history (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
-CREATE INDEX idx_medication_history_med ON medication_history(medication_id);
-CREATE INDEX idx_medication_history_batch ON medication_history(import_batch_id);
-CREATE INDEX idx_medication_history_type ON medication_history(change_type);
+CREATE INDEX IF NOT EXISTS idx_medication_history_med ON medication_history(medication_id);
+CREATE INDEX IF NOT EXISTS idx_medication_history_batch ON medication_history(import_batch_id);
+CREATE INDEX IF NOT EXISTS idx_medication_history_type ON medication_history(change_type);

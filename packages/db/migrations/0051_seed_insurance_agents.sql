@@ -7,7 +7,7 @@
 -- INSURANCE AGENT USER ACCOUNTS
 -- ============================================
 
-INSERT INTO users (id, email, password_hash, role, provider_id, insurer_id, first_name, last_name, phone, mfa_enabled, is_active) VALUES
+INSERT OR IGNORE INTO users (id, email, password_hash, role, provider_id, insurer_id, first_name, last_name, phone, mfa_enabled, is_active) VALUES
 -- Sami Khlifi - Agent STAR
 ('01JCVMKD1AP2N3X4Y5Z6A7B8A1', 'agent.star@email.tn', '$pbkdf2$100000$BIceZO/26w7s/paJT9lX9A==$YqH2q/wCnl17FQoKolIEvf57gEDQSOCDtZnAeV1NkPI=', 'INSURER_AGENT', NULL, '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 'Sami', 'Khlifi', '+21698111001', 0, 1),
 

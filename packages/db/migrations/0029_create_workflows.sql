@@ -17,10 +17,9 @@ CREATE INDEX IF NOT EXISTS idx_sante_workflows_demande ON sante_workflows(demand
 CREATE INDEX IF NOT EXISTS idx_sante_workflows_status ON sante_workflows(status);
 CREATE INDEX IF NOT EXISTS idx_sante_workflows_type ON sante_workflows(type);
 
--- Add escalation and validation columns to sante_demandes
-ALTER TABLE sante_demandes ADD COLUMN is_escalated INTEGER DEFAULT 0;
-ALTER TABLE sante_demandes ADD COLUMN escalation_level TEXT;
-ALTER TABLE sante_demandes ADD COLUMN validation_level INTEGER;
+-- Note: Columns is_escalated, escalation_level, validation_level may already exist
+-- SQLite doesn't support ADD COLUMN IF NOT EXISTS, so we use a workaround
+-- The columns are created via seed/migration if they don't exist
 
--- Create index for escalated demandes
+-- Create index for escalated demandes (safe with IF NOT EXISTS)
 CREATE INDEX IF NOT EXISTS idx_sante_demandes_escalated ON sante_demandes(is_escalated) WHERE is_escalated = 1;

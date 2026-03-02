@@ -4,7 +4,7 @@
  */
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth';
-import { generateULID } from '../lib/ulid';
+import { generateId } from '../lib/ulid';
 import type { Bindings, Variables } from '../types';
 
 const bulletinsAgent = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -110,7 +110,7 @@ bulletinsAgent.post('/create', async (c) => {
   }
 
   // Generate bulletin number
-  const bulletinId = generateULID();
+  const bulletinId = generateId();
   const bulletinNumber = `BS-${new Date().getFullYear()}-${bulletinId.slice(-8).toUpperCase()}`;
 
   // Handle file upload (scan)
@@ -241,7 +241,7 @@ bulletinsAgent.post('/batches', async (c) => {
     }, 400);
   }
 
-  const batchId = generateULID();
+  const batchId = generateId();
 
   try {
     // Create batch

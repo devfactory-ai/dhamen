@@ -48,6 +48,7 @@ import {
   bulletinsSoins,
   bulletinTemplates,
   bulletinsAgent,
+  bulletinsArchive,
   consommation,
   companies,
 } from './routes';
@@ -187,6 +188,8 @@ api.route('/bulletins-soins/templates', bulletinTemplates);
 // Bulletins agent routes (saisie, batches, export)
 api.route('/bulletins-soins/agent', bulletinsAgent);
 api.route('/bulletins-soins/batches', bulletinsAgent);
+// Bulletins archive (import CSV, upload scans, search)
+api.route('/bulletins-soins/archive', bulletinsArchive);
 // Bulletins de soins (adherent paper forms)
 api.route('/bulletins-soins', bulletinsSoins);
 

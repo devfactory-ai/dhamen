@@ -92,6 +92,7 @@ export { medications } from './medications';
 export { bulletinsSoins } from './bulletins-soins';
 export { bulletinTemplates } from './bulletin-templates';
 export { bulletinsAgent } from './bulletins-agent';
+export { bulletinsArchive } from './bulletins-archive';
 
 // Consommation garanties (adherent coverage tracking)
 export { consommation } from './consommation';

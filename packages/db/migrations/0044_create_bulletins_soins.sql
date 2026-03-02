@@ -42,7 +42,7 @@ CREATE INDEX IF NOT EXISTS idx_bulletins_soins_date ON bulletins_soins(bulletin_
 CREATE INDEX IF NOT EXISTS idx_bulletins_soins_number ON bulletins_soins(bulletin_number);
 
 -- Seed some demo bulletins for existing adherents
-INSERT INTO bulletins_soins (id, adherent_id, bulletin_number, bulletin_date, provider_name, provider_specialty, care_type, care_description, total_amount, reimbursed_amount, status, submission_date, processing_date, reimbursement_date, scan_url)
+INSERT OR IGNORE INTO bulletins_soins (id, adherent_id, bulletin_number, bulletin_date, provider_name, provider_specialty, care_type, care_description, total_amount, reimbursed_amount, status, submission_date, processing_date, reimbursement_date, scan_url)
 SELECT
   'BS' || substr(hex(randomblob(8)), 1, 16),
   a.id,
