@@ -1,0 +1,90 @@
+{
+  "name": "Dhamen - Tiers Payant Santé",
+  "short_name": "Dhamen",
+  "description": "Plateforme de gestion du tiers payant santé en Tunisie",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1e3a5f",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "fr-TN",
+  "categories": ["business", "medical", "finance"],
+  "icons": [
+    {
+      "src": "/icons/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/dashboard.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Tableau de bord Dhamen"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nouvelle Demande",
+      "short_name": "Demande",
+      "description": "Créer une nouvelle demande de prise en charge",
+      "url": "/sante/demandes/new",
+      "icons": [{ "src": "/icons/shortcut-demande.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Vérifier Éligibilité",
+      "short_name": "Éligibilité",
+      "description": "Vérifier l'éligibilité d'un adhérent",
+      "url": "/eligibility",
+      "icons": [{ "src": "/icons/shortcut-eligibility.png", "sizes": "96x96" }]
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

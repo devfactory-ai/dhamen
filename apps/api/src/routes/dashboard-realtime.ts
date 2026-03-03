@@ -38,7 +38,7 @@ dashboardRealtime.get('/metrics', async (c) => {
  */
 dashboardRealtime.get('/activity', async (c) => {
   const user = c.get('user');
-  const limit = parseInt(c.req.query('limit') || '10', 10);
+  const limit = Math.min(parseInt(c.req.query('limit') || '10', 10), 100);
   const service = new RealtimeDashboardService(c.env);
 
   const activity = await service.getLiveActivity({
@@ -74,7 +74,7 @@ dashboardRealtime.get('/trending', async (c) => {
 dashboardRealtime.get('/events', async (c) => {
   const user = c.get('user');
   const typesParam = c.req.query('types');
-  const limit = parseInt(c.req.query('limit') || '20', 10);
+  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 100);
   const service = new RealtimeDashboardService(c.env);
 
   const types = typesParam

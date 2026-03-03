@@ -10,7 +10,7 @@ import type { Bindings, Variables } from '../types';
 const bulletinsAgent = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // Apply auth middleware to all routes
-bulletinsAgent.use('*', authMiddleware);
+bulletinsAgent.use('*', authMiddleware());
 
 /**
  * GET /bulletins-soins/agent - List agent's bulletins
@@ -26,7 +26,7 @@ bulletinsAgent.get('/', async (c) => {
     }, 403);
   }
 
-  const db = c.get('db');
+  const db = c.get('tenantDb') ?? c.env.DB;
   const status = c.req.query('status') || 'draft,in_batch';
   const search = c.req.query('search');
 
@@ -83,7 +83,7 @@ bulletinsAgent.post('/create', async (c) => {
     }, 403);
   }
 
-  const db = c.get('db');
+  const db = c.get('tenantDb') ?? c.env.DB;
   const formData = await c.req.parseBody();
 
   // Extract form fields
@@ -190,7 +190,7 @@ bulletinsAgent.get('/batches', async (c) => {
     }, 403);
   }
 
-  const db = c.get('db');
+  const db = c.get('tenantDb') ?? c.env.DB;
 
   try {
     const results = await db.prepare(`
@@ -231,7 +231,7 @@ bulletinsAgent.post('/batches', async (c) => {
     }, 403);
   }
 
-  const db = c.get('db');
+  const db = c.get('tenantDb') ?? c.env.DB;
   const body = await c.req.json<{ name: string; bulletinIds: string[] }>();
 
   if (!body.name || !body.bulletinIds || body.bulletinIds.length === 0) {
@@ -285,7 +285,7 @@ bulletinsAgent.get('/batches/:id/export', async (c) => {
   }
 
   const batchId = c.req.param('id');
-  const db = c.get('db');
+  const db = c.get('tenantDb') ?? c.env.DB;
 
   try {
     // Verify batch ownership

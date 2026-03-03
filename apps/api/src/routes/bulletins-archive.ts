@@ -10,7 +10,7 @@ import { generateId } from '../lib/ulid';
 const bulletinsArchive = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // Apply auth middleware
-bulletinsArchive.use('*', authMiddleware);
+bulletinsArchive.use('*', authMiddleware());
 
 /**
  * POST /bulletins-soins/archive/import-csv - Import CSV file with historical data
@@ -25,11 +25,11 @@ bulletinsArchive.post('/import-csv', async (c) => {
     }, 403);
   }
 
-  const db = c.get('db');
+  const db = c.get('tenantDb') ?? c.env.DB;
 
   try {
     const formData = await c.req.formData();
-    const csvFile = formData.get('file') as File;
+    const csvFile = formData.get('file') as File | null;
     const batchName = formData.get('batchName') as string || 'Import Archive';
     const year = formData.get('year') as string || '2024';
 
@@ -45,6 +45,12 @@ bulletinsArchive.post('/import-csv', async (c) => {
 
     // Skip BOM if present and get header
     let headerLine = lines[0];
+    if (!headerLine) {
+      return c.json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Fichier CSV vide' },
+      }, 400);
+    }
     if (headerLine.charCodeAt(0) === 0xFEFF) {
       headerLine = headerLine.slice(1);
     }
@@ -82,7 +88,9 @@ bulletinsArchive.post('/import-csv', async (c) => {
 
     for (let i = 1; i < lines.length; i++) {
       try {
-        const values = parseCSVLine(lines[i], ';');
+        const line = lines[i];
+        if (!line) continue;
+        const values = parseCSVLine(line, ';');
         if (values.length < headers.length) continue;
 
         const bulletinData: Record<string, string | number | null> = {};
@@ -163,12 +171,18 @@ bulletinsArchive.post('/upload-scans', async (c) => {
     }, 403);
   }
 
-  const db = c.get('db');
+  const db = c.get('tenantDb') ?? c.env.DB;
   const storage = c.env.STORAGE;
 
   try {
     const formData = await c.req.formData();
-    const files = formData.getAll('files') as File[];
+    const fileEntries = formData.getAll('files');
+    const files: File[] = [];
+    for (const entry of fileEntries) {
+      if (typeof entry !== 'string') {
+        files.push(entry);
+      }
+    }
     const batchId = formData.get('batchId') as string;
 
     if (!files.length) {
@@ -266,7 +280,7 @@ bulletinsArchive.get('/search', async (c) => {
     }, 403);
   }
 
-  const db = c.get('db');
+  const db = c.get('tenantDb') ?? c.env.DB;
 
   try {
     const query = c.req.query('q') || '';
@@ -351,7 +365,7 @@ bulletinsArchive.get('/stats', async (c) => {
     }, 403);
   }
 
-  const db = c.get('db');
+  const db = c.get('tenantDb') ?? c.env.DB;
 
   try {
     // Total archived bulletins
@@ -425,7 +439,7 @@ bulletinsArchive.get('/:id/scan', async (c) => {
   }
 
   const id = c.req.param('id');
-  const db = c.get('db');
+  const db = c.get('tenantDb') ?? c.env.DB;
   const storage = c.env.STORAGE;
 
   try {

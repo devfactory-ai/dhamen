@@ -12,3 +12,5 @@ export * from './reconciliation';
 export * from './convention';
 export * from './common';
 export * from './sante';
+export * from './appeal';
+export * from './pre-authorization';

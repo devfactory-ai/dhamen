@@ -51,6 +51,8 @@ import {
   bulletinsArchive,
   consommation,
   companies,
+  appeals,
+  preAuthorizations,
 } from './routes';
 import type { Bindings, Variables } from './types';
 
@@ -198,6 +200,12 @@ api.route('/consommation', consommation);
 
 // Companies (entreprises with HR)
 api.route('/companies', companies);
+
+// Claims Appeals (recours/contestation)
+api.route('/appeals', appeals);
+
+// Pre-Authorizations (accord préalable)
+api.route('/pre-authorizations', preAuthorizations);
 
 // Root redirect
 app.get('/', (c) => {

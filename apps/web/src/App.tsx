@@ -5,8 +5,10 @@ import { LoginPage } from '@/features/auth/pages/LoginPage';
 import { DashboardPage } from '@/features/dashboard/pages/DashboardPage';
 import { Layout } from '@/components/layout/Layout';
 import { Toaster } from '@/components/ui/toaster';
-import { Toaster as SonnerToaster } from 'sonner';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { SkipLinks } from '@/components/ui/skip-links';
+import { AnnouncerProvider } from '@/components/ui/screen-reader';
+import { PWAPrompts } from '@/components/ui/pwa-prompts';
 
 // Lazy load feature pages for better initial bundle size
 const UsersPage = lazy(() => import('@/features/users/pages/UsersPage').then(m => ({ default: m.UsersPage })));
@@ -92,6 +94,12 @@ const BulletinsValidationPage = lazy(() => import('@/features/bulletins/pages/Bu
 const BulletinsPaymentPage = lazy(() => import('@/features/bulletins/pages/BulletinsPaymentPage').then(m => ({ default: m.default })));
 const BulletinsSaisiePage = lazy(() => import('@/features/bulletins/pages/BulletinsSaisiePage').then(m => ({ default: m.default })));
 const BulletinsArchivePage = lazy(() => import('@/features/bulletins/pages/BulletinsArchivePage').then(m => ({ default: m.default })));
+// Appeals pages
+const AppealsPage = lazy(() => import('@/features/appeals/pages/AppealsPage').then(m => ({ default: m.AppealsPage })));
+const AppealDetailsPage = lazy(() => import('@/features/appeals/pages/AppealDetailsPage').then(m => ({ default: m.default })));
+// Pre-Authorizations pages
+const PreAuthorizationsPage = lazy(() => import('@/features/pre-authorizations/pages/PreAuthorizationsPage').then(m => ({ default: m.PreAuthorizationsPage })));
+const PreAuthorizationDetailsPage = lazy(() => import('@/features/pre-authorizations/pages/PreAuthorizationDetailsPage').then(m => ({ default: m.default })));
 
 /**
  * Loading spinner for lazy-loaded routes
@@ -145,8 +153,10 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <ErrorBoundary>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
+      <AnnouncerProvider>
+        <SkipLinks />
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
         <Route
           path="/mfa/verify"
           element={
@@ -205,6 +215,12 @@ function App() {
                     <Route path="/bulletins/archive" element={<BulletinsArchivePage />} />
                     <Route path="/reconciliation" element={<ReconciliationPage />} />
                     <Route path="/reconciliation/:id" element={<ReconciliationDetailsPage />} />
+                    {/* Appeals routes */}
+                    <Route path="/appeals" element={<AppealsPage />} />
+                    <Route path="/appeals/:id" element={<AppealDetailsPage />} />
+                    {/* Pre-Authorizations routes */}
+                    <Route path="/pre-authorizations" element={<PreAuthorizationsPage />} />
+                    <Route path="/pre-authorizations/:id" element={<PreAuthorizationDetailsPage />} />
                     {/* Provider routes */}
                     <Route path="/claims" element={<ClaimsPage />} />
                     <Route path="/claims/new" element={<ClaimFormPage />} />
@@ -266,9 +282,10 @@ function App() {
             </PrivateRoute>
           }
         />
-      </Routes>
-      <Toaster />
-      <SonnerToaster position="top-right" richColors closeButton />
+        </Routes>
+        <Toaster />
+        <PWAPrompts />
+      </AnnouncerProvider>
     </ErrorBoundary>
   );
 }

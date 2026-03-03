@@ -215,6 +215,73 @@ mobile.post(
 );
 
 /**
+ * Verify biometric token signature using device's public key
+ * The token format is: base64(JSON{challenge, timestamp, deviceId}) + "." + base64(signature)
+ */
+async function verifyBiometricToken(
+  token: string,
+  publicKeyPem: string,
+  deviceId: string
+): Promise<{ valid: boolean; reason?: string }> {
+  try {
+    const [payloadB64, signatureB64] = token.split('.');
+    if (!payloadB64 || !signatureB64) {
+      return { valid: false, reason: 'Invalid token format' };
+    }
+
+    // Decode payload
+    const payloadStr = atob(payloadB64);
+    const payload = JSON.parse(payloadStr) as {
+      challenge: string;
+      timestamp: number;
+      deviceId: string;
+    };
+
+    // Verify device ID matches
+    if (payload.deviceId !== deviceId) {
+      return { valid: false, reason: 'Device ID mismatch' };
+    }
+
+    // Check timestamp (token valid for 5 minutes)
+    const tokenAge = Date.now() - payload.timestamp;
+    if (tokenAge > 5 * 60 * 1000) {
+      return { valid: false, reason: 'Token expired' };
+    }
+
+    // Import public key and verify signature
+    // Convert PEM to ArrayBuffer
+    const pemContents = publicKeyPem
+      .replace('-----BEGIN PUBLIC KEY-----', '')
+      .replace('-----END PUBLIC KEY-----', '')
+      .replace(/\s/g, '');
+    const binaryDer = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
+
+    const publicKey = await crypto.subtle.importKey(
+      'spki',
+      binaryDer.buffer,
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['verify']
+    );
+
+    // Verify signature
+    const signatureBytes = Uint8Array.from(atob(signatureB64), (c) => c.charCodeAt(0));
+    const dataBytes = new TextEncoder().encode(payloadB64);
+
+    const isValid = await crypto.subtle.verify(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      publicKey,
+      signatureBytes,
+      dataBytes
+    );
+
+    return { valid: isValid, reason: isValid ? undefined : 'Invalid signature' };
+  } catch (err) {
+    return { valid: false, reason: `Verification error: ${(err as Error).message}` };
+  }
+}
+
+/**
  * POST /auth/biometric-login
  * Login with biometric authentication
  */
@@ -241,8 +308,18 @@ mobile.post(
       return error(c, 'BIOMETRIC_NOT_ENABLED', 'Biométrie non activée', 401);
     }
 
-    // TODO: Verify biometric token with public key
-    // For now, we trust the token if device is registered with biometric
+    // Verify biometric token with stored public key
+    const verification = await verifyBiometricToken(
+      biometricToken,
+      device.biometric_public_key,
+      deviceId
+    );
+
+    if (!verification.valid) {
+      // Log failed attempt for security monitoring
+      console.warn(`Biometric verification failed for device ${deviceId}: ${verification.reason}`);
+      return error(c, 'BIOMETRIC_INVALID', 'Vérification biométrique échouée', 401);
+    }
 
     // Get adherent
     const adherent = await getDb(c).prepare(`
@@ -260,6 +337,13 @@ mobile.post(
     if (!adherent || !adherent.is_active || !adherent.biometric_enabled) {
       return error(c, 'BIOMETRIC_NOT_ENABLED', 'Biométrie non activée', 401);
     }
+
+    // Update last login timestamp on device
+    await getDb(c).prepare(`
+      UPDATE adherent_devices
+      SET last_login_at = datetime('now'), updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(device.id).run();
 
     // Generate tokens
     const tokens = await generateTokens(
@@ -282,7 +366,7 @@ mobile.post(
  */
 mobile.post(
   '/auth/setup-pin',
-  authMiddleware,
+  authMiddleware(),
   zValidator('json', z.object({
     pin: z.string().length(6).regex(/^\d+$/),
   })),
@@ -307,7 +391,7 @@ mobile.post(
  */
 mobile.post(
   '/auth/enable-biometric',
-  authMiddleware,
+  authMiddleware(),
   zValidator('json', z.object({
     deviceId: z.string(),
     publicKey: z.string(), // Public key from device secure enclave
@@ -602,7 +686,7 @@ mobile.get('/eligibility', async (c) => {
 mobile.get('/claims', async (c) => {
   const user = c.get('user');
   const page = parseInt(c.req.query('page') || '1', 10);
-  const limit = parseInt(c.req.query('limit') || '20', 10);
+  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 100);
   const status = c.req.query('status');
   const offset = (page - 1) * limit;
 
@@ -784,14 +868,19 @@ mobile.get('/providers/nearby', async (c) => {
 mobile.get('/notifications', async (c) => {
   const user = c.get('user');
   const page = parseInt(c.req.query('page') || '1', 10);
-  const limit = parseInt(c.req.query('limit') || '20', 10);
+  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 100);
   const offset = (page - 1) * limit;
 
-  const [countResult, notifications] = await Promise.all([
+  const [countResult, unreadResult, notifications] = await Promise.all([
     getDb(c).prepare(`
       SELECT COUNT(*) as count FROM notifications
       WHERE user_id = ?
     `).bind(user.id).first<{ count: number }>(),
+
+    getDb(c).prepare(`
+      SELECT COUNT(*) as unread FROM notifications
+      WHERE user_id = ? AND read_at IS NULL
+    `).bind(user.id).first<{ unread: number }>(),
 
     getDb(c).prepare(`
       SELECT
@@ -827,7 +916,7 @@ mobile.get('/notifications', async (c) => {
       page,
       limit,
       total: countResult?.count || 0,
-      unread: 0, // TODO: Count unread
+      unread: unreadResult?.unread || 0,
     },
   });
 });

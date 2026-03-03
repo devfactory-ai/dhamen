@@ -243,7 +243,7 @@ webhooksOutbound.get(
     const endpointId = c.req.query('endpointId');
     const event = c.req.query('event') as WebhookEvent | undefined;
     const status = c.req.query('status') as 'pending' | 'success' | 'failed' | 'retrying' | undefined;
-    const limit = parseInt(c.req.query('limit') || '50', 10);
+    const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 100);
     const offset = parseInt(c.req.query('offset') || '0', 10);
 
     const webhookService = new WebhookOutboundService(c.env);

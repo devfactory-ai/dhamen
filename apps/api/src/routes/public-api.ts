@@ -18,6 +18,21 @@ const publicApi = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 // API Key Middleware
 // =============================================================================
 
+// Encoder for hashing
+const encoder = new TextEncoder();
+
+/**
+ * Hash API key using SHA-256 for secure storage/lookup
+ */
+async function hashApiKey(apiKey: string): Promise<string> {
+  const data = encoder.encode(apiKey);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = new Uint8Array(hashBuffer);
+  return Array.from(hashArray)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 // Use shared ApiKeyContext type from types.ts
 type ApiKeyInfo = Required<Pick<ApiKeyContext, 'id' | 'name' | 'partnerId' | 'partnerType' | 'permissions' | 'rateLimit' | 'isActive'>>;
 
@@ -31,9 +46,16 @@ async function apiKeyAuth(c: any, next: () => Promise<void>) {
     );
   }
 
-  // In production, look up API key in D1
-  // For now, use mock validation
-  const keyInfo = await validateApiKey(c.env, apiKey);
+  // Validate API key format (must start with pk_live_ or pk_test_)
+  if (!apiKey.startsWith('pk_live_') && !apiKey.startsWith('pk_test_')) {
+    return c.json(
+      { success: false, error: { code: 'INVALID_API_KEY_FORMAT', message: 'Invalid API key format' } },
+      401
+    );
+  }
+
+  // Look up API key in database using hash
+  const keyInfo = await validateApiKey(c.env, c, apiKey);
 
   if (!keyInfo || !keyInfo.isActive) {
     return c.json(
@@ -48,26 +70,84 @@ async function apiKeyAuth(c: any, next: () => Promise<void>) {
   await next();
 }
 
-async function validateApiKey(env: Bindings, apiKey: string): Promise<ApiKeyInfo | null> {
-  // In production, query D1
-  // const result = await env.DB.prepare('SELECT * FROM api_keys WHERE key_hash = ?')
-  //   .bind(await hashApiKey(apiKey))
-  //   .first();
+async function validateApiKey(env: Bindings, c: any, apiKey: string): Promise<ApiKeyInfo | null> {
+  const db = getDb(c);
+  const keyHash = await hashApiKey(apiKey);
 
-  // Mock validation
-  if (apiKey.startsWith('pk_live_') || apiKey.startsWith('pk_test_')) {
-    return {
-      id: 'key-001',
-      name: 'Partner API Key',
-      partnerId: 'partner-001',
-      partnerType: 'insurer',
-      permissions: ['eligibility:read', 'claims:read', 'claims:write', 'providers:read'],
-      rateLimit: 1000, // requests per hour
-      isActive: true,
-    };
+  // Query D1 for API key by hash
+  const result = await db.prepare(`
+    SELECT
+      ak.id, ak.name, ak.type, ak.scopes, ak.rate_limit, ak.is_active,
+      ak.insurer_id, ak.provider_id, ak.expires_at,
+      i.name as insurer_name,
+      p.name as provider_name
+    FROM api_keys ak
+    LEFT JOIN insurers i ON ak.insurer_id = i.id
+    LEFT JOIN providers p ON ak.provider_id = p.id
+    WHERE ak.key_hash = ? OR ak.key = ?
+  `).bind(keyHash, apiKey).first<{
+    id: string;
+    name: string;
+    type: string;
+    scopes: string;
+    rate_limit: string;
+    is_active: number;
+    insurer_id: string | null;
+    provider_id: string | null;
+    expires_at: string | null;
+    insurer_name: string | null;
+    provider_name: string | null;
+  }>();
+
+  if (!result) {
+    // Log failed attempt for security monitoring
+    console.warn(`[API_KEY_AUTH] Invalid key attempt: ${apiKey.slice(0, 12)}...`);
+    return null;
   }
 
-  return null;
+  // Check if key is expired
+  if (result.expires_at && new Date(result.expires_at) < new Date()) {
+    console.warn(`[API_KEY_AUTH] Expired key used: ${result.id}`);
+    return null;
+  }
+
+  // Parse scopes/permissions from JSON
+  let permissions: string[] = [];
+  try {
+    permissions = JSON.parse(result.scopes || '[]');
+  } catch {
+    permissions = [];
+  }
+
+  // Parse rate limit from JSON
+  let rateLimit = 1000;
+  try {
+    const rateLimitObj = JSON.parse(result.rate_limit || '{}');
+    rateLimit = rateLimitObj.requests || 1000;
+  } catch {
+    rateLimit = 1000;
+  }
+
+  // Determine partner info
+  const partnerId = result.insurer_id || result.provider_id || result.id;
+  let partnerType: 'insurer' | 'provider' | 'pharmacy' | 'lab' | 'third_party' = 'third_party';
+  if (result.insurer_id) partnerType = 'insurer';
+  else if (result.provider_id) partnerType = 'provider';
+
+  // Update last_used_at timestamp
+  await db.prepare('UPDATE api_keys SET last_used_at = datetime(\'now\') WHERE id = ?')
+    .bind(result.id)
+    .run();
+
+  return {
+    id: result.id,
+    name: result.name,
+    partnerId,
+    partnerType,
+    permissions,
+    rateLimit,
+    isActive: result.is_active === 1,
+  };
 }
 
 function requirePermission(...permissions: string[]) {

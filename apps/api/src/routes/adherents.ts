@@ -16,10 +16,23 @@ import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { created, noContent, notFound, paginated, success } from '../lib/response';
 import { generateId } from '../lib/ulid';
+import { encrypt, decrypt, hashForIndex, maskCIN } from '../lib/encryption';
 import { logAudit } from '../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../middleware/auth';
 import type { Bindings, Variables } from '../types';
 import { getDb } from '../lib/db';
+
+/**
+ * Get encryption key from environment
+ * @throws Error if ENCRYPTION_KEY is not set
+ */
+function getEncryptionKey(c: { env: Bindings }): string {
+  const key = c.env.ENCRYPTION_KEY;
+  if (!key) {
+    throw new Error('ENCRYPTION_KEY is not configured');
+  }
+  return key;
+}
 
 const adherents = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -36,6 +49,8 @@ adherents.get('/me', requireRole('ADHERENT'), async (c) => {
   if (!user?.email) {
     return notFound(c, 'Utilisateur non authentifié');
   }
+
+  const encryptionKey = getEncryptionKey(c);
 
   // Find adherent linked to this user's email
   const adherent = await getDb(c).prepare(
@@ -60,15 +75,44 @@ adherents.get('/me', requireRole('ADHERENT'), async (c) => {
     ayantsDroit = [];
   }
 
+  // Decrypt sensitive fields (with fallback for legacy ENC_ prefix data)
+  let decryptedNationalId: string;
+  let decryptedPhone: string | null = null;
+
+  try {
+    const encryptedNationalId = String(adherent.national_id_encrypted);
+    // Handle both legacy (ENC_) and new (AES-256) encryption formats
+    if (encryptedNationalId.startsWith('ENC_')) {
+      decryptedNationalId = encryptedNationalId.replace('ENC_', '');
+    } else {
+      decryptedNationalId = await decrypt(encryptedNationalId, encryptionKey);
+    }
+  } catch {
+    decryptedNationalId = maskCIN('********'); // Fallback if decryption fails
+  }
+
+  if (adherent.phone_encrypted) {
+    try {
+      const encryptedPhone = String(adherent.phone_encrypted);
+      if (encryptedPhone.startsWith('ENC_')) {
+        decryptedPhone = encryptedPhone.replace('ENC_', '');
+      } else {
+        decryptedPhone = await decrypt(encryptedPhone, encryptionKey);
+      }
+    } catch {
+      decryptedPhone = null;
+    }
+  }
+
   return success(c, {
     adherent: {
       id: adherent.id,
-      nationalId: String(adherent.national_id_encrypted).replace('ENC_', ''),
+      nationalId: decryptedNationalId,
       firstName: adherent.first_name,
       lastName: adherent.last_name,
       dateOfBirth: adherent.date_of_birth,
       gender: adherent.gender,
-      phone: adherent.phone_encrypted ? String(adherent.phone_encrypted).replace('ENC_', '') : null,
+      phone: decryptedPhone,
       email: adherent.email,
       address: adherent.address,
       city: adherent.city,
@@ -362,11 +406,14 @@ adherents.post(
   async (c) => {
     const data = c.req.valid('json');
     const user = c.get('user');
+    const encryptionKey = getEncryptionKey(c);
 
-    // In production, encrypt sensitive data
-    // For now, we use a simple prefix to simulate encryption
-    const encryptedNationalId = `ENC_${data.nationalId}`;
-    const encryptedPhone = data.phone ? `ENC_${data.phone}` : undefined;
+    // Encrypt sensitive data with AES-256-GCM
+    const encryptedNationalId = await encrypt(data.nationalId, encryptionKey);
+    const encryptedPhone = data.phone ? await encrypt(data.phone, encryptionKey) : undefined;
+
+    // Store hash for searchability (allows lookup without decryption)
+    const nationalIdHash = await hashForIndex(data.nationalId, encryptionKey);
 
     const id = generateId();
     const adherent = await createAdherent(getDb(c), id, data, encryptedNationalId, encryptedPhone);
@@ -402,9 +449,10 @@ adherents.put(
     const id = c.req.param('id');
     const data = c.req.valid('json');
     const user = c.get('user');
+    const encryptionKey = getEncryptionKey(c);
 
-    // Encrypt phone if provided
-    const encryptedPhone = data.phone ? `ENC_${data.phone}` : undefined;
+    // Encrypt phone if provided with AES-256-GCM
+    const encryptedPhone = data.phone ? await encrypt(data.phone, encryptionKey) : undefined;
 
     const adherent = await updateAdherent(getDb(c), id, data, encryptedPhone);
 
@@ -442,6 +490,7 @@ adherents.post(
   async (c) => {
     const { adherents: rows, skipDuplicates } = c.req.valid('json');
     const user = c.get('user');
+    const encryptionKey = getEncryptionKey(c);
 
     const results = {
       success: 0,
@@ -453,11 +502,12 @@ adherents.post(
       const row = rows[i];
       if (!row) continue;
       try {
-        // Check for existing adherent with same nationalId
+        // Check for existing adherent using hash index (allows lookup without decryption)
+        const nationalIdHash = await hashForIndex(row.nationalId, encryptionKey);
         const existingCheck = await getDb(c).prepare(
-          'SELECT id FROM adherents WHERE national_id_encrypted = ? AND deleted_at IS NULL'
+          'SELECT id FROM adherents WHERE national_id_hash = ? AND deleted_at IS NULL'
         )
-          .bind(`ENC_${row.nationalId}`)
+          .bind(nationalIdHash)
           .first();
 
         if (existingCheck) {
@@ -467,24 +517,25 @@ adherents.post(
           }
           results.errors.push({
             row: i + 1,
-            nationalId: row.nationalId,
+            nationalId: maskCIN(row.nationalId), // Mask in error messages
             error: 'Adhérent déjà existant',
           });
           continue;
         }
 
-        // Create adherent
+        // Create adherent with real AES-256-GCM encryption
         const id = generateId();
-        const encryptedNationalId = `ENC_${row.nationalId}`;
-        const encryptedPhone = row.phone ? `ENC_${row.phone}` : null;
+        const encryptedNationalId = await encrypt(row.nationalId, encryptionKey);
+        const encryptedPhone = row.phone ? await encrypt(row.phone, encryptionKey) : null;
 
         await getDb(c).prepare(
-          `INSERT INTO adherents (id, national_id_encrypted, first_name, last_name, date_of_birth, gender, phone_encrypted, email, address, city, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+          `INSERT INTO adherents (id, national_id_encrypted, national_id_hash, first_name, last_name, date_of_birth, gender, phone_encrypted, email, address, city, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
         )
           .bind(
             id,
             encryptedNationalId,
+            nationalIdHash,
             row.firstName,
             row.lastName,
             row.dateOfBirth,
@@ -500,7 +551,7 @@ adherents.post(
       } catch (error) {
         results.errors.push({
           row: i + 1,
-          nationalId: row.nationalId,
+          nationalId: maskCIN(row.nationalId), // Mask in error messages
           error: error instanceof Error ? error.message : 'Erreur inconnue',
         });
       }

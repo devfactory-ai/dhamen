@@ -741,7 +741,7 @@ bulletinsSoins.get('/manage', async (c) => {
   if (status) {
     // Handle multiple statuses (comma-separated)
     const statuses = status.split(',').map(s => s.trim());
-    if (statuses.length === 1) {
+    if (statuses.length === 1 && statuses[0]) {
       whereClause += ' AND bs.status = ?';
       params.push(statuses[0]);
     } else {

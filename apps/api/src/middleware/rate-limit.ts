@@ -232,3 +232,151 @@ export const sensitiveRateLimit = rateLimitMiddleware({
   keyPrefix: 'rl:sensitive',
   useDurableObjects: true,
 });
+
+/**
+ * DDoS protection middleware
+ * Implements progressive penalties for abusive behavior
+ */
+export function ddosProtectionMiddleware() {
+  return async (c: Context<{ Bindings: Bindings; Variables: Variables }>, next: Next): Promise<void | Response> => {
+    const clientIP = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
+
+    // Check if IP is blocklisted
+    const blockKey = `block:${clientIP}`;
+    const isBlocked = await c.env.CACHE.get(blockKey);
+
+    if (isBlocked) {
+      structuredLog(c, 'warn', 'Blocked IP attempted access', { clientIP });
+      return c.json({
+        success: false,
+        error: {
+          code: 'IP_BLOCKED',
+          message: 'Votre adresse IP a été temporairement bloquée. Réessayez plus tard.',
+        },
+      }, 403);
+    }
+
+    // Track request count for abuse detection
+    const abuseKey = `abuse:${clientIP}`;
+    const abuseData = await c.env.CACHE.get(abuseKey);
+
+    let abuseCount = 0;
+    if (abuseData) {
+      try {
+        const parsed = JSON.parse(abuseData);
+        abuseCount = parsed.count || 0;
+      } catch {
+        // Invalid data, start fresh
+      }
+    }
+
+    // Execute request
+    await next();
+
+    // Track 429 responses for progressive blocking
+    if (c.res.status === 429) {
+      abuseCount++;
+
+      // Progressive blocking thresholds
+      const WARN_THRESHOLD = 5;
+      const TEMP_BLOCK_THRESHOLD = 10;
+      const LONG_BLOCK_THRESHOLD = 20;
+
+      if (abuseCount >= LONG_BLOCK_THRESHOLD) {
+        // Block for 24 hours
+        await c.env.CACHE.put(blockKey, 'long', { expirationTtl: 86400 });
+        structuredLog(c, 'error', 'IP blocked for 24h due to abuse', { clientIP, abuseCount });
+      } else if (abuseCount >= TEMP_BLOCK_THRESHOLD) {
+        // Block for 1 hour
+        await c.env.CACHE.put(blockKey, 'temp', { expirationTtl: 3600 });
+        structuredLog(c, 'warn', 'IP blocked for 1h due to abuse', { clientIP, abuseCount });
+      } else if (abuseCount >= WARN_THRESHOLD) {
+        structuredLog(c, 'warn', 'Potential abuse detected', { clientIP, abuseCount });
+      }
+
+      await c.env.CACHE.put(abuseKey, JSON.stringify({ count: abuseCount }), { expirationTtl: 3600 });
+    }
+  };
+}
+
+/**
+ * Honeypot middleware for detecting bots
+ * Returns 200 OK for known bot paths but logs the attempt
+ */
+export function honeypotMiddleware() {
+  const HONEYPOT_PATHS = [
+    '/admin',
+    '/wp-admin',
+    '/wp-login.php',
+    '/.env',
+    '/config.php',
+    '/phpinfo.php',
+    '/shell.php',
+    '/.git/config',
+  ];
+
+  return async (c: Context<{ Bindings: Bindings; Variables: Variables }>, next: Next) => {
+    const path = new URL(c.req.url).pathname;
+
+    if (HONEYPOT_PATHS.some((hp) => path.toLowerCase().startsWith(hp))) {
+      const clientIP = c.req.header('CF-Connecting-IP') || 'unknown';
+
+      structuredLog(c, 'warn', 'Honeypot triggered - potential scanner', {
+        clientIP,
+        path,
+        userAgent: c.req.header('User-Agent'),
+      });
+
+      // Block the IP for 24 hours
+      const blockKey = `block:${clientIP}`;
+      await c.env.CACHE.put(blockKey, 'honeypot', { expirationTtl: 86400 });
+
+      // Return fake 404 to not reveal honeypot
+      return c.json({ error: 'Not Found' }, 404);
+    }
+
+    return next();
+  };
+}
+
+/**
+ * Request fingerprinting for advanced bot detection
+ */
+export function fingerprintMiddleware() {
+  return async (c: Context<{ Bindings: Bindings; Variables: Variables }>, next: Next) => {
+    // Generate request fingerprint from headers
+    const fingerprint = [
+      c.req.header('User-Agent') || '',
+      c.req.header('Accept-Language') || '',
+      c.req.header('Accept-Encoding') || '',
+      c.req.header('Accept') || '',
+    ].join('|');
+
+    // Store fingerprint for analysis
+    c.set('requestFingerprint' as keyof Variables, fingerprint);
+
+    // Check for suspicious patterns
+    const userAgent = c.req.header('User-Agent') || '';
+    const suspiciousPatterns = [
+      /curl/i,
+      /wget/i,
+      /python-requests/i,
+      /Go-http-client/i,
+      /Java/i,
+      /^$/,
+    ];
+
+    // Allow legitimate crawlers
+    const allowedBots = [/Googlebot/i, /Bingbot/i, /CloudFlare/i];
+
+    const isSuspicious = suspiciousPatterns.some((p) => p.test(userAgent));
+    const isAllowedBot = allowedBots.some((p) => p.test(userAgent));
+
+    if (isSuspicious && !isAllowedBot) {
+      // Apply stricter rate limiting for suspicious clients
+      c.set('suspiciousClient' as keyof Variables, true);
+    }
+
+    return next();
+  };
+}

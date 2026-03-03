@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { toast } from 'sonner';
+import { useToast } from '@/stores/toast';
 
 export type RealtimeEventType =
   | 'notification'
@@ -148,37 +148,39 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     [onEvent, showToasts]
   );
 
-  const showEventToast = (event: RealtimeEvent) => {
+  const { success, error, warning, info } = useToast();
+
+  const showEventToast = useCallback((event: RealtimeEvent) => {
     const { type, data } = event;
 
     switch (type) {
       case 'notification':
-        toast.info(String(data.message || 'Nouvelle notification'));
+        info('Notification', String(data.message || 'Nouvelle notification'));
         break;
       case 'demande_update':
-        toast.info(`Demande ${data.numero} mise à jour: ${data.statut}`);
+        info('Mise à jour', `Demande ${data.numero} mise à jour: ${data.statut}`);
         break;
       case 'paiement_update':
-        toast.success(`Paiement ${data.reference}: ${data.statut}`);
+        success('Paiement', `Paiement ${data.reference}: ${data.statut}`);
         break;
       case 'fraud_alert':
-        toast.warning(`Alerte fraude: ${data.niveau} - ${data.message}`);
+        warning('Alerte Fraude', `${data.niveau} - ${data.message}`);
         break;
       case 'eligibility_check':
-        toast.info(`Vérification éligibilité: ${data.matricule}`);
+        info('Éligibilité', `Vérification: ${data.matricule}`);
         break;
       case 'bordereau_ready':
-        toast.success(`Bordereau ${data.numero} prêt`);
+        success('Bordereau', `Bordereau ${data.numero} prêt`);
         break;
       case 'system':
         if (data.severity === 'error') {
-          toast.error(String(data.message));
+          error('Système', String(data.message));
         } else {
-          toast.info(String(data.message));
+          info('Système', String(data.message));
         }
         break;
     }
-  };
+  }, [success, error, warning, info]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {

@@ -1,19 +1,30 @@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table';
 import { Button } from './button';
+import { SkeletonTable } from './skeleton';
+import { EmptyState, SearchEmptyState, ErrorEmptyState } from './empty-state';
 
 interface Column<T> {
   key: string;
   header: string;
   render?: (item: T) => React.ReactNode;
   className?: string;
+  sortable?: boolean;
 }
+
+type EmptyStateType = 'no-data' | 'no-results' | 'error' | 'adherents' | 'providers' | 'claims' | 'contracts' | 'cards' | 'documents';
 
 interface DataTableProps<T> {
   columns: Column<T>[];
   data: T[];
   isLoading?: boolean;
+  isError?: boolean;
+  errorMessage?: string;
   emptyMessage?: string;
   emptyIcon?: React.ReactNode;
+  emptyStateType?: EmptyStateType;
+  searchTerm?: string;
+  onClearSearch?: () => void;
+  onRetry?: () => void;
   onRowClick?: (item: T) => void;
   pagination?: {
     page: number;
@@ -21,35 +32,41 @@ interface DataTableProps<T> {
     total: number;
     onPageChange: (page: number) => void;
   };
+  className?: string;
 }
 
 export function DataTable<T extends { id: string }>({
   columns,
   data,
   isLoading,
+  isError,
+  errorMessage,
   emptyMessage = 'Aucune donnée',
   emptyIcon,
+  emptyStateType = 'no-data',
+  searchTerm,
+  onClearSearch,
+  onRetry,
   onRowClick,
   pagination,
+  className,
 }: DataTableProps<T>) {
   const totalPages = pagination ? Math.ceil(pagination.total / pagination.limit) : 1;
 
   if (isLoading) {
+    return <SkeletonTable rows={pagination?.limit ?? 5} columns={columns.length} />;
+  }
+
+  if (isError) {
     return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="relative">
-            <div className="h-12 w-12 rounded-full border-4 border-blue-100" />
-            <div className="absolute top-0 h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-          </div>
-          <p className="text-sm text-gray-500 animate-pulse">Chargement...</p>
-        </div>
+      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+        <ErrorEmptyState message={errorMessage} onRetry={onRetry} />
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className={`space-y-4 ${className ?? ''}`}>
       <div className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
         <Table>
           <TableHeader>
@@ -67,20 +84,17 @@ export function DataTable<T extends { id: string }>({
           <TableBody>
             {data.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-48">
-                  <div className="flex flex-col items-center justify-center gap-3 text-center">
-                    {emptyIcon || (
-                      <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center">
-                        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                        </svg>
-                      </div>
-                    )}
-                    <div>
-                      <p className="text-gray-500 font-medium">{emptyMessage}</p>
-                      <p className="text-gray-400 text-sm mt-1">Aucun élément à afficher pour le moment</p>
-                    </div>
-                  </div>
+                <TableCell colSpan={columns.length} className="h-48 p-0">
+                  {searchTerm ? (
+                    <SearchEmptyState searchTerm={searchTerm} onClear={onClearSearch} />
+                  ) : (
+                    <EmptyState
+                      type={emptyStateType}
+                      title={emptyMessage}
+                      size="sm"
+                      icon={emptyIcon ? undefined : undefined}
+                    />
+                  )}
                 </TableCell>
               </TableRow>
             ) : (

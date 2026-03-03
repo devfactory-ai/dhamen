@@ -4,6 +4,8 @@
  * Provides audit log search, statistics, and compliance reporting
  */
 import { Hono } from 'hono';
+import { z } from 'zod';
+import { zValidator } from '@hono/zod-validator';
 import type { Bindings, Variables } from '../types';
 import { requireAuth, requireRole } from '../middleware/auth';
 import {
@@ -11,6 +13,60 @@ import {
   type AuditAction,
   type EntityType,
 } from '../services/audit.service';
+
+// Validation schemas
+const auditLogsQuerySchema = z.object({
+  userId: z.string().optional(),
+  action: z.string().optional(),
+  entityType: z.string().optional(),
+  entityId: z.string().optional(),
+  insurerId: z.string().optional(),
+  providerId: z.string().optional(),
+  result: z.enum(['success', 'failure']).optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  ipAddress: z.string().optional(),
+  search: z.string().optional(),
+  limit: z.coerce.number().min(1).max(100).default(50),
+  offset: z.coerce.number().min(0).default(0),
+  sortBy: z.enum(['timestamp', 'action', 'userId', 'entityType']).optional(),
+  sortOrder: z.enum(['asc', 'desc']).optional(),
+});
+
+const entityTrailQuerySchema = z.object({
+  limit: z.coerce.number().min(1).max(100).default(100),
+});
+
+const userActivityQuerySchema = z.object({
+  days: z.coerce.number().min(1).max(365).default(30),
+  limit: z.coerce.number().min(1).max(100).default(100),
+});
+
+const auditStatsQuerySchema = z.object({
+  insurerId: z.string().optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
+const complianceReportQuerySchema = z.object({
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  insurerId: z.string().optional(),
+});
+
+const auditExportQuerySchema = z.object({
+  format: z.enum(['json', 'csv']).default('json'),
+  userId: z.string().optional(),
+  action: z.string().optional(),
+  entityType: z.string().optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  insurerId: z.string().optional(),
+});
+
+const cleanupBodySchema = z.object({
+  retentionDays: z.number().min(90).max(3650).optional().default(365),
+});
 
 const audit = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -22,22 +78,24 @@ audit.use('*', requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'));
  * GET /audit/logs
  * Search audit logs
  */
-audit.get('/logs', async (c) => {
-  const userId = c.req.query('userId');
-  const action = c.req.query('action');
-  const entityType = c.req.query('entityType');
-  const entityId = c.req.query('entityId');
-  const insurerId = c.req.query('insurerId');
-  const providerId = c.req.query('providerId');
-  const result = c.req.query('result') as 'success' | 'failure' | undefined;
-  const startDate = c.req.query('startDate');
-  const endDate = c.req.query('endDate');
-  const ipAddress = c.req.query('ipAddress');
-  const searchText = c.req.query('search');
-  const limit = parseInt(c.req.query('limit') || '50', 10);
-  const offset = parseInt(c.req.query('offset') || '0', 10);
-  const sortBy = c.req.query('sortBy') as 'timestamp' | 'action' | 'userId' | 'entityType' | undefined;
-  const sortOrder = c.req.query('sortOrder') as 'asc' | 'desc' | undefined;
+audit.get('/logs', zValidator('query', auditLogsQuerySchema), async (c) => {
+  const {
+    userId,
+    action,
+    entityType,
+    entityId,
+    insurerId,
+    providerId,
+    result,
+    startDate,
+    endDate,
+    ipAddress,
+    search: searchText,
+    limit,
+    offset,
+    sortBy,
+    sortOrder,
+  } = c.req.valid('query');
 
   const user = c.get('user');
 
@@ -107,10 +165,10 @@ audit.get('/logs/:id', async (c) => {
  * GET /audit/entity/:entityType/:entityId
  * Get audit trail for a specific entity
  */
-audit.get('/entity/:entityType/:entityId', async (c) => {
+audit.get('/entity/:entityType/:entityId', zValidator('query', entityTrailQuerySchema), async (c) => {
   const entityType = c.req.param('entityType') as EntityType;
   const entityId = c.req.param('entityId');
-  const limit = parseInt(c.req.query('limit') || '100', 10);
+  const { limit } = c.req.valid('query');
 
   const auditService = new AuditService(c.env);
   const trail = await auditService.getEntityAuditTrail(entityType, entityId, limit);
@@ -125,10 +183,9 @@ audit.get('/entity/:entityType/:entityId', async (c) => {
  * GET /audit/user/:userId/activity
  * Get user activity log
  */
-audit.get('/user/:userId/activity', async (c) => {
+audit.get('/user/:userId/activity', zValidator('query', userActivityQuerySchema), async (c) => {
   const userId = c.req.param('userId');
-  const days = parseInt(c.req.query('days') || '30', 10);
-  const limit = parseInt(c.req.query('limit') || '100', 10);
+  const { days, limit } = c.req.valid('query');
 
   const auditService = new AuditService(c.env);
   const activity = await auditService.getUserActivity(userId, days, limit);
@@ -143,10 +200,8 @@ audit.get('/user/:userId/activity', async (c) => {
  * GET /audit/stats
  * Get audit statistics
  */
-audit.get('/stats', async (c) => {
-  const insurerId = c.req.query('insurerId');
-  const startDate = c.req.query('startDate');
-  const endDate = c.req.query('endDate');
+audit.get('/stats', zValidator('query', auditStatsQuerySchema), async (c) => {
+  const { insurerId, startDate, endDate } = c.req.valid('query');
 
   const user = c.get('user');
   const effectiveInsurerId =
@@ -168,23 +223,9 @@ audit.get('/stats', async (c) => {
 audit.get(
   '/compliance-report',
   requireRole('ADMIN', 'INSURER_ADMIN'),
+  zValidator('query', complianceReportQuerySchema),
   async (c) => {
-    const startDate = c.req.query('startDate');
-    const endDate = c.req.query('endDate');
-    const insurerId = c.req.query('insurerId');
-
-    if (!startDate || !endDate) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'MISSING_DATES',
-            message: 'startDate et endDate sont requis',
-          },
-        },
-        400
-      );
-    }
+    const { startDate, endDate, insurerId } = c.req.valid('query');
 
     const user = c.get('user');
     const effectiveInsurerId =
@@ -211,14 +252,9 @@ audit.get(
 audit.get(
   '/export',
   requireRole('ADMIN', 'INSURER_ADMIN'),
+  zValidator('query', auditExportQuerySchema),
   async (c) => {
-    const format = (c.req.query('format') || 'json') as 'json' | 'csv';
-    const userId = c.req.query('userId');
-    const action = c.req.query('action');
-    const entityType = c.req.query('entityType');
-    const startDate = c.req.query('startDate');
-    const endDate = c.req.query('endDate');
-    const insurerId = c.req.query('insurerId');
+    const { format, userId, action, entityType, startDate, endDate, insurerId } = c.req.valid('query');
 
     const user = c.get('user');
     const effectiveInsurerId =
@@ -254,22 +290,9 @@ audit.get(
 audit.post(
   '/cleanup',
   requireRole('ADMIN'),
+  zValidator('json', cleanupBodySchema),
   async (c) => {
-    const body = await c.req.json<{ retentionDays?: number }>().catch(() => ({ retentionDays: undefined }));
-    const retentionDays = body.retentionDays ?? 365;
-
-    if (retentionDays < 90) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'INVALID_RETENTION',
-            message: 'La période de rétention minimale est de 90 jours',
-          },
-        },
-        400
-      );
-    }
+    const { retentionDays } = c.req.valid('json');
 
     const auditService = new AuditService(c.env);
     const result = await auditService.cleanupOldLogs(retentionDays);

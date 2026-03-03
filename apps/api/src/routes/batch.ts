@@ -58,7 +58,7 @@ batch.get(
   async (c) => {
     const type = c.req.query('type') as BatchJobType | undefined;
     const status = c.req.query('status') as 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | undefined;
-    const limit = parseInt(c.req.query('limit') || '20', 10);
+    const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 100);
     const offset = parseInt(c.req.query('offset') || '0', 10);
 
     const batchService = new BatchService(c.env);

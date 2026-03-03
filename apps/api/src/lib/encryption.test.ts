@@ -132,7 +132,8 @@ describe('Encryption Service', () => {
   describe('maskEmail', () => {
     it('should mask email correctly', () => {
       expect(maskEmail('john.doe@example.com')).toBe('j*******@example.com');
-      expect(maskEmail('ab@test.tn')).toBe('a*@test.tn');
+      // For local part <= 2 chars, all characters are masked
+      expect(maskEmail('ab@test.tn')).toBe('**@test.tn');
     });
 
     it('should handle invalid email', () => {

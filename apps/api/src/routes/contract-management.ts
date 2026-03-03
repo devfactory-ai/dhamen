@@ -75,18 +75,22 @@ contractManagement.get('/templates', async (c) => {
   const { type, category, active, page, limit } = c.req.query();
   const service = new ContractManagementService(c.env);
 
+  // Cap pagination limit to 100 items max
+  const parsedPage = page ? parseInt(page, 10) : 1;
+  const parsedLimit = Math.min(limit ? parseInt(limit, 10) : 20, 100);
+
   const result = await service.listTemplates({
     insurerId: user.insurerId,
     type,
     category,
     isActive: active ? active === 'true' : undefined,
-    page: page ? parseInt(page, 10) : 1,
-    limit: limit ? parseInt(limit, 10) : 20,
+    page: parsedPage,
+    limit: parsedLimit,
   });
 
   return paginated(c, result.templates, {
-    page: page ? parseInt(page, 10) : 1,
-    limit: limit ? parseInt(limit, 10) : 20,
+    page: parsedPage,
+    limit: parsedLimit,
     total: result.total,
   });
 });

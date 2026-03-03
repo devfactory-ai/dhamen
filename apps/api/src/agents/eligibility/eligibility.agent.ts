@@ -30,14 +30,58 @@ import {
   evaluateEligibility,
 } from './eligibility.rules';
 
-// Cache TTL: 5 minutes for eligibility results
-const CACHE_TTL_SECONDS = 300;
+// Cache TTL configuration
+// Eligibility rarely changes, and cache invalidation happens on contract/rule updates
+const CACHE_CONFIG = {
+  /** Eligibility result cache TTL (1 hour) */
+  RESULT_TTL_SECONDS: 3600,
+  /** Reference data cache TTL (15 minutes) */
+  REF_DATA_TTL_SECONDS: 900,
+  /** Hot path cache TTL for frequently accessed data (5 minutes) */
+  HOT_PATH_TTL_SECONDS: 300,
+  /** Maximum cache entries for reference data */
+  MAX_REF_ENTRIES: 1000,
+};
+
+// In-memory edge cache for frequently accessed data (cleared on worker restart)
+const edgeCache = new Map<string, { data: unknown; expires: number }>();
+const MAX_EDGE_CACHE_SIZE = 500;
 
 /**
  * Generate cache key for eligibility results
  */
 function generateCacheKey(request: EligibilityCheckRequest): string {
   return `eligibility:${request.adherentId}:${request.insurerId}:${request.careType}:${request.serviceDate}`;
+}
+
+/**
+ * Get from edge cache (fastest, in-memory)
+ */
+function getFromEdgeCache<T>(key: string): T | null {
+  const entry = edgeCache.get(key);
+  if (entry && entry.expires > Date.now()) {
+    return entry.data as T;
+  }
+  if (entry) {
+    edgeCache.delete(key);
+  }
+  return null;
+}
+
+/**
+ * Set in edge cache with TTL
+ */
+function setEdgeCache(key: string, data: unknown, ttlSeconds: number): void {
+  // Evict oldest entries if cache is full
+  if (edgeCache.size >= MAX_EDGE_CACHE_SIZE) {
+    const keysToDelete = Array.from(edgeCache.keys()).slice(0, 100);
+    keysToDelete.forEach((k) => edgeCache.delete(k));
+  }
+
+  edgeCache.set(key, {
+    data,
+    expires: Date.now() + ttlSeconds * 1000,
+  });
 }
 
 /**
@@ -377,58 +421,178 @@ async function getUsedAmounts(
 }
 
 // =============================================================================
-// Caching
+// Multi-Level Caching
 // =============================================================================
 
 /**
- * Get cached eligibility result
+ * Get cached eligibility result using multi-level cache
+ * Level 1: Edge cache (in-memory, fastest)
+ * Level 2: KV cache (distributed, persistent)
  */
 async function getCachedResult(
   c: Context<{ Bindings: Bindings; Variables: Variables }>,
   cacheKey: string
 ): Promise<EligibilityResult | null> {
-  try {
-    const cached = await c.env.CACHE.get(cacheKey, 'json');
-    return cached as EligibilityResult | null;
-  } catch {
-    return null;
+  // L1: Try edge cache first (fastest)
+  const edgeCached = getFromEdgeCache<EligibilityResult>(cacheKey);
+  if (edgeCached) {
+    return edgeCached;
   }
+
+  // L2: Try KV cache
+  try {
+    const kvCached = await c.env.CACHE.get(cacheKey, 'json');
+    if (kvCached) {
+      // Populate edge cache for next request
+      setEdgeCache(cacheKey, kvCached, CACHE_CONFIG.HOT_PATH_TTL_SECONDS);
+      return kvCached as EligibilityResult;
+    }
+  } catch {
+    // KV error - continue without cache
+  }
+
+  return null;
 }
 
 /**
- * Cache eligibility result
+ * Cache eligibility result in both levels
  */
 async function cacheResult(
   c: Context<{ Bindings: Bindings; Variables: Variables }>,
   cacheKey: string,
   result: EligibilityResult
 ): Promise<void> {
+  // L1: Edge cache (short TTL for hot paths)
+  setEdgeCache(cacheKey, result, CACHE_CONFIG.HOT_PATH_TTL_SECONDS);
+
+  // L2: KV cache (longer TTL for persistence)
   try {
-    await c.env.CACHE.put(cacheKey, JSON.stringify(result), {
-      expirationTtl: CACHE_TTL_SECONDS,
+    // Store with metadata for invalidation
+    const cacheEntry = {
+      ...result,
+      _cachedAt: new Date().toISOString(),
+      _cacheVersion: 'v2',
+    };
+    await c.env.CACHE.put(cacheKey, JSON.stringify(cacheEntry), {
+      expirationTtl: CACHE_CONFIG.RESULT_TTL_SECONDS,
+      metadata: {
+        adherentId: cacheKey.split(':')[1],
+        insurerId: cacheKey.split(':')[2],
+        careType: cacheKey.split(':')[3],
+      },
     });
   } catch (error) {
-    // Log but don't fail on cache errors
     console.error('Failed to cache eligibility result:', error);
+  }
+
+  // Track cache key for invalidation (in a separate KV namespace or key set)
+  try {
+    const adherentId = cacheKey.split(':')[1];
+    const trackingKey = `eligibility_keys:${adherentId}`;
+    const existingKeys = await c.env.CACHE.get(trackingKey, 'json') as string[] | null;
+    const keys = existingKeys || [];
+    if (!keys.includes(cacheKey)) {
+      keys.push(cacheKey);
+      await c.env.CACHE.put(trackingKey, JSON.stringify(keys), {
+        expirationTtl: CACHE_CONFIG.RESULT_TTL_SECONDS,
+      });
+    }
+  } catch {
+    // Tracking failure is not critical
   }
 }
 
 /**
  * Invalidate cached eligibility for an adherent
- * Call this when contracts or coverage rules change
+ * Uses tracked keys for efficient bulk invalidation
  */
 export async function invalidateEligibilityCache(
-  _c: Context<{ Bindings: Bindings; Variables: Variables }>,
+  c: Context<{ Bindings: Bindings; Variables: Variables }>,
   adherentId: string,
   insurerId?: string
-): Promise<void> {
-  // KV doesn't support prefix deletion, so we track keys in a set
-  // For now, individual invalidation by exact key
-  // In production, consider using a more sophisticated cache invalidation strategy
-  const _pattern = insurerId
-    ? `eligibility:${adherentId}:${insurerId}:*`
-    : `eligibility:${adherentId}:*`;
-  // Note: KV list + delete would be needed for full prefix invalidation
+): Promise<{ invalidated: number }> {
+  let invalidated = 0;
+
+  // Clear edge cache entries for this adherent
+  for (const [key] of edgeCache.entries()) {
+    if (key.startsWith(`eligibility:${adherentId}:`)) {
+      if (!insurerId || key.includes(`:${insurerId}:`)) {
+        edgeCache.delete(key);
+        invalidated++;
+      }
+    }
+  }
+
+  // Get tracked keys and delete them
+  try {
+    const trackingKey = `eligibility_keys:${adherentId}`;
+    const trackedKeys = await c.env.CACHE.get(trackingKey, 'json') as string[] | null;
+
+    if (trackedKeys) {
+      const keysToDelete = insurerId
+        ? trackedKeys.filter((k) => k.includes(`:${insurerId}:`))
+        : trackedKeys;
+
+      for (const key of keysToDelete) {
+        await c.env.CACHE.delete(key);
+        invalidated++;
+      }
+
+      // Update tracking list
+      if (insurerId) {
+        const remainingKeys = trackedKeys.filter((k) => !k.includes(`:${insurerId}:`));
+        if (remainingKeys.length > 0) {
+          await c.env.CACHE.put(trackingKey, JSON.stringify(remainingKeys), {
+            expirationTtl: CACHE_CONFIG.RESULT_TTL_SECONDS,
+          });
+        } else {
+          await c.env.CACHE.delete(trackingKey);
+        }
+      } else {
+        await c.env.CACHE.delete(trackingKey);
+      }
+    }
+  } catch (error) {
+    console.error('Cache invalidation error:', error);
+  }
+
+  return { invalidated };
+}
+
+/**
+ * Warm up cache for frequently accessed adherents
+ * Call this during low-traffic periods
+ */
+export async function warmupCache(
+  c: Context<{ Bindings: Bindings; Variables: Variables }>,
+  adherentIds: string[],
+  insurerId: string,
+  careTypes: string[]
+): Promise<{ warmed: number }> {
+  let warmed = 0;
+  const today = new Date().toISOString().split('T')[0] as string;
+
+  for (const adherentId of adherentIds) {
+    for (const careType of careTypes) {
+      const request: EligibilityCheckRequest = {
+        adherentId,
+        insurerId,
+        providerId: 'warmup',
+        careType: careType as 'pharmacy' | 'consultation' | 'lab' | 'hospitalization' | 'dental' | 'optical',
+        amount: 0,
+        serviceDate: today,
+      };
+
+      try {
+        await checkEligibility(c, request);
+        warmed++;
+      } catch {
+        // Ignore errors during warmup
+      }
+    }
+  }
+
+  return { warmed };
 }
 
 /**

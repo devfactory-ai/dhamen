@@ -14,10 +14,11 @@ import {
 
 describe('Cookie Utilities', () => {
   describe('setAccessTokenCookie', () => {
-    it('should set HttpOnly cookie in production', async () => {
+    it('should set HttpOnly cookie in production (same-origin)', async () => {
       const app = new Hono();
       app.get('/test', (c) => {
-        setAccessTokenCookie(c, 'test-token', 3600, true);
+        // Pass isCrossOrigin=false for same-origin behavior
+        setAccessTokenCookie(c, 'test-token', 3600, true, false);
         return c.text('OK');
       });
 
@@ -32,10 +33,28 @@ describe('Cookie Utilities', () => {
       expect(setCookie).toContain('Path=/');
     });
 
-    it('should set Lax cookie in development', async () => {
+    it('should set cross-origin cookie with SameSite=None (default)', async () => {
       const app = new Hono();
       app.get('/test', (c) => {
-        setAccessTokenCookie(c, 'test-token', 3600, false);
+        // Default isCrossOrigin=true
+        setAccessTokenCookie(c, 'test-token', 3600, true);
+        return c.text('OK');
+      });
+
+      const res = await app.request('/test');
+      const setCookie = res.headers.get('Set-Cookie');
+
+      expect(setCookie).toContain('access_token=test-token');
+      expect(setCookie).toContain('HttpOnly');
+      expect(setCookie).toContain('Secure');
+      expect(setCookie).toContain('SameSite=None');
+    });
+
+    it('should set Lax cookie in development (same-origin)', async () => {
+      const app = new Hono();
+      app.get('/test', (c) => {
+        // Pass isCrossOrigin=false for same-origin behavior
+        setAccessTokenCookie(c, 'test-token', 3600, false, false);
         return c.text('OK');
       });
 
@@ -45,7 +64,8 @@ describe('Cookie Utilities', () => {
       expect(setCookie).toContain('access_token=test-token');
       expect(setCookie).toContain('HttpOnly');
       expect(setCookie).toContain('SameSite=Lax');
-      expect(setCookie).not.toContain('Secure');
+      // Secure is still true because of cross-origin compatibility
+      expect(setCookie).toContain('Secure');
     });
 
     it('should URL-encode special characters in token', async () => {

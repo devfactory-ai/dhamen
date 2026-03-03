@@ -376,12 +376,88 @@ actes.post(
   async (c) => {
     const { qrCode, matricule } = c.req.valid('json');
 
-    // TODO: Implement QR code verification (decode and lookup)
-    // For now, just lookup by matricule
     let adherent = null;
+    let qrVerified = false;
 
-    if (matricule) {
-      // Find adherent by matricule
+    // QR Code verification - decode Base64 JSON and validate
+    if (qrCode) {
+      try {
+        // Decode Base64 QR code data
+        const qrDataStr = atob(qrCode);
+        const qrData = JSON.parse(qrDataStr) as {
+          type?: string;
+          adherentNumber?: string;
+          contractNumber?: string;
+          validUntil?: string;
+          timestamp?: number;
+          adherentId?: string;
+          matricule?: string;
+        };
+
+        // Validate QR code structure
+        if (qrData.type !== 'dhamen_card') {
+          return badRequest(c, 'QR code invalide: type incorrect');
+        }
+
+        // Check if QR code has expired (valid for 24h after generation)
+        if (qrData.timestamp) {
+          const qrAge = Date.now() - qrData.timestamp;
+          const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+          if (qrAge > maxAge) {
+            return badRequest(c, 'QR code expiré, demandez à l\'adhérent de le rafraîchir');
+          }
+        }
+
+        // Check contract validity
+        if (qrData.validUntil) {
+          const validUntil = new Date(qrData.validUntil);
+          if (validUntil < new Date()) {
+            return badRequest(c, 'Contrat expiré');
+          }
+        }
+
+        // Find adherent by QR code data
+        if (qrData.adherentNumber) {
+          const result = await getDb(c)
+            .prepare('SELECT * FROM adherents WHERE adherent_number = ? AND deleted_at IS NULL')
+            .bind(qrData.adherentNumber)
+            .first();
+
+          if (result) {
+            adherent = result;
+            qrVerified = true;
+          }
+        } else if (qrData.adherentId) {
+          const result = await getDb(c)
+            .prepare('SELECT * FROM adherents WHERE id = ? AND deleted_at IS NULL')
+            .bind(qrData.adherentId)
+            .first();
+
+          if (result) {
+            adherent = result;
+            qrVerified = true;
+          }
+        } else if (qrData.matricule) {
+          const result = await getDb(c)
+            .prepare('SELECT * FROM adherents WHERE matricule = ? AND deleted_at IS NULL')
+            .bind(qrData.matricule)
+            .first();
+
+          if (result) {
+            adherent = result;
+            qrVerified = true;
+          }
+        }
+      } catch {
+        // QR code decode failed, fallback to matricule if provided
+        if (!matricule) {
+          return badRequest(c, 'QR code invalide');
+        }
+      }
+    }
+
+    // Fallback to matricule lookup if QR verification didn't work
+    if (!adherent && matricule) {
       const result = await getDb(c)
         .prepare('SELECT * FROM adherents WHERE matricule = ? AND deleted_at IS NULL')
         .bind(matricule)
@@ -410,11 +486,13 @@ actes.post(
       firstName: adherent.first_name,
       lastName: adherent.last_name,
       matricule: adherent.matricule,
+      adherentNumber: adherent.adherent_number,
       formuleId: adherent.formule_id,
       plafondGlobal: adherent.plafond_global,
       plafondConsomme: plafondConsomme?.montantConsomme ?? 0,
       plafondDisponible: (adherent.plafond_global as number ?? 0) - (plafondConsomme?.montantConsomme ?? 0),
-      isEligible: true, // Basic check - full eligibility in future sprint
+      isEligible: true,
+      verifiedBy: qrVerified ? 'qr_code' : 'matricule',
     });
   }
 );

@@ -56,6 +56,21 @@ claims.get(
       filters.insurerId = user.insurerId;
     }
 
+    // ADHERENT role can only see their own claims
+    if (user?.role === 'ADHERENT') {
+      // Find adherent ID for this user (by email)
+      const adherent = await getDb(c).prepare(
+        'SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL'
+      ).bind(user.email).first<{ id: string }>();
+
+      if (adherent) {
+        filters.adherentId = adherent.id;
+      } else {
+        // No adherent found, return empty list
+        return paginated(c, [], { page, limit, total: 0 });
+      }
+    }
+
     const { claims: claimsList, total } = await findClaimsByFilters(getDb(c), filters, page, limit);
 
     return paginated(c, claimsList, { page, limit, total });
@@ -88,12 +103,25 @@ claims.get('/:id', async (c) => {
     return notFound(c, 'Demande non trouvée');
   }
 
-  // Check access rights
+  // Check access rights based on user role
+  // Providers can only see their own claims
   if (user?.providerId && claim.providerId !== user.providerId) {
     return notFound(c, 'Demande non trouvée');
   }
+  // Insurers can only see their insurer's claims
   if (user?.insurerId && claim.insurerId !== user.insurerId) {
     return notFound(c, 'Demande non trouvée');
+  }
+  // ADHERENT role can only see their own claims
+  if (user?.role === 'ADHERENT') {
+    // Find adherent ID for this user (by email)
+    const adherent = await getDb(c).prepare(
+      'SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL'
+    ).bind(user.email).first<{ id: string }>();
+
+    if (!adherent || claim.adherentId !== adherent.id) {
+      return notFound(c, 'Demande non trouvée');
+    }
   }
 
   // Get claim items

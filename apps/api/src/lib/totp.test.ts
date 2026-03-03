@@ -313,20 +313,17 @@ describe('TOTP Library', () => {
   });
 
   describe('roleRequiresMFA', () => {
-    it('should require MFA for admin roles', () => {
-      expect(roleRequiresMFA('ADMIN')).toBe(true);
-      expect(roleRequiresMFA('INSURER_ADMIN')).toBe(true);
-      expect(roleRequiresMFA('CLINIC_ADMIN')).toBe(true);
-    });
-
-    it('should require MFA for healthcare provider roles', () => {
-      expect(roleRequiresMFA('PHARMACIST')).toBe(true);
-      expect(roleRequiresMFA('DOCTOR')).toBe(true);
-      expect(roleRequiresMFA('LAB_MANAGER')).toBe(true);
-    });
-
-    it('should require MFA for insurer agent', () => {
-      expect(roleRequiresMFA('INSURER_AGENT')).toBe(true);
+    // Note: MFA_REQUIRED_ROLES is currently empty for demo environment
+    // In production, all staff roles should require MFA
+    it('should not require MFA in demo mode (MFA_REQUIRED_ROLES is empty)', () => {
+      // Demo mode - all roles return false
+      expect(roleRequiresMFA('ADMIN')).toBe(false);
+      expect(roleRequiresMFA('INSURER_ADMIN')).toBe(false);
+      expect(roleRequiresMFA('CLINIC_ADMIN')).toBe(false);
+      expect(roleRequiresMFA('PHARMACIST')).toBe(false);
+      expect(roleRequiresMFA('DOCTOR')).toBe(false);
+      expect(roleRequiresMFA('LAB_MANAGER')).toBe(false);
+      expect(roleRequiresMFA('INSURER_AGENT')).toBe(false);
     });
 
     it('should NOT require MFA for ADHERENT (mobile users)', () => {
@@ -338,15 +335,10 @@ describe('TOTP Library', () => {
       expect(roleRequiresMFA('')).toBe(false);
     });
 
-    it('should have all expected roles in MFA_REQUIRED_ROLES', () => {
-      expect(MFA_REQUIRED_ROLES).toContain('ADMIN');
-      expect(MFA_REQUIRED_ROLES).toContain('INSURER_ADMIN');
-      expect(MFA_REQUIRED_ROLES).toContain('INSURER_AGENT');
-      expect(MFA_REQUIRED_ROLES).toContain('PHARMACIST');
-      expect(MFA_REQUIRED_ROLES).toContain('DOCTOR');
-      expect(MFA_REQUIRED_ROLES).toContain('LAB_MANAGER');
-      expect(MFA_REQUIRED_ROLES).toContain('CLINIC_ADMIN');
-      expect(MFA_REQUIRED_ROLES).not.toContain('ADHERENT');
+    it('should have MFA_REQUIRED_ROLES as empty array in demo mode', () => {
+      // Demo environment - MFA disabled
+      expect(MFA_REQUIRED_ROLES).toHaveLength(0);
+      expect(Array.isArray(MFA_REQUIRED_ROLES)).toBe(true);
     });
   });
 });

@@ -79,7 +79,7 @@ monitoring.get('/health/detailed', async (c) => {
  */
 monitoring.get('/alerts', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
   const severity = c.req.query('severity');
-  const limit = parseInt(c.req.query('limit') || '50', 10);
+  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 100);
   const service = new MonitoringService(c.env);
 
   const alerts = await service.getActiveAlerts({ severity, limit });
@@ -189,7 +189,7 @@ monitoring.get('/stats/realtime', async (c) => {
  * Get audit log summary
  */
 monitoring.get('/audit', requireRole('ADMIN'), async (c) => {
-  const limit = parseInt(c.req.query('limit') || '100', 10);
+  const limit = Math.min(parseInt(c.req.query('limit') || '100', 10), 100);
   const action = c.req.query('action');
   const userId = c.req.query('userId');
 

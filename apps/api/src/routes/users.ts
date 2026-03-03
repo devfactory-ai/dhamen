@@ -64,9 +64,13 @@ users.use('*', authMiddleware());
 users.get('/', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
   const { page, limit, role, search, isActive } = c.req.query();
 
+  // Cap pagination limit to 100 items max to prevent DoS
+  const parsedPage = page ? parseInt(page, 10) : 1;
+  const parsedLimit = Math.min(limit ? parseInt(limit, 10) : 20, 100);
+
   const result = await listUsers(getDb(c), {
-    page: page ? parseInt(page, 10) : 1,
-    limit: limit ? parseInt(limit, 10) : 20,
+    page: parsedPage,
+    limit: parsedLimit,
     role: role as any,
     search,
     isActive: isActive !== undefined ? isActive === 'true' : undefined,
@@ -75,8 +79,8 @@ users.get('/', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
   return success(c, {
     data: result.data.map(userToPublic),
     meta: {
-      page: page ? parseInt(page, 10) : 1,
-      limit: limit ? parseInt(limit, 10) : 20,
+      page: parsedPage,
+      limit: parsedLimit,
       total: result.total,
     },
   });

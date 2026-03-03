@@ -25,7 +25,7 @@ aiReconciliation.use('*', authMiddleware());
 aiReconciliation.get('/suggestions', async (c) => {
   const user = c.get('user');
   const minConfidence = parseFloat(c.req.query('minConfidence') || '0.7');
-  const limit = parseInt(c.req.query('limit') || '50', 10);
+  const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 100);
   const service = new AIReconciliationService(c.env);
 
   const suggestions = await service.findPaymentMatches({
@@ -242,7 +242,7 @@ aiReconciliation.get('/stats', async (c) => {
 aiReconciliation.get('/history', async (c) => {
   const user = c.get('user');
   const page = parseInt(c.req.query('page') || '1', 10);
-  const limit = parseInt(c.req.query('limit') || '20', 10);
+  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 100);
   const status = c.req.query('status');
   const offset = (page - 1) * limit;
 

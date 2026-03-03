@@ -198,7 +198,7 @@ documents.get('/', async (c) => {
   const entityId = c.req.query('entityId');
   const category = c.req.query('category') as DocumentCategory | undefined;
   const uploadedBy = c.req.query('uploadedBy');
-  const limit = parseInt(c.req.query('limit') || '20', 10);
+  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 100);
   const cursor = c.req.query('cursor');
 
   const documentService = new DocumentService(c.env);

@@ -185,6 +185,7 @@ export function auditMiddleware(options: {
 
 /**
  * Log an audit event manually (for complex flows)
+ * Uses fire-and-forget pattern to avoid blocking responses
  */
 export async function logAudit(
   db: D1Database,
@@ -198,13 +199,15 @@ export async function logAudit(
     userAgent?: string;
     severity?: AuditSeverity;
     metadata?: AuditMetadata;
-  }
+  },
+  /** Optional execution context for non-blocking writes */
+  ctx?: ExecutionContext
 ): Promise<void> {
   const sanitizedChanges = options.changes
     ? sanitizeChanges(options.changes)
     : undefined;
 
-  await createAuditLog(db, generateId(), {
+  const auditPromise = createAuditLog(db, generateId(), {
     ...options,
     changes: sanitizedChanges
       ? {
@@ -213,11 +216,23 @@ export async function logAudit(
           _metadata: options.metadata,
         }
       : undefined,
+  }).catch((err) => {
+    // Log error but don't fail the request
+    console.error('Audit log failed:', err);
   });
+
+  // If execution context is provided, use waitUntil for non-blocking write
+  if (ctx) {
+    ctx.waitUntil(auditPromise);
+  } else {
+    // Fallback to blocking await if no context
+    await auditPromise;
+  }
 }
 
 /**
  * Log a security event (login attempts, MFA, etc.)
+ * Uses fire-and-forget pattern when ctx is provided
  */
 export async function logSecurityEvent(
   db: D1Database,
@@ -227,9 +242,10 @@ export async function logSecurityEvent(
     ipAddress?: string;
     userAgent?: string;
     details?: Record<string, unknown>;
-  }
+  },
+  ctx?: ExecutionContext
 ): Promise<void> {
-  await createAuditLog(db, generateId(), {
+  const auditPromise = createAuditLog(db, generateId(), {
     userId: options.userId,
     action: `security.${options.action}`,
     entityType: 'security',
@@ -240,11 +256,18 @@ export async function logSecurityEvent(
     },
     ipAddress: options.ipAddress,
     userAgent: options.userAgent,
-  });
+  }).catch((err) => console.error('Security audit log failed:', err));
+
+  if (ctx) {
+    ctx.waitUntil(auditPromise);
+  } else {
+    await auditPromise;
+  }
 }
 
 /**
  * Log a data access event (for compliance/GDPR)
+ * Uses fire-and-forget pattern when ctx is provided
  */
 export async function logDataAccess(
   db: D1Database,
@@ -256,9 +279,10 @@ export async function logDataAccess(
     ipAddress?: string;
     userAgent?: string;
     reason?: string;
-  }
+  },
+  ctx?: ExecutionContext
 ): Promise<void> {
-  await createAuditLog(db, generateId(), {
+  const auditPromise = createAuditLog(db, generateId(), {
     userId: options.userId,
     action: `data.${options.accessType}`,
     entityType: options.entityType,
@@ -270,5 +294,11 @@ export async function logDataAccess(
     },
     ipAddress: options.ipAddress,
     userAgent: options.userAgent,
-  });
+  }).catch((err) => console.error('Data access audit log failed:', err));
+
+  if (ctx) {
+    ctx.waitUntil(auditPromise);
+  } else {
+    await auditPromise;
+  }
 }

@@ -99,3 +99,9 @@ export { consommation } from './consommation';
 
 // Companies (entreprises with HR)
 export { companies } from './companies';
+
+// Claims Appeals (recours/contestation)
+export { appeals } from './appeals';
+
+// Pre-Authorizations (accord préalable)
+export { preAuthorizations } from './pre-authorizations';

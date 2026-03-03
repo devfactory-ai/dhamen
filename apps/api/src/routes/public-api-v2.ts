@@ -583,7 +583,7 @@ publicApiV2.post('/claims', requireScope('claims:write', 'claims:create'), async
 publicApiV2.get('/claims', requireScope('claims:read', 'claims:list'), async (c) => {
   const status = c.req.query('status');
   const adherentId = c.req.query('adherentId');
-  const limit = parseInt(c.req.query('limit') || '20', 10);
+  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 100);
   const offset = parseInt(c.req.query('offset') || '0', 10);
 
   const apiKey = c.get('apiKey') as { insurerId?: string; providerId?: string };

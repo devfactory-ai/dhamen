@@ -6,22 +6,24 @@ import { describe, it, expect } from 'vitest';
 describe('SMS Service', () => {
   describe('Phone Number Normalization', () => {
     // Test cases for Tunisian phone number normalization
+    // Note: Tunisian phone numbers after +216 must start with 2-9 (not 0 or 1)
     const testCases = [
-      // Standard formats
-      { input: '21612345678', expected: '+21612345678' },
-      { input: '+21612345678', expected: '+21612345678' },
-      { input: '0021612345678', expected: '+21612345678' },
-      // Local formats (8 digits)
-      { input: '12345678', expected: '+21612345678' },
+      // Standard formats (valid - starting with 2-9)
+      { input: '21622345678', expected: '+21622345678' },
+      { input: '+21622345678', expected: '+21622345678' },
+      { input: '0021622345678', expected: '+21622345678' },
+      // Local formats (8 digits starting with 2-9)
       { input: '22345678', expected: '+21622345678' },
       { input: '52345678', expected: '+21652345678' },
       { input: '92345678', expected: '+21692345678' },
+      { input: '98123456', expected: '+21698123456' },
       // Local format with leading 0
-      { input: '012345678', expected: '+21612345678' },
+      { input: '022345678', expected: '+21622345678' },
       // Invalid formats
       { input: '1234567', expected: null }, // Too short
       { input: '1234567890', expected: null }, // Invalid Tunisian format
-      { input: '01234567', expected: null }, // Invalid (starts with 0 or 1)
+      { input: '12345678', expected: null }, // Invalid (starts with 1, not 2-9)
+      { input: '01234567', expected: null }, // Invalid (8 digits starting with 0 after removing leading 0)
     ];
 
     // We'll test the normalization logic directly

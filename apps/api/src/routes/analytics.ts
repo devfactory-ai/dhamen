@@ -4,9 +4,52 @@
  * Provides analytics and business intelligence endpoints
  */
 import { Hono } from 'hono';
+import { z } from 'zod';
+import { zValidator } from '@hono/zod-validator';
 import type { Bindings, Variables } from '../types';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { AnalyticsService } from '../services/analytics.service';
+
+// Validation schemas
+const dateRangeQuerySchema = z.object({
+  insurerId: z.string().optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)').optional(),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)').optional(),
+});
+
+const trendsQuerySchema = dateRangeQuerySchema.extend({
+  granularity: z.enum(['day', 'week', 'month']).default('day'),
+});
+
+const distributionQuerySchema = dateRangeQuerySchema.extend({
+  groupBy: z.enum(['care_type', 'status', 'provider_type']).default('care_type'),
+});
+
+const performanceQuerySchema = z.object({
+  insurerId: z.string().optional(),
+  months: z.coerce.number().min(1).max(36).default(12),
+});
+
+const providersQuerySchema = dateRangeQuerySchema.extend({
+  limit: z.coerce.number().min(1).max(100).default(20),
+});
+
+const compareQuerySchema = z.object({
+  insurerId: z.string().optional(),
+  currentStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
+  currentEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
+  previousStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
+  previousEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format'),
+});
+
+const exportQuerySchema = dateRangeQuerySchema.extend({
+  type: z.enum(['kpis', 'trends', 'providers', 'adherents', 'fraud']).default('kpis'),
+  format: z.enum(['json', 'csv']).default('json'),
+});
+
+const dashboardQuerySchema = z.object({
+  insurerId: z.string().optional(),
+});
 
 const analytics = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -36,10 +79,9 @@ function parseDateRange(
 analytics.get(
   '/kpis',
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
+  zValidator('query', dateRangeQuerySchema),
   async (c) => {
-    const insurerId = c.req.query('insurerId');
-    const startDate = c.req.query('startDate');
-    const endDate = c.req.query('endDate');
+    const { insurerId, startDate, endDate } = c.req.valid('query');
 
     const user = c.get('user');
 
@@ -66,11 +108,9 @@ analytics.get(
 analytics.get(
   '/trends',
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
+  zValidator('query', trendsQuerySchema),
   async (c) => {
-    const insurerId = c.req.query('insurerId');
-    const startDate = c.req.query('startDate');
-    const endDate = c.req.query('endDate');
-    const granularity = (c.req.query('granularity') || 'day') as 'day' | 'week' | 'month';
+    const { insurerId, startDate, endDate, granularity } = c.req.valid('query');
 
     const user = c.get('user');
     const effectiveInsurerId =
@@ -99,14 +139,9 @@ analytics.get(
 analytics.get(
   '/distribution',
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
+  zValidator('query', distributionQuerySchema),
   async (c) => {
-    const insurerId = c.req.query('insurerId');
-    const startDate = c.req.query('startDate');
-    const endDate = c.req.query('endDate');
-    const groupBy = (c.req.query('groupBy') || 'care_type') as
-      | 'care_type'
-      | 'status'
-      | 'provider_type';
+    const { insurerId, startDate, endDate, groupBy } = c.req.valid('query');
 
     const user = c.get('user');
     const effectiveInsurerId =
@@ -135,9 +170,9 @@ analytics.get(
 analytics.get(
   '/performance/monthly',
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
+  zValidator('query', performanceQuerySchema),
   async (c) => {
-    const insurerId = c.req.query('insurerId');
-    const months = parseInt(c.req.query('months') || '12', 10);
+    const { insurerId, months } = c.req.valid('query');
 
     const user = c.get('user');
     const effectiveInsurerId =
@@ -163,11 +198,9 @@ analytics.get(
 analytics.get(
   '/providers',
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
+  zValidator('query', providersQuerySchema),
   async (c) => {
-    const insurerId = c.req.query('insurerId');
-    const startDate = c.req.query('startDate');
-    const endDate = c.req.query('endDate');
-    const limit = parseInt(c.req.query('limit') || '20', 10);
+    const { insurerId, startDate, endDate, limit } = c.req.valid('query');
 
     const user = c.get('user');
     const effectiveInsurerId =
@@ -196,8 +229,9 @@ analytics.get(
 analytics.get(
   '/adherents',
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
+  zValidator('query', dashboardQuerySchema),
   async (c) => {
-    const insurerId = c.req.query('insurerId');
+    const { insurerId } = c.req.valid('query');
 
     const user = c.get('user');
     const effectiveInsurerId =
@@ -220,10 +254,9 @@ analytics.get(
 analytics.get(
   '/fraud',
   requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'),
+  zValidator('query', dateRangeQuerySchema),
   async (c) => {
-    const insurerId = c.req.query('insurerId');
-    const startDate = c.req.query('startDate');
-    const endDate = c.req.query('endDate');
+    const { insurerId, startDate, endDate } = c.req.valid('query');
 
     const user = c.get('user');
     const effectiveInsurerId =
@@ -251,25 +284,9 @@ analytics.get(
 analytics.get(
   '/compare',
   requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'),
+  zValidator('query', compareQuerySchema),
   async (c) => {
-    const insurerId = c.req.query('insurerId');
-    const currentStart = c.req.query('currentStart');
-    const currentEnd = c.req.query('currentEnd');
-    const previousStart = c.req.query('previousStart');
-    const previousEnd = c.req.query('previousEnd');
-
-    if (!currentStart || !currentEnd || !previousStart || !previousEnd) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'MISSING_DATES',
-            message: 'All date parameters are required for comparison',
-          },
-        },
-        400
-      );
-    }
+    const { insurerId, currentStart, currentEnd, previousStart, previousEnd } = c.req.valid('query');
 
     const user = c.get('user');
     const effectiveInsurerId =
@@ -310,17 +327,9 @@ analytics.get(
 analytics.get(
   '/export',
   requireRole('ADMIN', 'INSURER_ADMIN'),
+  zValidator('query', exportQuerySchema),
   async (c) => {
-    const type = (c.req.query('type') || 'kpis') as
-      | 'kpis'
-      | 'trends'
-      | 'providers'
-      | 'adherents'
-      | 'fraud';
-    const format = (c.req.query('format') || 'json') as 'json' | 'csv';
-    const insurerId = c.req.query('insurerId');
-    const startDate = c.req.query('startDate');
-    const endDate = c.req.query('endDate');
+    const { type, format, insurerId, startDate, endDate } = c.req.valid('query');
 
     const user = c.get('user');
     const effectiveInsurerId =
@@ -352,8 +361,9 @@ analytics.get(
 analytics.get(
   '/dashboard',
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
+  zValidator('query', dashboardQuerySchema),
   async (c) => {
-    const insurerId = c.req.query('insurerId');
+    const { insurerId } = c.req.valid('query');
 
     const user = c.get('user');
     const effectiveInsurerId =
