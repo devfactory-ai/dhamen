@@ -100,7 +100,6 @@ async function validateApiKey(env: Bindings, c: any, apiKey: string): Promise<Ap
   }>();
 
   if (!result) {
-    // Log failed attempt for security monitoring
     console.warn(`[API_KEY_AUTH] Invalid key attempt: ${apiKey.slice(0, 12)}...`);
     return null;
   }
@@ -205,10 +204,15 @@ const createClaimSchema = z.object({
   documents: z.array(z.string()).optional(),
 });
 
-const getClaimStatusSchema = z.object({
-  claimId: z.string().optional(),
-  externalRef: z.string().optional(),
-});
+// Map public API typeSoin to DB type_soin
+const CARE_TYPE_MAP: Record<string, string> = {
+  pharmacie: 'pharmacie',
+  consultation: 'consultation',
+  hospitalisation: 'hospitalisation',
+  optique: 'optique',
+  dentaire: 'dentaire',
+  laboratoire: 'laboratoire',
+};
 
 // =============================================================================
 // Routes
@@ -231,7 +235,7 @@ publicApi.get('/health', (c) => {
 
 /**
  * POST /public/v1/eligibility/check
- * Check adherent eligibility
+ * Check adherent eligibility — queries real DB
  */
 publicApi.post(
   '/eligibility/check',
@@ -240,46 +244,126 @@ publicApi.post(
   async (c) => {
     const { matricule, dateNaissance, typeSoin, dateSoin } = c.req.valid('json');
     const apiKey = c.get('apiKey') as ApiKeyInfo;
+    const db = getDb(c);
 
-    // In production, query actual eligibility
-    // For now, return mock response
-    const eligible = Math.random() > 0.1; // 90% eligible
-    const plafond = 500000 + Math.floor(Math.random() * 1000000);
-    const consomme = Math.floor(Math.random() * plafond * 0.6);
+    // Look up adherent by matricule and date of birth
+    const adherent = await db.prepare(`
+      SELECT a.id, a.first_name, a.last_name, a.date_of_birth, a.matricule,
+             c.id as contract_id, c.status as contract_status,
+             c.annual_limit, c.coverage_json, c.start_date, c.end_date,
+             c.plan_type,
+             i.name as insurer_name
+      FROM adherents a
+      LEFT JOIN contracts c ON c.adherent_id = a.id AND c.status = 'active'
+      LEFT JOIN insurers i ON c.insurer_id = i.id
+      WHERE (a.matricule = ? OR a.national_id_encrypted LIKE ?)
+        AND a.date_of_birth = ?
+        AND a.deleted_at IS NULL
+      LIMIT 1
+    `).bind(matricule, `%${matricule}%`, dateNaissance).first<{
+      id: string;
+      first_name: string;
+      last_name: string;
+      date_of_birth: string;
+      matricule: string | null;
+      contract_id: string | null;
+      contract_status: string | null;
+      annual_limit: number | null;
+      coverage_json: string | null;
+      start_date: string | null;
+      end_date: string | null;
+      plan_type: string | null;
+      insurer_name: string | null;
+    }>();
 
-    const response = {
-      eligible,
-      matricule,
-      typeSoin,
-      dateSoin: dateSoin || new Date().toISOString().split('T')[0],
-      couverture: eligible
-        ? {
-            tauxRemboursement: typeSoin === 'pharmacie' ? 80 : 70,
-            plafondAnnuel: plafond,
-            consomme,
-            disponible: plafond - consomme,
-          }
-        : null,
-      motifNonEligible: !eligible ? 'Contrat expiré' : null,
-      verificationId: generateId(),
-      timestamp: new Date().toISOString(),
-    };
+    if (!adherent) {
+      const verificationId = generateId();
+      await logAudit(db, {
+        userId: `API:${apiKey.partnerId}`,
+        action: 'public_api.eligibility.check',
+        entityType: 'eligibility',
+        entityId: verificationId,
+        changes: { matricule, typeSoin, eligible: false, reason: 'adherent_not_found' },
+      });
 
-    await logAudit(getDb(c), {
+      return c.json({
+        success: true,
+        data: {
+          eligible: false,
+          matricule,
+          typeSoin,
+          dateSoin: dateSoin || new Date().toISOString().split('T')[0],
+          couverture: null,
+          motifNonEligible: 'Adherent non trouve ou date de naissance incorrecte',
+          verificationId,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+
+    const eligible = !!adherent.contract_id && adherent.contract_status === 'active';
+    const coverage = adherent.coverage_json ? JSON.parse(adherent.coverage_json) : {};
+
+    // Get consumption for this year
+    const consumption = await db.prepare(`
+      SELECT COALESCE(SUM(montant_rembourse), 0) as consomme
+      FROM sante_demandes
+      WHERE adherent_id = ?
+        AND statut IN ('approuvee', 'en_paiement', 'payee')
+        AND strftime('%Y', date_soin) = strftime('%Y', 'now')
+    `).bind(adherent.id).first<{ consomme: number }>();
+
+    const plafond = adherent.annual_limit || 0;
+    const consomme = consumption?.consomme || 0;
+
+    // Determine coverage rate for this care type
+    const tauxRemboursement = coverage[typeSoin] || (typeSoin === 'pharmacie' ? 80 : 70);
+
+    let motifNonEligible: string | null = null;
+    if (!eligible) {
+      motifNonEligible = !adherent.contract_id
+        ? 'Pas de contrat actif'
+        : 'Contrat non actif';
+    } else if (plafond > 0 && consomme >= plafond) {
+      motifNonEligible = 'Plafond annuel atteint';
+    }
+
+    const verificationId = generateId();
+
+    await logAudit(db, {
       userId: `API:${apiKey.partnerId}`,
       action: 'public_api.eligibility.check',
       entityType: 'eligibility',
-      entityId: response.verificationId,
-      changes: { matricule, typeSoin, eligible },
+      entityId: verificationId,
+      changes: { matricule, typeSoin, eligible: eligible && !motifNonEligible },
     });
 
-    return c.json({ success: true, data: response });
+    return c.json({
+      success: true,
+      data: {
+        eligible: eligible && !motifNonEligible,
+        matricule,
+        typeSoin,
+        dateSoin: dateSoin || new Date().toISOString().split('T')[0],
+        couverture: eligible
+          ? {
+              tauxRemboursement,
+              plafondAnnuel: plafond,
+              consomme,
+              disponible: Math.max(0, plafond - consomme),
+            }
+          : null,
+        motifNonEligible,
+        verificationId,
+        timestamp: new Date().toISOString(),
+      },
+    });
   }
 );
 
 /**
  * POST /public/v1/claims
- * Create a new claim/demande
+ * Create a new claim — inserts into sante_demandes
  */
 publicApi.post(
   '/claims',
@@ -288,43 +372,71 @@ publicApi.post(
   async (c) => {
     const data = c.req.valid('json');
     const apiKey = c.get('apiKey') as ApiKeyInfo;
+    const db = getDb(c);
     const now = new Date().toISOString();
 
-    // Generate claim ID
-    const claimId = generatePrefixedId('CLM');
-    const numeroDemande = `DEM-${new Date().getFullYear()}-${claimId.slice(-6)}`;
+    // Find adherent by matricule + dateNaissance
+    const adherent = await db.prepare(`
+      SELECT a.id, a.first_name, a.last_name,
+             c.id as contract_id, c.coverage_json
+      FROM adherents a
+      LEFT JOIN contracts c ON c.adherent_id = a.id AND c.status = 'active'
+      WHERE (a.matricule = ? OR a.national_id_encrypted LIKE ?)
+        AND a.date_of_birth = ?
+        AND a.deleted_at IS NULL
+      LIMIT 1
+    `).bind(data.adherentMatricule, `%${data.adherentMatricule}%`, data.dateNaissance).first<{
+      id: string;
+      first_name: string;
+      last_name: string;
+      contract_id: string | null;
+      coverage_json: string | null;
+    }>();
+
+    if (!adherent) {
+      return c.json(
+        { success: false, error: { code: 'ADHERENT_NOT_FOUND', message: 'Adherent non trouve' } },
+        404
+      );
+    }
+
+    if (!adherent.contract_id) {
+      return c.json(
+        { success: false, error: { code: 'NO_ACTIVE_CONTRACT', message: 'Pas de contrat actif' } },
+        400
+      );
+    }
+
+    // Generate IDs
+    const claimId = generatePrefixedId('DEM');
+    const numeroDemande = `DEM-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
 
     // Calculate totals
     const montantTotal = data.actes.reduce((sum, a) => sum + a.prixUnitaire * a.quantite, 0);
-    const tauxRemboursement = data.typeSoin === 'pharmacie' ? 0.8 : 0.7;
+    const coverage = adherent.coverage_json ? JSON.parse(adherent.coverage_json) : {};
+    const tauxRemboursement = (coverage[data.typeSoin] || (data.typeSoin === 'pharmacie' ? 80 : 70)) / 100;
     const montantRembourse = Math.floor(montantTotal * tauxRemboursement);
     const ticketModerateur = montantTotal - montantRembourse;
 
-    // In production, insert into D1
-    // await getDb(c).prepare(`INSERT INTO sante_demandes ...`)
-
-    const response = {
-      id: claimId,
+    // Insert into sante_demandes
+    await db.prepare(`
+      INSERT INTO sante_demandes (
+        id, numero_demande, adherent_id, praticien_id, source, type_soin,
+        statut, montant_demande, date_soin, score_fraude, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, 'praticien', ?, 'soumise', ?, ?, 0, ?, ?)
+    `).bind(
+      claimId,
       numeroDemande,
-      externalRef: data.ordonnanceRef,
-      adherentMatricule: data.adherentMatricule,
-      typeSoin: data.typeSoin,
-      dateSoin: data.dateSoin,
-      statut: 'en_attente',
+      adherent.id,
+      data.praticienId || null,
+      CARE_TYPE_MAP[data.typeSoin] || data.typeSoin,
       montantTotal,
-      montantRembourse,
-      ticketModerateur,
-      tauxRemboursement: tauxRemboursement * 100,
-      actes: data.actes.map((a, i) => ({
-        id: generateId(),
-        ...a,
-        montantTotal: a.prixUnitaire * a.quantite,
-      })),
-      createdAt: now,
-      estimatedProcessingTime: '24-48h',
-    };
+      data.dateSoin,
+      now,
+      now
+    ).run();
 
-    await logAudit(getDb(c), {
+    await logAudit(db, {
       userId: `API:${apiKey.partnerId}`,
       action: 'public_api.claims.create',
       entityType: 'sante_demandes',
@@ -332,44 +444,84 @@ publicApi.post(
       changes: { numeroDemande, montantTotal, typeSoin: data.typeSoin },
     });
 
-    return c.json({ success: true, data: response }, 201);
+    return c.json({
+      success: true,
+      data: {
+        id: claimId,
+        numeroDemande,
+        externalRef: data.ordonnanceRef,
+        adherentMatricule: data.adherentMatricule,
+        typeSoin: data.typeSoin,
+        dateSoin: data.dateSoin,
+        statut: 'soumise',
+        montantTotal,
+        montantRembourse,
+        ticketModerateur,
+        tauxRemboursement: tauxRemboursement * 100,
+        actes: data.actes.map((a) => ({
+          id: generateId(),
+          ...a,
+          montantTotal: a.prixUnitaire * a.quantite,
+        })),
+        createdAt: now,
+        estimatedProcessingTime: '24-48h',
+      },
+    }, 201);
   }
 );
 
 /**
  * GET /public/v1/claims/:id
- * Get claim status
+ * Get claim status from DB
  */
 publicApi.get('/claims/:id', requirePermission('claims:read'), async (c) => {
   const claimId = c.req.param('id');
   const apiKey = c.get('apiKey') as ApiKeyInfo;
+  const db = getDb(c);
 
-  // In production, query D1
-  // Mock response
-  const response = {
-    id: claimId,
-    numeroDemande: `DEM-2025-${claimId.slice(-6)}`,
-    statut: 'approuvee',
-    montantTotal: 150000,
-    montantRembourse: 120000,
-    ticketModerateur: 30000,
-    tauxRemboursement: 80,
-    dateCreation: '2025-02-25T10:00:00Z',
-    dateTraitement: '2025-02-25T14:30:00Z',
-    motifRejet: null,
-    paiement: {
-      statut: 'en_cours',
-      methode: 'virement',
-      dateEstimee: '2025-02-28',
-    },
-    historique: [
-      { date: '2025-02-25T10:00:00Z', statut: 'en_attente', note: 'Demande reçue' },
-      { date: '2025-02-25T12:00:00Z', statut: 'en_traitement', note: 'Vérification en cours' },
-      { date: '2025-02-25T14:30:00Z', statut: 'approuvee', note: 'Demande approuvée' },
-    ],
-  };
+  const claim = await db.prepare(`
+    SELECT sd.id, sd.numero_demande, sd.statut, sd.type_soin,
+           sd.montant_demande, sd.montant_rembourse, sd.montant_reste_charge,
+           sd.date_soin, sd.motif_rejet, sd.notes_internes,
+           sd.date_traitement, sd.created_at, sd.updated_at,
+           a.first_name || ' ' || a.last_name as adherent_nom,
+           a.matricule as adherent_matricule,
+           COALESCE(sp.nom || ' ' || COALESCE(sp.prenom, ''), sp.nom) as praticien_nom
+    FROM sante_demandes sd
+    JOIN adherents a ON sd.adherent_id = a.id
+    LEFT JOIN sante_praticiens sp ON sd.praticien_id = sp.id
+    WHERE sd.id = ?
+  `).bind(claimId).first<{
+    id: string;
+    numero_demande: string;
+    statut: string;
+    type_soin: string;
+    montant_demande: number;
+    montant_rembourse: number | null;
+    montant_reste_charge: number | null;
+    date_soin: string;
+    motif_rejet: string | null;
+    notes_internes: string | null;
+    date_traitement: string | null;
+    created_at: string;
+    updated_at: string;
+    adherent_nom: string;
+    adherent_matricule: string | null;
+    praticien_nom: string | null;
+  }>();
 
-  await logAudit(getDb(c), {
+  if (!claim) {
+    return c.json(
+      { success: false, error: { code: 'NOT_FOUND', message: 'Demande non trouvee' } },
+      404
+    );
+  }
+
+  const tauxRemboursement = claim.montant_rembourse && claim.montant_demande > 0
+    ? Math.round((claim.montant_rembourse / claim.montant_demande) * 100)
+    : null;
+
+  await logAudit(db, {
     userId: `API:${apiKey.partnerId}`,
     action: 'public_api.claims.get',
     entityType: 'sante_demandes',
@@ -377,51 +529,109 @@ publicApi.get('/claims/:id', requirePermission('claims:read'), async (c) => {
     changes: {},
   });
 
-  return c.json({ success: true, data: response });
+  return c.json({
+    success: true,
+    data: {
+      id: claim.id,
+      numeroDemande: claim.numero_demande,
+      statut: claim.statut,
+      typeSoin: claim.type_soin,
+      montantTotal: claim.montant_demande,
+      montantRembourse: claim.montant_rembourse,
+      ticketModerateur: claim.montant_reste_charge,
+      tauxRemboursement,
+      dateSoin: claim.date_soin,
+      motifRejet: claim.motif_rejet,
+      adherentNom: claim.adherent_nom,
+      praticienNom: claim.praticien_nom,
+      dateCreation: claim.created_at,
+      dateTraitement: claim.date_traitement,
+    },
+  });
 });
 
 /**
  * GET /public/v1/claims
- * List claims with filters
+ * List claims with filters — from sante_demandes
  */
 publicApi.get('/claims', requirePermission('claims:read'), async (c) => {
   const apiKey = c.get('apiKey') as ApiKeyInfo;
-  const page = parseInt(c.req.query('page') || '1');
-  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+  const db = getDb(c);
+  const page = Math.max(1, parseInt(c.req.query('page') || '1'));
+  const limit = Math.min(Math.max(1, parseInt(c.req.query('limit') || '20')), 100);
   const statut = c.req.query('statut');
   const dateFrom = c.req.query('dateFrom');
   const dateTo = c.req.query('dateTo');
+  const offset = (page - 1) * limit;
 
-  // Mock response
-  const claims = [
-    {
-      id: 'CLM-001',
-      numeroDemande: 'DEM-2025-0145',
-      statut: 'approuvee',
-      montantTotal: 150000,
-      montantRembourse: 120000,
-      typeSoin: 'pharmacie',
-      dateCreation: '2025-02-25T10:00:00Z',
-    },
-    {
-      id: 'CLM-002',
-      numeroDemande: 'DEM-2025-0146',
-      statut: 'en_attente',
-      montantTotal: 85000,
-      montantRembourse: 59500,
-      typeSoin: 'consultation',
-      dateCreation: '2025-02-26T09:00:00Z',
-    },
-  ];
+  let whereClause = 'WHERE 1=1';
+  const params: (string | number)[] = [];
+
+  if (statut) {
+    whereClause += ' AND sd.statut = ?';
+    params.push(statut);
+  }
+  if (dateFrom) {
+    whereClause += ' AND sd.date_soin >= ?';
+    params.push(dateFrom);
+  }
+  if (dateTo) {
+    whereClause += ' AND sd.date_soin <= ?';
+    params.push(dateTo);
+  }
+
+  // Scope to partner's provider if applicable
+  if (apiKey.partnerType === 'provider') {
+    whereClause += ' AND sd.praticien_id IN (SELECT id FROM sante_praticiens WHERE provider_id = ?)';
+    params.push(apiKey.partnerId);
+  }
+
+  const [countResult, claimsResult] = await Promise.all([
+    db.prepare(`SELECT COUNT(*) as total FROM sante_demandes sd ${whereClause}`)
+      .bind(...params)
+      .first<{ total: number }>(),
+
+    db.prepare(`
+      SELECT sd.id, sd.numero_demande, sd.statut, sd.type_soin,
+             sd.montant_demande, sd.montant_rembourse, sd.date_soin,
+             sd.created_at,
+             a.first_name || ' ' || a.last_name as adherent_nom
+      FROM sante_demandes sd
+      JOIN adherents a ON sd.adherent_id = a.id
+      ${whereClause}
+      ORDER BY sd.created_at DESC
+      LIMIT ? OFFSET ?
+    `).bind(...params, limit, offset).all<{
+      id: string;
+      numero_demande: string;
+      statut: string;
+      type_soin: string;
+      montant_demande: number;
+      montant_rembourse: number | null;
+      date_soin: string;
+      created_at: string;
+      adherent_nom: string;
+    }>(),
+  ]);
 
   return c.json({
     success: true,
     data: {
-      claims,
+      claims: (claimsResult.results || []).map((r) => ({
+        id: r.id,
+        numeroDemande: r.numero_demande,
+        statut: r.statut,
+        montantTotal: r.montant_demande,
+        montantRembourse: r.montant_rembourse,
+        typeSoin: r.type_soin,
+        dateSoin: r.date_soin,
+        adherentNom: r.adherent_nom,
+        dateCreation: r.created_at,
+      })),
       meta: {
         page,
         limit,
-        total: claims.length,
+        total: countResult?.total ?? 0,
       },
     },
   });
@@ -429,72 +639,136 @@ publicApi.get('/claims', requirePermission('claims:read'), async (c) => {
 
 /**
  * GET /public/v1/providers
- * List conventioned providers
+ * List conventioned providers from sante_praticiens
  */
 publicApi.get('/providers', requirePermission('providers:read'), async (c) => {
+  const db = getDb(c);
   const type = c.req.query('type');
   const ville = c.req.query('ville');
-  const page = parseInt(c.req.query('page') || '1');
-  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+  const page = Math.max(1, parseInt(c.req.query('page') || '1'));
+  const limit = Math.min(Math.max(1, parseInt(c.req.query('limit') || '20')), 100);
+  const offset = (page - 1) * limit;
 
-  // Mock response
-  const providers = [
-    {
-      id: 'PRV-001',
-      nom: 'Pharmacie El Medina',
-      type: 'pharmacy',
-      adresse: '15 Rue de la République, Tunis',
-      telephone: '+216 71 123 456',
-      conventionne: true,
-      horaires: 'Lun-Sam 8h-20h',
-    },
-    {
-      id: 'PRV-002',
-      nom: 'Dr. Karim Mansouri',
-      type: 'doctor',
-      specialite: 'Médecine générale',
-      adresse: '25 Avenue Habib Bourguiba, Sfax',
-      telephone: '+216 74 654 321',
-      conventionne: true,
-    },
-  ];
+  let whereClause = 'WHERE sp.is_active = 1';
+  const params: (string | number)[] = [];
+
+  if (type) {
+    whereClause += ' AND sp.type_praticien = ?';
+    params.push(type);
+  }
+  if (ville) {
+    whereClause += ' AND sp.ville = ?';
+    params.push(ville);
+  }
+
+  const [countResult, providersResult] = await Promise.all([
+    db.prepare(`SELECT COUNT(*) as total FROM sante_praticiens sp ${whereClause}`)
+      .bind(...params)
+      .first<{ total: number }>(),
+
+    db.prepare(`
+      SELECT sp.id, sp.nom, sp.prenom, sp.type_praticien, sp.specialite,
+             sp.est_conventionne, sp.telephone, sp.email, sp.adresse, sp.ville
+      FROM sante_praticiens sp
+      ${whereClause}
+      ORDER BY sp.est_conventionne DESC, sp.nom ASC
+      LIMIT ? OFFSET ?
+    `).bind(...params, limit, offset).all<{
+      id: string;
+      nom: string;
+      prenom: string | null;
+      type_praticien: string;
+      specialite: string;
+      est_conventionne: number;
+      telephone: string | null;
+      email: string | null;
+      adresse: string | null;
+      ville: string | null;
+    }>(),
+  ]);
 
   return c.json({
     success: true,
     data: {
-      providers,
-      meta: { page, limit, total: providers.length },
+      providers: (providersResult.results || []).map((p) => ({
+        id: p.id,
+        nom: p.prenom ? `${p.nom} ${p.prenom}` : p.nom,
+        type: p.type_praticien,
+        specialite: p.specialite,
+        adresse: p.adresse,
+        ville: p.ville,
+        telephone: p.telephone,
+        conventionne: p.est_conventionne === 1,
+      })),
+      meta: { page, limit, total: countResult?.total ?? 0 },
     },
   });
 });
 
 /**
  * GET /public/v1/tarifs
- * Get pricing information
+ * Get pricing information from baremes table
  */
 publicApi.get('/tarifs', requirePermission('eligibility:read'), async (c) => {
+  const db = getDb(c);
   const typeSoin = c.req.query('typeSoin');
   const codeActe = c.req.query('codeActe');
 
-  // Mock response
-  const tarifs = [
-    {
-      codeActe: 'CONS-GEN',
-      libelle: 'Consultation médecine générale',
-      tarifConventionne: 35000,
-      tarifPlafond: 50000,
-      tauxRemboursement: 70,
-    },
-    {
-      codeActe: 'CONS-SPEC',
-      libelle: 'Consultation spécialiste',
-      tarifConventionne: 50000,
-      tarifPlafond: 80000,
-      tauxRemboursement: 70,
-    },
-  ];
+  let whereClause = 'WHERE b.is_active = 1';
+  const params: (string | number)[] = [];
 
-  return c.json({ success: true, data: { tarifs } });
+  if (typeSoin) {
+    // Map French care types to English DB values
+    const careTypeMap: Record<string, string> = {
+      pharmacie: 'pharmacy',
+      consultation: 'consultation',
+      hospitalisation: 'hospitalization',
+      optique: 'optical',
+      dentaire: 'dental',
+      laboratoire: 'lab',
+    };
+    whereClause += ' AND b.care_type = ?';
+    params.push(careTypeMap[typeSoin] || typeSoin);
+  }
+  if (codeActe) {
+    whereClause += ' AND b.act_code = ?';
+    params.push(codeActe);
+  }
+
+  const tarifsResult = await db.prepare(`
+    SELECT b.act_code, b.care_type, b.base_rate, b.coverage_percentage,
+           b.max_amount, b.min_amount, b.plan_type,
+           i.name as insurer_name
+    FROM baremes b
+    LEFT JOIN insurers i ON b.insurer_id = i.id
+    ${whereClause}
+    ORDER BY b.care_type, b.act_code
+    LIMIT 50
+  `).bind(...params).all<{
+    act_code: string | null;
+    care_type: string;
+    base_rate: number;
+    coverage_percentage: number;
+    max_amount: number | null;
+    min_amount: number;
+    plan_type: string | null;
+    insurer_name: string;
+  }>();
+
+  return c.json({
+    success: true,
+    data: {
+      tarifs: (tarifsResult.results || []).map((t) => ({
+        codeActe: t.act_code || t.care_type,
+        libelle: `${t.care_type}${t.act_code ? ' - ' + t.act_code : ''}`,
+        tarifConventionne: t.base_rate,
+        tarifPlafond: t.max_amount,
+        tauxRemboursement: t.coverage_percentage,
+        planType: t.plan_type,
+        assureur: t.insurer_name,
+      })),
+    },
+  });
 });
 
 /**
@@ -523,32 +797,68 @@ publicApi.post('/documents/upload', requirePermission('claims:write'), async (c)
 
 /**
  * GET /public/v1/stats
- * Get partner statistics
+ * Get partner statistics from real data
  */
 publicApi.get('/stats', requirePermission('claims:read'), async (c) => {
   const apiKey = c.get('apiKey') as ApiKeyInfo;
-  const dateFrom = c.req.query('dateFrom') || '2025-01-01';
-  const dateTo = c.req.query('dateTo') || new Date().toISOString().split('T')[0];
+  const db = getDb(c);
+  const queryDateFrom = c.req.query('dateFrom');
+  const queryDateTo = c.req.query('dateTo');
+  const dateFrom = queryDateFrom || (new Date().getFullYear() + '-01-01');
+  const dateTo = queryDateTo || new Date().toISOString().split('T')[0];
 
-  // Mock stats
-  const stats = {
-    periode: { debut: dateFrom, fin: dateTo },
-    demandes: {
-      total: 156,
-      enAttente: 12,
-      approuvees: 128,
-      rejetees: 16,
-    },
-    montants: {
-      totalDemande: 45000000,
-      totalRembourse: 32500000,
-      enAttenteRembourse: 4500000,
-    },
-    tauxApprobation: 88.9,
-    delaiMoyenTraitement: '18h',
-  };
+  let whereClause = 'WHERE sd.date_soin >= ? AND sd.date_soin <= ?';
+  const params: (string | number)[] = [String(dateFrom), String(dateTo)];
 
-  return c.json({ success: true, data: stats });
+  // Scope to partner's provider if applicable
+  if (apiKey.partnerType === 'provider') {
+    whereClause += ' AND sd.praticien_id IN (SELECT id FROM sante_praticiens WHERE provider_id = ?)';
+    params.push(apiKey.partnerId);
+  }
+
+  const statsResult = await db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      COUNT(CASE WHEN statut = 'soumise' THEN 1 END) as en_attente,
+      COUNT(CASE WHEN statut IN ('approuvee', 'en_paiement', 'payee') THEN 1 END) as approuvees,
+      COUNT(CASE WHEN statut = 'rejetee' THEN 1 END) as rejetees,
+      COALESCE(SUM(montant_demande), 0) as total_demande,
+      COALESCE(SUM(CASE WHEN statut IN ('approuvee', 'en_paiement', 'payee') THEN montant_rembourse ELSE 0 END), 0) as total_rembourse,
+      COALESCE(SUM(CASE WHEN statut IN ('soumise', 'en_examen') THEN montant_demande ELSE 0 END), 0) as en_attente_rembourse
+    FROM sante_demandes sd
+    ${whereClause}
+  `).bind(...params).first<{
+    total: number;
+    en_attente: number;
+    approuvees: number;
+    rejetees: number;
+    total_demande: number;
+    total_rembourse: number;
+    en_attente_rembourse: number;
+  }>();
+
+  const total = statsResult?.total ?? 0;
+  const approuvees = statsResult?.approuvees ?? 0;
+  const tauxApprobation = total > 0 ? Math.round((approuvees / total) * 1000) / 10 : 0;
+
+  return c.json({
+    success: true,
+    data: {
+      periode: { debut: dateFrom, fin: dateTo },
+      demandes: {
+        total,
+        enAttente: statsResult?.en_attente ?? 0,
+        approuvees,
+        rejetees: statsResult?.rejetees ?? 0,
+      },
+      montants: {
+        totalDemande: statsResult?.total_demande ?? 0,
+        totalRembourse: statsResult?.total_rembourse ?? 0,
+        enAttenteRembourse: statsResult?.en_attente_rembourse ?? 0,
+      },
+      tauxApprobation,
+    },
+  });
 });
 
 export { publicApi };

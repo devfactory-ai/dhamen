@@ -5,12 +5,13 @@
  */
 import { Hono } from 'hono';
 import type { Bindings, Variables } from '../types';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { authMiddleware, requireAuth, requireRole } from '../middleware/auth';
 import { PaymentGatewayService } from '../services/payment-gateway.service';
 
 const payments = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // All routes require authentication
+payments.use('*', authMiddleware());
 payments.use('*', requireAuth);
 
 /**

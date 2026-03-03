@@ -177,12 +177,18 @@ adherents.get('/me/contract', requireRole('ADHERENT'), async (c) => {
     return notFound(c, 'Utilisateur non authentifié');
   }
 
-  // Find adherent and their contract
+  // Find adherent and their active contract
   const result = await getDb(c).prepare(
-    `SELECT c.*, i.name as insurer_name,
-     (SELECT COALESCE(SUM(covered_amount), 0) FROM claims WHERE adherent_id = a.id AND status = 'PAID' AND strftime('%Y', created_at) = strftime('%Y', 'now')) as used_amount
+    `SELECT c.id, c.contract_number, c.plan_type, c.start_date, c.end_date,
+            c.annual_limit, c.coverage_json, c.status,
+            i.name as insurer_name,
+            (SELECT COALESCE(SUM(sd.montant_rembourse), 0)
+             FROM sante_demandes sd
+             WHERE sd.adherent_id = a.id
+               AND sd.statut IN ('approuvee', 'en_paiement', 'payee')
+               AND strftime('%Y', sd.date_soin) = strftime('%Y', 'now')) as used_amount
      FROM adherents a
-     JOIN contracts c ON a.contract_id = c.id
+     JOIN contracts c ON c.adherent_id = a.id AND UPPER(c.status) = 'ACTIVE'
      JOIN insurers i ON c.insurer_id = i.id
      WHERE a.email = ? AND a.deleted_at IS NULL`
   )
@@ -193,26 +199,34 @@ adherents.get('/me/contract', requireRole('ADHERENT'), async (c) => {
     return notFound(c, 'Contrat non trouvé');
   }
 
+  // Parse coverage from JSON
+  let coverage: Record<string, { reimbursementRate?: number }> = {};
+  try {
+    coverage = JSON.parse(String(result.coverage_json) || '{}');
+  } catch {
+    coverage = {};
+  }
+
   const usedAmount = Number(result.used_amount) || 0;
-  const annualCeiling = Number(result.annual_ceiling) || 0;
+  const annualLimit = Number(result.annual_limit) || 0;
 
   return success(c, {
     contract: {
       id: result.id,
       contractNumber: result.contract_number,
-      name: result.name,
-      type: result.type,
+      name: result.plan_type,
+      type: String(result.plan_type).toUpperCase(),
       insurerName: result.insurer_name,
       startDate: result.start_date,
       endDate: result.end_date,
       status: result.status,
-      coveragePharmacy: result.coverage_pharmacy,
-      coverageConsultation: result.coverage_consultation,
-      coverageLab: result.coverage_lab,
-      coverageHospitalization: result.coverage_hospitalization,
-      annualCeiling: annualCeiling,
+      coveragePharmacy: (coverage.pharmacy?.reimbursementRate || 0) * 100,
+      coverageConsultation: (coverage.consultation?.reimbursementRate || 0) * 100,
+      coverageLab: (coverage.lab?.reimbursementRate || 0) * 100,
+      coverageHospitalization: (coverage.hospitalization?.reimbursementRate || 0) * 100,
+      annualCeiling: annualLimit,
       usedAmount: usedAmount,
-      remainingAmount: Math.max(0, annualCeiling - usedAmount),
+      remainingAmount: Math.max(0, annualLimit - usedAmount),
     },
   });
 });
@@ -242,13 +256,14 @@ adherents.get('/me/claims', requireRole('ADHERENT'), async (c) => {
     return notFound(c, 'Adhérent non trouvé');
   }
 
-  // Get claims
+  // Get claims from sante_demandes
   const claims = await getDb(c).prepare(
-    `SELECT cl.*, p.name as provider_name
-     FROM claims cl
-     LEFT JOIN providers p ON cl.provider_id = p.id
-     WHERE cl.adherent_id = ?
-     ORDER BY cl.created_at DESC
+    `SELECT sd.*, sp.nom as praticien_nom, sp.prenom as praticien_prenom,
+            sp.specialite as praticien_specialite
+     FROM sante_demandes sd
+     LEFT JOIN sante_praticiens sp ON sd.praticien_id = sp.id
+     WHERE sd.adherent_id = ?
+     ORDER BY sd.date_soin DESC
      LIMIT ? OFFSET ?`
   )
     .bind(adherent.id, limit, offset)
@@ -256,25 +271,51 @@ adherents.get('/me/claims', requireRole('ADHERENT'), async (c) => {
 
   // Get total count
   const countResult = await getDb(c).prepare(
-    'SELECT COUNT(*) as count FROM claims WHERE adherent_id = ?'
+    'SELECT COUNT(*) as count FROM sante_demandes WHERE adherent_id = ?'
   )
     .bind(adherent.id)
     .first();
 
   const total = Number(countResult?.count) || 0;
 
+  // Map sante_demandes statut to frontend status
+  const STATUS_MAP: Record<string, string> = {
+    soumise: 'PENDING',
+    en_examen: 'PENDING',
+    info_requise: 'PENDING',
+    approuvee: 'APPROVED',
+    en_paiement: 'APPROVED',
+    payee: 'PAID',
+    rejetee: 'REJECTED',
+  };
+
+  // Map type_soin to frontend type
+  const TYPE_MAP: Record<string, string> = {
+    pharmacie: 'PHARMACY',
+    consultation: 'CONSULTATION',
+    laboratoire: 'LAB',
+    hospitalisation: 'HOSPITALIZATION',
+    dentaire: 'DENTAL',
+    optique: 'OPTICAL',
+  };
+
   return success(c, {
-    claims: claims.results.map((cl) => ({
-      id: cl.id,
-      claimNumber: cl.claim_number,
-      type: cl.type,
-      providerName: cl.provider_name || 'Inconnu',
-      date: cl.created_at,
-      totalAmount: cl.total_amount,
-      coveredAmount: cl.covered_amount,
-      status: cl.status,
-      items: [], // Could be expanded to include claim items
-    })),
+    claims: claims.results.map((cl) => {
+      const praticienName = cl.praticien_nom
+        ? `${cl.praticien_prenom || ''} ${cl.praticien_nom}`.trim()
+        : 'Inconnu';
+      return {
+        id: cl.id,
+        claimNumber: cl.numero_demande,
+        type: TYPE_MAP[String(cl.type_soin)] || String(cl.type_soin).toUpperCase(),
+        providerName: praticienName,
+        date: cl.date_soin || cl.created_at,
+        totalAmount: cl.montant_demande,
+        coveredAmount: cl.montant_rembourse || 0,
+        status: STATUS_MAP[String(cl.statut)] || 'PENDING',
+        items: [],
+      };
+    }),
     total,
   });
 });

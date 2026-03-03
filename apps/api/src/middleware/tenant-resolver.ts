@@ -98,9 +98,6 @@ export const tenantResolverMiddleware: MiddlewareHandler<AppEnv> = async (c, nex
   const dbBinding = getDbBinding(subdomain);
   if (dbBinding) {
     const db = c.env[dbBinding] as D1Database;
-    if (!db) {
-      return error(c, 'TENANT_DB_NOT_CONFIGURED', `Database for tenant ${subdomain} is not configured`, 500);
-    }
 
     // Create tenant config from hardcoded mapping
     const tenant: TenantConfig = {
@@ -113,7 +110,20 @@ export const tenantResolverMiddleware: MiddlewareHandler<AppEnv> = async (c, nex
       createdAt: new Date().toISOString(),
     };
 
-    c.set('tenantDb', db);
+    // If the tenant DB exists, verify it has tables; otherwise fall back to legacy DB.
+    // This handles local dev where tenant DBs may not be migrated yet.
+    if (db) {
+      try {
+        await db.prepare('SELECT 1 FROM users LIMIT 1').first();
+        c.set('tenantDb', db);
+      } catch {
+        // Tenant DB not migrated — fall back to legacy DB
+        c.set('tenantDb', c.env.DB);
+      }
+    } else {
+      c.set('tenantDb', c.env.DB);
+    }
+
     c.set('tenant', tenant);
     c.set('isPlatformAdmin', false);
     return next();

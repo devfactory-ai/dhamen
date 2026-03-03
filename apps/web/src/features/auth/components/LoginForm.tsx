@@ -14,7 +14,7 @@ const DEMO_ACCOUNTS = [
   { email: 'admin@gat.com.tn', role: 'Assureur GAT', icon: '🏛️', color: 'from-indigo-500 to-indigo-600', category: 'insurer' },
   { email: 'pharma.centrale@email.tn', role: 'Pharmacien', icon: '💊', color: 'from-green-500 to-green-600', category: 'provider' },
   { email: 'dr.benali@email.tn', role: 'Médecin', icon: '🩺', color: 'from-teal-500 to-teal-600', category: 'provider' },
-  { email: 'lab.biomedic@email.tn', role: 'Laboratoire', icon: '🔬', color: 'from-orange-500 to-orange-600', category: 'provider' },
+  { email: 'labo.central@email.tn', role: 'Laboratoire', icon: '🔬', color: 'from-orange-500 to-orange-600', category: 'provider' },
 ];
 
 // Demo insurance agent accounts - sub-contractors who process claims

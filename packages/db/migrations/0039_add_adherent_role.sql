@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS users_new (
   )),
   provider_id TEXT REFERENCES providers(id),
   insurer_id TEXT REFERENCES insurers(id),
-  company_id TEXT REFERENCES companies(id),
+  company_id TEXT,
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
   phone TEXT,
@@ -26,8 +26,9 @@ CREATE TABLE IF NOT EXISTS users_new (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
--- Step 2: Copy existing data
-INSERT INTO users_new SELECT * FROM users;
+-- Step 2: Copy existing data (explicitly list columns since users_new has extra company_id)
+INSERT INTO users_new (id, email, password_hash, role, provider_id, insurer_id, first_name, last_name, phone, mfa_enabled, mfa_secret, last_login_at, is_active, created_at, updated_at)
+SELECT id, email, password_hash, role, provider_id, insurer_id, first_name, last_name, phone, mfa_enabled, mfa_secret, last_login_at, is_active, created_at, updated_at FROM users;
 
 -- Step 3: Drop old table
 DROP TABLE users;

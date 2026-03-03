@@ -5,7 +5,16 @@
 -- payment_method, payment_date, payment_notes may already exist in bulletins_soins
 -- SQLite doesn't support ADD COLUMN IF NOT EXISTS, skipping to avoid errors
 
--- Update any bulletins with 'reimbursed' status that don't have approved_date
+-- Add payment workflow columns to bulletins_soins
+ALTER TABLE bulletins_soins ADD COLUMN approved_date TEXT;
+ALTER TABLE bulletins_soins ADD COLUMN approved_by TEXT;
+ALTER TABLE bulletins_soins ADD COLUMN approved_amount INTEGER;
+ALTER TABLE bulletins_soins ADD COLUMN payment_reference TEXT;
+ALTER TABLE bulletins_soins ADD COLUMN payment_method TEXT;
+ALTER TABLE bulletins_soins ADD COLUMN payment_date TEXT;
+ALTER TABLE bulletins_soins ADD COLUMN payment_notes TEXT;
+
+-- Backfill any reimbursed bulletins
 UPDATE bulletins_soins
 SET approved_date = processing_date,
     approved_amount = reimbursed_amount

@@ -49,7 +49,10 @@ const RECONCILIATION_STATUS = {
 export function ReconciliationPage() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
-  const [periodFilter, setPeriodFilter] = useState<string>('2024-01');
+  const [periodFilter, setPeriodFilter] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [isExporting, setIsExporting] = useState(false);
 
   const queryClient = useQueryClient();

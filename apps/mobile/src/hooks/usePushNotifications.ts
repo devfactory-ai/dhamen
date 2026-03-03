@@ -1,26 +1,33 @@
 /**
  * Push Notifications Hook
  *
- * Handles push notification permissions, registration, and listeners
+ * Handles push notification permissions, registration, and listeners.
+ * Gracefully degrades in Expo Go where remote notifications are unavailable.
  */
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Platform } from 'react-native';
-import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { apiClient } from '@/lib/api-client';
 
-// Configure notification handler
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// Lazy import to avoid crash in Expo Go SDK 53+
+let Notifications: typeof import('expo-notifications') | null = null;
+try {
+  Notifications = require('expo-notifications');
+  // Configure notification handler
+  Notifications?.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+} catch {
+  console.warn('expo-notifications not available (Expo Go limitation)');
+}
 
 export interface PushNotificationState {
   token: string | null;
@@ -39,28 +46,23 @@ export interface UsePushNotificationsReturn extends PushNotificationState {
  * Get push notification token
  */
 async function getPushToken(): Promise<string | null> {
-  if (!Device.isDevice) {
-    console.log('Push notifications require a physical device');
+  if (!Notifications || !Device.isDevice) {
     return null;
   }
 
   try {
-    // Get existing permissions
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
 
-    // Request permissions if not granted
     if (existingStatus !== 'granted') {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }
 
     if (finalStatus !== 'granted') {
-      console.log('Push notification permission not granted');
       return null;
     }
 
-    // Get Expo push token
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
     const tokenData = await Notifications.getExpoPushTokenAsync({
       projectId,
@@ -68,7 +70,7 @@ async function getPushToken(): Promise<string | null> {
 
     return tokenData.data;
   } catch (error) {
-    console.error('Failed to get push token:', error);
+    console.warn('Failed to get push token:', error);
     return null;
   }
 }
@@ -97,15 +99,15 @@ export function usePushNotifications(): UsePushNotificationsReturn {
   const [state, setState] = useState<PushNotificationState>({
     token: null,
     isEnabled: false,
-    isLoading: true,
-    error: null,
+    isLoading: false,
+    error: Notifications ? null : 'Notifications non disponibles dans Expo Go',
   });
 
-  const notificationListener = useRef<Notifications.EventSubscription>();
-  const responseListener = useRef<Notifications.EventSubscription>();
+  const notificationListener = useRef<{ remove(): void }>();
+  const responseListener = useRef<{ remove(): void }>();
 
-  // Request notification permission
   const requestPermission = useCallback(async (): Promise<boolean> => {
+    if (!Notifications) return false;
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
@@ -129,7 +131,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       }));
 
       return granted;
-    } catch (error) {
+    } catch {
       setState((prev) => ({
         ...prev,
         isLoading: false,
@@ -139,8 +141,8 @@ export function usePushNotifications(): UsePushNotificationsReturn {
     }
   }, []);
 
-  // Register token with backend
   const registerToken = useCallback(async (): Promise<boolean> => {
+    if (!Notifications) return false;
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
@@ -149,7 +151,7 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         setState((prev) => ({
           ...prev,
           isLoading: false,
-          error: 'Impossible d\'obtenir le token de notification',
+          error: "Impossible d'obtenir le token de notification",
         }));
         return false;
       }
@@ -165,32 +167,26 @@ export function usePushNotifications(): UsePushNotificationsReturn {
       });
 
       if (response.success) {
-        setState({
-          token,
-          isEnabled: true,
-          isLoading: false,
-          error: null,
-        });
+        setState({ token, isEnabled: true, isLoading: false, error: null });
         return true;
       }
 
       setState((prev) => ({
         ...prev,
         isLoading: false,
-        error: response.error?.message || 'Erreur d\'inscription',
+        error: response.error?.message || "Erreur d'inscription",
       }));
       return false;
-    } catch (error) {
+    } catch {
       setState((prev) => ({
         ...prev,
         isLoading: false,
-        error: 'Erreur lors de l\'inscription aux notifications',
+        error: "Erreur lors de l'inscription aux notifications",
       }));
       return false;
     }
   }, []);
 
-  // Unregister token from backend
   const unregisterToken = useCallback(async (): Promise<void> => {
     if (!state.token) return;
 
@@ -199,87 +195,76 @@ export function usePushNotifications(): UsePushNotificationsReturn {
         token: state.token,
       });
 
-      setState((prev) => ({
-        ...prev,
-        token: null,
-        isEnabled: false,
-      }));
+      setState((prev) => ({ ...prev, token: null, isEnabled: false }));
     } catch (error) {
       console.error('Failed to unregister token:', error);
     }
   }, [state.token]);
 
-  // Initialize on mount
   useEffect(() => {
+    if (!Notifications) return;
+
     let isMounted = true;
 
     const initializeNotifications = async () => {
-      // Check existing permission
-      const { status } = await Notifications.getPermissionsAsync();
-      const isEnabled = status === 'granted';
+      try {
+        const { status } = await Notifications.getPermissionsAsync();
+        const isEnabled = status === 'granted';
 
-      if (isMounted) {
-        setState((prev) => ({
-          ...prev,
-          isEnabled,
-          isLoading: false,
-        }));
-      }
-
-      // If enabled, get token
-      if (isEnabled) {
-        const token = await getPushToken();
-        if (token && isMounted) {
-          setState((prev) => ({ ...prev, token }));
+        if (isMounted) {
+          setState((prev) => ({ ...prev, isEnabled, isLoading: false }));
         }
-      }
 
-      // Set up notification channel for Android
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('default', {
-          name: 'SoinFlow',
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#1e3a5f',
-        });
+        if (isEnabled) {
+          const token = await getPushToken();
+          if (token && isMounted) {
+            setState((prev) => ({ ...prev, token }));
+          }
+        }
+
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('default', {
+            name: 'SoinFlow',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#1e3a5f',
+          });
+        }
+      } catch {
+        // Notifications not available
       }
     };
 
     initializeNotifications();
 
-    // Handle received notifications
-    notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
-      console.log('Notification received:', notification.request.content);
-    });
-
-    // Handle notification responses (when user taps)
-    responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data;
-      console.log('Notification tapped:', data);
-
-      // Navigate based on notification type
-      if (data?.eventType) {
-        const eventType = data.eventType as string;
-        if (eventType.startsWith('SANTE_DEMANDE_') && data.demandeId) {
-          router.push(`/(main)/demandes/${data.demandeId}`);
-        } else if (eventType === 'SANTE_BORDEREAU_GENERE') {
-          // Navigate to notifications or bordereaux
-          router.push('/(main)/notifications');
-        } else {
-          // Default: go to notifications
-          router.push('/(main)/notifications');
+    try {
+      notificationListener.current = Notifications.addNotificationReceivedListener(
+        (notification) => {
+          console.log('Notification received:', notification.request.content);
         }
-      }
-    });
+      );
+
+      responseListener.current = Notifications.addNotificationResponseReceivedListener(
+        (response) => {
+          const data = response.notification.request.content.data;
+          if (data?.eventType) {
+            const eventType = data.eventType as string;
+            if (eventType.startsWith('SANTE_DEMANDE_') && data.demandeId) {
+              router.push(`/(main)/demandes/${data.demandeId}`);
+            } else {
+              router.push('/(main)/notifications');
+            }
+          }
+        }
+      );
+    } catch {
+      // Listeners not available
+    }
 
     return () => {
       isMounted = false;
-      if (notificationListener.current) {
-        Notifications.removeNotificationSubscription(notificationListener.current);
-      }
-      if (responseListener.current) {
-        Notifications.removeNotificationSubscription(responseListener.current);
-      }
+      notificationListener.current?.remove();
+      responseListener.current?.remove();
     };
   }, []);
 
@@ -310,9 +295,10 @@ export async function getUnreadCount(): Promise<number> {
  * Set badge count on app icon
  */
 export async function setBadgeCount(count: number): Promise<void> {
+  if (!Notifications) return;
   try {
     await Notifications.setBadgeCountAsync(count);
-  } catch (error) {
-    console.error('Failed to set badge count:', error);
+  } catch {
+    // Not available
   }
 }

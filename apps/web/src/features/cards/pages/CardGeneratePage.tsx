@@ -35,7 +35,7 @@ export function CardGeneratePage() {
     }
 
     try {
-      await generateCard.mutateAsync({ adhérentId: adherent.id });
+      await generateCard.mutateAsync({ adherentId: adherent.id });
       toast({
         title: 'Succes',
         description: 'Carte virtuelle générée avec succès',

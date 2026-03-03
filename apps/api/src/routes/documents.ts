@@ -5,7 +5,7 @@
  */
 import { Hono } from 'hono';
 import type { Bindings, Variables } from '../types';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { authMiddleware, requireAuth, requireRole } from '../middleware/auth';
 import {
   DocumentService,
   type DocumentCategory,
@@ -15,6 +15,7 @@ import {
 const documents = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // All document routes require authentication
+documents.use('*', authMiddleware());
 documents.use('*', requireAuth);
 
 /**

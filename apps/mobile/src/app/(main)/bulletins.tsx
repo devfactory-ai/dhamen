@@ -28,7 +28,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { colors, typography, spacing, borderRadius, shadows } from '@/theme';
-import { Skeleton } from '@/components/ui/Skeleton';
+import { Skeleton } from '@/components';
 
 // Blank bulletin types for download
 const BLANK_BULLETINS = [

@@ -5,12 +5,13 @@
  */
 import { Hono } from 'hono';
 import type { Bindings, Variables } from '../types';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { authMiddleware, requireAuth, requireRole } from '../middleware/auth';
 import { BatchService, type BatchJobType } from '../services/batch.service';
 
 const batch = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // All routes require authentication
+batch.use('*', authMiddleware());
 batch.use('*', requireAuth);
 
 /**

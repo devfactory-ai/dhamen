@@ -11,7 +11,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Bindings, Variables } from '../../types';
 import { getDb } from '../../lib/db';
-import { requireAuth, requireRole } from '../../middleware/auth';
+import { authMiddleware, requireAuth, requireRole } from '../../middleware/auth';
 import { successData as success, errorData as error } from '../../lib/response';
 import {
   createWorkflowService,
@@ -21,6 +21,7 @@ import {
 export const workflows = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // Apply auth middleware
+workflows.use('*', authMiddleware());
 workflows.use('*', requireAuth);
 
 // ==========================================================================

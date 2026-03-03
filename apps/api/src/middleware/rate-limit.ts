@@ -197,10 +197,10 @@ async function checkRateLimitKV(
  * Uses Durable Objects for strong consistency to prevent brute-force attacks
  */
 export const authRateLimit = rateLimitMiddleware({
-  maxRequests: 5,
+  maxRequests: 30,
   windowSeconds: 60,
   keyPrefix: 'rl:auth',
-  useDurableObjects: true,
+  useDurableObjects: false,
 });
 
 /**

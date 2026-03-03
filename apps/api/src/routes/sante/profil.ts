@@ -36,12 +36,50 @@ interface PlafondRow {
 }
 
 /**
+ * GET /api/v1/sante/profil/me
+ * Get basic adherent profile for bulletins pre-fill
+ */
+profil.get('/me', requireRole('ADHERENT'), async (c) => {
+  const user = c.get('user');
+
+  const adherent = await getDb(c).prepare(`
+    SELECT a.id, a.first_name, a.last_name, a.date_of_birth, a.matricule,
+           a.address, a.phone_encrypted as phone, a.email
+    FROM adherents a
+    WHERE a.email = ? AND a.deleted_at IS NULL
+  `)
+    .bind(user.email)
+    .first();
+
+  if (!adherent) {
+    return notFound(c, 'Adhérent non trouvé');
+  }
+
+  return success(c, {
+    id: adherent.id,
+    first_name: adherent.first_name,
+    last_name: adherent.last_name,
+    date_of_birth: adherent.date_of_birth,
+    matricule: adherent.matricule || adherent.id,
+    address: adherent.address,
+    phone: adherent.phone,
+  });
+});
+
+/**
  * GET /api/v1/sante/profil
  * Get current user's health profile with coverage and consumption
  */
 profil.get('/', requireRole('ADHERENT'), async (c) => {
   const user = c.get('user');
-  const adherentId = user.sub;
+  // Find adherent by user email
+  const adherentRecord = await getDb(c).prepare(
+    'SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL'
+  ).bind(user.email).first<{ id: string }>();
+  const adherentId = adherentRecord?.id;
+  if (!adherentId) {
+    return notFound(c, 'Adhérent non trouvé');
+  }
   const currentYear = new Date().getFullYear();
 
   // Get adherent info with sante extension

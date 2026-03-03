@@ -126,7 +126,7 @@ export function CardVerificationResult({
             </div>
             <div>
               <p className="text-sm text-muted-foreground">N° Adhérent</p>
-              <p className="font-mono font-semibold">{card.adherent.adhérentNumber}</p>
+              <p className="font-mono font-semibold">{card.adherent.adherentNumber}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">CIN</p>

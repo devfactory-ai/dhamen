@@ -81,7 +81,7 @@ export function LoginPage() {
 
           {/* Footer */}
           <div className="text-white/60 text-sm">
-            © 2025 Dhamen. Plateforme 100% Tunisienne.
+            © 2025-2026 Dhamen. Plateforme 100% Tunisienne.
           </div>
         </div>
       </div>

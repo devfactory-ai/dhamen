@@ -320,7 +320,7 @@ export default function CardsManagementPage() {
                 cards.map((card: VirtualCard) => (
                   <TableRow key={card.id}>
                     <TableCell className="font-mono">{card.cardNumber}</TableCell>
-                    <TableCell>{card.adhérentId.slice(0, 8)}...</TableCell>
+                    <TableCell>{card.adherentId.slice(0, 8)}...</TableCell>
                     <TableCell>{getStatusBadge(card.status)}</TableCell>
                     <TableCell>{formatDate(card.issuedAt)}</TableCell>
                     <TableCell>{formatDate(card.expiresAt)}</TableCell>

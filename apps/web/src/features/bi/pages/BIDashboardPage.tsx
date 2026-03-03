@@ -98,8 +98,9 @@ export function BIDashboardPage() {
   const { data: stats, isLoading } = useQuery({
     queryKey: ['bi-stats', période, assureur],
     queryFn: async () => {
-      // Mock data for now
-      return getMockBIStats();
+      const response = await apiClient.get<BIStats>('/analytics/bi');
+      if (!response.success) { throw new Error(response.error?.message); }
+      return response.data;
     },
   });
 
@@ -461,68 +462,3 @@ export function BIDashboardPage() {
   );
 }
 
-function getMockBIStats(): BIStats {
-  return {
-    kpis: {
-      totalDemandes: 2847,
-      demandesChange: 12.5,
-      montantRembourse: 425000000,
-      montantChange: 8.3,
-      tauxAcceptation: 89.2,
-      tauxChange: 2.1,
-      delaiMoyenTraitement: 18,
-      delaiChange: 15,
-      scoreFraudeMoyen: 12,
-      fraudeChange: -5.2,
-      adhérentsActifs: 15420,
-      adhérentsChange: 4.8,
-    },
-    tendanceMensuelle: [
-      { mois: 'Sep', demandes: 450, montantRembourse: 65000000, montantDemande: 82000000 },
-      { mois: 'Oct', demandes: 520, montantRembourse: 72000000, montantDemande: 91000000 },
-      { mois: 'Nov', demandes: 480, montantRembourse: 68000000, montantDemande: 86000000 },
-      { mois: 'Dec', demandes: 550, montantRembourse: 78000000, montantDemande: 98000000 },
-      { mois: 'Jan', demandes: 620, montantRembourse: 85000000, montantDemande: 107000000 },
-      { mois: 'Fev', demandes: 580, montantRembourse: 82000000, montantDemande: 103000000 },
-    ],
-    repartitionTypeSoin: [
-      { type: 'Pharmacie', count: 1250, montant: 180000000 },
-      { type: 'Consultation', count: 850, montant: 85000000 },
-      { type: 'Hospitalisation', count: 120, montant: 95000000 },
-      { type: 'Laboratoire', count: 420, montant: 42000000 },
-      { type: 'Optique', count: 180, montant: 18000000 },
-      { type: 'Dentaire', count: 27, montant: 5000000 },
-    ],
-    topPraticiens: [
-      { id: '1', nom: 'Pharmacie El Medina', type: 'Pharmacie', demandes: 245, montant: 35000000 },
-      { id: '2', nom: 'Clinique Les Oliviers', type: 'Clinique', demandes: 89, montant: 28000000 },
-      { id: '3', nom: 'Pharmacie Centrale', type: 'Pharmacie', demandes: 198, montant: 25000000 },
-      { id: '4', nom: 'Dr. Karim Mansouri', type: 'Médecin', demandes: 312, montant: 22000000 },
-      { id: '5', nom: 'Laboratoire BioAnalyse', type: 'Laboratoire', demandes: 156, montant: 18000000 },
-    ],
-    repartitionStatut: [
-      { statut: 'Approuvées', count: 2540 },
-      { statut: 'En attente', count: 180 },
-      { statut: 'Rejetées', count: 95 },
-      { statut: 'En paiement', count: 32 },
-    ],
-    performanceAssureurs: [
-      { assureur: 'STAR', demandes: 980, montant: 145000000, delaiMoyen: 16 },
-      { assureur: 'COMAR', demandes: 750, montant: 112000000, delaiMoyen: 20 },
-      { assureur: 'GAT', demandes: 620, montant: 95000000, delaiMoyen: 18 },
-      { assureur: 'Autres', demandes: 497, montant: 73000000, delaiMoyen: 22 },
-    ],
-    alertesFraude: [
-      { niveau: 'Faible', count: 45 },
-      { niveau: 'Moyen', count: 28 },
-      { niveau: 'Élevé', count: 12 },
-      { niveau: 'Critique', count: 5 },
-    ],
-    evolutionFraude: [
-      { semaine: 'S1', alertes: 8, montantSuspect: 2500000 },
-      { semaine: 'S2', alertes: 12, montantSuspect: 3800000 },
-      { semaine: 'S3', alertes: 15, montantSuspect: 4200000 },
-      { semaine: 'S4', alertes: 10, montantSuspect: 2900000 },
-    ],
-  };
-}

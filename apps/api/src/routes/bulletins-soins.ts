@@ -33,8 +33,8 @@ bulletinsSoins.get('/me', async (c) => {
 
   // First get the adherent ID
   const adherent = await db.prepare(`
-    SELECT id FROM adherents WHERE user_id = ?
-  `).bind(user.id).first<{ id: string }>();
+    SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL
+  `).bind(user.email).first<{ id: string }>();
 
   if (!adherent) {
     return c.json({
@@ -88,6 +88,54 @@ bulletinsSoins.get('/me', async (c) => {
 });
 
 /**
+ * GET /bulletins-soins/me/stats - Get bulletin statistics
+ * Must be registered BEFORE /me/:id to avoid route conflict
+ */
+bulletinsSoins.get('/me/stats', async (c) => {
+  const user = c.get('user');
+  const db = getDb(c);
+
+  if (user.role !== 'ADHERENT') {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Accès réservé aux adhérents' },
+    }, 403);
+  }
+
+  // Get adherent ID
+  const adherent = await db.prepare(`
+    SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL
+  `).bind(user.email).first<{ id: string }>();
+
+  if (!adherent) {
+    return c.json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Adhérent non trouvé' },
+    }, 404);
+  }
+
+  // Get statistics with new workflow statuses
+  const stats = await db.prepare(`
+    SELECT
+      COUNT(*) as total,
+      SUM(CASE WHEN status IN ('submitted', 'scan_uploaded') THEN 1 ELSE 0 END) as scan_uploaded,
+      SUM(CASE WHEN status = 'paper_received' THEN 1 ELSE 0 END) as paper_received,
+      SUM(CASE WHEN status IN ('processing', 'paper_complete', 'paper_incomplete') THEN 1 ELSE 0 END) as processing,
+      SUM(CASE WHEN status = 'reimbursed' THEN 1 ELSE 0 END) as reimbursed,
+      SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected,
+      COALESCE(SUM(total_amount), 0) as total_amount,
+      COALESCE(SUM(reimbursed_amount), 0) as total_reimbursed
+    FROM bulletins_soins
+    WHERE adherent_id = ?
+  `).bind(adherent.id).first();
+
+  return c.json({
+    success: true,
+    data: stats,
+  });
+});
+
+/**
  * GET /bulletins-soins/me/:id - Get a specific bulletin
  */
 bulletinsSoins.get('/me/:id', async (c) => {
@@ -104,8 +152,8 @@ bulletinsSoins.get('/me/:id', async (c) => {
 
   // Get adherent ID
   const adherent = await db.prepare(`
-    SELECT id FROM adherents WHERE user_id = ?
-  `).bind(user.id).first<{ id: string }>();
+    SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL
+  `).bind(user.email).first<{ id: string }>();
 
   if (!adherent) {
     return c.json({
@@ -156,8 +204,8 @@ bulletinsSoins.post('/me', async (c) => {
 
   // Get adherent ID
   const adherent = await db.prepare(`
-    SELECT id FROM adherents WHERE user_id = ?
-  `).bind(user.id).first<{ id: string }>();
+    SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL
+  `).bind(user.email).first<{ id: string }>();
 
   if (!adherent) {
     return c.json({
@@ -207,53 +255,6 @@ bulletinsSoins.post('/me', async (c) => {
 });
 
 /**
- * GET /bulletins-soins/me/stats - Get bulletin statistics
- */
-bulletinsSoins.get('/me/stats', async (c) => {
-  const user = c.get('user');
-  const db = getDb(c);
-
-  if (user.role !== 'ADHERENT') {
-    return c.json({
-      success: false,
-      error: { code: 'FORBIDDEN', message: 'Accès réservé aux adhérents' },
-    }, 403);
-  }
-
-  // Get adherent ID
-  const adherent = await db.prepare(`
-    SELECT id FROM adherents WHERE user_id = ?
-  `).bind(user.id).first<{ id: string }>();
-
-  if (!adherent) {
-    return c.json({
-      success: false,
-      error: { code: 'NOT_FOUND', message: 'Adhérent non trouvé' },
-    }, 404);
-  }
-
-  // Get statistics with new workflow statuses
-  const stats = await db.prepare(`
-    SELECT
-      COUNT(*) as total,
-      SUM(CASE WHEN status IN ('submitted', 'scan_uploaded') THEN 1 ELSE 0 END) as scan_uploaded,
-      SUM(CASE WHEN status = 'paper_received' THEN 1 ELSE 0 END) as paper_received,
-      SUM(CASE WHEN status IN ('processing', 'paper_complete', 'paper_incomplete') THEN 1 ELSE 0 END) as processing,
-      SUM(CASE WHEN status = 'reimbursed' THEN 1 ELSE 0 END) as reimbursed,
-      SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected,
-      COALESCE(SUM(total_amount), 0) as total_amount,
-      COALESCE(SUM(reimbursed_amount), 0) as total_reimbursed
-    FROM bulletins_soins
-    WHERE adherent_id = ?
-  `).bind(adherent.id).first();
-
-  return c.json({
-    success: true,
-    data: stats,
-  });
-});
-
-/**
  * GET /bulletins-soins/blank-pdf - Generate blank bulletin PDF
  */
 bulletinsSoins.get('/blank-pdf', async (c) => {
@@ -271,15 +272,14 @@ bulletinsSoins.get('/blank-pdf', async (c) => {
   const adherent = await db.prepare(`
     SELECT
       a.*,
-      u.first_name, u.last_name, u.email,
-      c.policy_number, c.start_date, c.end_date,
+      a.first_name, a.last_name, a.email,
+      c.contract_number as policy_number, c.start_date, c.end_date,
       i.name as insurer_name
     FROM adherents a
-    JOIN users u ON a.user_id = u.id
-    LEFT JOIN contracts c ON c.adherent_id = a.id AND c.status = 'active'
+    LEFT JOIN contracts c ON c.adherent_id = a.id AND UPPER(c.status) = 'ACTIVE'
     LEFT JOIN insurers i ON c.insurer_id = i.id
-    WHERE a.user_id = ?
-  `).bind(user.id).first();
+    WHERE a.email = ? AND a.deleted_at IS NULL
+  `).bind(user.email).first();
 
   if (!adherent) {
     return c.json({
@@ -489,8 +489,8 @@ bulletinsSoins.post('/submit', async (c) => {
 
   // Get adherent ID
   const adherent = await db.prepare(`
-    SELECT id FROM adherents WHERE user_id = ?
-  `).bind(user.id).first<{ id: string }>();
+    SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL
+  `).bind(user.email).first<{ id: string }>();
 
   if (!adherent) {
     return c.json({
@@ -646,8 +646,8 @@ bulletinsSoins.post('/me/:id/upload-scan', async (c) => {
 
   // Get adherent ID
   const adherent = await db.prepare(`
-    SELECT id FROM adherents WHERE user_id = ?
-  `).bind(user.id).first<{ id: string }>();
+    SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL
+  `).bind(user.email).first<{ id: string }>();
 
   if (!adherent) {
     return c.json({

@@ -3,9 +3,9 @@
  * Provides offline support and caching for the PWA
  */
 
-const CACHE_NAME = 'dhamen-v1';
-const STATIC_CACHE_NAME = 'dhamen-static-v1';
-const API_CACHE_NAME = 'dhamen-api-v1';
+const CACHE_NAME = 'dhamen-v2';
+const STATIC_CACHE_NAME = 'dhamen-static-v2';
+const API_CACHE_NAME = 'dhamen-api-v2';
 
 // Static assets to cache immediately
 const STATIC_ASSETS = [
@@ -146,10 +146,15 @@ async function staleWhileRevalidate(request) {
   const cachedResponse = await caches.match(request);
 
   const networkPromise = fetch(request).then((response) => {
-    if (response.ok) {
-      caches.open(CACHE_NAME).then((cache) => {
-        cache.put(request, response.clone());
-      });
+    if (response.ok && response.status !== 206) {
+      try {
+        const cloned = response.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(request, cloned);
+        });
+      } catch (e) {
+        // Response body already used or opaque — skip caching
+      }
     }
     return response;
   }).catch(() => cachedResponse);

@@ -7,7 +7,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import type { Bindings, Variables } from '../types';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { authMiddleware, requireAuth, requireRole } from '../middleware/auth';
 import {
   AuditService,
   type AuditAction,
@@ -71,6 +71,7 @@ const cleanupBodySchema = z.object({
 const audit = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // All audit routes require authentication and elevated permissions
+audit.use('*', authMiddleware());
 audit.use('*', requireAuth);
 audit.use('*', requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'));
 

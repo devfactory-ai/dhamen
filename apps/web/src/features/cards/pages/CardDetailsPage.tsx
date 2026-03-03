@@ -14,8 +14,8 @@ import { apiClient } from '@/lib/api-client';
 
 interface VirtualCard {
   id: string;
-  adhérentId: string;
-  adhérentName?: string;
+  adherentId: string;
+  adherentName?: string;
   cardNumber: string;
   status: 'active' | 'suspended' | 'revoked' | 'expired';
   issuedAt: string;
@@ -101,7 +101,7 @@ export function CardDetailsPage() {
           </Button>
           <PageHeader
             title={`Carte ${card.cardNumber}`}
-            description={card.adhérentName || `Adhérent ${card.adhérentId.slice(0, 8)}...`}
+            description={card.adherentName || `Adhérent ${card.adherentId.slice(0, 8)}...`}
           />
         </div>
         {getStatusBadge(card.status)}
@@ -174,7 +174,7 @@ export function CardDetailsPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">ID Adhérent</p>
-                <p className="font-mono text-sm">{card.adhérentId}</p>
+                <p className="font-mono text-sm">{card.adherentId}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Dernière utilisation</p>

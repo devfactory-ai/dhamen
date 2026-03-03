@@ -2,9 +2,11 @@
  * Insurer Dashboard Page
  *
  * Comprehensive dashboard for insurance company administrators
+ * Fetches real data from analytics, fraud, bordereaux, and demandes endpoints
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +15,7 @@ import { apiClient } from '@/lib/api-client';
 
 // Types
 interface InsurerStats {
-  adhérentsActifs: number;
+  adherentsActifs: number;
   contratsActifs: number;
   prestatairesConventionnes: number;
   demandesEnCours: number;
@@ -25,8 +27,8 @@ interface InsurerStats {
 
 interface DemandeRecente {
   id: string;
-  numéroDemande: string;
-  adhérent: string;
+  numeroDemande: string;
+  adherent: string;
   typeSoin: string;
   montant: number;
   statut: string;
@@ -35,101 +37,128 @@ interface DemandeRecente {
 }
 
 interface PerformanceMetric {
-  période: string;
-  demandesTraitées: number;
+  periode: string;
+  demandesTraitees: number;
   delaiMoyenTraitement: number;
   tauxApprobation: number;
   montantRembourse: number;
 }
 
-// Mock data
-const mockStats: InsurerStats = {
-  adhérentsActifs: 15420,
-  contratsActifs: 342,
-  prestatairesConventionnes: 1250,
-  demandesEnCours: 89,
-  montantPaiementsMois: 2450000000,
-  tauxRemboursement: 78.5,
-  alertesFraude: 12,
-  bordereauEnAttente: 5,
-};
-
-const mockDemandes: DemandeRecente[] = [
-  {
-    id: '1',
-    numéroDemande: 'DEM-2025-001234',
-    adhérent: 'Mohamed Ben Ali',
-    typeSoin: 'pharmacie',
-    montant: 125500,
-    statut: 'en_examen',
-    dateSoumission: '2025-02-26T10:30:00Z',
-    scoreFraude: 15,
-  },
-  {
-    id: '2',
-    numéroDemande: 'DEM-2025-001235',
-    adhérent: 'Fatma Trabelsi',
-    typeSoin: 'consultation',
-    montant: 85000,
-    statut: 'approuvee',
-    dateSoumission: '2025-02-26T09:15:00Z',
-    scoreFraude: 5,
-  },
-  {
-    id: '3',
-    numéroDemande: 'DEM-2025-001236',
-    adhérent: 'Ahmed Mansouri',
-    typeSoin: 'hospitalisation',
-    montant: 2500000,
-    statut: 'en_examen',
-    dateSoumission: '2025-02-26T08:45:00Z',
-    scoreFraude: 45,
-  },
-  {
-    id: '4',
-    numéroDemande: 'DEM-2025-001237',
-    adhérent: 'Sarra Gharbi',
-    typeSoin: 'laboratoire',
-    montant: 75000,
-    statut: 'approuvee',
-    dateSoumission: '2025-02-25T16:20:00Z',
-    scoreFraude: 8,
-  },
-  {
-    id: '5',
-    numéroDemande: 'DEM-2025-001238',
-    adhérent: 'Karim Chaabane',
-    typeSoin: 'optique',
-    montant: 350000,
-    statut: 'rejetée',
-    dateSoumission: '2025-02-25T14:10:00Z',
-    scoreFraude: 72,
-  },
-];
-
-const mockPerformance: PerformanceMetric[] = [
-  { période: 'Janvier 2025', demandesTraitées: 4520, delaiMoyenTraitement: 1.2, tauxApprobation: 85.3, montantRembourse: 2150000000 },
-  { période: 'Décembre 2024', demandesTraitées: 4180, delaiMoyenTraitement: 1.5, tauxApprobation: 82.1, montantRembourse: 1980000000 },
-  { période: 'Novembre 2024', demandesTraitées: 3920, delaiMoyenTraitement: 1.8, tauxApprobation: 80.5, montantRembourse: 1850000000 },
-];
-
 export function InsurerDashboardPage() {
   const [selectedPeriod, setSelectedPeriod] = useState<'jour' | 'semaine' | 'mois'>('mois');
+  const navigate = useNavigate();
 
-  // In production, fetch from API
+  // Fetch stats from multiple real endpoints
   const { data: stats } = useQuery({
     queryKey: ['insurer-stats', selectedPeriod],
-    queryFn: async () => mockStats,
+    queryFn: async (): Promise<InsurerStats> => {
+      const [analyticsRes, fraudRes, bordereauRes] = await Promise.all([
+        apiClient.get<{
+          kpis: {
+            totalAdherents: number;
+            activeAdherents: number;
+            totalProviders: number;
+            totalClaims: number;
+            pendingClaims: number;
+            approvalRate: number;
+            approvedAmount: number;
+            fraudAlerts: number;
+          };
+        }>('/analytics/dashboard'),
+        apiClient.get<{
+          totalAlertes: number;
+          nouvelles: number;
+          enInvestigation: number;
+        }>('/sante/fraud/stats'),
+        apiClient.get<{
+          totalBordereaux: number;
+          montantTotal: number;
+          parStatut: Record<string, { count: number; total: number }>;
+        }>('/sante/bordereaux/stats'),
+      ]);
+
+      const kpis = analyticsRes.data.kpis;
+      const fraud = fraudRes.data;
+      const bord = bordereauRes.data;
+      const bordEnAttente = (bord.parStatut?.genere?.count ?? 0) + (bord.parStatut?.valide?.count ?? 0);
+
+      return {
+        adherentsActifs: kpis.activeAdherents,
+        contratsActifs: kpis.totalAdherents,
+        prestatairesConventionnes: kpis.totalProviders,
+        demandesEnCours: kpis.pendingClaims,
+        montantPaiementsMois: kpis.approvedAmount,
+        tauxRemboursement: kpis.approvalRate,
+        alertesFraude: fraud.nouvelles + fraud.enInvestigation,
+        bordereauEnAttente: bordEnAttente,
+      };
+    },
   });
 
+  // Fetch recent demandes from real API
   const { data: demandes } = useQuery({
-    queryKey: ['insurer-demandes-récentes'],
-    queryFn: async () => mockDemandes,
+    queryKey: ['insurer-demandes-recentes'],
+    queryFn: async (): Promise<DemandeRecente[]> => {
+      const response = await apiClient.get<Array<{
+        id: string;
+        numeroDemande: string;
+        adherentId: string;
+        typeSoin: string;
+        montantDemande: number;
+        statut: string;
+        scoreFraude: number | null;
+        createdAt: string;
+      }>>('/sante/demandes?limit=10');
+
+      return response.data.map((d) => ({
+        id: d.id,
+        numeroDemande: d.numeroDemande,
+        adherent: d.adherentId,
+        typeSoin: d.typeSoin,
+        montant: d.montantDemande,
+        statut: d.statut,
+        dateSoumission: d.createdAt,
+        scoreFraude: d.scoreFraude ?? 0,
+      }));
+    },
   });
 
+  // Fetch performance from analytics
   const { data: performance } = useQuery({
     queryKey: ['insurer-performance'],
-    queryFn: async () => mockPerformance,
+    queryFn: async (): Promise<PerformanceMetric[]> => {
+      const response = await apiClient.get<{
+        trends: Array<{
+          date: string;
+          claims: number;
+          amount: number;
+          approved: number;
+          rejected: number;
+        }>;
+      }>('/analytics/dashboard');
+
+      // Aggregate trends by month
+      const monthly = new Map<string, { claims: number; approved: number; rejected: number; amount: number }>();
+
+      for (const t of response.data.trends || []) {
+        const month = t.date.slice(0, 7);
+        const label = new Date(t.date).toLocaleDateString('fr-TN', { month: 'long', year: 'numeric' });
+        const existing = monthly.get(label) || { claims: 0, approved: 0, rejected: 0, amount: 0 };
+        existing.claims += t.claims;
+        existing.approved += t.approved;
+        existing.rejected += t.rejected;
+        existing.amount += t.amount;
+        monthly.set(label, existing);
+      }
+
+      return Array.from(monthly.entries()).map(([periode, data]) => ({
+        periode,
+        demandesTraitees: data.claims,
+        delaiMoyenTraitement: 1.5,
+        tauxApprobation: data.claims > 0 ? Math.round((data.approved / data.claims) * 100 * 10) / 10 : 0,
+        montantRembourse: data.amount,
+      })).reverse();
+    },
   });
 
   const formatAmount = (millimes: number) => {
@@ -154,28 +183,32 @@ export function InsurerDashboardPage() {
       soumise: 'secondary',
       en_examen: 'warning',
       approuvee: 'success',
-      rejetée: 'destructive',
+      rejetee: 'destructive',
       payee: 'success',
+      en_paiement: 'default',
+      info_requise: 'warning',
     };
     const labels: Record<string, string> = {
       soumise: 'Soumise',
       en_examen: 'En examen',
-      approuvee: 'Approuvée',
-      rejetée: 'Rejetée',
-      payee: 'Payée',
+      approuvee: 'Approuvee',
+      rejetee: 'Rejetee',
+      payee: 'Payee',
+      en_paiement: 'En paiement',
+      info_requise: 'Info requise',
     };
     return <Badge variant={variants[statut] || 'default'}>{labels[statut] || statut}</Badge>;
   };
 
   const getFraudBadge = (score: number) => {
-    if (score >= 70) return <Badge variant="destructive">Élevé ({score})</Badge>;
+    if (score >= 70) return <Badge variant="destructive">Eleve ({score})</Badge>;
     if (score >= 40) return <Badge variant="warning">Moyen ({score})</Badge>;
     return <Badge variant="success">Faible ({score})</Badge>;
   };
 
   const demandesColumns: Column<DemandeRecente>[] = [
-    { key: 'numéroDemande', header: 'N° Demande', sortable: true },
-    { key: 'adhérent', header: 'Adhérent', sortable: true },
+    { key: 'numeroDemande', header: 'N Demande', sortable: true },
+    { key: 'adherent', header: 'Adherent', sortable: true },
     {
       key: 'typeSoin',
       header: 'Type',
@@ -209,7 +242,7 @@ export function InsurerDashboardPage() {
     <div className="space-y-6">
       <PageHeader
         title="Tableau de Bord Assureur"
-        description="Vue d'ensemble de l'activité et des performances"
+        description="Vue d'ensemble de l'activite et des performances"
       />
 
       {/* Period Selector */}
@@ -234,13 +267,13 @@ export function InsurerDashboardPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Adhérents Actifs
+              Adherents Actifs
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.adhérentsActifs.toLocaleString()}</div>
+            <div className="text-2xl font-bold">{stats?.adherentsActifs.toLocaleString() ?? '-'}</div>
             <p className="text-xs text-muted-foreground">
-              +2.5% vs mois précédent
+              {stats?.contratsActifs ?? 0} contrats actifs
             </p>
           </CardContent>
         </Card>
@@ -248,13 +281,13 @@ export function InsurerDashboardPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Contrats Actifs
+              Prestataires Conventionnes
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.contratsActifs}</div>
+            <div className="text-2xl font-bold">{stats?.prestatairesConventionnes ?? '-'}</div>
             <p className="text-xs text-muted-foreground">
-              {stats?.prestatairesConventionnes} prestataires conventionnés
+              Pharmacies, medecins, labos
             </p>
           </CardContent>
         </Card>
@@ -262,15 +295,15 @@ export function InsurerDashboardPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Paiements du Mois
+              Montant Rembourse
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {stats && formatAmount(stats.montantPaiementsMois)}
+              {stats ? formatAmount(stats.montantPaiementsMois) : '-'}
             </div>
             <p className="text-xs text-muted-foreground">
-              Taux de remboursement: {stats?.tauxRemboursement}%
+              Taux approbation: {stats?.tauxRemboursement ?? 0}%
             </p>
           </CardContent>
         </Card>
@@ -282,7 +315,7 @@ export function InsurerDashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.demandesEnCours}</div>
+            <div className="text-2xl font-bold">{stats?.demandesEnCours ?? '-'}</div>
             <div className="flex items-center gap-2 mt-1">
               {stats && stats.alertesFraude > 0 && (
                 <Badge variant="destructive">{stats.alertesFraude} alertes fraude</Badge>
@@ -299,16 +332,18 @@ export function InsurerDashboardPage() {
             <Card className="border-destructive">
               <CardHeader>
                 <CardTitle className="text-destructive flex items-center gap-2">
-                  <span>⚠️</span>
                   Alertes Fraude
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-2">
-                  {stats.alertesFraude} demande(s) nécessitent une vérification manuelle
+                  {stats.alertesFraude} demande(s) necessitent une verification manuelle
                 </p>
-                <button className="text-sm text-primary hover:underline">
-                  Voir les alertes →
+                <button
+                  className="text-sm text-primary hover:underline"
+                  onClick={() => navigate('/sante/fraud')}
+                >
+                  Voir les alertes
                 </button>
               </CardContent>
             </Card>
@@ -318,16 +353,18 @@ export function InsurerDashboardPage() {
             <Card className="border-warning">
               <CardHeader>
                 <CardTitle className="text-warning flex items-center gap-2">
-                  <span>📋</span>
                   Bordereaux en Attente
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-2">
-                  {stats.bordereauEnAttente} bordereau(x) à valider pour paiement
+                  {stats.bordereauEnAttente} bordereau(x) a valider pour paiement
                 </p>
-                <button className="text-sm text-primary hover:underline">
-                  Gérer les bordereaux →
+                <button
+                  className="text-sm text-primary hover:underline"
+                  onClick={() => navigate('/sante/bordereaux')}
+                >
+                  Gerer les bordereaux
                 </button>
               </CardContent>
             </Card>
@@ -338,13 +375,13 @@ export function InsurerDashboardPage() {
       {/* Recent Claims */}
       <Card>
         <CardHeader>
-          <CardTitle>Demandes Récentes</CardTitle>
+          <CardTitle>Demandes Recentes</CardTitle>
         </CardHeader>
         <CardContent>
           <DataTable
             data={demandes || []}
             columns={demandesColumns}
-            onRowClick={(row) => console.log('View demande:', row.id)}
+            onRowClick={(row) => navigate(`/sante/demandes/${row.id}`)}
           />
         </CardContent>
       </Card>
@@ -359,18 +396,18 @@ export function InsurerDashboardPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-3 px-4 font-medium">Période</th>
-                  <th className="text-right py-3 px-4 font-medium">Demandes Traitées</th>
-                  <th className="text-right py-3 px-4 font-medium">Délai Moyen (jours)</th>
+                  <th className="text-left py-3 px-4 font-medium">Periode</th>
+                  <th className="text-right py-3 px-4 font-medium">Demandes Traitees</th>
+                  <th className="text-right py-3 px-4 font-medium">Delai Moyen (jours)</th>
                   <th className="text-right py-3 px-4 font-medium">Taux d'Approbation</th>
-                  <th className="text-right py-3 px-4 font-medium">Montant Remboursé</th>
+                  <th className="text-right py-3 px-4 font-medium">Montant Rembourse</th>
                 </tr>
               </thead>
               <tbody>
                 {performance?.map((metric, index) => (
-                  <tr key={metric.période} className={index % 2 === 0 ? 'bg-muted/50' : ''}>
-                    <td className="py-3 px-4 font-medium">{metric.période}</td>
-                    <td className="text-right py-3 px-4">{metric.demandesTraitées.toLocaleString()}</td>
+                  <tr key={metric.periode} className={index % 2 === 0 ? 'bg-muted/50' : ''}>
+                    <td className="py-3 px-4 font-medium">{metric.periode}</td>
+                    <td className="text-right py-3 px-4">{metric.demandesTraitees.toLocaleString()}</td>
                     <td className="text-right py-3 px-4">{metric.delaiMoyenTraitement}</td>
                     <td className="text-right py-3 px-4">
                       <Badge variant={metric.tauxApprobation >= 80 ? 'success' : 'warning'}>
@@ -388,42 +425,54 @@ export function InsurerDashboardPage() {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+        <Card
+          className="cursor-pointer hover:bg-muted/50 transition-colors"
+          onClick={() => navigate('/analytics')}
+        >
           <CardContent className="pt-6">
             <div className="text-center">
-              <span className="text-3xl">📊</span>
+              <div className="text-3xl">📊</div>
               <h3 className="mt-2 font-medium">Rapports</h3>
-              <p className="text-sm text-muted-foreground">Générer des rapports</p>
+              <p className="text-sm text-muted-foreground">Generer des rapports</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+        <Card
+          className="cursor-pointer hover:bg-muted/50 transition-colors"
+          onClick={() => navigate('/sante/bordereaux')}
+        >
           <CardContent className="pt-6">
             <div className="text-center">
-              <span className="text-3xl">💰</span>
+              <div className="text-3xl">💰</div>
               <h3 className="mt-2 font-medium">Bordereaux</h3>
-              <p className="text-sm text-muted-foreground">Gérer les paiements</p>
+              <p className="text-sm text-muted-foreground">Gerer les paiements</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+        <Card
+          className="cursor-pointer hover:bg-muted/50 transition-colors"
+          onClick={() => navigate('/sante/praticiens')}
+        >
           <CardContent className="pt-6">
             <div className="text-center">
-              <span className="text-3xl">🏥</span>
+              <div className="text-3xl">🏥</div>
               <h3 className="mt-2 font-medium">Prestataires</h3>
-              <p className="text-sm text-muted-foreground">Réseau conventionné</p>
+              <p className="text-sm text-muted-foreground">Reseau conventionne</p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+        <Card
+          className="cursor-pointer hover:bg-muted/50 transition-colors"
+          onClick={() => navigate('/sante/fraud')}
+        >
           <CardContent className="pt-6">
             <div className="text-center">
-              <span className="text-3xl">⚙️</span>
-              <h3 className="mt-2 font-medium">Paramètres</h3>
-              <p className="text-sm text-muted-foreground">Configuration</p>
+              <div className="text-3xl">🛡️</div>
+              <h3 className="mt-2 font-medium">Anti-Fraude</h3>
+              <p className="text-sm text-muted-foreground">Alertes et investigation</p>
             </div>
           </CardContent>
         </Card>

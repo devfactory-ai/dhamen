@@ -2,6 +2,7 @@
  * Analytics Service
  *
  * Provides advanced analytics, KPIs, and business intelligence
+ * Queries sante_demandes joined through adherents -> contracts for insurer filtering
  */
 
 import type { Bindings } from '../types';
@@ -125,15 +126,15 @@ export class AnalyticsService {
       ? `AND c.insurer_id = '${insurerId}'`
       : '';
 
-    // Claims metrics
+    // Claims metrics — join through adherents to contracts
     const claimsStats = await this.env.DB.prepare(`
       SELECT
         COUNT(*) as total_claims,
-        SUM(CASE WHEN sd.statut = 'approuvee' THEN 1 ELSE 0 END) as approved,
+        SUM(CASE WHEN sd.statut = 'approuvee' OR sd.statut = 'payee' OR sd.statut = 'en_paiement' THEN 1 ELSE 0 END) as approved,
         SUM(CASE WHEN sd.statut = 'rejetee' THEN 1 ELSE 0 END) as rejected,
-        SUM(CASE WHEN sd.statut IN ('soumise', 'en_examen') THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN sd.statut IN ('soumise', 'en_examen', 'info_requise') THEN 1 ELSE 0 END) as pending,
         COALESCE(SUM(sd.montant_demande), 0) as total_amount,
-        COALESCE(SUM(CASE WHEN sd.statut = 'approuvee' THEN sd.montant_approuve ELSE 0 END), 0) as approved_amount,
+        COALESCE(SUM(sd.montant_rembourse), 0) as approved_amount,
         COALESCE(SUM(CASE WHEN sd.statut = 'rejetee' THEN sd.montant_demande ELSE 0 END), 0) as rejected_amount,
         COALESCE(AVG(sd.montant_demande), 0) as avg_amount,
         COALESCE(AVG(
@@ -142,7 +143,8 @@ export class AnalyticsService {
           ELSE NULL END
         ), 0) as avg_processing_hours
       FROM sante_demandes sd
-      JOIN contracts c ON sd.contract_id = c.id
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
       WHERE sd.created_at >= ? AND sd.created_at <= ? ${insurerFilter}
     `).bind(startStr, endStr).first<{
       total_claims: number;
@@ -164,7 +166,8 @@ export class AnalyticsService {
     const prevClaimsStats = await this.env.DB.prepare(`
       SELECT COUNT(*) as total_claims
       FROM sante_demandes sd
-      JOIN contracts c ON sd.contract_id = c.id
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
       WHERE sd.created_at >= ? AND sd.created_at < ? ${insurerFilter}
     `).bind(prevStartStr, startStr).first<{ total_claims: number }>();
 
@@ -172,16 +175,16 @@ export class AnalyticsService {
     const adherentStats = await this.env.DB.prepare(`
       SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN est_actif = 1 THEN 1 ELSE 0 END) as active
+        SUM(CASE WHEN a.deleted_at IS NULL THEN 1 ELSE 0 END) as active
       FROM adherents a
-      JOIN contracts c ON a.contract_id = c.id
+      JOIN contracts c ON c.adherent_id = a.id
       WHERE a.deleted_at IS NULL ${insurerFilter}
     `).bind().first<{ total: number; active: number }>();
 
     const prevAdherentStats = await this.env.DB.prepare(`
       SELECT COUNT(*) as total
       FROM adherents a
-      JOIN contracts c ON a.contract_id = c.id
+      JOIN contracts c ON c.adherent_id = a.id
       WHERE a.deleted_at IS NULL AND a.created_at < ? ${insurerFilter}
     `).bind(startStr).first<{ total: number }>();
 
@@ -193,24 +196,26 @@ export class AnalyticsService {
     `).bind().first<{ total: number }>();
 
     const activeProviders = await this.env.DB.prepare(`
-      SELECT COUNT(DISTINCT sd.provider_id) as active
+      SELECT COUNT(DISTINCT sd.praticien_id) as active
       FROM sante_demandes sd
-      JOIN contracts c ON sd.contract_id = c.id
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
       WHERE sd.created_at >= ? ${insurerFilter}
     `).bind(startStr).first<{ active: number }>();
 
-    // Top providers
+    // Top providers (praticiens)
     const { results: topProviders } = await this.env.DB.prepare(`
       SELECT
-        p.id,
-        p.name,
+        sp.id,
+        (sp.nom || ' ' || COALESCE(sp.prenom, '')) as name,
         COUNT(*) as claims,
         COALESCE(SUM(sd.montant_demande), 0) as amount
       FROM sante_demandes sd
-      JOIN providers p ON sd.provider_id = p.id
-      JOIN contracts c ON sd.contract_id = c.id
+      JOIN sante_praticiens sp ON sd.praticien_id = sp.id
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
       WHERE sd.created_at >= ? AND sd.created_at <= ? ${insurerFilter}
-      GROUP BY p.id, p.name
+      GROUP BY sp.id, sp.nom, sp.prenom
       ORDER BY claims DESC
       LIMIT 5
     `).bind(startStr, endStr).all<{
@@ -224,11 +229,12 @@ export class AnalyticsService {
     const fraudStats = await this.env.DB.prepare(`
       SELECT
         COUNT(*) as total_alerts,
-        AVG(fraud_score) as avg_score,
-        SUM(CASE WHEN fraud_score >= 70 THEN 1 ELSE 0 END) as high_risk
+        AVG(sd.score_fraude) as avg_score,
+        SUM(CASE WHEN sd.score_fraude >= 70 THEN 1 ELSE 0 END) as high_risk
       FROM sante_demandes sd
-      JOIN contracts c ON sd.contract_id = c.id
-      WHERE sd.fraud_score IS NOT NULL
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
+      WHERE sd.score_fraude IS NOT NULL
         AND sd.created_at >= ? AND sd.created_at <= ? ${insurerFilter}
     `).bind(startStr, endStr).first<{
       total_alerts: number;
@@ -236,16 +242,17 @@ export class AnalyticsService {
       high_risk: number;
     }>();
 
-    // Budget utilization (assuming monthly budget in contract)
+    // Budget utilization — use annual_limit from contracts
     const budgetStats = await this.env.DB.prepare(`
       SELECT
-        COALESCE(SUM(c.prime_mensuelle), 0) as monthly_budget,
-        COALESCE(SUM(sd.montant_approuve), 0) as monthly_spend
+        COALESCE(SUM(c.annual_limit), 0) / 12 as monthly_budget,
+        COALESCE(SUM(sd.montant_rembourse), 0) as monthly_spend
       FROM contracts c
-      LEFT JOIN sante_demandes sd ON sd.contract_id = c.id
+      LEFT JOIN adherents a ON c.adherent_id = a.id
+      LEFT JOIN sante_demandes sd ON sd.adherent_id = a.id
         AND strftime('%Y-%m', sd.created_at) = strftime('%Y-%m', 'now')
-        AND sd.statut = 'approuvee'
-      WHERE c.deleted_at IS NULL AND c.statut = 'ACTIF' ${insurerFilter}
+        AND sd.statut IN ('approuvee', 'payee', 'en_paiement')
+      WHERE c.status = 'active' ${insurerFilter}
     `).bind().first<{ monthly_budget: number; monthly_spend: number }>();
 
     const totalClaims = claimsStats?.total_claims || 0;
@@ -335,10 +342,11 @@ export class AnalyticsService {
         ${dateFormat} as date,
         COUNT(*) as claims,
         COALESCE(SUM(sd.montant_demande), 0) as amount,
-        SUM(CASE WHEN sd.statut = 'approuvee' THEN 1 ELSE 0 END) as approved,
+        SUM(CASE WHEN sd.statut IN ('approuvee', 'payee', 'en_paiement') THEN 1 ELSE 0 END) as approved,
         SUM(CASE WHEN sd.statut = 'rejetee' THEN 1 ELSE 0 END) as rejected
       FROM sante_demandes sd
-      JOIN contracts c ON sd.contract_id = c.id
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
       WHERE sd.created_at >= ? AND sd.created_at <= ? ${insurerFilter}
       GROUP BY ${dateFormat}
       ORDER BY date ASC
@@ -374,8 +382,8 @@ export class AnalyticsService {
         groupColumn = 'sd.statut';
         break;
       case 'provider_type':
-        groupColumn = 'p.type';
-        joinClause = 'JOIN providers p ON sd.provider_id = p.id';
+        groupColumn = 'sp.type_praticien';
+        joinClause = 'JOIN sante_praticiens sp ON sd.praticien_id = sp.id';
         break;
       default:
         groupColumn = 'sd.type_soin';
@@ -387,7 +395,8 @@ export class AnalyticsService {
         COUNT(*) as count,
         COALESCE(SUM(sd.montant_demande), 0) as amount
       FROM sante_demandes sd
-      JOIN contracts c ON sd.contract_id = c.id
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
       ${joinClause}
       WHERE sd.created_at >= ? AND sd.created_at <= ? ${insurerFilter}
       GROUP BY ${groupColumn}
@@ -427,17 +436,18 @@ export class AnalyticsService {
           THEN (julianday(sd.date_traitement) - julianday(sd.created_at)) * 24
           ELSE NULL END
         ), 0) as avg_processing_time,
-        CAST(SUM(CASE WHEN sd.statut = 'approuvee' THEN 1 ELSE 0 END) AS REAL) /
+        CAST(SUM(CASE WHEN sd.statut IN ('approuvee', 'payee', 'en_paiement') THEN 1 ELSE 0 END) AS REAL) /
           CAST(COUNT(*) AS REAL) * 100 as approval_rate,
-        CAST(SUM(CASE WHEN sd.fraud_score >= 70 THEN 1 ELSE 0 END) AS REAL) /
+        CAST(SUM(CASE WHEN sd.score_fraude >= 70 THEN 1 ELSE 0 END) AS REAL) /
           CAST(COUNT(*) AS REAL) * 100 as fraud_rate
       FROM sante_demandes sd
-      JOIN contracts c ON sd.contract_id = c.id
-      WHERE sd.created_at >= date('now', '-${months} months') ${insurerFilter}
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
+      WHERE sd.created_at >= date('now', '-' || ? || ' months') ${insurerFilter}
       GROUP BY strftime('%Y-%m', sd.created_at)
       ORDER BY period DESC
       LIMIT ?
-    `).bind(months).all<{
+    `).bind(months, months).all<{
       period: string;
       claims: number;
       amount: number;
@@ -477,14 +487,14 @@ export class AnalyticsService {
 
     const { results } = await this.env.DB.prepare(`
       SELECT
-        p.id as provider_id,
-        p.name as provider_name,
-        p.type as provider_type,
+        sp.id as provider_id,
+        (sp.nom || ' ' || COALESCE(sp.prenom, '')) as provider_name,
+        sp.type_praticien as provider_type,
         COUNT(*) as claims,
         COALESCE(SUM(sd.montant_demande), 0) as total_amount,
-        COALESCE(SUM(CASE WHEN sd.statut = 'approuvee' THEN sd.montant_approuve ELSE 0 END), 0) as approved_amount,
+        COALESCE(SUM(sd.montant_rembourse), 0) as approved_amount,
         COALESCE(SUM(CASE WHEN sd.statut = 'rejetee' THEN sd.montant_demande ELSE 0 END), 0) as rejected_amount,
-        CAST(SUM(CASE WHEN sd.statut = 'approuvee' THEN 1 ELSE 0 END) AS REAL) /
+        CAST(SUM(CASE WHEN sd.statut IN ('approuvee', 'payee', 'en_paiement') THEN 1 ELSE 0 END) AS REAL) /
           CAST(COUNT(*) AS REAL) * 100 as approval_rate,
         COALESCE(AVG(sd.montant_demande), 0) as avg_claim_amount,
         COALESCE(AVG(
@@ -492,12 +502,13 @@ export class AnalyticsService {
           THEN (julianday(sd.date_traitement) - julianday(sd.created_at)) * 24
           ELSE NULL END
         ), 0) as avg_processing_time,
-        COALESCE(AVG(sd.fraud_score), 0) as fraud_score
+        COALESCE(AVG(sd.score_fraude), 0) as fraud_score
       FROM sante_demandes sd
-      JOIN providers p ON sd.provider_id = p.id
-      JOIN contracts c ON sd.contract_id = c.id
+      JOIN sante_praticiens sp ON sd.praticien_id = sp.id
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
       WHERE sd.created_at >= ? AND sd.created_at <= ? ${insurerFilter}
-      GROUP BY p.id, p.name, p.type
+      GROUP BY sp.id, sp.nom, sp.prenom, sp.type_praticien
       ORDER BY claims DESC
       LIMIT ?
     `).bind(startStr, endStr, limit).all<{
@@ -541,16 +552,16 @@ export class AnalyticsService {
     const { results: ageResults } = await this.env.DB.prepare(`
       SELECT
         CASE
-          WHEN (strftime('%Y', 'now') - strftime('%Y', date_naissance)) < 18 THEN '0-17'
-          WHEN (strftime('%Y', 'now') - strftime('%Y', date_naissance)) < 30 THEN '18-29'
-          WHEN (strftime('%Y', 'now') - strftime('%Y', date_naissance)) < 45 THEN '30-44'
-          WHEN (strftime('%Y', 'now') - strftime('%Y', date_naissance)) < 60 THEN '45-59'
+          WHEN (strftime('%Y', 'now') - strftime('%Y', date_of_birth)) < 18 THEN '0-17'
+          WHEN (strftime('%Y', 'now') - strftime('%Y', date_of_birth)) < 30 THEN '18-29'
+          WHEN (strftime('%Y', 'now') - strftime('%Y', date_of_birth)) < 45 THEN '30-44'
+          WHEN (strftime('%Y', 'now') - strftime('%Y', date_of_birth)) < 60 THEN '45-59'
           ELSE '60+'
         END as range,
         COUNT(*) as count
       FROM adherents a
-      JOIN contracts c ON a.contract_id = c.id
-      WHERE a.deleted_at IS NULL AND a.date_naissance IS NOT NULL ${insurerFilter}
+      JOIN contracts c ON c.adherent_id = a.id
+      WHERE a.deleted_at IS NULL AND a.date_of_birth IS NOT NULL ${insurerFilter}
       GROUP BY range
       ORDER BY range
     `).bind().all<{ range: string; count: number }>();
@@ -558,23 +569,23 @@ export class AnalyticsService {
     // Gender distribution
     const { results: genderResults } = await this.env.DB.prepare(`
       SELECT
-        sexe as gender,
+        gender as gender,
         COUNT(*) as count
       FROM adherents a
-      JOIN contracts c ON a.contract_id = c.id
-      WHERE a.deleted_at IS NULL AND a.sexe IS NOT NULL ${insurerFilter}
-      GROUP BY sexe
+      JOIN contracts c ON c.adherent_id = a.id
+      WHERE a.deleted_at IS NULL AND a.gender IS NOT NULL ${insurerFilter}
+      GROUP BY gender
     `).bind().all<{ gender: string; count: number }>();
 
     // Region distribution (based on governorate/ville)
     const { results: regionResults } = await this.env.DB.prepare(`
       SELECT
-        COALESCE(ville, 'Non spécifié') as region,
+        COALESCE(a.city, 'Non spécifié') as region,
         COUNT(*) as count
       FROM adherents a
-      JOIN contracts c ON a.contract_id = c.id
+      JOIN contracts c ON c.adherent_id = a.id
       WHERE a.deleted_at IS NULL ${insurerFilter}
-      GROUP BY ville
+      GROUP BY a.city
       ORDER BY count DESC
       LIMIT 10
     `).bind().all<{ region: string; count: number }>();
@@ -593,7 +604,7 @@ export class AnalyticsService {
       FROM (
         SELECT a.id, COUNT(sd.id) as claim_count
         FROM adherents a
-        JOIN contracts c ON a.contract_id = c.id
+        JOIN contracts c ON c.adherent_id = a.id
         LEFT JOIN sante_demandes sd ON sd.adherent_id = a.id
           AND sd.created_at >= date('now', '-12 months')
         WHERE a.deleted_at IS NULL ${insurerFilter}
@@ -610,13 +621,14 @@ export class AnalyticsService {
         END
     `).bind().all<{ frequency: string; count: number }>();
 
-    // Top conditions (if tracked)
+    // Top conditions
     const { results: conditionResults } = await this.env.DB.prepare(`
       SELECT
         COALESCE(sd.type_soin, 'Autre') as condition,
         COUNT(*) as count
       FROM sante_demandes sd
-      JOIN contracts c ON sd.contract_id = c.id
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
       WHERE sd.created_at >= date('now', '-12 months') ${insurerFilter}
       GROUP BY sd.type_soin
       ORDER BY count DESC
@@ -654,12 +666,13 @@ export class AnalyticsService {
     const fraudStats = await this.env.DB.prepare(`
       SELECT
         COUNT(*) as total_alerts,
-        SUM(CASE WHEN sd.fraud_status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
-        SUM(CASE WHEN sd.fraud_status = 'false_positive' THEN 1 ELSE 0 END) as false_positives,
-        SUM(CASE WHEN sd.fraud_status = 'investigating' THEN 1 ELSE 0 END) as investigating
+        SUM(CASE WHEN sd.statut = 'rejetee' AND sd.score_fraude >= 70 THEN 1 ELSE 0 END) as confirmed,
+        SUM(CASE WHEN sd.statut = 'approuvee' AND sd.score_fraude >= 50 THEN 1 ELSE 0 END) as false_positives,
+        SUM(CASE WHEN sd.statut IN ('en_examen', 'soumise') AND sd.score_fraude >= 50 THEN 1 ELSE 0 END) as investigating
       FROM sante_demandes sd
-      JOIN contracts c ON sd.contract_id = c.id
-      WHERE sd.fraud_score >= 50
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
+      WHERE sd.score_fraude >= 50
         AND sd.created_at >= ? AND sd.created_at <= ? ${insurerFilter}
     `).bind(startStr, endStr).first<{
       total_alerts: number;
@@ -675,8 +688,9 @@ export class AnalyticsService {
         COUNT(*) as count,
         COALESCE(SUM(sd.montant_demande), 0) as amount
       FROM sante_demandes sd
-      JOIN contracts c ON sd.contract_id = c.id
-      WHERE sd.fraud_score >= 70
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
+      WHERE sd.score_fraude >= 70
         AND sd.created_at >= ? AND sd.created_at <= ? ${insurerFilter}
       GROUP BY sd.type_soin
       ORDER BY count DESC
@@ -686,18 +700,19 @@ export class AnalyticsService {
       amount: number;
     }>();
 
-    // Fraud by provider
+    // Fraud by provider (praticien)
     const { results: fraudByProvider } = await this.env.DB.prepare(`
       SELECT
-        p.id as provider_id,
-        p.name,
+        sp.id as provider_id,
+        (sp.nom || ' ' || COALESCE(sp.prenom, '')) as name,
         COUNT(*) as alerts
       FROM sante_demandes sd
-      JOIN providers p ON sd.provider_id = p.id
-      JOIN contracts c ON sd.contract_id = c.id
-      WHERE sd.fraud_score >= 70
+      JOIN sante_praticiens sp ON sd.praticien_id = sp.id
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
+      WHERE sd.score_fraude >= 70
         AND sd.created_at >= ? AND sd.created_at <= ? ${insurerFilter}
-      GROUP BY p.id, p.name
+      GROUP BY sp.id, sp.nom, sp.prenom
       ORDER BY alerts DESC
       LIMIT 10
     `).bind(startStr, endStr).all<{
@@ -711,10 +726,11 @@ export class AnalyticsService {
       SELECT
         date(sd.created_at) as date,
         COUNT(*) as alerts,
-        SUM(CASE WHEN sd.fraud_status = 'confirmed' THEN 1 ELSE 0 END) as confirmed
+        SUM(CASE WHEN sd.statut = 'rejetee' THEN 1 ELSE 0 END) as confirmed
       FROM sante_demandes sd
-      JOIN contracts c ON sd.contract_id = c.id
-      WHERE sd.fraud_score >= 50
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
+      WHERE sd.score_fraude >= 50
         AND sd.created_at >= ? AND sd.created_at <= ? ${insurerFilter}
       GROUP BY date(sd.created_at)
       ORDER BY date ASC
@@ -728,15 +744,16 @@ export class AnalyticsService {
     const { results: riskDistribution } = await this.env.DB.prepare(`
       SELECT
         CASE
-          WHEN fraud_score < 30 THEN 'Faible'
-          WHEN fraud_score < 50 THEN 'Moyen'
-          WHEN fraud_score < 70 THEN 'Élevé'
+          WHEN sd.score_fraude < 30 THEN 'Faible'
+          WHEN sd.score_fraude < 50 THEN 'Moyen'
+          WHEN sd.score_fraude < 70 THEN 'Élevé'
           ELSE 'Très élevé'
         END as risk,
         COUNT(*) as count
       FROM sante_demandes sd
-      JOIN contracts c ON sd.contract_id = c.id
-      WHERE sd.fraud_score IS NOT NULL
+      JOIN adherents a ON sd.adherent_id = a.id
+      JOIN contracts c ON c.adherent_id = a.id
+      WHERE sd.score_fraude IS NOT NULL
         AND sd.created_at >= ? AND sd.created_at <= ? ${insurerFilter}
       GROUP BY risk
       ORDER BY

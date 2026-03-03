@@ -6,12 +6,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Bindings, Variables } from '../types';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { authMiddleware, requireAuth, requireRole } from '../middleware/auth';
 import { WebhookOutboundService, type WebhookEvent } from '../services/webhook-outbound.service';
 
 const webhooksOutbound = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // All routes require authentication
+webhooksOutbound.use('*', authMiddleware());
 webhooksOutbound.use('*', requireAuth);
 
 // Schema for webhook endpoint
