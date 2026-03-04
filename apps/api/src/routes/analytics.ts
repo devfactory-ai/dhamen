@@ -356,6 +356,85 @@ analytics.get(
 );
 
 /**
+ * GET /analytics/dashboard-stats
+ * Flat dashboard stats from sante_demandes + users (for DashboardPage cards)
+ */
+analytics.get(
+  '/dashboard-stats',
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'SOIN_GESTIONNAIRE'),
+  async (c) => {
+    const { getDb } = await import('../lib/db');
+    const db = getDb(c);
+
+    try {
+      // Total active users
+      const usersRow = await db.prepare(
+        `SELECT COUNT(*) as count FROM users WHERE is_active = 1`
+      ).first<{ count: number }>();
+
+      // Total adherents
+      const adherentsRow = await db.prepare(
+        `SELECT COUNT(*) as count FROM adherents WHERE deleted_at IS NULL`
+      ).first<{ count: number }>();
+
+      // Claims stats from sante_demandes
+      const claimsRow = await db.prepare(`
+        SELECT
+          COUNT(*) as totalClaims,
+          SUM(CASE WHEN statut IN ('soumise','en_examen','info_requise') THEN 1 ELSE 0 END) as pendingClaims,
+          SUM(CASE WHEN statut IN ('approuvee','en_paiement','payee') THEN 1 ELSE 0 END) as approvedClaims,
+          SUM(CASE WHEN statut = 'rejetee' THEN 1 ELSE 0 END) as rejectedClaims,
+          COALESCE(SUM(montant_demande), 0) as totalAmount,
+          COUNT(DISTINCT adherent_id) as uniquePatients
+        FROM sante_demandes
+      `).first<{
+        totalClaims: number;
+        pendingClaims: number;
+        approvedClaims: number;
+        rejectedClaims: number;
+        totalAmount: number;
+        uniquePatients: number;
+      }>();
+
+      // Today's stats
+      const todayRow = await db.prepare(`
+        SELECT
+          COUNT(*) as processedToday,
+          SUM(CASE WHEN statut = 'rejetee' THEN 1 ELSE 0 END) as rejectedToday
+        FROM sante_demandes
+        WHERE date(created_at) = date('now')
+      `).first<{ processedToday: number; rejectedToday: number }>();
+
+      const totalClaims = Number(claimsRow?.totalClaims) || 0;
+      const approvedClaims = Number(claimsRow?.approvedClaims) || 0;
+      const approvalRate = totalClaims > 0 ? (approvedClaims / totalClaims) * 100 : 0;
+
+      return c.json({
+        success: true,
+        data: {
+          totalUsers: Number(usersRow?.count) || 0,
+          totalAdherents: Number(adherentsRow?.count) || 0,
+          totalClaims,
+          pendingClaims: Number(claimsRow?.pendingClaims) || 0,
+          approvedClaims,
+          totalAmount: Number(claimsRow?.totalAmount) || 0,
+          approvalRate: Math.round(approvalRate * 10) / 10,
+          processedToday: Number(todayRow?.processedToday) || 0,
+          avgProcessingTime: '< 2 min',
+          rejectedToday: Number(todayRow?.rejectedToday) || 0,
+          uniquePatients: Number(claimsRow?.uniquePatients) || 0,
+        },
+      });
+    } catch (err) {
+      return c.json({
+        success: false,
+        error: { code: 'ANALYTICS_ERROR', message: String(err) },
+      }, 500);
+    }
+  }
+);
+
+/**
  * GET /analytics/dashboard
  * Get dashboard summary (combines multiple analytics)
  */

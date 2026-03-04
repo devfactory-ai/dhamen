@@ -3,11 +3,11 @@ import { useForm } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useCreateClaim } from '../hooks/useClaims';
-import { Adherent, useSearchAdherent } from '@/features/adherents/hooks/useAdherents';
+import { useSearchAdherent } from '@/features/adherents/hooks/useAdherents';
 import { useToast } from '@/stores/toast';
 
 interface NewClaimFormProps {
@@ -23,10 +23,22 @@ interface ClaimItem {
   unitPrice: number;
 }
 
+const SOIN_TYPES = [
+  { value: 'pharmacie', label: 'Pharmacie' },
+  { value: 'consultation', label: 'Consultation' },
+  { value: 'laboratoire', label: 'Laboratoire' },
+  { value: 'hospitalisation', label: 'Hospitalisation' },
+  { value: 'dentaire', label: 'Dentaire' },
+  { value: 'optique', label: 'Optique' },
+  { value: 'kinesitherapie', label: 'Kinésithérapie' },
+  { value: 'autre', label: 'Autre' },
+];
+
 export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
   const [searchNationalId, setSearchNationalId] = useState('');
   const [items, setItems] = useState<ClaimItem[]>([]);
   const [newItem, setNewItem] = useState<Omit<ClaimItem, 'id'>>({ code: '', description: '', quantity: 1, unitPrice: 0 });
+  const [typeSoin, setTypeSoin] = useState('pharmacie');
   const { toast } = useToast();
 
   const { data: adherent, isLoading: isSearching } = useSearchAdherent(searchNationalId);
@@ -37,9 +49,7 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
     handleSubmit,
   } = useForm({
     defaultValues: {
-      serviceDate: new Date().toISOString().split('T')[0],
-      diagnosis: '',
-      notes: '',
+      dateSoin: new Date().toISOString().split('T')[0],
     },
   });
 
@@ -56,19 +66,16 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
 
   const totalAmount = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
 
-  const onSubmit = async (formData: { serviceDate?: string; diagnosis: string; notes: string }) => {
-    if (!adhérent || items.length === 0) { return; }
+  const onSubmit = async (formData: { dateSoin?: string }) => {
+    if (!adherent || items.length === 0) { return; }
 
     const today = new Date().toISOString().split('T')[0] ?? '';
     try {
       await createClaim.mutateAsync({
-        adhérentId: adherent.id,
-        type: 'PHARMACY', // Default, could be dynamic
-        amount: totalAmount * 1000, // Convert to millimes
-        serviceDate: formData.serviceDate ?? today,
-        diagnosis: formData.diagnosis || undefined,
-        notes: formData.notes || undefined,
-        items: items.map(({ id: _id, ...rest }) => rest),
+        adherentId: adherent.id,
+        typeSoin,
+        montantDemande: totalAmount * 1000, // Convert to millimes
+        dateSoin: formData.dateSoin ?? today,
       });
       toast({ title: 'PEC créée avec succès', variant: 'success' });
       onSuccess();
@@ -111,10 +118,25 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
         )}
       </div>
 
+      {/* Type de soin */}
+      <div className="space-y-2">
+        <Label>Type de soin</Label>
+        <Select value={typeSoin} onValueChange={setTypeSoin}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SOIN_TYPES.map((t) => (
+              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* Service Date */}
       <div className="space-y-2">
-        <Label htmlFor="serviceDate">Date du service</Label>
-        <Input id="serviceDate" type="date" {...register('serviceDate', { required: true })} />
+        <Label htmlFor="dateSoin">Date du soin</Label>
+        <Input id="dateSoin" type="date" {...register('dateSoin', { required: true })} />
       </div>
 
       {/* Items */}
@@ -198,18 +220,6 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
             </table>
           </div>
         )}
-      </div>
-
-      {/* Diagnosis */}
-      <div className="space-y-2">
-        <Label htmlFor="diagnosis">Diagnostic (optionnel)</Label>
-        <Input id="diagnosis" {...register('diagnosis')} />
-      </div>
-
-      {/* Notes */}
-      <div className="space-y-2">
-        <Label htmlFor="notes">Notes (optionnel)</Label>
-        <Textarea id="notes" {...register('notes')} rows={2} />
       </div>
 
       {/* Actions */}

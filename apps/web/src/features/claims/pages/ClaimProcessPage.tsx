@@ -13,16 +13,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import { apiClient } from '@/lib/api-client';
 import { useProcessClaim, type Claim } from '../hooks/useClaims';
 import { useToast } from '@/stores/toast';
 
-const CLAIM_TYPES = {
-  PHARMACY: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
-  CONSULTATION: { label: 'Consultation', color: 'bg-blue-100 text-blue-800' },
-  LAB: { label: 'Laboratoire', color: 'bg-purple-100 text-purple-800' },
-  HOSPITALIZATION: { label: 'Hospitalisation', color: 'bg-orange-100 text-orange-800' },
+const CLAIM_TYPES: Record<string, { label: string; color: string }> = {
+  pharmacie: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
+  consultation: { label: 'Consultation', color: 'bg-blue-100 text-blue-800' },
+  laboratoire: { label: 'Laboratoire', color: 'bg-purple-100 text-purple-800' },
+  hospitalisation: { label: 'Hospitalisation', color: 'bg-orange-100 text-orange-800' },
+  dentaire: { label: 'Dentaire', color: 'bg-pink-100 text-pink-800' },
+  optique: { label: 'Optique', color: 'bg-cyan-100 text-cyan-800' },
 };
 
 export function ClaimProcessPage() {
@@ -32,21 +33,21 @@ export function ClaimProcessPage() {
   const processClaim = useProcessClaim();
 
   const [processingData, setProcessingData] = useState<{
-    status: 'APPROVED' | 'REJECTED';
-    coveredAmount: string;
-    rejectionReason: string;
-    notes: string;
+    statut: 'approuvee' | 'rejetee';
+    montantRembourse: string;
+    motifRejet: string;
+    notesInternes: string;
   }>({
-    status: 'APPROVED',
-    coveredAmount: '',
-    rejectionReason: '',
-    notes: '',
+    statut: 'approuvee',
+    montantRembourse: '',
+    motifRejet: '',
+    notesInternes: '',
   });
 
   const { data: claim, isLoading } = useQuery({
-    queryKey: ['claims', id],
+    queryKey: ['sante-demandes', id],
     queryFn: async () => {
-      const response = await apiClient.get<Claim>(`/claims/${id}`);
+      const response = await apiClient.get<Claim>(`/sante/demandes/${id}`);
       if (!response.success) throw new Error(response.error?.message);
       return response.data;
     },
@@ -58,16 +59,13 @@ export function ClaimProcessPage() {
     if (claim) {
       setProcessingData((prev) => ({
         ...prev,
-        coveredAmount: (claim.amount / 1000).toString(),
+        montantRembourse: (claim.montantDemande / 1000).toString(),
       }));
     }
   });
 
   const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat('fr-TN', {
-      style: 'currency',
-      currency: 'TND',
-    }).format(amount / 1000);
+    return (amount / 1000).toFixed(3) + ' TND';
   };
 
   const formatDate = (dateString: string) => {
@@ -87,17 +85,17 @@ export function ClaimProcessPage() {
       await processClaim.mutateAsync({
         id: claim.id,
         data: {
-          status: processingData.status,
-          coveredAmount: processingData.status === 'APPROVED' ? Number.parseFloat(processingData.coveredAmount) * 1000 : undefined,
-          rejectionReason: processingData.status === 'REJECTED' ? processingData.rejectionReason : undefined,
-          notes: processingData.notes || undefined,
+          statut: processingData.statut,
+          montantRembourse: processingData.statut === 'approuvee' ? Number.parseFloat(processingData.montantRembourse) * 1000 : undefined,
+          motifRejet: processingData.statut === 'rejetee' ? processingData.motifRejet : undefined,
+          notesInternes: processingData.notesInternes || undefined,
         },
       });
       toast({
-        title: processingData.status === 'APPROVED' ? 'PEC approuvee' : 'PEC rejetée',
-        variant: processingData.status === 'APPROVED' ? 'success' : 'destructive',
+        title: processingData.statut === 'approuvee' ? 'PEC approuvée' : 'PEC rejetée',
+        variant: processingData.statut === 'approuvee' ? 'success' : 'destructive',
       });
-      navigate('/claims/manage');
+      navigate('/claims');
     } catch {
       toast({
         title: 'Erreur lors du traitement',
@@ -119,30 +117,34 @@ export function ClaimProcessPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <p className="text-muted-foreground">PEC non trouvée</p>
-        <Button onClick={() => navigate('/claims/manage')}>Retour aux PEC</Button>
+        <Button onClick={() => navigate('/claims')}>Retour aux PEC</Button>
       </div>
     );
   }
 
-  if (claim.status !== 'PENDING') {
+  if (!['soumise', 'en_examen'].includes(claim.statut)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
         <p className="text-muted-foreground">Cette PEC a déjà été traitée</p>
-        <Button onClick={() => navigate('/claims/manage')}>Retour aux PEC</Button>
+        <Button onClick={() => navigate('/claims')}>Retour aux PEC</Button>
       </div>
     );
   }
 
-  const typeInfo = CLAIM_TYPES[claim.type];
+  const typeInfo = CLAIM_TYPES[claim.typeSoin];
+  const adherentName = claim.adherent
+    ? `${claim.adherent.firstName} ${claim.adherent.lastName}`
+    : '-';
+  const praticienName = claim.praticien?.nom ?? '-';
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/claims/manage')}>
+        <Button variant="ghost" size="icon" onClick={() => navigate('/claims')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <PageHeader
-          title={`Traiter PEC ${claim.claimNumber}`}
+          title={`Traiter PEC ${claim.numeroDemande}`}
           description="Valider ou rejeter cette demande de prise en charge"
         />
       </div>
@@ -157,18 +159,19 @@ export function ClaimProcessPage() {
           <div className="grid gap-4 md:grid-cols-4">
             <div>
               <p className="text-sm text-muted-foreground">Adhérent</p>
-              <p className="font-medium">{claim.adhérentName || '-'}</p>
-              <p className="text-xs text-muted-foreground">{claim.adhérentNationalId || '-'}</p>
+              <p className="font-medium">{adherentName}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Prestataire</p>
-              <p className="font-medium">{claim.providerName || '-'}</p>
+              <p className="text-sm text-muted-foreground">Praticien</p>
+              <p className="font-medium">{praticienName}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Type</p>
-              <span className={`inline-block mt-1 rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>
-                {typeInfo.label}
-              </span>
+              {typeInfo && (
+                <span className={`inline-block mt-1 rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>
+                  {typeInfo.label}
+                </span>
+              )}
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Date</p>
@@ -183,8 +186,8 @@ export function ClaimProcessPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-2">Montant demande</p>
-              <p className="text-3xl font-bold text-primary">{formatAmount(claim.amount)}</p>
+              <p className="text-sm text-muted-foreground mb-2">Montant demandé</p>
+              <p className="text-3xl font-bold text-primary">{formatAmount(claim.montantDemande)}</p>
             </div>
           </CardContent>
         </Card>
@@ -194,16 +197,16 @@ export function ClaimProcessPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-center gap-4">
               <div className={`p-3 rounded-full ${
-                claim.fraudScore && claim.fraudScore > 70
+                claim.scoreFraude && claim.scoreFraude > 70
                   ? 'bg-red-100'
-                  : claim.fraudScore && claim.fraudScore > 40
+                  : claim.scoreFraude && claim.scoreFraude > 40
                     ? 'bg-yellow-100'
                     : 'bg-green-100'
               }`}>
                 <AlertTriangle className={`h-6 w-6 ${
-                  claim.fraudScore && claim.fraudScore > 70
+                  claim.scoreFraude && claim.scoreFraude > 70
                     ? 'text-red-600'
-                    : claim.fraudScore && claim.fraudScore > 40
+                    : claim.scoreFraude && claim.scoreFraude > 40
                       ? 'text-yellow-600'
                       : 'text-green-600'
                 }`} />
@@ -211,13 +214,13 @@ export function ClaimProcessPage() {
               <div className="text-center">
                 <p className="text-sm text-muted-foreground">Score anti-fraude</p>
                 <p className={`text-2xl font-bold ${
-                  claim.fraudScore && claim.fraudScore > 70
+                  claim.scoreFraude && claim.scoreFraude > 70
                     ? 'text-red-600'
-                    : claim.fraudScore && claim.fraudScore > 40
+                    : claim.scoreFraude && claim.scoreFraude > 40
                       ? 'text-yellow-600'
                       : 'text-green-600'
                 }`}>
-                  {claim.fraudScore ?? 'N/A'}
+                  {claim.scoreFraude ?? 'N/A'}
                 </p>
               </div>
             </div>
@@ -235,9 +238,9 @@ export function ClaimProcessPage() {
           {/* Décision Buttons */}
           <div className="flex gap-4">
             <Button
-              variant={processingData.status === 'APPROVED' ? 'default' : 'outline'}
+              variant={processingData.statut === 'approuvee' ? 'default' : 'outline'}
               className="flex-1 h-20"
-              onClick={() => setProcessingData({ ...processingData, status: 'APPROVED' })}
+              onClick={() => setProcessingData({ ...processingData, statut: 'approuvee' })}
             >
               <div className="flex flex-col items-center gap-2">
                 <CheckCircle className="h-6 w-6" />
@@ -245,9 +248,9 @@ export function ClaimProcessPage() {
               </div>
             </Button>
             <Button
-              variant={processingData.status === 'REJECTED' ? 'destructive' : 'outline'}
+              variant={processingData.statut === 'rejetee' ? 'destructive' : 'outline'}
               className="flex-1 h-20"
-              onClick={() => setProcessingData({ ...processingData, status: 'REJECTED' })}
+              onClick={() => setProcessingData({ ...processingData, statut: 'rejetee' })}
             >
               <div className="flex flex-col items-center gap-2">
                 <XCircle className="h-6 w-6" />
@@ -256,26 +259,26 @@ export function ClaimProcessPage() {
             </Button>
           </div>
 
-          {processingData.status === 'APPROVED' && (
+          {processingData.statut === 'approuvee' && (
             <div className="space-y-2">
-              <Label htmlFor="coveredAmount">Montant couvert (TND)</Label>
+              <Label htmlFor="montantRembourse">Montant remboursé (TND)</Label>
               <Input
-                id="coveredAmount"
+                id="montantRembourse"
                 type="number"
                 step="0.001"
-                value={processingData.coveredAmount}
-                onChange={(e) => setProcessingData({ ...processingData, coveredAmount: e.target.value })}
+                value={processingData.montantRembourse}
+                onChange={(e) => setProcessingData({ ...processingData, montantRembourse: e.target.value })}
               />
             </div>
           )}
 
-          {processingData.status === 'REJECTED' && (
+          {processingData.statut === 'rejetee' && (
             <div className="space-y-2">
-              <Label htmlFor="rejectionReason">Motif du rejet *</Label>
+              <Label htmlFor="motifRejet">Motif du rejet *</Label>
               <Textarea
-                id="rejectionReason"
-                value={processingData.rejectionReason}
-                onChange={(e) => setProcessingData({ ...processingData, rejectionReason: e.target.value })}
+                id="motifRejet"
+                value={processingData.motifRejet}
+                onChange={(e) => setProcessingData({ ...processingData, motifRejet: e.target.value })}
                 placeholder="Indiquer le motif du rejet..."
                 rows={3}
               />
@@ -283,25 +286,25 @@ export function ClaimProcessPage() {
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="notes">Notes (optionnel)</Label>
+            <Label htmlFor="notesInternes">Notes (optionnel)</Label>
             <Textarea
-              id="notes"
-              value={processingData.notes}
-              onChange={(e) => setProcessingData({ ...processingData, notes: e.target.value })}
+              id="notesInternes"
+              value={processingData.notesInternes}
+              onChange={(e) => setProcessingData({ ...processingData, notesInternes: e.target.value })}
               rows={2}
             />
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={() => navigate('/claims/manage')}>
+            <Button variant="outline" onClick={() => navigate('/claims')}>
               Annuler
             </Button>
             <Button
               onClick={handleProcess}
-              disabled={processClaim.isPending || (processingData.status === 'REJECTED' && !processingData.rejectionReason)}
-              variant={processingData.status === 'REJECTED' ? 'destructive' : 'default'}
+              disabled={processClaim.isPending || (processingData.statut === 'rejetee' && !processingData.motifRejet)}
+              variant={processingData.statut === 'rejetee' ? 'destructive' : 'default'}
             >
-              {processClaim.isPending ? 'Traitement...' : processingData.status === 'APPROVED' ? 'Approuver la PEC' : 'Rejeter la PEC'}
+              {processClaim.isPending ? 'Traitement...' : processingData.statut === 'approuvee' ? 'Approuver la PEC' : 'Rejeter la PEC'}
             </Button>
           </div>
         </CardContent>

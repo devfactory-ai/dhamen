@@ -8,18 +8,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useClaims, type Claim } from '../hooks/useClaims';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 
-const CLAIM_TYPES = {
-  PHARMACY: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
-  CONSULTATION: { label: 'Consultation', color: 'bg-blue-100 text-blue-800' },
-  LAB: { label: 'Laboratoire', color: 'bg-purple-100 text-purple-800' },
-  HOSPITALIZATION: { label: 'Hospitalisation', color: 'bg-orange-100 text-orange-800' },
+const CLAIM_TYPES: Record<string, { label: string; color: string }> = {
+  pharmacie: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
+  consultation: { label: 'Consultation', color: 'bg-blue-100 text-blue-800' },
+  laboratoire: { label: 'Laboratoire', color: 'bg-purple-100 text-purple-800' },
+  hospitalisation: { label: 'Hospitalisation', color: 'bg-orange-100 text-orange-800' },
+  dentaire: { label: 'Dentaire', color: 'bg-pink-100 text-pink-800' },
+  optique: { label: 'Optique', color: 'bg-cyan-100 text-cyan-800' },
+  kinesitherapie: { label: 'Kinésithérapie', color: 'bg-amber-100 text-amber-800' },
+  autre: { label: 'Autre', color: 'bg-gray-100 text-gray-800' },
 };
 
-const CLAIM_STATUS = {
-  PENDING: { label: 'En attente', variant: 'warning' as const },
-  APPROVED: { label: 'Approuvée', variant: 'success' as const },
-  REJECTED: { label: 'Rejetée', variant: 'destructive' as const },
-  PAID: { label: 'Payée', variant: 'info' as const },
+const CLAIM_STATUS: Record<string, { label: string; variant: 'warning' | 'success' | 'destructive' | 'info' | 'default' }> = {
+  soumise: { label: 'Soumise', variant: 'warning' },
+  en_examen: { label: 'En examen', variant: 'info' },
+  info_requise: { label: 'Info requise', variant: 'default' },
+  approuvee: { label: 'Approuvée', variant: 'success' },
+  en_paiement: { label: 'En paiement', variant: 'info' },
+  payee: { label: 'Payée', variant: 'success' },
+  rejetee: { label: 'Rejetée', variant: 'destructive' },
 };
 
 export function ClaimsPage() {
@@ -29,18 +36,15 @@ export function ClaimsPage() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [typeFilter, setTypeFilter] = useState<string | undefined>();
 
-  const isProvider = ['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN'].includes(user?.role || '');
+  const isProvider = ['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'PRATICIEN'].includes(user?.role || '');
 
   const { data, isLoading } = useClaims(page, 20, {
-    status: statusFilter,
-    type: typeFilter,
+    statut: statusFilter,
+    typeSoin: typeFilter,
   });
 
   const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat('fr-TN', {
-      style: 'currency',
-      currency: 'TND',
-    }).format(amount / 1000);
+    return (amount / 1000).toFixed(3) + ' TND';
   };
 
   const formatDate = (dateString: string) => {
@@ -57,18 +61,30 @@ export function ClaimsPage() {
       header: 'PEC',
       render: (claim: Claim) => (
         <div>
-          <p className="font-medium">{claim.claimNumber}</p>
-          <p className='text-muted-foreground text-sm'>{formatDate(claim.serviceDate)}</p>
+          <p className="font-medium">{claim.numeroDemande}</p>
+          <p className='text-muted-foreground text-sm'>{formatDate(claim.dateSoin)}</p>
         </div>
       ),
     },
     {
-      key: 'adhérent',
+      key: 'adherent',
       header: 'Adhérent',
       render: (claim: Claim) => (
         <div>
-          <p className="text-sm">{claim.adhérentName || '-'}</p>
-          <p className='text-muted-foreground text-xs'>{claim.adhérentNationalId || '-'}</p>
+          <p className="text-sm">
+            {claim.adherent
+              ? `${claim.adherent.firstName} ${claim.adherent.lastName}`
+              : '-'}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: 'praticien',
+      header: 'Praticien',
+      render: (claim: Claim) => (
+        <div>
+          <p className="text-sm">{claim.praticien?.nom ?? '-'}</p>
         </div>
       ),
     },
@@ -76,10 +92,10 @@ export function ClaimsPage() {
       key: 'type',
       header: 'Type',
       render: (claim: Claim) => {
-        const typeInfo = CLAIM_TYPES[claim.type];
+        const typeInfo = CLAIM_TYPES[claim.typeSoin] ?? CLAIM_TYPES.autre!;
         return (
-          <span className={`rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>
-            {typeInfo.label}
+          <span className={`rounded-full px-2 py-1 font-medium text-xs ${typeInfo?.color}`}>
+            {typeInfo?.label}
           </span>
         );
       },
@@ -89,9 +105,9 @@ export function ClaimsPage() {
       header: 'Montant',
       render: (claim: Claim) => (
         <div className="text-right">
-          <p className="font-medium">{formatAmount(claim.amount)}</p>
-          {claim.status === 'APPROVED' && (
-            <p className='text-green-600 text-xs'>Couvert: {formatAmount(claim.coveredAmount)}</p>
+          <p className="font-medium">{formatAmount(claim.montantDemande)}</p>
+          {claim.montantRembourse != null && (
+            <p className='text-green-600 text-xs'>Remboursé: {formatAmount(claim.montantRembourse)}</p>
           )}
         </div>
       ),
@@ -100,8 +116,8 @@ export function ClaimsPage() {
       key: 'status',
       header: 'Statut',
       render: (claim: Claim) => {
-        const statusInfo = CLAIM_STATUS[claim.status];
-        return <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>;
+        const statusInfo = CLAIM_STATUS[claim.statut] ?? CLAIM_STATUS.soumise!;
+        return <Badge variant={statusInfo?.variant}>{statusInfo?.label}</Badge>;
       },
     },
     {

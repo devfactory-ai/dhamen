@@ -180,6 +180,17 @@ export async function findSanteDemandeAvecDetails(
   };
 }
 
+interface SanteDemandeAvecNomsRow extends SanteDemandeRow {
+  adherent_first_name: string | null;
+  adherent_last_name: string | null;
+  praticien_nom: string | null;
+}
+
+export interface SanteDemandeListItem extends SanteDemande {
+  adherent?: { firstName: string; lastName: string };
+  praticien?: { nom: string } | null;
+}
+
 export interface ListSanteDemandesOptions {
   statut?: SanteStatutDemande;
   source?: SanteSourceDemande;
@@ -247,6 +258,86 @@ export async function listSanteDemandes(
 
   return {
     data: results.map(rowToDemande),
+    total: countResult?.count ?? 0,
+  };
+}
+
+/**
+ * List demandes with adherent and praticien names (for dashboard/lists)
+ */
+export async function listSanteDemandesAvecNoms(
+  db: D1Database,
+  options: ListSanteDemandesOptions = {}
+): Promise<{ data: SanteDemandeListItem[]; total: number }> {
+  const { statut, source, typeSoin, adherentId, praticienId, dateDebut, dateFin, page = 1, limit = 20 } = options;
+  const offset = (page - 1) * limit;
+
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (statut) {
+    conditions.push('d.statut = ?');
+    params.push(statut);
+  }
+  if (source) {
+    conditions.push('d.source = ?');
+    params.push(source);
+  }
+  if (typeSoin) {
+    conditions.push('d.type_soin = ?');
+    params.push(typeSoin);
+  }
+  if (adherentId) {
+    conditions.push('d.adherent_id = ?');
+    params.push(adherentId);
+  }
+  if (praticienId) {
+    conditions.push('d.praticien_id = ?');
+    params.push(praticienId);
+  }
+  if (dateDebut) {
+    conditions.push('d.date_soin >= ?');
+    params.push(dateDebut);
+  }
+  if (dateFin) {
+    conditions.push('d.date_soin <= ?');
+    params.push(dateFin);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const countResult = await db
+    .prepare(`SELECT COUNT(*) as count FROM sante_demandes d ${whereClause}`)
+    .bind(...params)
+    .first<{ count: number }>();
+
+  const { results } = await db
+    .prepare(
+      `SELECT d.*,
+        a.first_name as adherent_first_name,
+        a.last_name as adherent_last_name,
+        p.nom as praticien_nom
+       FROM sante_demandes d
+       LEFT JOIN adherents a ON d.adherent_id = a.id
+       LEFT JOIN sante_praticiens p ON d.praticien_id = p.id
+       ${whereClause}
+       ORDER BY d.created_at DESC LIMIT ? OFFSET ?`
+    )
+    .bind(...params, limit, offset)
+    .all<SanteDemandeAvecNomsRow>();
+
+  const data: SanteDemandeListItem[] = results.map((row) => ({
+    ...rowToDemande(row),
+    adherent: row.adherent_first_name && row.adherent_last_name
+      ? { firstName: row.adherent_first_name, lastName: row.adherent_last_name }
+      : undefined,
+    praticien: row.praticien_nom
+      ? { nom: row.praticien_nom }
+      : null,
+  }));
+
+  return {
+    data,
     total: countResult?.count ?? 0,
   };
 }

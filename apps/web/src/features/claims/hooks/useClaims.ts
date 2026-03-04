@@ -3,79 +3,69 @@ import { apiClient } from '@/lib/api-client';
 
 export interface Claim {
   id: string;
-  claimNumber: string;
+  numeroDemande: string;
   adherentId: string;
-  adherentName?: string;
-  adherentNationalId?: string;
-  providerId: string;
-  providerName?: string;
-  insurerId: string;
-  insurerName?: string;
-  type: 'PHARMACY' | 'CONSULTATION' | 'LAB' | 'HOSPITALIZATION';
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'PAID';
-  amount: number;
-  coveredAmount: number;
-  copayAmount: number;
-  prescriptionDate: string | null;
-  serviceDate: string;
-  diagnosis: string | null;
-  notes: string | null;
-  rejectionReason: string | null;
-  fraudScore: number | null;
-  processedAt: string | null;
-  processedBy: string | null;
+  adherent?: { firstName: string; lastName: string };
+  praticien?: { nom: string } | null;
+  praticienId: string | null;
+  typeSoin: 'pharmacie' | 'consultation' | 'hospitalisation' | 'optique' | 'dentaire' | 'laboratoire' | 'kinesitherapie' | 'autre';
+  statut: 'soumise' | 'en_examen' | 'info_requise' | 'approuvee' | 'en_paiement' | 'payee' | 'rejetee';
+  montantDemande: number;
+  montantRembourse: number | null;
+  montantResteCharge: number | null;
+  estTiersPayant: boolean;
+  montantPraticien: number | null;
+  dateSoin: string;
+  scoreFraude: number | null;
+  motifRejet: string | null;
+  notesInternes: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-interface ClaimsResponse {
-  claims: Claim[];
-  total: number;
-}
-
 interface CreateClaimData {
   adherentId: string;
-  type: string;
-  amount: number;
-  prescriptionDate?: string;
-  serviceDate: string;
-  diagnosis?: string;
-  notes?: string;
-  items?: Array<{
-    code: string;
-    description: string;
-    quantity: number;
-    unitPrice: number;
-  }>;
+  typeSoin: string;
+  montantDemande: number;
+  dateSoin: string;
+  praticienId?: string;
 }
 
 interface ProcessClaimData {
-  status: 'APPROVED' | 'REJECTED';
-  coveredAmount?: number;
-  rejectionReason?: string;
-  notes?: string;
+  statut: 'approuvee' | 'rejetee' | 'en_examen' | 'info_requise';
+  montantRembourse?: number;
+  motifRejet?: string;
+  notesInternes?: string;
 }
 
-export function useClaims(page = 1, limit = 20, filters?: { status?: string; type?: string }) {
+export function useClaims(page = 1, limit = 20, filters?: { statut?: string; typeSoin?: string }) {
   return useQuery({
-    queryKey: ['claims', page, limit, filters],
+    queryKey: ['sante-demandes', page, limit, filters],
     queryFn: async () => {
-      const response = await apiClient.get<ClaimsResponse>('/claims', {
-        params: { page, limit, ...filters },
-      });
+      const params: Record<string, string | number> = { page, limit };
+      if (filters?.statut) params.statut = filters.statut;
+      if (filters?.typeSoin) params.typeSoin = filters.typeSoin;
+
+      // apiClient.get returns the full JSON body: { success, data: [...], meta: {...} }
+      const response = await apiClient.get<Claim[]>('/sante/demandes', { params });
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors du chargement des PEC');
       }
-      return response.data;
+      // Access meta from paginated response
+      const fullResponse = response as unknown as { data: Claim[]; meta: { total: number } };
+      return {
+        claims: fullResponse.data ?? [],
+        total: fullResponse.meta?.total ?? 0,
+      };
     },
   });
 }
 
 export function useClaim(id: string) {
   return useQuery({
-    queryKey: ['claims', id],
+    queryKey: ['sante-demandes', id],
     queryFn: async () => {
-      const response = await apiClient.get<Claim>(`/claims/${id}`);
+      const response = await apiClient.get<Claim>(`/sante/demandes/${id}`);
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors du chargement de la PEC');
       }
@@ -90,14 +80,14 @@ export function useCreateClaim() {
 
   return useMutation({
     mutationFn: async (data: CreateClaimData) => {
-      const response = await apiClient.post<Claim>('/claims', data);
+      const response = await apiClient.post<Claim>('/sante/demandes', data);
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors de la création de la PEC');
       }
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['claims'] });
+      queryClient.invalidateQueries({ queryKey: ['sante-demandes'] });
     },
   });
 }
@@ -107,31 +97,29 @@ export function useProcessClaim() {
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: ProcessClaimData }) => {
-      const response = await apiClient.put<Claim>(`/claims/${id}/process`, data);
+      const response = await apiClient.patch<Claim>(`/sante/demandes/${id}/statut`, data);
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors du traitement de la PEC');
       }
       return response.data;
     },
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ['claims'] });
-      queryClient.invalidateQueries({ queryKey: ['claims', id] });
+      queryClient.invalidateQueries({ queryKey: ['sante-demandes'] });
+      queryClient.invalidateQueries({ queryKey: ['sante-demandes', id] });
     },
   });
 }
 
 export function useClaimStats() {
   return useQuery({
-    queryKey: ['claims', 'stats'],
+    queryKey: ['sante-demandes', 'stats'],
     queryFn: async () => {
       const response = await apiClient.get<{
         total: number;
-        pending: number;
-        approved: number;
-        rejected: number;
-        totalAmount: number;
-        coveredAmount: number;
-      }>('/claims/stats');
+        parStatut: Record<string, number>;
+        montantTotal: number;
+        montantRembourse: number;
+      }>('/sante/demandes/stats');
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors du chargement des statistiques');
       }

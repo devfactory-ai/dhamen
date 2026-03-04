@@ -8,32 +8,34 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useClaims, type Claim } from '../hooks/useClaims';
 
-const CLAIM_TYPES = {
-  PHARMACY: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
-  CONSULTATION: { label: 'Consultation', color: 'bg-blue-100 text-blue-800' },
-  LAB: { label: 'Laboratoire', color: 'bg-purple-100 text-purple-800' },
-  HOSPITALIZATION: { label: 'Hospitalisation', color: 'bg-orange-100 text-orange-800' },
+const CLAIM_TYPES: Record<string, { label: string; color: string }> = {
+  pharmacie: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
+  consultation: { label: 'Consultation', color: 'bg-blue-100 text-blue-800' },
+  laboratoire: { label: 'Laboratoire', color: 'bg-purple-100 text-purple-800' },
+  hospitalisation: { label: 'Hospitalisation', color: 'bg-orange-100 text-orange-800' },
+  dentaire: { label: 'Dentaire', color: 'bg-pink-100 text-pink-800' },
+  optique: { label: 'Optique', color: 'bg-cyan-100 text-cyan-800' },
 };
 
-const CLAIM_STATUS = {
-  PENDING: { label: 'En attente', variant: 'warning' as const },
-  APPROVED: { label: 'Approuvée', variant: 'success' as const },
-  REJECTED: { label: 'Rejetée', variant: 'destructive' as const },
-  PAID: { label: 'Payée', variant: 'info' as const },
+const CLAIM_STATUS: Record<string, { label: string; variant: 'warning' | 'success' | 'destructive' | 'info' | 'default' }> = {
+  soumise: { label: 'Soumise', variant: 'warning' },
+  en_examen: { label: 'En examen', variant: 'info' },
+  info_requise: { label: 'Info requise', variant: 'default' },
+  approuvee: { label: 'Approuvée', variant: 'success' },
+  en_paiement: { label: 'En paiement', variant: 'info' },
+  payee: { label: 'Payée', variant: 'success' },
+  rejetee: { label: 'Rejetée', variant: 'destructive' },
 };
 
 export function ClaimsManagePage() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<string>('PENDING');
+  const [statusFilter, setStatusFilter] = useState<string>('soumise');
 
-  const { data, isLoading } = useClaims(page, 20, { status: statusFilter });
+  const { data, isLoading } = useClaims(page, 20, { statut: statusFilter });
 
   const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat('fr-TN', {
-      style: 'currency',
-      currency: 'TND',
-    }).format(amount / 1000);
+    return (amount / 1000).toFixed(3) + ' TND';
   };
 
   const formatDate = (dateString: string) => {
@@ -52,27 +54,30 @@ export function ClaimsManagePage() {
       header: 'PEC',
       render: (claim: Claim) => (
         <div>
-          <p className="font-medium">{claim.claimNumber}</p>
+          <p className="font-medium">{claim.numeroDemande}</p>
           <p className='text-muted-foreground text-sm'>{formatDate(claim.createdAt)}</p>
         </div>
       ),
     },
     {
-      key: 'adhérent',
+      key: 'adherent',
       header: 'Adhérent',
       render: (claim: Claim) => (
         <div>
-          <p className="text-sm">{claim.adhérentName || '-'}</p>
-          <p className='text-muted-foreground text-xs'>{claim.adhérentNationalId || '-'}</p>
+          <p className="text-sm">
+            {claim.adherent
+              ? `${claim.adherent.firstName} ${claim.adherent.lastName}`
+              : '-'}
+          </p>
         </div>
       ),
     },
     {
-      key: 'provider',
-      header: 'Prestataire',
+      key: 'praticien',
+      header: 'Praticien',
       render: (claim: Claim) => (
         <div>
-          <p className="text-sm">{claim.providerName || '-'}</p>
+          <p className="text-sm">{claim.praticien?.nom ?? '-'}</p>
         </div>
       ),
     },
@@ -80,12 +85,12 @@ export function ClaimsManagePage() {
       key: 'type',
       header: 'Type',
       render: (claim: Claim) => {
-        const typeInfo = CLAIM_TYPES[claim.type];
-        return (
+        const typeInfo = CLAIM_TYPES[claim.typeSoin];
+        return typeInfo ? (
           <span className={`rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>
             {typeInfo.label}
           </span>
-        );
+        ) : <span className="text-xs text-muted-foreground">{claim.typeSoin}</span>;
       },
     },
     {
@@ -93,7 +98,7 @@ export function ClaimsManagePage() {
       header: 'Montant',
       render: (claim: Claim) => (
         <div className="text-right">
-          <p className="font-medium">{formatAmount(claim.amount)}</p>
+          <p className="font-medium">{formatAmount(claim.montantDemande)}</p>
         </div>
       ),
     },
@@ -101,17 +106,19 @@ export function ClaimsManagePage() {
       key: 'fraudScore',
       header: 'Score',
       render: (claim: Claim) => {
-        if (claim.fraudScore === null) { return '-'; }
-        const color = claim.fraudScore > 70 ? 'text-destructive' : claim.fraudScore > 40 ? 'text-yellow-600' : 'text-green-600';
-        return <span className={`font-medium ${color}`}>{claim.fraudScore}</span>;
+        if (claim.scoreFraude === null) { return '-'; }
+        const color = claim.scoreFraude > 70 ? 'text-destructive' : claim.scoreFraude > 40 ? 'text-yellow-600' : 'text-green-600';
+        return <span className={`font-medium ${color}`}>{claim.scoreFraude}</span>;
       },
     },
     {
       key: 'status',
       header: 'Statut',
       render: (claim: Claim) => {
-        const statusInfo = CLAIM_STATUS[claim.status];
-        return <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>;
+        const statusInfo = CLAIM_STATUS[claim.statut];
+        return statusInfo
+          ? <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
+          : <span className="text-xs">{claim.statut}</span>;
       },
     },
     {
@@ -120,13 +127,13 @@ export function ClaimsManagePage() {
       className: 'text-right',
       render: (claim: Claim) => (
         <div className="flex justify-end gap-2">
-          {claim.status === 'PENDING' && (
+          {['soumise', 'en_examen'].includes(claim.statut) && (
             <Button size="sm" onClick={() => navigate(`/claims/manage/${claim.id}/process`)}>
               Traiter
             </Button>
           )}
           <Button variant="ghost" size="sm" onClick={() => navigate(`/claims/${claim.id}`)}>
-            Details
+            Détails
           </Button>
         </div>
       ),
@@ -134,10 +141,10 @@ export function ClaimsManagePage() {
   ];
 
   // Stats
-  const pendingCount = data?.claims.filter((c) => c.status === 'PENDING').length || 0;
+  const pendingCount = data?.claims.filter((c) => ['soumise', 'en_examen'].includes(c.statut)).length || 0;
   const totalPendingAmount = data?.claims
-    .filter((c) => c.status === 'PENDING')
-    .reduce((sum, c) => sum + c.amount, 0) || 0;
+    .filter((c) => ['soumise', 'en_examen'].includes(c.statut))
+    .reduce((sum, c) => sum + c.montantDemande, 0) || 0;
 
   return (
     <div className="space-y-6">

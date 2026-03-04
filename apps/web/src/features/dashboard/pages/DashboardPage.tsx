@@ -191,11 +191,13 @@ interface DashboardStats {
 
 interface RecentClaim {
   id: string;
-  adherent?: { prenom: string; nom: string };
-  provider?: { nom: string };
-  montant_demande: number;
+  numeroDemande: string;
+  typeSoin: string;
+  adherent?: { firstName: string; lastName: string };
+  praticien?: { nom: string } | null;
+  montantDemande: number;
   statut: string;
-  created_at: string;
+  createdAt: string;
 }
 
 function formatAmount(amount: number): string {
@@ -233,7 +235,8 @@ export function DashboardPage() {
   const { data: statsData, isLoading: statsLoading } = useQuery({
     queryKey: ['dashboard-stats', role],
     queryFn: async () => {
-      const response = await apiClient.get<{ success: boolean; data: DashboardStats }>('/analytics/dashboard');
+      const response = await apiClient.get<DashboardStats>('/analytics/dashboard-stats');
+      if (!response.success) return {} as DashboardStats;
       return response.data;
     },
     staleTime: 30000, // Cache for 30 seconds
@@ -243,7 +246,8 @@ export function DashboardPage() {
   const { data: claimsData, isLoading: claimsLoading } = useQuery({
     queryKey: ['recent-claims'],
     queryFn: async () => {
-      const response = await apiClient.get<{ success: boolean; data: RecentClaim[] }>('/sante/demandes?limit=5&sort=created_at:desc');
+      const response = await apiClient.get<RecentClaim[]>('/sante/demandes?limit=5');
+      if (!response.success) return [];
       return response.data;
     },
     staleTime: 30000,
@@ -335,11 +339,11 @@ export function DashboardPage() {
             ) : (
               recentClaims.map((claim) => {
                 const patientName = claim.adherent
-                  ? `${claim.adherent.prenom} ${claim.adherent.nom}`
+                  ? `${claim.adherent.firstName} ${claim.adherent.lastName}`
                   : 'Patient inconnu';
-                const providerName = claim.provider?.nom ?? 'Prestataire inconnu';
+                const providerName = claim.praticien?.nom ?? 'Prestataire inconnu';
                 const initials = patientName.split(' ').map(n => n[0]).join('').slice(0, 2);
-                const status = statusConfig[claim.statut] ?? statusConfig.pending;
+                const status = statusConfig[claim.statut] ?? { label: claim.statut, bgColor: 'bg-gray-50', textColor: 'text-gray-700', dotColor: 'bg-gray-500' };
 
                 return (
                   <div key={claim.id} className="px-6 py-4 hover:bg-gray-50 transition-colors">
@@ -353,14 +357,14 @@ export function DashboardPage() {
                         <div>
                           <p className="font-medium text-gray-900">{patientName}</p>
                           <p className="text-xs text-gray-500">
-                            {claim.id} • {providerName}
+                            {claim.numeroDemande} • {providerName}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-right">
-                          <p className="font-semibold text-gray-900">{(claim.montant_demande / 1000).toFixed(3)} TND</p>
-                          <p className="text-xs text-gray-500">{formatTimeAgo(claim.created_at)}</p>
+                          <p className="font-semibold text-gray-900">{(claim.montantDemande / 1000).toFixed(3)} TND</p>
+                          <p className="text-xs text-gray-500">{formatTimeAgo(claim.createdAt)}</p>
                         </div>
                         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${status.bgColor}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${status.dotColor}`} />

@@ -2,10 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import type { UserPublic } from '@dhamen/shared';
 
-interface UsersResponse {
-  users: UserPublic[];
-  total: number;
-}
+
 
 interface CreateUserData {
   email: string;
@@ -30,13 +27,16 @@ export function useUsers(page = 1, limit = 20) {
   return useQuery({
     queryKey: ['users', page, limit],
     queryFn: async () => {
-      const response = await apiClient.get<UsersResponse>('/users', {
+      const response = await apiClient.get<{ data: UserPublic[]; meta: { total: number } }>('/users', {
         params: { page, limit },
       });
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors du chargement des utilisateurs');
       }
-      return response.data;
+      return {
+        users: response.data.data ?? [],
+        total: response.data.meta?.total ?? 0,
+      };
     },
   });
 }

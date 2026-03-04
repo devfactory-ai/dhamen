@@ -4,7 +4,7 @@
 import {
   createSanteDemande,
   findSanteDemandeAvecDetails,
-  listSanteDemandes,
+  listSanteDemandesAvecNoms,
   updateSanteDemandeStatut,
   getSanteDemandesStats,
 } from '@dhamen/db';
@@ -39,7 +39,7 @@ demandes.get(
   async (c) => {
     const filters = c.req.valid('query');
 
-    const { data, total } = await listSanteDemandes(getDb(c), {
+    const { data, total } = await listSanteDemandesAvecNoms(getDb(c), {
       ...filters,
       page: filters.page ?? 1,
       limit: filters.limit ?? 20,
@@ -67,7 +67,7 @@ demandes.get(
     const filters = c.req.valid('query');
 
     // Get adherent's demandes only
-    const { data, total } = await listSanteDemandes(getDb(c), {
+    const { data, total } = await listSanteDemandesAvecNoms(getDb(c), {
       ...filters,
       adherentId: user.sub, // User sub is the adherent ID for mobile users
       page: filters.page ?? 1,
@@ -96,7 +96,7 @@ demandes.get(
     const filters = c.req.valid('query');
 
     // Get praticien's demandes only (via providerId)
-    const { data, total } = await listSanteDemandes(getDb(c), {
+    const { data, total } = await listSanteDemandesAvecNoms(getDb(c), {
       ...filters,
       praticienId: user.providerId ?? undefined,
       page: filters.page ?? 1,
