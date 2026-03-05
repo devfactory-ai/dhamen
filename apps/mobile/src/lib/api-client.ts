@@ -7,6 +7,8 @@ import type { ApiResponse, PaginatedResponse, ApiError as SharedApiError } from 
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://dhamen-api.yassine-techini.workers.dev/api/v1';
 const REQUEST_TIMEOUT_MS = 30000;
+let _accessToken: string | null = null;
+let _refreshToken: string | null = null;
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
@@ -50,6 +52,7 @@ class ApiClient {
   }
 
   private async getAccessToken(): Promise<string | null> {
+    if (_accessToken) return _accessToken;
     try {
       return await SecureStore.getItemAsync('accessToken');
     } catch {
@@ -58,6 +61,7 @@ class ApiClient {
   }
 
   private async getRefreshToken(): Promise<string | null> {
+    if (_refreshToken) return _refreshToken;
     try {
       return await SecureStore.getItemAsync('refreshToken');
     } catch {
@@ -66,6 +70,8 @@ class ApiClient {
   }
 
   async setTokens(accessToken: string, refreshToken: string): Promise<void> {
+    _accessToken = accessToken;
+    _refreshToken = refreshToken;
     try {
       await SecureStore.setItemAsync('accessToken', accessToken);
       await SecureStore.setItemAsync('refreshToken', refreshToken);
@@ -75,6 +81,8 @@ class ApiClient {
   }
 
   async clearTokens(): Promise<void> {
+    _accessToken = null;
+    _refreshToken = null;
     try {
       await SecureStore.deleteItemAsync('accessToken');
       await SecureStore.deleteItemAsync('refreshToken');

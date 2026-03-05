@@ -85,14 +85,22 @@ export default function DemandesListScreen() {
         params,
       });
 
-      if (!response.success) {
-        throw new Error('Failed to fetch demandes');
+      const emptyResult: DemandesResponse = { success: true, data: [], meta: { page: 1, limit: 20, total: 0, totalPages: 1 } };
+
+      if (!response.success || !response.data) {
+        return emptyResult;
       }
 
-      return response.data;
+      // response.data may be the full DemandesResponse or just the inner data
+      const result = response.data as unknown as DemandesResponse;
+      if (!result.data || !result.meta) {
+        return emptyResult;
+      }
+
+      return result;
     },
     getNextPageParam: (lastPage) => {
-      if (lastPage.meta.page < lastPage.meta.totalPages) {
+      if (lastPage?.meta && lastPage.meta.page < lastPage.meta.totalPages) {
         return lastPage.meta.page + 1;
       }
       return undefined;
@@ -100,7 +108,7 @@ export default function DemandesListScreen() {
     initialPageParam: 1,
   });
 
-  const demandes = data?.pages.flatMap((page) => page.data) ?? [];
+  const demandes = data?.pages.flatMap((page) => page.data ?? []) ?? [];
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('fr-TN', {

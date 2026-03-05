@@ -1,7 +1,7 @@
 /**
  * Settings Screen with enhanced design
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -12,21 +12,21 @@ import {
   Alert,
   Linking,
   Animated,
-} from 'react-native';
-import { router } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
+} from "react-native";
+import { router } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import * as SecureStore from 'expo-secure-store';
-import { getUser, clearAuth } from '@/lib/auth';
-import { colors, typography, spacing, borderRadius, shadows } from '@/theme';
-import type { UserPublic } from '@dhamen/shared';
+import { getUser, clearAuth } from "@/lib/auth";
+import { colors, typography, spacing, borderRadius, shadows } from "@/theme";
+import type { UserPublic } from "@dhamen/shared";
 
 interface Settings {
   notificationsEnabled: boolean;
   biometricEnabled: boolean;
   darkMode: boolean;
   offlineMode: boolean;
-  language: 'fr' | 'ar';
+  language: "fr" | "ar";
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -34,7 +34,7 @@ const DEFAULT_SETTINGS: Settings = {
   biometricEnabled: false,
   darkMode: false,
   offlineMode: true,
-  language: 'fr',
+  language: "fr",
 };
 
 interface MenuItemProps {
@@ -98,9 +98,7 @@ function MenuItem({
           )}
         </View>
         {rightElement}
-        {showChevron && !rightElement && (
-          <Text style={styles.chevron}>›</Text>
-        )}
+        {showChevron && !rightElement && <Text style={styles.chevron}>›</Text>}
       </TouchableOpacity>
     </Animated.View>
   );
@@ -150,62 +148,58 @@ export default function ParametresScreen() {
   };
 
   const handleLogout = useCallback(async () => {
-    Alert.alert(
-      'Déconnexion',
-      'Êtes-vous sûr de vouloir vous déconnecter ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Déconnecter',
-          style: 'destructive',
-          onPress: async () => {
-            await clearAuth();
-            router.replace('/(auth)/login');
-          },
+    Alert.alert("Déconnexion", "Êtes-vous sûr de vouloir vous déconnecter ?", [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Déconnecter",
+        style: "destructive",
+        onPress: async () => {
+          await clearAuth();
+          router.replace("/(auth)/login");
         },
-      ]
-    );
+      },
+    ]);
   }, []);
 
   const handleDeleteAccount = useCallback(() => {
     Alert.alert(
-      'Supprimer le compte',
-      'Cette action est irréversible. Toutes vos données seront supprimées.',
+      "Supprimer le compte",
+      "Cette action est irréversible. Toutes vos données seront supprimées.",
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: "Annuler", style: "cancel" },
         {
-          text: 'Supprimer',
-          style: 'destructive',
+          text: "Supprimer",
+          style: "destructive",
           onPress: () => {
             Alert.alert(
-              'Confirmation',
-              'Veuillez contacter le support pour supprimer votre compte: support@dhamen.tn'
+              "Confirmation",
+              "Veuillez contacter le support pour supprimer votre compte: support@dhamen.tn",
             );
           },
         },
-      ]
+      ],
     );
   }, []);
 
   const handleContactSupport = () => {
-    Linking.openURL('mailto:support@dhamen.tn?subject=Support%20App%20Dhamen');
+    Linking.openURL("mailto:support@dhamen.tn?subject=Support%20App%20Dhamen");
   };
 
   const handlePrivacyPolicy = () => {
-    Linking.openURL('https://dhamen.tn/politique-confidentialite');
+    Linking.openURL("https://dhamen.tn/politique-confidentialite");
   };
 
   const handleTerms = () => {
-    Linking.openURL('https://dhamen.tn/conditions-utilisation');
+    Linking.openURL("https://dhamen.tn/conditions-utilisation");
   };
 
   const getInitials = () => {
-    if (!user) return '?';
-    return `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}`.toUpperCase();
+    if (!user) return "?";
+    return `${user.firstName?.[0] || ""}${user.lastName?.[0] || ""}`.toUpperCase();
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={["top"]}>
       {/* Header */}
       <LinearGradient
         colors={[colors.primary[600], colors.primary[700]]}
@@ -259,7 +253,7 @@ export default function ParametresScreen() {
               rightElement={
                 <Switch
                   value={settings.notificationsEnabled}
-                  onValueChange={() => toggleSetting('notificationsEnabled')}
+                  onValueChange={() => toggleSetting("notificationsEnabled")}
                   trackColor={{
                     false: colors.neutral[200],
                     true: colors.primary[500],
@@ -284,7 +278,7 @@ export default function ParametresScreen() {
               rightElement={
                 <Switch
                   value={settings.biometricEnabled}
-                  onValueChange={() => toggleSetting('biometricEnabled')}
+                  onValueChange={() => toggleSetting("biometricEnabled")}
                   trackColor={{
                     false: colors.neutral[200],
                     true: colors.primary[500],
@@ -317,7 +311,7 @@ export default function ParametresScreen() {
               rightElement={
                 <Switch
                   value={settings.offlineMode}
-                  onValueChange={() => toggleSetting('offlineMode')}
+                  onValueChange={() => toggleSetting("offlineMode")}
                   trackColor={{
                     false: colors.neutral[200],
                     true: colors.primary[500],
@@ -333,7 +327,7 @@ export default function ParametresScreen() {
               label="Vider le cache"
               description="Libérer de l'espace sur votre téléphone"
               onPress={() => {
-                Alert.alert('Cache vidé', 'Le cache a été vidé avec succès');
+                Alert.alert("Cache vidé", "Le cache a été vidé avec succès");
               }}
             />
           </View>
@@ -345,11 +339,11 @@ export default function ParametresScreen() {
           <View style={styles.card}>
             <TouchableOpacity
               style={styles.languageOption}
-              onPress={() => saveSettings({ ...settings, language: 'fr' })}
+              onPress={() => saveSettings({ ...settings, language: "fr" })}
             >
               <Text style={styles.languageFlag}>🇫🇷</Text>
               <Text style={styles.languageLabel}>Français</Text>
-              {settings.language === 'fr' && (
+              {settings.language === "fr" && (
                 <View style={styles.checkmark}>
                   <Text style={styles.checkmarkText}>✓</Text>
                 </View>
@@ -358,11 +352,11 @@ export default function ParametresScreen() {
             <View style={styles.divider} />
             <TouchableOpacity
               style={styles.languageOption}
-              onPress={() => saveSettings({ ...settings, language: 'ar' })}
+              onPress={() => saveSettings({ ...settings, language: "ar" })}
             >
               <Text style={styles.languageFlag}>🇹🇳</Text>
               <Text style={styles.languageLabel}>العربية</Text>
-              {settings.language === 'ar' && (
+              {settings.language === "ar" && (
                 <View style={styles.checkmark}>
                   <Text style={styles.checkmarkText}>✓</Text>
                 </View>
@@ -461,38 +455,38 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
   },
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   backIcon: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 20,
     fontWeight: typography.fontWeight.bold,
   },
   headerTitle: {
     fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold,
-    color: '#fff',
+    color: "#fff",
   },
   content: {
     flex: 1,
     marginTop: -spacing.lg,
-    borderTopLeftRadius: borderRadius['2xl'],
-    borderTopRightRadius: borderRadius['2xl'],
+    borderTopLeftRadius: borderRadius["2xl"],
+    borderTopRightRadius: borderRadius["2xl"],
     backgroundColor: colors.background.primary,
   },
   userCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: colors.background.secondary,
     marginHorizontal: spacing.lg,
     marginTop: spacing.xl,
@@ -504,13 +498,13 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   userInitials: {
-    fontSize: typography.fontSize['2xl'],
+    fontSize: typography.fontSize["2xl"],
     fontWeight: typography.fontWeight.bold,
-    color: '#fff',
+    color: "#fff",
   },
   userInfo: {
     flex: 1,
@@ -531,8 +525,8 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     backgroundColor: colors.neutral[100],
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   editIcon: {
     fontSize: 18,
@@ -545,7 +539,7 @@ const styles = StyleSheet.create({
     fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.semibold,
     color: colors.text.tertiary,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     letterSpacing: 0.5,
     marginBottom: spacing.sm,
     marginLeft: spacing.xs,
@@ -553,20 +547,20 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.background.secondary,
     borderRadius: borderRadius.xl,
-    overflow: 'hidden',
+    overflow: "hidden",
     ...shadows.sm,
   },
   menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     padding: spacing.md,
   },
   menuIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: spacing.md,
   },
   menuIcon: {
@@ -599,8 +593,8 @@ const styles = StyleSheet.create({
     marginLeft: 68,
   },
   languageOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     padding: spacing.md,
   },
   languageFlag: {
@@ -618,18 +612,18 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     backgroundColor: colors.primary[500],
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   checkmarkText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 14,
     fontWeight: typography.fontWeight.bold,
   },
   aboutRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     padding: spacing.md,
   },
   aboutLabel: {
@@ -641,7 +635,7 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
   },
   deleteButton: {
-    alignItems: 'center',
+    alignItems: "center",
     padding: spacing.md,
   },
   deleteButtonText: {
@@ -650,8 +644,8 @@ const styles = StyleSheet.create({
     fontWeight: typography.fontWeight.medium,
   },
   footer: {
-    alignItems: 'center',
-    paddingVertical: spacing['2xl'],
+    alignItems: "center",
+    paddingVertical: spacing["2xl"],
     paddingHorizontal: spacing.lg,
   },
   footerLogo: {

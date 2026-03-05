@@ -17,6 +17,7 @@
     "typecheck": "turbo typecheck",
     "format": "biome format --write .",
     "check": "biome check .",
+    "dev:setup": "bash scripts/dev-setup.sh",
     "db:migrate": "turbo db:migrate",
     "db:seed": "turbo db:seed",
     "deploy:staging": "turbo deploy --filter=@dhamen/api -- --env staging",

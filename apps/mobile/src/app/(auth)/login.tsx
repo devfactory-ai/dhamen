@@ -146,7 +146,6 @@ export default function LoginScreen() {
         email: finalEmail,
         password: finalPassword,
       });
-
       if (response.success && response.data) {
         if (response.data.requiresMfa) {
           router.push({
@@ -156,6 +155,12 @@ export default function LoginScreen() {
         } else if (response.data.tokens && response.data.user) {
           await setTokens(response.data.tokens);
           await setUser(response.data.user);
+
+          // Sync tokens to API client memory cache
+          await apiClient.setTokens(
+            response.data.tokens.accessToken,
+            response.data.tokens.refreshToken,
+          );
 
           // Store credentials for biometric login
           if (hasBiometrics) {
