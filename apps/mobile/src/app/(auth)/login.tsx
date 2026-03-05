@@ -148,7 +148,6 @@ export default function LoginScreen() {
         email: finalEmail,
         password: finalPassword,
       });
-
       if (response.success && response.data) {
         if (response.data.requiresMfa) {
           router.push({

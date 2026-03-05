@@ -53,6 +53,7 @@ class ApiClient {
   }
 
   private async getAccessToken(): Promise<string | null> {
+    if (_accessToken) return _accessToken;
     try {
       return await SecureStore.getItemAsync('accessToken');
     } catch {
@@ -61,6 +62,7 @@ class ApiClient {
   }
 
   private async getRefreshToken(): Promise<string | null> {
+    if (_refreshToken) return _refreshToken;
     try {
       return await SecureStore.getItemAsync('refreshToken');
     } catch {
@@ -73,6 +75,8 @@ class ApiClient {
   }
 
   async setTokens(accessToken: string, refreshToken: string): Promise<void> {
+    _accessToken = accessToken;
+    _refreshToken = refreshToken;
     try {
       await SecureStore.setItemAsync('accessToken', accessToken);
       await SecureStore.setItemAsync('refreshToken', refreshToken);
@@ -82,6 +86,8 @@ class ApiClient {
   }
 
   async clearTokens(): Promise<void> {
+    _accessToken = null;
+    _refreshToken = null;
     try {
       await SecureStore.deleteItemAsync('accessToken');
       await SecureStore.deleteItemAsync('refreshToken');

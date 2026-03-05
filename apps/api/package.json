@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --local",
+    "dev": "wrangler dev --local --ip 0.0.0.0 --port 8787",
     "build": "wrangler deploy --dry-run --outdir=dist",
     "deploy": "wrangler deploy",
     "test": "vitest",
@@ -13,7 +13,7 @@
     "lint": "biome lint ./src",
     "lint:fix": "biome lint --write ./src",
     "typecheck": "tsc --noEmit",
-    "db:migrate": "wrangler d1 migrations apply dhamen-db --local",
+    "db:migrate": "wrangler d1 migrations apply dhamen-db --local && wrangler d1 migrations apply dhamen-platform --local && wrangler d1 migrations apply dhamen-star --local && wrangler d1 migrations apply dhamen-gat --local && wrangler d1 migrations apply dhamen-comar --local && wrangler d1 migrations apply dhamen-ami --local",
     "db:migrate:remote": "wrangler d1 migrations apply dhamen-db --remote"
   },
   "dependencies": {
