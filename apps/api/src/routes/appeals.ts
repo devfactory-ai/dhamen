@@ -93,7 +93,7 @@ appeals.get(
     }
 
     if (filters.search) {
-      conditions.push('(a.full_name LIKE ? OR cl.reference LIKE ? OR ca.description LIKE ?)');
+      conditions.push("(a.first_name || ' ' || a.last_name LIKE ? OR cl.id LIKE ? OR ca.description LIKE ?)");
       const searchTerm = `%${filters.search}%`;
       params.push(searchTerm, searchTerm, searchTerm);
     }
@@ -120,13 +120,13 @@ appeals.get(
     const appealsResult = await db.prepare(`
       SELECT
         ca.*,
-        cl.reference as claim_reference,
-        cl.care_type as claim_care_type,
-        cl.amount as claim_amount,
-        cl.approved_amount as claim_approved_amount,
+        cl.id as claim_reference,
+        cl.type as claim_care_type,
+        cl.total_amount as claim_amount,
+        cl.covered_amount as claim_approved_amount,
         cl.status as claim_status,
-        a.full_name as adherent_name,
-        a.adherent_number,
+        a.first_name || ' ' || a.last_name as adherent_name,
+        a.matricule as adherent_number,
         a.email as adherent_email,
         r.first_name || ' ' || r.last_name as reviewer_name
       FROM claim_appeals ca
@@ -181,9 +181,9 @@ appeals.get(
     const appealsResult = await db.prepare(`
       SELECT
         ca.*,
-        cl.reference as claim_reference,
-        cl.care_type as claim_care_type,
-        cl.amount as claim_amount,
+        cl.id as claim_reference,
+        cl.type as claim_care_type,
+        cl.total_amount as claim_amount,
         cl.status as claim_status
       FROM claim_appeals ca
       JOIN claims cl ON ca.claim_id = cl.id
@@ -271,14 +271,14 @@ appeals.get('/:id', async (c) => {
   const appeal = await db.prepare(`
     SELECT
       ca.*,
-      cl.reference as claim_reference,
-      cl.care_type as claim_care_type,
-      cl.amount as claim_amount,
-      cl.approved_amount as claim_approved_amount,
+      cl.id as claim_reference,
+      cl.type as claim_care_type,
+      cl.total_amount as claim_amount,
+      cl.covered_amount as claim_approved_amount,
       cl.status as claim_status,
       cl.rejection_reason as claim_rejection_reason,
-      a.full_name as adherent_name,
-      a.adherent_number,
+      a.first_name || ' ' || a.last_name as adherent_name,
+      a.matricule as adherent_number,
       a.email as adherent_email,
       a.phone as adherent_phone,
       r.first_name || ' ' || r.last_name as reviewer_name,

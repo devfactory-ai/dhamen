@@ -156,10 +156,20 @@ auth.post('/login', zValidator('json', loginRequestSchema, validationHook), asyn
     userAgent: c.req.header('User-Agent'),
   });
 
+  // Resolve tenant code from insurerId for mobile clients
+  let tenantCode: string | null = null;
+  if (user.insurerId) {
+    const insurer = await getDb(c).prepare(
+      'SELECT code FROM insurers WHERE id = ?'
+    ).bind(user.insurerId).first<{ code: string }>();
+    tenantCode = insurer?.code || null;
+  }
+
   return success(c, {
     requiresMfa: false,
     expiresIn: jwtExpiresIn,
     user: userToPublic(user),
+    tenantCode,
     // Also return tokens in body for localStorage fallback (cross-origin cookie issues)
     tokens: {
       accessToken,

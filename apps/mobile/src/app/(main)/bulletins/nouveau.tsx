@@ -1,7 +1,7 @@
 /**
  * New Bulletin de Soins Screen - Camera capture with OCR for reimbursement
  */
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -32,13 +32,36 @@ const CARE_TYPES: { value: CareType; label: string; icon: string }[] = [
   { value: 'autre', label: 'Autre', icon: '📋' },
 ];
 
+// Map OCR care types to our CareType
+const OCR_TYPE_MAP: Record<string, CareType> = {
+  pharmacie: 'pharmacy',
+  consultation: 'consultation',
+  hospitalisation: 'hospital',
+  optique: 'optique',
+  dentaire: 'dentaire',
+  laboratoire: 'lab',
+};
+
+interface OcrExtractedData {
+  dateSoin: string | null;
+  typeSoin: string | null;
+  montantTotal: number;
+  praticienNom: string | null;
+  praticienSpecialite: string | null;
+  description: string | null;
+  adherentNom: string | null;
+  adherentMatricule: string | null;
+  confidence: number;
+  warnings: string[];
+}
+
 export default function NouveauBulletin() {
   const params = useLocalSearchParams<{ imageUri?: string }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [capturedImage, setCapturedImage] = useState<string | null>(params.imageUri || null);
   const [selectedType, setSelectedType] = useState<CareType | null>(null);
-  const [step, setStep] = useState<'capture' | 'select-type' | 'preview' | 'details'>(
-    params.imageUri ? 'select-type' : 'capture'
+  const [step, setStep] = useState<'capture' | 'extracting' | 'select-type' | 'preview' | 'details'>(
+    params.imageUri ? 'extracting' : 'capture'
   );
   const [bulletinDate, setBulletinDate] = useState<string>(
     new Date().toISOString().split('T')[0]
@@ -46,8 +69,65 @@ export default function NouveauBulletin() {
   const [totalAmount, setTotalAmount] = useState<string>('');
   const [providerName, setProviderName] = useState<string>('');
   const [description, setDescription] = useState<string>('');
+  const [ocrData, setOcrData] = useState<OcrExtractedData | null>(null);
+  const [ocrLoading, setOcrLoading] = useState(false);
   const cameraRef = useRef<CameraView>(null);
   const queryClient = useQueryClient();
+
+  // Trigger OCR if arriving with a pre-existing image
+  useEffect(() => {
+    if (params.imageUri && step === 'extracting') {
+      runOcrExtraction(params.imageUri);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const runOcrExtraction = async (imageUri: string) => {
+    setOcrLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', {
+        uri: imageUri,
+        type: 'image/jpeg',
+        name: 'scan.jpg',
+      } as unknown as Blob);
+
+      const response = await apiClient.upload<OcrExtractedData>(
+        '/bulletins-soins/ocr-extract', formData
+      );
+
+      if (response.success && response.data) {
+        const extracted = response.data as OcrExtractedData;
+        setOcrData(extracted);
+
+        // Pre-fill form fields from OCR
+        if (extracted.dateSoin) {
+          setBulletinDate(extracted.dateSoin);
+        }
+        if (extracted.typeSoin && OCR_TYPE_MAP[extracted.typeSoin]) {
+          setSelectedType(OCR_TYPE_MAP[extracted.typeSoin] as CareType);
+        }
+        if (extracted.montantTotal > 0) {
+          // Convert millimes to TND for display
+          const amountTND = extracted.montantTotal >= 1000
+            ? (extracted.montantTotal / 1000).toFixed(3)
+            : String(extracted.montantTotal);
+          setTotalAmount(amountTND);
+        }
+        if (extracted.praticienNom) {
+          setProviderName(extracted.praticienNom);
+        }
+        if (extracted.description) {
+          setDescription(extracted.description);
+        }
+      }
+    } catch (error) {
+      console.warn('OCR extraction failed, continuing with manual entry:', error);
+    } finally {
+      setOcrLoading(false);
+      setStep('select-type');
+    }
+  };
 
   const submitBulletin = useMutation({
     mutationFn: async (data: {
@@ -115,7 +195,8 @@ export default function NouveauBulletin() {
       });
       if (photo?.uri) {
         setCapturedImage(photo.uri);
-        setStep('select-type');
+        setStep('extracting');
+        runOcrExtraction(photo.uri);
       }
     } catch (error) {
       Alert.alert('Erreur', 'Impossible de prendre la photo');
@@ -132,12 +213,19 @@ export default function NouveauBulletin() {
 
     if (!result.canceled && result.assets[0]) {
       setCapturedImage(result.assets[0].uri);
-      setStep('select-type');
+      setStep('extracting');
+      runOcrExtraction(result.assets[0].uri);
     }
   };
 
   const handleRetake = () => {
     setCapturedImage(null);
+    setOcrData(null);
+    setSelectedType(null);
+    setTotalAmount('');
+    setProviderName('');
+    setDescription('');
+    setBulletinDate(new Date().toISOString().split('T')[0]);
     setStep('capture');
   };
 
@@ -234,6 +322,37 @@ export default function NouveauBulletin() {
     );
   }
 
+  // Step 1.5: OCR extracting
+  if (step === 'extracting') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={handleRetake} style={styles.backButton}>
+            <Text style={styles.backText}>← Reprendre</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Analyse en cours</Text>
+        </View>
+
+        <View style={styles.extractingContainer}>
+          {capturedImage && (
+            <Image source={{ uri: capturedImage }} style={styles.extractingImage} />
+          )}
+          <ActivityIndicator size="large" color="#1e3a5f" style={{ marginTop: 24 }} />
+          <Text style={styles.extractingTitle}>Extraction des informations...</Text>
+          <Text style={styles.extractingSubtitle}>
+            Analyse du bulletin de soins en cours.{'\n'}Les champs seront pré-remplis automatiquement.
+          </Text>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => setStep('select-type')}
+          >
+            <Text style={styles.secondaryButtonText}>Passer et remplir manuellement</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   // Step 2: Select care type
   if (step === 'select-type') {
     return (
@@ -257,8 +376,18 @@ export default function NouveauBulletin() {
 
           <Text style={styles.stepTitle}>Type de soin</Text>
           <Text style={styles.stepDescription}>
-            Sélectionnez le type de soins pour ce bulletin
+            {ocrData && ocrData.confidence > 0
+              ? 'Type détecté automatiquement. Vous pouvez le modifier si nécessaire.'
+              : 'Sélectionnez le type de soins pour ce bulletin'}
           </Text>
+
+          {ocrData && ocrData.confidence > 0 && (
+            <View style={styles.ocrBadge}>
+              <Text style={styles.ocrBadgeText}>
+                Extraction auto ({Math.round(ocrData.confidence * 100)}% confiance)
+              </Text>
+            </View>
+          )}
 
           <View style={styles.typesGrid}>
             {CARE_TYPES.map((type) => (
@@ -313,6 +442,25 @@ export default function NouveauBulletin() {
               <Text style={styles.previewOverlayText}>Appuyez pour reprendre</Text>
             </View>
           </TouchableOpacity>
+        )}
+
+        {ocrData && ocrData.confidence > 0 && (
+          <View style={styles.ocrInfoCard}>
+            <Text style={styles.ocrInfoIcon}>🤖</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.ocrInfoTitle}>
+                Champs pré-remplis automatiquement
+              </Text>
+              <Text style={styles.ocrInfoText}>
+                Confiance: {Math.round(ocrData.confidence * 100)}% — Vérifiez et corrigez si nécessaire.
+              </Text>
+              {ocrData.warnings.length > 0 && (
+                <Text style={styles.ocrWarningText}>
+                  {ocrData.warnings[0]}
+                </Text>
+              )}
+            </View>
+          </View>
         )}
 
         <View style={styles.formCard}>
@@ -766,5 +914,75 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.6,
+  },
+  extractingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  extractingImage: {
+    width: 200,
+    height: 140,
+    borderRadius: 12,
+    resizeMode: 'cover',
+    opacity: 0.7,
+  },
+  extractingTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1e3a5f',
+    marginTop: 16,
+  },
+  extractingSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 32,
+    lineHeight: 20,
+  },
+  ocrBadge: {
+    backgroundColor: '#dbeafe',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginBottom: 16,
+    alignSelf: 'flex-start',
+  },
+  ocrBadgeText: {
+    fontSize: 12,
+    color: '#1e40af',
+    fontWeight: '500',
+  },
+  ocrInfoCard: {
+    flexDirection: 'row',
+    backgroundColor: '#f0fdf4',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    alignItems: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  ocrInfoIcon: {
+    fontSize: 20,
+    marginRight: 10,
+  },
+  ocrInfoTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#166534',
+    marginBottom: 2,
+  },
+  ocrInfoText: {
+    fontSize: 12,
+    color: '#15803d',
+  },
+  ocrWarningText: {
+    fontSize: 11,
+    color: '#b45309',
+    marginTop: 4,
+    fontStyle: 'italic',
   },
 });

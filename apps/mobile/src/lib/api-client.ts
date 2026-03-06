@@ -7,6 +7,9 @@ import type { ApiResponse, PaginatedResponse, ApiError as SharedApiError } from 
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://dhamen-api.yassine-techini.workers.dev/api/v1';
 const REQUEST_TIMEOUT_MS = 30000;
+let _accessToken: string | null = null;
+let _refreshToken: string | null = null;
+let _tenantCode: string | null = null;
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
@@ -65,6 +68,10 @@ class ApiClient {
     }
   }
 
+  setTenantCode(code: string | null): void {
+    _tenantCode = code;
+  }
+
   async setTokens(accessToken: string, refreshToken: string): Promise<void> {
     try {
       await SecureStore.setItemAsync('accessToken', accessToken);
@@ -116,6 +123,10 @@ class ApiClient {
 
       if (token) {
         (headers as Record<string, string>).Authorization = `Bearer ${token}`;
+      }
+
+      if (_tenantCode) {
+        (headers as Record<string, string>)['X-Tenant-Code'] = _tenantCode;
       }
 
       const response = await fetch(url, {
@@ -312,6 +323,10 @@ class ApiClient {
 
       if (token) {
         headers.Authorization = `Bearer ${token}`;
+      }
+
+      if (_tenantCode) {
+        (headers as Record<string, string>)['X-Tenant-Code'] = _tenantCode;
       }
 
       // Note: Don't set Content-Type for FormData, let fetch set it with boundary
