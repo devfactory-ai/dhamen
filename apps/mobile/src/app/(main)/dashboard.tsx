@@ -42,7 +42,7 @@ interface QuickActionProps {
   title: string;
   subtitle: string;
   onPress: () => void;
-  gradient?: string[];
+  gradient?: [string, string, ...string[]];
   delay?: number;
 }
 
@@ -567,7 +567,7 @@ const styles = StyleSheet.create({
   // Content
   content: {
     flex: 1,
-    marginTop: -spacing[4],
+    marginTop: spacing[4],
   },
   contentContainer: {
     paddingHorizontal: spacing[4],

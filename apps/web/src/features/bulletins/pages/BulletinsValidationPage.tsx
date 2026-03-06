@@ -505,19 +505,31 @@ export function BulletinsValidationPage() {
               <FileImage className="h-4 w-4" />
             </Button>
           )}
-          {row.status === 'processing' && (
-            <Button
-              size="sm"
-              variant="default"
-              className="bg-green-600 hover:bg-green-700"
-              onClick={() => {
-                setSelectedBulletin(row);
-                setReimbursedAmount(row.total_amount.toString());
-                setShowApproveDialog(true);
-              }}
-            >
-              <ThumbsUp className="h-4 w-4" />
-            </Button>
+          {['paper_complete', 'processing'].includes(row.status) && (
+            <>
+              <Button
+                size="sm"
+                variant="default"
+                className="bg-green-600 hover:bg-green-700"
+                onClick={() => {
+                  setSelectedBulletin(row);
+                  setReimbursedAmount(row.total_amount.toString());
+                  setShowApproveDialog(true);
+                }}
+              >
+                <ThumbsUp className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => {
+                  setSelectedBulletin(row);
+                  setShowRejectDialog(true);
+                }}
+              >
+                <ThumbsDown className="h-4 w-4" />
+              </Button>
+            </>
           )}
         </div>
       ),

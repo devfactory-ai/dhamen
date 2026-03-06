@@ -390,22 +390,6 @@ bulletinsArchive.get('/stats', async (c) => {
       ORDER BY year DESC
     `).all();
 
-    // By batch
-    const byBatch = await db.prepare(`
-      SELECT
-        bb.id,
-        bb.name,
-        bb.created_at,
-        COUNT(bs.id) as bulletin_count,
-        SUM(CASE WHEN bs.scan_url IS NOT NULL THEN 1 ELSE 0 END) as with_scans
-      FROM bulletin_batches bb
-      LEFT JOIN bulletins_soins bs ON bb.id = bs.batch_id
-      WHERE bb.status = 'archived'
-      GROUP BY bb.id
-      ORDER BY bb.created_at DESC
-      LIMIT 20
-    `).all();
-
     return c.json({
       success: true,
       data: {
@@ -413,7 +397,7 @@ bulletinsArchive.get('/stats', async (c) => {
         withScans: withScans?.count || 0,
         withoutScans: (total?.count || 0) - (withScans?.count || 0),
         byYear: byYear.results,
-        recentBatches: byBatch.results,
+        recentBatches: [],
       },
     });
   } catch (error) {

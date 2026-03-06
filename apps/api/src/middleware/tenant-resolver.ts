@@ -85,6 +85,31 @@ export const tenantResolverMiddleware: MiddlewareHandler<AppEnv> = async (c, nex
     }
   }
 
+  // Fallback: Try to resolve tenant from JWT insurerId
+  if (!subdomain) {
+    const authHeader = c.req.header('Authorization');
+    if (authHeader?.startsWith('Bearer ')) {
+      try {
+        // Decode JWT payload without verification (tenant resolver runs before auth)
+        const token = authHeader.slice(7);
+        const payloadB64 = token.split('.')[1];
+        if (payloadB64) {
+          const payload = JSON.parse(atob(payloadB64));
+          if (payload.insurerId) {
+            const insurer = await c.env.DB.prepare(
+              'SELECT code FROM insurers WHERE id = ?'
+            ).bind(payload.insurerId).first<{ code: string }>();
+            if (insurer?.code) {
+              subdomain = insurer.code.toLowerCase();
+            }
+          }
+        }
+      } catch {
+        // Ignore JWT decode errors, fall through to default DB
+      }
+    }
+  }
+
   // Platform/Admin context (no subdomain, or admin subdomain)
   if (!subdomain || subdomain === 'admin' || subdomain === 'api' || subdomain === 'app') {
     // Use legacy DB for backward compatibility during migration

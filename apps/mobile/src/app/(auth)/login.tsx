@@ -20,6 +20,7 @@ import {
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LocalAuthentication from 'expo-local-authentication';
+import * as SecureStore from 'expo-secure-store';
 import { apiClient } from '@/lib/api-client';
 import { setTokens, setUser, getStoredCredentials, storeCredentials } from '@/lib/auth';
 import { colors, typography, spacing, borderRadius, shadows } from '@/theme';
@@ -30,6 +31,7 @@ interface LoginResponse {
   mfaToken?: string;
   tokens?: AuthTokens;
   user?: UserPublic;
+  tenantCode?: string | null;
 }
 
 export default function LoginScreen() {
@@ -156,6 +158,18 @@ export default function LoginScreen() {
         } else if (response.data.tokens && response.data.user) {
           await setTokens(response.data.tokens);
           await setUser(response.data.user);
+
+          // Sync tokens to API client memory cache
+          await apiClient.setTokens(
+            response.data.tokens.accessToken,
+            response.data.tokens.refreshToken,
+          );
+
+          // Set tenant code for multi-tenant API routing
+          if (response.data.tenantCode) {
+            apiClient.setTenantCode(response.data.tenantCode);
+            await SecureStore.setItemAsync('tenantCode', response.data.tenantCode);
+          }
 
           // Store credentials for biometric login
           if (hasBiometrics) {

@@ -3,6 +3,7 @@ import { authMiddleware } from '../middleware/auth';
 import { generateId } from '../lib/ulid';
 import type { Bindings, Variables } from '../types';
 import { getDb } from '../lib/db';
+import { extractBulletinData } from '../agents/ocr/ocr.agent';
 
 const bulletinsSoins = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -89,7 +90,7 @@ bulletinsSoins.get('/me', async (c) => {
 
 /**
  * GET /bulletins-soins/me/stats - Get bulletin statistics
- * Must be registered BEFORE /me/:id to avoid route conflict
+ * Must be defined BEFORE /me/:id to avoid being caught by the dynamic param
  */
 bulletinsSoins.get('/me/stats', async (c) => {
   const user = c.get('user');
@@ -104,8 +105,8 @@ bulletinsSoins.get('/me/stats', async (c) => {
 
   // Get adherent ID
   const adherent = await db.prepare(`
-    SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL
-  `).bind(user.email).first<{ id: string }>();
+    SELECT id FROM adherents WHERE user_id = ?
+  `).bind(user.id).first<{ id: string }>();
 
   if (!adherent) {
     return c.json({
@@ -472,6 +473,89 @@ bulletinsSoins.get('/blank-pdf', async (c) => {
 });
 
 /**
+ * POST /bulletins-soins/ocr-extract - Extract bulletin info from scanned image
+ * Used by mobile app after camera capture
+ */
+bulletinsSoins.post('/ocr-extract', async (c) => {
+  const user = c.get('user');
+
+  if (user.role !== 'ADHERENT') {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Accès réservé aux adhérents' },
+    }, 403);
+  }
+
+  try {
+    const formData = await c.req.formData();
+    const imageFile = formData.get('image') as File | null;
+
+    if (!imageFile || imageFile.size === 0) {
+      return c.json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Image requise' },
+      }, 400);
+    }
+
+    const imageBuffer = await imageFile.arrayBuffer();
+
+    let extractedData;
+    try {
+      extractedData = await extractBulletinData(c, imageBuffer);
+    } catch (err) {
+      console.warn('OCR agent error, using fallback:', err);
+      extractedData = null;
+    }
+
+    // If AI extraction returned nothing useful (no AI in dev or failed), provide demo data
+    const hasUsefulData = extractedData &&
+      extractedData.confidence > 0 &&
+      (extractedData.dateSoin || extractedData.montantTotal > 0 || extractedData.praticien?.nom);
+
+    if (!hasUsefulData && c.env.ENVIRONMENT !== 'production') {
+      return c.json({
+        success: true,
+        data: {
+          dateSoin: new Date().toISOString().split('T')[0],
+          typeSoin: 'consultation',
+          montantTotal: 85000,
+          praticienNom: 'Dr. Karim Mansouri',
+          praticienSpecialite: 'Médecine Générale',
+          description: 'Consultation médicale',
+          adherentNom: null,
+          adherentMatricule: null,
+          confidence: 0.65,
+          warnings: ['Extraction simulée (mode développement)'],
+        },
+      });
+    }
+
+    const data = extractedData!;
+    return c.json({
+      success: true,
+      data: {
+        dateSoin: data.dateSoin || null,
+        typeSoin: data.typeSoin || null,
+        montantTotal: data.montantTotal || 0,
+        praticienNom: data.praticien?.nom || null,
+        praticienSpecialite: data.praticien?.specialite || null,
+        description: data.lignes.map(l => l.libelle).filter(Boolean).join(', ') || null,
+        adherentNom: data.adherentNom || null,
+        adherentMatricule: data.adherentMatricule || null,
+        confidence: data.confidence,
+        warnings: data.warnings,
+      },
+    });
+  } catch (error) {
+    console.error('OCR extraction error:', error);
+    return c.json({
+      success: false,
+      error: { code: 'OCR_ERROR', message: 'Erreur lors de l\'extraction' },
+    }, 500);
+  }
+});
+
+/**
  * POST /bulletins-soins/submit - Submit bulletin with file upload (FormData)
  * Used by adherent portal
  */
@@ -835,7 +919,7 @@ bulletinsSoins.get('/manage/stats', async (c) => {
       SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected,
       COALESCE(SUM(total_amount), 0) as total_amount,
       COALESCE(SUM(reimbursed_amount), 0) as total_reimbursed,
-      COALESCE(SUM(CASE WHEN status IN ('approved', 'pending_payment') THEN COALESCE(approved_amount, total_amount) ELSE 0 END), 0) as awaiting_payment_amount,
+      COALESCE(SUM(CASE WHEN status IN ('approved', 'pending_payment') THEN total_amount ELSE 0 END), 0) as awaiting_payment_amount,
       COALESCE(SUM(CASE WHEN status NOT IN ('reimbursed', 'rejected') THEN total_amount ELSE 0 END), 0) as pending_amount
     FROM bulletins_soins
   `).first();
@@ -1002,7 +1086,7 @@ bulletinsSoins.put('/manage/:id/status', async (c) => {
 
   // Log the action
   await db.prepare(`
-    INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, ip_address, created_at)
+    INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
     VALUES (?, ?, ?, 'bulletins_soins', ?, ?, ?, datetime('now'))
   `).bind(
     generateId(),
@@ -1040,7 +1124,8 @@ bulletinsSoins.post('/manage/:id/approve', async (c) => {
   }
 
   const body = await c.req.json();
-  const { approved_amount, notes } = body;
+  const approved_amount = body.approved_amount || body.reimbursed_amount;
+  const notes = body.notes;
 
   if (!approved_amount || approved_amount <= 0) {
     return c.json({
@@ -1067,16 +1152,13 @@ bulletinsSoins.post('/manage/:id/approve', async (c) => {
     SET status = 'approved',
         approved_amount = ?,
         approved_date = ?,
-        approved_by = ?,
-        validated_by = ?,
-        agent_notes = ?,
         updated_at = ?
     WHERE id = ?
-  `).bind(approved_amount, now, user.id, user.id, notes || null, now, bulletinId).run();
+  `).bind(approved_amount, now, now, bulletinId).run();
 
   // Audit log
   await db.prepare(`
-    INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, ip_address, created_at)
+    INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
     VALUES (?, ?, 'bulletin_approved', 'bulletins_soins', ?, ?, ?, datetime('now'))
   `).bind(
     generateId(),
@@ -1139,14 +1221,13 @@ bulletinsSoins.post('/manage/:id/reject', async (c) => {
     UPDATE bulletins_soins
     SET status = 'rejected',
         rejection_reason = ?,
-        validated_by = ?,
         updated_at = ?
     WHERE id = ?
-  `).bind(reason, user.id, now, bulletinId).run();
+  `).bind(reason, now, bulletinId).run();
 
   // Audit log
   await db.prepare(`
-    INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, ip_address, created_at)
+    INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
     VALUES (?, ?, 'bulletin_rejected', 'bulletins_soins', ?, ?, ?, datetime('now'))
   `).bind(
     generateId(),
@@ -1320,7 +1401,7 @@ bulletinsSoins.post('/payments/process', async (c) => {
 
   // Audit log
   await db.prepare(`
-    INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, ip_address, created_at)
+    INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
     VALUES (?, ?, 'bulletin_payment_processed', 'bulletins_soins', ?, ?, ?, datetime('now'))
   `).bind(
     generateId(),
@@ -1409,7 +1490,7 @@ bulletinsSoins.post('/payments/batch', async (c) => {
 
       // Audit log for each payment
       await db.prepare(`
-        INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, ip_address, created_at)
+        INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
         VALUES (?, ?, 'bulletin_payment_batch', 'bulletins_soins', ?, ?, ?, datetime('now'))
       `).bind(
         generateId(),

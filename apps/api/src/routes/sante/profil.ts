@@ -84,9 +84,10 @@ profil.get('/', requireRole('ADHERENT'), async (c) => {
 
   // Get adherent info with sante extension
   const adherent = await getDb(c).prepare(`
-    SELECT a.id, COALESCE(sa.matricule, a.id) as matricule, a.date_of_birth, a.is_active, sa.formule_id
+    SELECT a.id, COALESCE(a.matricule, a.id) as matricule, a.date_of_birth,
+           CASE WHEN a.deleted_at IS NULL THEN 1 ELSE 0 END as is_active,
+           a.formule_id
     FROM adherents a
-    LEFT JOIN sante_adherents sa ON a.id = sa.adherent_id
     WHERE a.id = ? AND a.deleted_at IS NULL
   `)
     .bind(adherentId)
@@ -202,9 +203,8 @@ profil.get('/guarantees', requireRole('ADHERENT'), async (c) => {
 
   // Get adherent with formule
   const adherent = await getDb(c).prepare(`
-    SELECT a.id, sa.formule_id
+    SELECT a.id, a.formule_id
     FROM adherents a
-    LEFT JOIN sante_adherents sa ON a.id = sa.adherent_id
     WHERE a.id = ? AND a.deleted_at IS NULL
   `)
     .bind(adherentId)
@@ -221,7 +221,7 @@ profil.get('/guarantees', requireRole('ADHERENT'), async (c) => {
   // Get formule details
   const formule = await getDb(c).prepare(`
     SELECT id, code, nom, description, taux_couverture_json, plafond_global,
-           date_effet, date_fin
+           effective_from as date_effet, effective_to as date_fin
     FROM sante_garanties_formules
     WHERE id = ? AND is_active = 1
   `)
@@ -260,34 +260,6 @@ profil.get('/guarantees', requireRole('ADHERENT'), async (c) => {
 
   const consommeMap = new Map(plafondsConsommes.map(p => [p.type_soin, p]));
 
-  // Get actes for the formule (if configured)
-  const { results: actes } = await getDb(c).prepare(`
-    SELECT code_acte, libelle_acte, type_soin, taux_couverture,
-           plafond_acte, franchise_acte, delai_carence, is_active
-    FROM sante_actes
-    WHERE formule_id = ?
-  `)
-    .bind(formule.id)
-    .all<{
-      code_acte: string;
-      libelle_acte: string;
-      type_soin: string;
-      taux_couverture: number;
-      plafond_acte: number | null;
-      franchise_acte: number;
-      delai_carence: number;
-      is_active: number;
-    }>();
-
-  // Group actes by type_soin
-  const actesMap = new Map<string, typeof actes>();
-  for (const acte of actes) {
-    if (!actesMap.has(acte.type_soin)) {
-      actesMap.set(acte.type_soin, []);
-    }
-    actesMap.get(acte.type_soin)?.push(acte);
-  }
-
   // Build garanties
   const typeLabels: Record<string, string> = {
     consultation: 'Consultation',
@@ -308,8 +280,6 @@ profil.get('/guarantees', requireRole('ADHERENT'), async (c) => {
     const montantRestant = Math.max(0, montantPlafond - montantConsomme);
     const pourcentageUtilise = montantPlafond > 0 ? (montantConsomme / montantPlafond) * 100 : 0;
 
-    const actesTypeSoin = actesMap.get(typeSoin) || [];
-
     return {
       typeSoin,
       libelle: typeLabels[typeSoin] || typeSoin,
@@ -318,15 +288,6 @@ profil.get('/guarantees', requireRole('ADHERENT'), async (c) => {
       montantConsomme,
       montantRestant,
       pourcentageUtilise,
-      actes: actesTypeSoin.map(a => ({
-        codeActe: a.code_acte,
-        libelleActe: a.libelle_acte,
-        tauxCouverture: a.taux_couverture,
-        plafondActe: a.plafond_acte,
-        franchiseActe: a.franchise_acte,
-        delaiCarence: a.delai_carence,
-        estActif: a.is_active === 1,
-      })),
     };
   });
 
@@ -387,15 +348,15 @@ profil.get('/reimbursements', requireRole('ADHERENT'), async (c) => {
   const { results: paiements } = await getDb(c).prepare(`
     SELECT
       p.id,
-      p.numero_paiement,
+      p.reference_paiement as numero_paiement,
       p.demande_id,
       d.numero_demande,
       p.montant as montant_rembourse,
-      d.montant_approuve as montant_demande,
+      d.montant_rembourse as montant_demande,
       ROUND((p.montant * 100.0 / NULLIF(d.montant_demande, 0)), 1) as taux_remboursement,
-      p.date_paiement as date_remboursement,
-      p.mode_paiement as methode_paiement,
-      p.reference_virement,
+      p.date_execution as date_remboursement,
+      p.methode as methode_paiement,
+      p.reference_paiement as reference_virement,
       p.statut,
       d.type_soin,
       pr.nom as praticien_nom,
@@ -404,7 +365,7 @@ profil.get('/reimbursements', requireRole('ADHERENT'), async (c) => {
     JOIN sante_demandes d ON p.demande_id = d.id
     LEFT JOIN sante_praticiens pr ON d.praticien_id = pr.id
     WHERE d.adherent_id = ?
-    ORDER BY p.date_paiement DESC
+    ORDER BY p.date_execution DESC
     LIMIT ? OFFSET ?
   `)
     .bind(adherentId, limit, offset)
@@ -416,7 +377,7 @@ profil.get('/reimbursements', requireRole('ADHERENT'), async (c) => {
       SUM(p.montant) as total_rembourse,
       COUNT(*) as nombre_remboursements,
       AVG(p.montant * 100.0 / NULLIF(d.montant_demande, 0)) as moyenne_taux,
-      MAX(p.date_paiement) as dernier_remboursement
+      MAX(p.date_execution) as dernier_remboursement
     FROM sante_paiements p
     JOIN sante_demandes d ON p.demande_id = d.id
     WHERE d.adherent_id = ?

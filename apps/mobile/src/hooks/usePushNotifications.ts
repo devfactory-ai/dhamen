@@ -64,6 +64,10 @@ async function getPushToken(): Promise<string | null> {
     }
 
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    if (!projectId || projectId === 'dhamen-local-dev') {
+      console.warn('Push notifications: No valid EAS projectId configured, skipping token registration');
+      return null;
+    }
     const tokenData = await Notifications.getExpoPushTokenAsync({
       projectId,
     });
