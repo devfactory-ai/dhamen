@@ -2,7 +2,7 @@
 -- Description: Modify the role CHECK constraint to include ADHERENT role for mobile app users
 
 -- SQLite requires table recreation to modify CHECK constraints
--- Step 1: Create new table with updated constraint (includes company_id for HR users)
+-- Step 1: Create new table with updated constraint (includes company_id for future HR users)
 CREATE TABLE IF NOT EXISTS users_new (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users_new (
   )),
   provider_id TEXT REFERENCES providers(id),
   insurer_id TEXT REFERENCES insurers(id),
+  company_id TEXT,
   company_id TEXT,
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
