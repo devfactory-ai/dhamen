@@ -1,7 +1,7 @@
 ---
 id: TASK-001
 title: Add 'brouillon' status to sante demandes
-status: pending
+status: done
 priority: must
 requires: []
 ref: ADR-005, ADR-009

@@ -366,6 +366,7 @@ export async function createSanteDemande(
 ): Promise<SanteDemande> {
   const now = new Date().toISOString();
   const numeroDemande = generateNumeroDemande();
+  const statut = data.statut ?? 'soumise';
 
   await db
     .prepare(
@@ -373,7 +374,7 @@ export async function createSanteDemande(
         id, numero_demande, adherent_id, praticien_id, formule_id, source,
         type_soin, statut, montant_demande, est_tiers_payant, montant_praticien,
         date_soin, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'soumise', ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       id,
@@ -383,6 +384,7 @@ export async function createSanteDemande(
       data.formuleId ?? null,
       data.source ?? 'adherent',
       data.typeSoin,
+      statut,
       data.montantDemande,
       data.estTiersPayant ? 1 : 0,
       data.montantPraticien ?? null,
@@ -445,6 +447,61 @@ export async function updateSanteDemandeStatut(
   if (['en_examen', 'approuvee', 'rejetee'].includes(statut) && !existing.dateTraitement) {
     updates.push('date_traitement = ?');
     params.push(now);
+  }
+
+  params.push(id);
+
+  await db
+    .prepare(`UPDATE sante_demandes SET ${updates.join(', ')} WHERE id = ?`)
+    .bind(...params)
+    .run();
+
+  return findSanteDemandeById(db, id);
+}
+
+/**
+ * Finalize a brouillon demande: update fields and set statut to 'soumise'
+ */
+export async function updateSanteDemandeBrouillon(
+  db: D1Database,
+  id: string,
+  data: {
+    montantDemande: number;
+    dateSoin: string;
+    typeSoin?: SanteTypeSoin;
+    praticienId?: string;
+    notes?: string;
+  }
+): Promise<SanteDemande | null> {
+  const existing = await findSanteDemandeById(db, id);
+  if (!existing) {
+    return null;
+  }
+
+  if (existing.statut !== 'brouillon') {
+    throw new Error('DEMANDE_NOT_BROUILLON');
+  }
+
+  const now = new Date().toISOString();
+  const updates: string[] = [
+    'statut = ?',
+    'montant_demande = ?',
+    'date_soin = ?',
+    'updated_at = ?',
+  ];
+  const params: unknown[] = ['soumise', data.montantDemande, data.dateSoin, now];
+
+  if (data.typeSoin !== undefined) {
+    updates.push('type_soin = ?');
+    params.push(data.typeSoin);
+  }
+  if (data.praticienId !== undefined) {
+    updates.push('praticien_id = ?');
+    params.push(data.praticienId);
+  }
+  if (data.notes !== undefined) {
+    updates.push('notes_internes = ?');
+    params.push(data.notes);
   }
 
   params.push(id);

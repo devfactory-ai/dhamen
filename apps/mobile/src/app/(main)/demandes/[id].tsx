@@ -17,6 +17,7 @@ import { apiClient } from '@/lib/api-client';
 import type { SanteDemandeAvecDetails, SanteStatutDemande, SanteTypeSoin, SanteDocument } from '@dhamen/shared';
 
 const STATUT_LABELS: Record<SanteStatutDemande, string> = {
+  brouillon: 'Brouillon',
   soumise: 'Soumise',
   en_examen: 'En examen',
   info_requise: 'Info requise',
@@ -27,6 +28,7 @@ const STATUT_LABELS: Record<SanteStatutDemande, string> = {
 };
 
 const STATUT_COLORS: Record<SanteStatutDemande, string> = {
+  brouillon: '#adb5bd',
   soumise: '#6c757d',
   en_examen: '#ffc107',
   info_requise: '#fd7e14',
@@ -48,6 +50,7 @@ const TYPE_LABELS: Record<SanteTypeSoin, string> = {
 };
 
 const STATUT_DESCRIPTIONS: Record<SanteStatutDemande, string> = {
+  brouillon: 'Votre demande est en cours de préparation.',
   soumise: 'Votre demande a été soumise et sera traitée prochainement.',
   en_examen: 'Votre demande est en cours d\'examen par nos équipes.',
   info_requise: 'Des informations complémentaires sont nécessaires pour traiter votre demande.',

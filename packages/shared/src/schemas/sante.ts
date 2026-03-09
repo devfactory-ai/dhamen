@@ -90,8 +90,18 @@ export const santePraticienFiltersSchema = z.object({
 export const santeDemandeCreateSchema = z.object({
   adherentId: z.string().min(1),
   typeSoin: santeTypeSoinSchema,
+  montantDemande: z.number().min(0, 'Le montant ne peut pas être négatif'),
+  dateSoin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide (YYYY-MM-DD)'),
+  praticienId: z.string().optional(),
+  notes: z.string().max(1000).optional(),
+  statut: z.enum(['brouillon', 'soumise']).optional().default('soumise'),
+});
+
+export const santeDemandeSubmitSchema = z.object({
+  statut: z.literal('soumise'),
   montantDemande: z.number().min(1, 'Le montant doit être supérieur à 0'),
   dateSoin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide (YYYY-MM-DD)'),
+  typeSoin: santeTypeSoinSchema.optional(),
   praticienId: z.string().optional(),
   notes: z.string().max(1000).optional(),
 });
@@ -255,7 +265,8 @@ export type SanteGarantieFormuleUpdate = z.infer<typeof santeGarantieFormuleUpda
 export type SantePraticienCreate = z.infer<typeof santePraticienCreateSchema>;
 export type SantePraticienUpdate = z.infer<typeof santePraticienUpdateSchema>;
 export type SantePraticienFilters = z.infer<typeof santePraticienFiltersSchema>;
-export type SanteDemandeCreate = z.infer<typeof santeDemandeCreateSchema>;
+export type SanteDemandeCreate = z.input<typeof santeDemandeCreateSchema>;
+export type SanteDemandeSubmit = z.infer<typeof santeDemandeSubmitSchema>;
 export type SanteDemandeUpdateStatut = z.infer<typeof santeDemandeUpdateStatutSchema>;
 export type SanteDemandeFilters = z.infer<typeof santeDemandeFiltersSchema>;
 export type SanteDocumentUpload = z.infer<typeof santeDocumentUploadSchema>;

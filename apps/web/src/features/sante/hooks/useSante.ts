@@ -163,23 +163,25 @@ export const SANTE_TYPE_SOINS_LABELS: Record<SanteTypeSoin, string> = {
 };
 
 export const SANTE_STATUTS_LABELS: Record<SanteStatutDemande, string> = {
+  brouillon: 'Brouillon',
   soumise: 'Soumise',
   en_examen: 'En examen',
   info_requise: 'Info requise',
   approuvee: 'Approuvée',
   en_paiement: 'En paiement',
   payee: 'Payée',
-  rejetée: 'Rejetée',
+  rejetee: 'Rejetée',
 };
 
 export const SANTE_STATUTS_COLORS: Record<SanteStatutDemande, string> = {
+  brouillon: 'bg-gray-100 text-gray-600',
   soumise: 'bg-blue-100 text-blue-800',
   en_examen: 'bg-yellow-100 text-yellow-800',
   info_requise: 'bg-orange-100 text-orange-800',
   approuvee: 'bg-green-100 text-green-800',
   en_paiement: 'bg-purple-100 text-purple-800',
   payee: 'bg-emerald-100 text-emerald-800',
-  rejetée: 'bg-red-100 text-red-800',
+  rejetee: 'bg-red-100 text-red-800',
 };
 
 export type { SanteDemande, SanteDemandeAvecDetails, DemandesFilters };

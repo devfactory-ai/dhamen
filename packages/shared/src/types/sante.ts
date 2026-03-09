@@ -20,6 +20,7 @@ export const SANTE_TYPE_SOINS = [
 export type SanteTypeSoin = (typeof SANTE_TYPE_SOINS)[number];
 
 export const SANTE_STATUTS_DEMANDE = [
+  'brouillon',
   'soumise',
   'en_examen',
   'info_requise',

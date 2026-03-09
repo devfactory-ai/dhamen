@@ -18,6 +18,7 @@ import { apiClient } from '@/lib/api-client';
 import type { SanteDemande, SanteStatutDemande, SanteTypeSoin } from '@dhamen/shared';
 
 const STATUT_LABELS: Record<SanteStatutDemande, string> = {
+  brouillon: 'Brouillon',
   soumise: 'Soumise',
   en_examen: 'En examen',
   info_requise: 'Info requise',
@@ -28,6 +29,7 @@ const STATUT_LABELS: Record<SanteStatutDemande, string> = {
 };
 
 const STATUT_COLORS: Record<SanteStatutDemande, string> = {
+  brouillon: '#adb5bd',
   soumise: '#6c757d',
   en_examen: '#ffc107',
   info_requise: '#fd7e14',
