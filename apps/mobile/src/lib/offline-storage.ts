@@ -4,7 +4,7 @@
  * Provides caching and offline queue functionality for SoinFlow mobile app.
  * Uses AsyncStorage for persistence.
  */
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 
 // Storage keys
 const KEYS = {
@@ -57,7 +57,7 @@ export const cache = {
         ? new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString()
         : undefined,
     };
-    await AsyncStorage.setItem(key, JSON.stringify(cached));
+    await SecureStore.setItemAsync(key, JSON.stringify(cached));
   },
 
   /**
@@ -65,14 +65,14 @@ export const cache = {
    */
   async get<T>(key: string): Promise<T | null> {
     try {
-      const value = await AsyncStorage.getItem(key);
+      const value = await SecureStore.getItemAsync(key);
       if (!value) return null;
 
       const cached: CachedData<T> = JSON.parse(value);
 
       // Check expiration
       if (cached.expiresAt && new Date(cached.expiresAt) < new Date()) {
-        await AsyncStorage.removeItem(key);
+        await SecureStore.deleteItemAsync(key);
         return null;
       }
 
@@ -86,7 +86,7 @@ export const cache = {
    * Remove cached item
    */
   async remove(key: string): Promise<void> {
-    await AsyncStorage.removeItem(key);
+    await SecureStore.deleteItemAsync(key);
   },
 
   /**
@@ -94,7 +94,7 @@ export const cache = {
    */
   async clear(): Promise<void> {
     const keys = Object.values(KEYS);
-    await AsyncStorage.multiRemove(keys);
+    await Promise.all(keys.map((k) => SecureStore.deleteItemAsync(k)));
   },
 };
 
@@ -166,7 +166,7 @@ export const syncQueue = {
       retryCount: 0,
     };
     queue.push(action);
-    await AsyncStorage.setItem(KEYS.SYNC_QUEUE, JSON.stringify(queue));
+    await SecureStore.setItemAsync(KEYS.SYNC_QUEUE, JSON.stringify(queue));
     return action.id;
   },
 
@@ -175,7 +175,7 @@ export const syncQueue = {
    */
   async getAll(): Promise<QueueAction[]> {
     try {
-      const value = await AsyncStorage.getItem(KEYS.SYNC_QUEUE);
+      const value = await SecureStore.getItemAsync(KEYS.SYNC_QUEUE);
       return value ? JSON.parse(value) : [];
     } catch {
       return [];
@@ -188,7 +188,7 @@ export const syncQueue = {
   async remove(actionId: string): Promise<void> {
     const queue = await this.getAll();
     const filtered = queue.filter((a) => a.id !== actionId);
-    await AsyncStorage.setItem(KEYS.SYNC_QUEUE, JSON.stringify(filtered));
+    await SecureStore.setItemAsync(KEYS.SYNC_QUEUE, JSON.stringify(filtered));
   },
 
   /**
@@ -199,7 +199,7 @@ export const syncQueue = {
     const action = queue.find((a) => a.id === actionId);
     if (action) {
       action.retryCount += 1;
-      await AsyncStorage.setItem(KEYS.SYNC_QUEUE, JSON.stringify(queue));
+      await SecureStore.setItemAsync(KEYS.SYNC_QUEUE, JSON.stringify(queue));
     }
   },
 
@@ -215,7 +215,7 @@ export const syncQueue = {
    * Clear all queued actions
    */
   async clear(): Promise<void> {
-    await AsyncStorage.removeItem(KEYS.SYNC_QUEUE);
+    await SecureStore.deleteItemAsync(KEYS.SYNC_QUEUE);
   },
 };
 
@@ -225,7 +225,7 @@ export const syncQueue = {
 export const lastSync = {
   async get(): Promise<Date | null> {
     try {
-      const value = await AsyncStorage.getItem(KEYS.LAST_SYNC);
+      const value = await SecureStore.getItemAsync(KEYS.LAST_SYNC);
       return value ? new Date(value) : null;
     } catch {
       return null;
@@ -233,7 +233,7 @@ export const lastSync = {
   },
 
   async set(): Promise<void> {
-    await AsyncStorage.setItem(KEYS.LAST_SYNC, new Date().toISOString());
+    await SecureStore.setItemAsync(KEYS.LAST_SYNC, new Date().toISOString());
   },
 };
 

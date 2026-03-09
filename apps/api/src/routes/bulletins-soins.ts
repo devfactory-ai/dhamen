@@ -10,6 +10,21 @@ const bulletinsSoins = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 // All routes require authentication
 bulletinsSoins.use('*', authMiddleware());
 
+const R2_URL_PREFIX = 'https://dhamen-files.r2.cloudflarestorage.com/';
+
+/** Extract R2 key from full URL or return as-is if already a key */
+function extractR2Key(scanUrl: string): string {
+  if (scanUrl.startsWith(R2_URL_PREFIX)) {
+    return scanUrl.slice(R2_URL_PREFIX.length);
+  }
+  if (scanUrl.startsWith('https://')) {
+    // Other URL format — extract path after host
+    const url = new URL(scanUrl);
+    return url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
+  }
+  return scanUrl; // Already a key
+}
+
 /**
  * GET /bulletins-soins/me - Get current adherent's bulletins
  */
@@ -103,10 +118,10 @@ bulletinsSoins.get('/me/stats', async (c) => {
     }, 403);
   }
 
-  // Get adherent ID
+  // Get adherent ID (same query as /me list endpoint)
   const adherent = await db.prepare(`
-    SELECT id FROM adherents WHERE user_id = ?
-  `).bind(user.id).first<{ id: string }>();
+    SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL
+  `).bind(user.email).first<{ id: string }>();
 
   if (!adherent) {
     return c.json({
@@ -134,6 +149,59 @@ bulletinsSoins.get('/me/stats', async (c) => {
     success: true,
     data: stats,
   });
+});
+
+/**
+ * GET /bulletins-soins/me/:id/scan - Download scan file for a bulletin (adherent)
+ * IMPORTANT: Must be defined BEFORE /me/:id to avoid being caught by the dynamic param
+ */
+bulletinsSoins.get('/me/:id/scan', async (c) => {
+  const user = c.get('user');
+
+  if (user.role !== 'ADHERENT') {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux adherents' },
+    }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = getDb(c);
+  const storage = c.env.STORAGE;
+
+  // Verify ownership
+  const adherent = await db.prepare(`
+    SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL
+  `).bind(user.email).first<{ id: string }>();
+
+  if (!adherent) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Adherent non trouve' } }, 404);
+  }
+
+  const bulletin = await db.prepare(`
+    SELECT scan_url FROM bulletins_soins WHERE id = ? AND adherent_id = ?
+  `).bind(bulletinId, adherent.id).first<{ scan_url: string | null }>();
+
+  if (!bulletin?.scan_url) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Scan non trouve' } }, 404);
+  }
+
+  try {
+    const r2Key = extractR2Key(bulletin.scan_url);
+    const object = await storage.get(r2Key);
+    if (!object) {
+      return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Fichier non trouve' } }, 404);
+    }
+
+    const headers = new Headers();
+    object.writeHttpMetadata(headers);
+    headers.set('etag', object.httpEtag);
+
+    return new Response(object.body, { headers });
+  } catch (error) {
+    console.error('Error getting scan:', error);
+    return c.json({ success: false, error: { code: 'STORAGE_ERROR', message: 'Erreur chargement' } }, 500);
+  }
 });
 
 /**
@@ -507,25 +575,25 @@ bulletinsSoins.post('/ocr-extract', async (c) => {
       extractedData = null;
     }
 
-    // If AI extraction returned nothing useful (no AI in dev or failed), provide demo data
+    // If AI extraction returned nothing useful, return empty result for manual entry
     const hasUsefulData = extractedData &&
       extractedData.confidence > 0 &&
       (extractedData.dateSoin || extractedData.montantTotal > 0 || extractedData.praticien?.nom);
 
-    if (!hasUsefulData && c.env.ENVIRONMENT !== 'production') {
+    if (!hasUsefulData) {
       return c.json({
         success: true,
         data: {
-          dateSoin: new Date().toISOString().split('T')[0],
-          typeSoin: 'consultation',
-          montantTotal: 85000,
-          praticienNom: 'Dr. Karim Mansouri',
-          praticienSpecialite: 'Médecine Générale',
-          description: 'Consultation médicale',
+          dateSoin: null,
+          typeSoin: null,
+          montantTotal: 0,
+          praticienNom: null,
+          praticienSpecialite: null,
+          description: null,
           adherentNom: null,
           adherentMatricule: null,
-          confidence: 0.65,
-          warnings: ['Extraction simulée (mode développement)'],
+          confidence: 0,
+          warnings: ['Extraction automatique non disponible. Veuillez remplir les champs manuellement.'],
         },
       });
     }
@@ -928,6 +996,59 @@ bulletinsSoins.get('/manage/stats', async (c) => {
     success: true,
     data: stats,
   });
+});
+
+/**
+ * GET /bulletins-soins/manage/:id/scan - Download scan file for a bulletin (insurer agents)
+ * IMPORTANT: Must be defined BEFORE /manage/:id to avoid being caught by the dynamic param
+ */
+bulletinsSoins.get('/manage/:id/scan', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_AGENT', 'INSURER_ADMIN', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' },
+    }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = getDb(c);
+  const storage = c.env.STORAGE;
+
+  try {
+    const bulletin = await db.prepare(`
+      SELECT scan_url FROM bulletins_soins WHERE id = ?
+    `).bind(bulletinId).first<{ scan_url: string | null }>();
+
+    if (!bulletin?.scan_url) {
+      return c.json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Scan non trouve' },
+      }, 404);
+    }
+
+    const r2Key = extractR2Key(bulletin.scan_url);
+    const object = await storage.get(r2Key);
+    if (!object) {
+      return c.json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Fichier non trouve dans le stockage' },
+      }, 404);
+    }
+
+    const headers = new Headers();
+    object.writeHttpMetadata(headers);
+    headers.set('etag', object.httpEtag);
+
+    return new Response(object.body, { headers });
+  } catch (error) {
+    console.error('Error getting scan:', error);
+    return c.json({
+      success: false,
+      error: { code: 'STORAGE_ERROR', message: 'Erreur lors du chargement du scan' },
+    }, 500);
+  }
 });
 
 /**

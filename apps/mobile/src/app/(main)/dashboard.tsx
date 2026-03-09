@@ -1,6 +1,6 @@
 /**
  * Dashboard Screen for Dhamen Mobile
- * Enhanced UX with better visual hierarchy and animations
+ * Modern UI with clean visual hierarchy and smooth animations
  */
 import { useEffect, useState, useRef } from 'react';
 import {
@@ -22,10 +22,12 @@ import { getUser, clearAuth } from '@/lib/auth';
 import { useOfflineSync } from '@/hooks/useOfflineSync';
 import { usePushNotifications, getUnreadCount, setBadgeCount } from '@/hooks/usePushNotifications';
 import { DashboardSkeleton } from '@/components';
-import { colors, typography, spacing, borderRadius, shadows } from '@/theme';
+import { colors, typography, spacing, shadows } from '@/theme';
 import type { UserPublic, SanteDemande } from '@dhamen/shared';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const CARD_GAP = 10;
+const ACTION_SIZE = (SCREEN_WIDTH - spacing[4] * 2 - CARD_GAP * 2) / 3;
 
 interface BulletinStats {
   total: number;
@@ -40,15 +42,14 @@ interface BulletinStats {
 interface QuickActionProps {
   icon: string;
   title: string;
-  subtitle: string;
   onPress: () => void;
-  gradient?: [string, string, ...string[]];
+  accentColor: string;
   delay?: number;
 }
 
-function QuickAction({ icon, title, subtitle, onPress, gradient, delay = 0 }: QuickActionProps) {
+function QuickAction({ icon, title, onPress, accentColor, delay = 0 }: QuickActionProps) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const scaleAnim = useRef(new Animated.Value(0.85)).current;
 
   useEffect(() => {
     Animated.parallel([
@@ -68,53 +69,35 @@ function QuickAction({ icon, title, subtitle, onPress, gradient, delay = 0 }: Qu
   }, [fadeAnim, scaleAnim, delay]);
 
   return (
-    <Animated.View style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }], flex: 1 }}>
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}>
       <TouchableOpacity
         style={styles.quickAction}
         onPress={onPress}
-        activeOpacity={0.8}
+        activeOpacity={0.7}
       >
-        {gradient ? (
-          <LinearGradient
-            colors={gradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.quickActionGradient}
-          >
-            <Text style={styles.quickActionIcon}>{icon}</Text>
-            <Text style={styles.quickActionTitleWhite}>{title}</Text>
-            <Text style={styles.quickActionSubtitleWhite}>{subtitle}</Text>
-          </LinearGradient>
-        ) : (
-          <View style={styles.quickActionInner}>
-            <View style={styles.quickActionIconContainer}>
-              <Text style={styles.quickActionIcon}>{icon}</Text>
-            </View>
-            <Text style={styles.quickActionTitle}>{title}</Text>
-            <Text style={styles.quickActionSubtitle}>{subtitle}</Text>
-          </View>
-        )}
+        <View style={[styles.quickActionIconWrap, { backgroundColor: `${accentColor}18` }]}>
+          <Text style={styles.quickActionIcon}>{icon}</Text>
+        </View>
+        <Text style={styles.quickActionTitle} numberOfLines={1}>{title}</Text>
       </TouchableOpacity>
     </Animated.View>
   );
 }
 
-// Stats card component
-interface StatCardProps {
+// Stat pill for bulletin stats
+interface StatPillProps {
   value: number | string;
   label: string;
-  color: string;
   icon: string;
+  color: string;
 }
 
-function StatCard({ value, label, color, icon }: StatCardProps) {
+function StatPill({ value, label, icon, color }: StatPillProps) {
   return (
-    <View style={styles.statCard}>
-      <View style={[styles.statIconContainer, { backgroundColor: `${color}15` }]}>
-        <Text style={styles.statIcon}>{icon}</Text>
-      </View>
-      <Text style={[styles.statValue, { color }]}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
+    <View style={styles.statPill}>
+      <Text style={styles.statPillIcon}>{icon}</Text>
+      <Text style={[styles.statPillValue, { color }]}>{value}</Text>
+      <Text style={styles.statPillLabel}>{label}</Text>
     </View>
   );
 }
@@ -137,7 +120,6 @@ export default function DashboardScreen() {
       setBadgeCount(count);
     });
 
-    // Animate entrance
     Animated.parallel([
       Animated.timing(headerOpacity, {
         toValue: 1,
@@ -223,7 +205,6 @@ export default function DashboardScreen() {
       {/* Offline Banner */}
       {!isOnline && (
         <View style={styles.offlineBanner}>
-          <Text style={styles.offlineBannerIcon}>📴</Text>
           <Text style={styles.offlineBannerText}>
             Mode hors ligne {pendingCount > 0 ? `(${pendingCount} en attente)` : ''}
           </Text>
@@ -240,12 +221,14 @@ export default function DashboardScreen() {
       {/* Header */}
       <Animated.View style={[styles.header, { opacity: headerOpacity }]}>
         <LinearGradient
-          colors={[colors.primary[500], colors.primary[600]]}
+          colors={[colors.primary[500], colors.primary[700] || colors.primary[600]]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={styles.headerGradient}
         >
           <View style={styles.headerContent}>
             <View style={styles.headerLeft}>
-              <Text style={styles.greeting}>Bonjour,</Text>
+              <Text style={styles.greeting}>Bonjour</Text>
               <Text style={styles.userName}>
                 {user?.firstName} {user?.lastName}
               </Text>
@@ -253,12 +236,12 @@ export default function DashboardScreen() {
             <View style={styles.headerRight}>
               <TouchableOpacity
                 onPress={() => router.push('/(main)/notifications')}
-                style={styles.notificationButton}
+                style={styles.headerBtn}
               >
-                <Text style={styles.notificationIcon}>🔔</Text>
+                <Text style={styles.headerBtnIcon}>🔔</Text>
                 {unreadCount > 0 && (
-                  <View style={styles.notificationBadge}>
-                    <Text style={styles.notificationBadgeText}>
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>
                       {unreadCount > 9 ? '9+' : unreadCount}
                     </Text>
                   </View>
@@ -266,9 +249,9 @@ export default function DashboardScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => router.push('/(main)/parametres')}
-                style={styles.settingsButton}
+                style={styles.headerBtn}
               >
-                <Text style={styles.settingsIcon}>⚙️</Text>
+                <Text style={styles.headerBtnIcon}>⚙️</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -289,7 +272,7 @@ export default function DashboardScreen() {
             <TouchableOpacity
               style={styles.bulletinsCard}
               onPress={() => router.push('/(main)/bulletins')}
-              activeOpacity={0.9}
+              activeOpacity={0.85}
             >
               <LinearGradient
                 colors={[colors.primary[500], colors.primary[600]]}
@@ -309,25 +292,25 @@ export default function DashboardScreen() {
                   <Text style={styles.bulletinsArrow}>→</Text>
                 </View>
                 <View style={styles.bulletinsStats}>
-                  <StatCard
+                  <StatPill
                     value={bulletinStats.total}
                     label="Total"
                     color="#ffffff"
                     icon="📄"
                   />
-                  <StatCard
+                  <StatPill
                     value={bulletinStats.pending}
                     label="En attente"
                     color="#fbbf24"
                     icon="⏳"
                   />
-                  <StatCard
+                  <StatPill
                     value={bulletinStats.inPayment}
                     label="En paiement"
                     color="#60a5fa"
                     icon="💳"
                   />
-                  <StatCard
+                  <StatPill
                     value={bulletinStats.reimbursed}
                     label="Rembourses"
                     color="#34d399"
@@ -338,57 +321,50 @@ export default function DashboardScreen() {
             </TouchableOpacity>
           )}
 
-          {/* Quick Actions */}
+          {/* Quick Actions - compact 3x2 grid */}
           <Text style={styles.sectionTitle}>Actions rapides</Text>
-          <View style={styles.quickActions}>
+          <View style={styles.quickActionsGrid}>
             <QuickAction
               icon="📷"
               title="Scanner"
-              subtitle="Nouveau bulletin"
+              accentColor={colors.accent.teal}
               onPress={() => router.push('/(main)/bulletins/nouveau')}
-              gradient={[colors.accent.teal, colors.accent.emerald]}
               delay={100}
             />
             <QuickAction
               icon="📋"
               title="Demandes"
-              subtitle="Voir l'historique"
+              accentColor={colors.primary[500]}
               onPress={() => router.push('/(main)/demandes')}
-              delay={200}
+              delay={150}
             />
-          </View>
-
-          <View style={styles.quickActions}>
             <QuickAction
               icon="🛡️"
               title="Garanties"
-              subtitle="Couvertures"
+              accentColor="#8b5cf6"
               onPress={() => router.push('/(main)/garanties')}
-              delay={300}
+              delay={200}
             />
             <QuickAction
               icon="💰"
-              title="Remboursements"
-              subtitle="Historique"
+              title="Rembours."
+              accentColor="#f59e0b"
               onPress={() => router.push('/(main)/remboursements')}
-              delay={400}
+              delay={250}
             />
-          </View>
-
-          <View style={styles.quickActions}>
             <QuickAction
               icon="🏥"
               title="Praticiens"
-              subtitle="Annuaire sante"
+              accentColor="#ec4899"
               onPress={() => router.push('/(main)/praticiens')}
-              delay={500}
+              delay={300}
             />
             <QuickAction
               icon="👤"
-              title="Mon profil"
-              subtitle="Plafonds"
+              title="Profil"
+              accentColor="#6366f1"
               onPress={() => router.push('/(main)/profil')}
-              delay={600}
+              delay={350}
             />
           </View>
 
@@ -403,7 +379,7 @@ export default function DashboardScreen() {
           </View>
 
           {demandes && demandes.length > 0 ? (
-            demandes.map((demande, index) => {
+            demandes.map((demande) => {
               const statusConfig = getStatusConfig(demande.statut);
               return (
                 <TouchableOpacity
@@ -458,9 +434,8 @@ export default function DashboardScreen() {
             </View>
           )}
 
-          {/* Logout Button */}
+          {/* Logout */}
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutIcon}>🚪</Text>
             <Text style={styles.logoutText}>Deconnexion</Text>
           </TouchableOpacity>
         </Animated.View>
@@ -472,18 +447,13 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background.primary,
+    backgroundColor: '#f8fafc',
   },
   offlineBanner: {
     backgroundColor: colors.error.main,
     paddingVertical: spacing[2],
     paddingHorizontal: spacing[4],
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  offlineBannerIcon: {
-    marginRight: spacing[2],
   },
   offlineBannerText: {
     color: colors.text.inverse,
@@ -504,9 +474,11 @@ const styles = StyleSheet.create({
   // Header
   header: {},
   headerGradient: {
-    paddingHorizontal: spacing[4],
-    paddingVertical: spacing[5],
+    paddingHorizontal: spacing[5],
+    paddingTop: spacing[4],
     paddingBottom: spacing[6],
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   headerContent: {
     flexDirection: 'row',
@@ -515,74 +487,75 @@ const styles = StyleSheet.create({
   },
   headerLeft: {},
   greeting: {
-    fontSize: typography.fontSize.base,
-    color: colors.primary[200],
+    fontSize: typography.fontSize.sm,
+    color: 'rgba(255,255,255,0.7)',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   userName: {
     fontSize: typography.fontSize['2xl'],
     fontWeight: typography.fontWeight.bold,
     color: colors.text.inverse,
-    marginTop: 2,
+    marginTop: 4,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing[2],
   },
-  notificationButton: {
+  headerBtn: {
     position: 'relative',
-    padding: spacing[2],
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: borderRadius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  notificationIcon: {
-    fontSize: 22,
+  headerBtnIcon: {
+    fontSize: 20,
   },
-  notificationBadge: {
+  badge: {
     position: 'absolute',
-    top: 0,
-    right: 0,
+    top: -2,
+    right: -2,
     backgroundColor: colors.error.main,
-    borderRadius: borderRadius.full,
+    borderRadius: 10,
     minWidth: 18,
     height: 18,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: colors.primary[500],
   },
-  notificationBadgeText: {
+  badgeText: {
     color: colors.text.inverse,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: typography.fontWeight.bold,
-  },
-  settingsButton: {
-    padding: spacing[2],
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: borderRadius.lg,
-  },
-  settingsIcon: {
-    fontSize: 22,
   },
 
   // Content
   content: {
     flex: 1,
-    marginTop: spacing[4],
+    marginTop: -12,
   },
   contentContainer: {
     paddingHorizontal: spacing[4],
+    paddingTop: spacing[4],
     paddingBottom: 120,
   },
 
   // Bulletins Card
   bulletinsCard: {
-    borderRadius: borderRadius['2xl'],
+    borderRadius: 20,
     overflow: 'hidden',
     marginBottom: spacing[5],
     ...shadows.lg,
   },
   bulletinsGradient: {
     padding: spacing[4],
+    paddingBottom: spacing[5],
   },
   bulletinsHeader: {
     flexDirection: 'row',
@@ -592,49 +565,43 @@ const styles = StyleSheet.create({
   },
   bulletinsTitle: {
     fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.semibold,
+    fontWeight: typography.fontWeight.bold,
     color: colors.text.inverse,
   },
   bulletinsSubtitle: {
-    fontSize: typography.fontSize.sm,
-    color: colors.primary[200],
-    marginTop: 2,
+    fontSize: typography.fontSize.xs,
+    color: 'rgba(255,255,255,0.7)',
+    marginTop: 4,
   },
   bulletinsArrow: {
-    fontSize: 24,
-    color: colors.text.inverse,
+    fontSize: 22,
+    color: 'rgba(255,255,255,0.6)',
   },
   bulletinsStats: {
     flexDirection: 'row',
     gap: spacing[2],
   },
 
-  // Stat Card
-  statCard: {
+  // Stat Pill
+  statPill: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: borderRadius.lg,
-    padding: spacing[3],
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 14,
+    paddingVertical: spacing[3],
+    paddingHorizontal: spacing[2],
     alignItems: 'center',
   },
-  statIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing[1],
+  statPillIcon: {
+    fontSize: 16,
+    marginBottom: 4,
   },
-  statIcon: {
-    fontSize: 14,
-  },
-  statValue: {
+  statPillValue: {
     fontSize: typography.fontSize.xl,
     fontWeight: typography.fontWeight.bold,
   },
-  statLabel: {
+  statPillLabel: {
     fontSize: 9,
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.7)',
     marginTop: 2,
     textAlign: 'center',
   },
@@ -648,45 +615,36 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.semibold,
+    fontWeight: typography.fontWeight.bold,
     color: colors.text.primary,
     marginBottom: spacing[3],
   },
   seeAllButton: {
     fontSize: typography.fontSize.sm,
     color: colors.primary[500],
-    fontWeight: typography.fontWeight.medium,
+    fontWeight: typography.fontWeight.semibold,
   },
 
-  // Quick Actions
-  quickActions: {
+  // Quick Actions - 3x2 grid
+  quickActionsGrid: {
     flexDirection: 'row',
-    gap: spacing[3],
-    marginBottom: spacing[3],
+    flexWrap: 'wrap',
+    gap: CARD_GAP,
+    marginBottom: spacing[5],
   },
   quickAction: {
-    borderRadius: borderRadius.xl,
-    overflow: 'hidden',
-    ...shadows.md,
-  },
-  quickActionGradient: {
-    padding: spacing[4],
+    width: ACTION_SIZE,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    paddingVertical: spacing[4],
+    paddingHorizontal: spacing[2],
     alignItems: 'center',
-    minHeight: 110,
-    justifyContent: 'center',
+    ...shadows.sm,
   },
-  quickActionInner: {
-    backgroundColor: colors.background.secondary,
-    padding: spacing[4],
-    alignItems: 'center',
-    minHeight: 110,
-    justifyContent: 'center',
-  },
-  quickActionIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: `${colors.primary[500]}15`,
+  quickActionIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing[2],
@@ -695,49 +653,33 @@ const styles = StyleSheet.create({
     fontSize: 24,
   },
   quickActionTitle: {
-    fontSize: typography.fontSize.base,
+    fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.semibold,
     color: colors.text.primary,
-    marginTop: spacing[1],
-  },
-  quickActionTitleWhite: {
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.semibold,
-    color: colors.text.inverse,
-    marginTop: spacing[1],
-  },
-  quickActionSubtitle: {
-    fontSize: typography.fontSize.xs,
-    color: colors.text.secondary,
-    marginTop: 2,
-  },
-  quickActionSubtitleWhite: {
-    fontSize: typography.fontSize.xs,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 2,
+    textAlign: 'center',
   },
 
   // Demande Card
   demandeCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.background.secondary,
-    borderRadius: borderRadius.xl,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
     padding: spacing[4],
     marginBottom: spacing[3],
     ...shadows.sm,
   },
   demandeIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     backgroundColor: colors.gray[100],
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing[3],
   },
   demandeIcon: {
-    fontSize: 22,
+    fontSize: 20,
   },
   demandeContent: {
     flex: 1,
@@ -749,21 +691,21 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   demandeNumero: {
-    fontSize: typography.fontSize.base,
+    fontSize: typography.fontSize.sm,
     fontWeight: typography.fontWeight.semibold,
     color: colors.text.primary,
   },
   statusBadge: {
     paddingHorizontal: spacing[2],
-    paddingVertical: 2,
-    borderRadius: borderRadius.sm,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   statusText: {
-    fontSize: typography.fontSize.xs,
-    fontWeight: typography.fontWeight.medium,
+    fontSize: 10,
+    fontWeight: typography.fontWeight.semibold,
   },
   demandeType: {
-    fontSize: typography.fontSize.sm,
+    fontSize: typography.fontSize.xs,
     color: colors.text.secondary,
   },
   demandeFooter: {
@@ -773,8 +715,8 @@ const styles = StyleSheet.create({
     marginTop: spacing[1],
   },
   demandeMontant: {
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.semibold,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
     color: colors.primary[500],
   },
   demandeDate: {
@@ -782,15 +724,15 @@ const styles = StyleSheet.create({
     color: colors.text.tertiary,
   },
   demandeChevron: {
-    fontSize: 24,
+    fontSize: 22,
     color: colors.text.tertiary,
     marginLeft: spacing[2],
   },
 
   // Empty State
   emptyCard: {
-    backgroundColor: colors.background.secondary,
-    borderRadius: borderRadius.xl,
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
     padding: spacing[6],
     alignItems: 'center',
     ...shadows.sm,
@@ -798,50 +740,42 @@ const styles = StyleSheet.create({
   emptyIcon: {
     fontSize: 48,
     marginBottom: spacing[3],
-    opacity: 0.5,
+    opacity: 0.4,
   },
   emptyTitle: {
     fontSize: typography.fontSize.lg,
-    fontWeight: typography.fontWeight.semibold,
+    fontWeight: typography.fontWeight.bold,
     color: colors.text.primary,
     marginBottom: spacing[2],
   },
   emptyText: {
-    fontSize: typography.fontSize.base,
+    fontSize: typography.fontSize.sm,
     color: colors.text.secondary,
     textAlign: 'center',
     marginBottom: spacing[4],
-    lineHeight: 22,
+    lineHeight: 20,
   },
   emptyButton: {
     backgroundColor: colors.primary[500],
     paddingHorizontal: spacing[5],
     paddingVertical: spacing[3],
-    borderRadius: borderRadius.lg,
+    borderRadius: 12,
   },
   emptyButtonText: {
     color: colors.text.inverse,
-    fontSize: typography.fontSize.base,
-    fontWeight: typography.fontWeight.semibold,
+    fontSize: typography.fontSize.sm,
+    fontWeight: typography.fontWeight.bold,
   },
 
   // Logout
   logoutButton: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     paddingVertical: spacing[4],
-    marginTop: spacing[4],
-    backgroundColor: colors.gray[100],
-    borderRadius: borderRadius.lg,
-  },
-  logoutIcon: {
-    fontSize: 18,
-    marginRight: spacing[2],
+    marginTop: spacing[6],
   },
   logoutText: {
-    fontSize: typography.fontSize.base,
-    color: colors.text.secondary,
+    fontSize: typography.fontSize.sm,
+    color: colors.text.tertiary,
     fontWeight: typography.fontWeight.medium,
   },
 });

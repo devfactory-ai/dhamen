@@ -1,7 +1,7 @@
 ---
 id: TASK-007
 title: Client-side file validation and error handling
-status: pending
+status: done
 priority: must
 requires: [TASK-005]
 ref: AC-5

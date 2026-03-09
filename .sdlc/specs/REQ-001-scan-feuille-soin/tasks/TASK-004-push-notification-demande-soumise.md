@@ -1,7 +1,7 @@
 ---
 id: TASK-004
 title: Send push notification on demande submission
-status: pending
+status: done
 priority: must
 requires: [TASK-001]
 ref: ADR-007

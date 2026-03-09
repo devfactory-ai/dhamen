@@ -1,7 +1,7 @@
 ---
 id: TASK-002
 title: OCR agent — Arabic support and per-field confidence scores
-status: pending
+status: done
 priority: must
 requires: []
 ref: ADR-003, ADR-006

@@ -1,7 +1,7 @@
 ---
 id: TASK-005
 title: Implement full OCR scan flow in nouvelle demande screen
-status: pending
+status: done
 priority: must
 requires: [TASK-001, TASK-002, TASK-003]
 ref: ADR-001, ADR-002, ADR-005

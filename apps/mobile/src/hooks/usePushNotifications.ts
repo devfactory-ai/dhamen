@@ -11,22 +11,33 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { apiClient } from '@/lib/api-client';
 
-// Lazy import to avoid crash in Expo Go SDK 53+
-let Notifications: typeof import('expo-notifications') | null = null;
+// In Expo Go SDK 53+, expo-notifications require() itself throws.
+// Only load in development builds (not Expo Go).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let Notifications: any = null;
+let isExpoGo = true;
 try {
-  Notifications = require('expo-notifications');
-  // Configure notification handler
-  Notifications?.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
-  });
+  const Constants = require('expo-constants').default;
+  isExpoGo = Constants.appOwnership === 'expo';
 } catch {
-  console.warn('expo-notifications not available (Expo Go limitation)');
+  // assume Expo Go if we can't check
+}
+
+if (!isExpoGo) {
+  try {
+    Notifications = require('expo-notifications');
+    Notifications?.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+  } catch {
+    console.warn('expo-notifications not available');
+  }
 }
 
 export interface PushNotificationState {
@@ -60,6 +71,12 @@ async function getPushToken(): Promise<string | null> {
     }
 
     if (finalStatus !== 'granted') {
+      return null;
+    }
+
+    // Remote push tokens are not available in Expo Go SDK 53+
+    if (isExpoGo) {
+      console.warn('Push notifications: Remote push not available in Expo Go, use a development build');
       return null;
     }
 

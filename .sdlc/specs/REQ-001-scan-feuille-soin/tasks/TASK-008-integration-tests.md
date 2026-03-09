@@ -1,7 +1,7 @@
 ---
 id: TASK-008
 title: Integration tests for scan feuille de soin flow
-status: pending
+status: done
 priority: must
 requires: [TASK-001, TASK-002, TASK-004]
 ref: AC-1, AC-2, AC-3, AC-4, AC-5, AC-6

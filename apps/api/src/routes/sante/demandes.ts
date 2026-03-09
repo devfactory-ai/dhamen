@@ -25,6 +25,7 @@ import { logAudit } from '../../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
 import { getDb } from '../../lib/db';
+import { PushNotificationService } from '../../services/push-notification.service';
 
 const demandes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -242,6 +243,19 @@ demandes.patch(
           typeSoin: data.typeSoin,
         },
       });
+
+      // Fire-and-forget push notification
+      const pushService = new PushNotificationService(c.env);
+      c.executionCtx.waitUntil(
+        pushService.sendSanteNotification(user.sub, 'SANTE_DEMANDE_SOUMISE', {
+          demandeId: demande.id,
+          numeroDemande: demande.numeroDemande,
+          typeSoin: demande.typeSoin,
+          montant: String(demande.montantDemande),
+        }).catch((err) => {
+          console.error('Push notification failed:', err);
+        })
+      );
 
       return success(c, demande);
     } catch (error) {

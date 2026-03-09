@@ -1,7 +1,7 @@
 ---
 id: TASK-006
 title: Multi-page document capture support
-status: pending
+status: done
 priority: should
 requires: [TASK-005]
 ref: ADR-010

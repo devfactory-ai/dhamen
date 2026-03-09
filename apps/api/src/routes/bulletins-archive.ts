@@ -438,8 +438,12 @@ bulletinsArchive.get('/:id/scan', async (c) => {
       }, 404);
     }
 
-    // Get presigned URL for the scan
-    const object = await storage.get(bulletin.scan_url);
+    // Extract R2 key from full URL
+    const R2_URL_PREFIX = 'https://dhamen-files.r2.cloudflarestorage.com/';
+    const r2Key = bulletin.scan_url.startsWith(R2_URL_PREFIX)
+      ? bulletin.scan_url.slice(R2_URL_PREFIX.length)
+      : bulletin.scan_url;
+    const object = await storage.get(r2Key);
     if (!object) {
       return c.json({
         success: false,

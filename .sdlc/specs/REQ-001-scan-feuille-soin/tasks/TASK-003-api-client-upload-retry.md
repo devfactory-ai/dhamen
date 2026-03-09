@@ -1,7 +1,7 @@
 ---
 id: TASK-003
 title: Add retry with backoff to api-client upload method
-status: pending
+status: done
 priority: should
 requires: []
 ref: ADR-008

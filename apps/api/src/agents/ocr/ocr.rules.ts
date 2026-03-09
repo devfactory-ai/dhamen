@@ -4,7 +4,7 @@
  * Parsing rules and validation for Tunisian health documents
  */
 
-import type { BulletinExtractedData, BulletinLineItem } from './ocr.types';
+import type { BulletinExtractedData, BulletinLineItem, FieldConfidence } from './ocr.types';
 
 /**
  * Common Tunisian drug names patterns
@@ -231,6 +231,59 @@ export function validateExtractedData(data: BulletinExtractedData): BulletinExtr
     ...data,
     warnings: [...data.warnings, ...warnings],
   };
+}
+
+/**
+ * Calculate per-field confidence scores for OCR extraction
+ */
+export function calculateFieldConfidences(data: BulletinExtractedData): FieldConfidence {
+  const confidences: FieldConfidence = {};
+
+  // dateSoin
+  if (data.dateSoin) {
+    const date = new Date(data.dateSoin);
+    const now = new Date();
+    const isValid = !isNaN(date.getTime()) && date <= now;
+    confidences.dateSoin = isValid ? 1.0 : 0.5;
+  } else {
+    confidences.dateSoin = 0.0;
+  }
+
+  // typeSoin
+  confidences.typeSoin = data.typeSoin ? 1.0 : 0.0;
+
+  // montantTotal
+  if (data.montantTotal > 0 && data.montantTotal <= 10_000_000) {
+    confidences.montantTotal = 1.0;
+  } else if (data.montantTotal > 0) {
+    confidences.montantTotal = 0.5;
+  } else {
+    confidences.montantTotal = 0.0;
+  }
+
+  // praticienNom
+  confidences.praticienNom = data.praticien?.nom && data.praticien.nom.length > 2 ? 1.0 : 0.0;
+
+  // praticienSpecialite
+  confidences.praticienSpecialite = data.praticien?.specialite ? 1.0 : 0.0;
+
+  // lignes
+  if (data.lignes.length > 0) {
+    const itemsTotal = data.lignes.reduce((sum, l) => sum + l.montantTotal, 0);
+    const matchesTotal = Math.abs(itemsTotal - data.montantTotal) <= 1000;
+    confidences.lignes = matchesTotal ? 1.0 : 0.7;
+  } else {
+    confidences.lignes = 0.0;
+  }
+
+  // adherentMatricule
+  if (data.adherentMatricule) {
+    confidences.adherentMatricule = /^\d{8}[A-Z]?$/.test(data.adherentMatricule) ? 1.0 : 0.5;
+  } else {
+    confidences.adherentMatricule = 0.0;
+  }
+
+  return confidences;
 }
 
 /**
