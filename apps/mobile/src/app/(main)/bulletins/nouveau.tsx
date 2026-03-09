@@ -140,7 +140,8 @@ export default function NouveauBulletin() {
     }) => {
       // Create form data for upload
       const formData = new FormData();
-      formData.append('scan', {
+      // API expects file fields with 'scan_' prefix
+      formData.append('scan_0', {
         uri: data.imageUri,
         type: 'image/jpeg',
         name: 'bulletin_scan.jpg',
@@ -148,9 +149,8 @@ export default function NouveauBulletin() {
       formData.append('care_type', data.careType);
       formData.append('bulletin_date', data.bulletinDate);
       formData.append('total_amount', String(data.totalAmount));
-      if (data.providerName) {
-        formData.append('provider_name', data.providerName);
-      }
+      // provider_name is required by the API
+      formData.append('provider_name', data.providerName || 'Non spécifié');
       if (data.description) {
         formData.append('care_description', data.description);
       }
@@ -158,10 +158,11 @@ export default function NouveauBulletin() {
       const response = await apiClient.upload<{
         success: boolean;
         data: { id: string; bulletin_number: string };
-      }>('/bulletins-soins', formData);
+      }>('/bulletins-soins/submit', formData);
 
       if (!response.success) {
-        throw new Error('Failed to submit bulletin');
+        const errorMsg = response.error?.message || 'Failed to submit bulletin';
+        throw new Error(errorMsg);
       }
 
       return response.data;
@@ -178,8 +179,8 @@ export default function NouveauBulletin() {
     },
     onError: (error: Error) => {
       Alert.alert(
-        'Erreur',
-        'Une erreur est survenue lors de la soumission. Veuillez réessayer.'
+        'Erreur de soumission',
+        error.message || 'Une erreur est survenue lors de la soumission. Veuillez réessayer.'
       );
       console.error('Submit bulletin error:', error);
     },

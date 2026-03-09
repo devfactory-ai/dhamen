@@ -61,6 +61,11 @@
         }
       ]
     ],
+    "extra": {
+      "eas": {
+        "projectId": "dhamen-local-dev"
+      }
+    },
     "experiments": {
       "typedRoutes": true
     }
