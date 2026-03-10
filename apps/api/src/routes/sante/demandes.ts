@@ -26,6 +26,7 @@ import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
 import { getDb } from '../../lib/db';
 import { PushNotificationService } from '../../services/push-notification.service';
+import { RealtimeNotificationsService } from '../../services/realtime-notifications.service';
 import { STATUT_TO_NOTIFICATION, PUSH_ENABLED_STATUSES } from '@dhamen/shared';
 import type { SanteNotificationType } from '@dhamen/shared';
 
@@ -327,6 +328,17 @@ demandes.patch(
 
       const pushService = new PushNotificationService(c.env);
 
+      // Build notification body text from push template
+      const notifBodyMap: Record<string, string> = {
+        SANTE_DEMANDE_APPROUVEE: `Votre demande de ${notifData.typeSoin} du ${notifData.dateSoin} a ete approuvee. Montant rembourse : ${notifData.montantRembourse} TND.`,
+        SANTE_DEMANDE_REJETEE: `Votre demande de ${notifData.typeSoin} du ${notifData.dateSoin} a ete rejetee. Motif : ${notifData.motifRejet || 'Non precise'}.`,
+        SANTE_DEMANDE_EN_EXAMEN: `Votre demande de ${notifData.typeSoin} est en cours de traitement par votre assureur.`,
+        SANTE_INFO_REQUISE: `Votre assureur a besoin d'informations supplementaires pour votre demande de ${notifData.typeSoin}. ${notifData.notes}`.trim(),
+        SANTE_DEMANDE_EN_PAIEMENT: `Le remboursement de ${notifData.montantRembourse} TND pour votre demande de ${notifData.typeSoin} est en cours.`,
+        SANTE_PAIEMENT_EFFECTUE: `Le montant de ${notifData.montantRembourse} TND a ete verse pour votre demande de ${notifData.typeSoin}.`,
+      };
+      const notifBody = notifBodyMap[notifType] || `Statut mis a jour : ${data.statut}`;
+
       // 1. Push notification (only for important transitions)
       if (PUSH_ENABLED_STATUSES.includes(notifType)) {
         c.executionCtx.waitUntil(
@@ -345,43 +357,34 @@ demandes.patch(
           demande.adherentId,
           notifType,
           `Demande ${demande.numeroDemande}`,
-          pushService['buildBody'] ? '' : `Statut mis a jour : ${data.statut}`,
+          notifBody,
           demande.id,
           new Date().toISOString()
         ).run()
           .catch((err) => console.error('In-app notification failed:', err))
       );
 
-      // 3. Realtime via WebSocket (if NOTIFICATION_HUB binding exists)
+      // 3. Realtime via WebSocket (using RealtimeNotificationsService)
       if (c.env.NOTIFICATION_HUB) {
+        const realtimeService = new RealtimeNotificationsService(c);
         c.executionCtx.waitUntil(
-          (async () => {
-            try {
-              const hubId = c.env.NOTIFICATION_HUB.idFromName('global');
-              const hub = c.env.NOTIFICATION_HUB.get(hubId);
-              await hub.fetch(new Request('https://internal/send', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  userId: demande.adherentId,
-                  message: {
-                    type: 'notification',
-                    eventType: notifType,
-                    data: {
-                      demandeId: demande.id,
-                      numeroDemande: demande.numeroDemande,
-                      statut: data.statut,
-                      typeSoin: demande.typeSoin,
-                      montantRembourse: data.montantRembourse,
-                      motifRejet: data.motifRejet,
-                    },
-                  },
-                }),
-              }));
-            } catch (err) {
-              console.error('Realtime notification failed:', err);
-            }
-          })()
+          realtimeService.sendToUser(demande.adherentId, {
+            id: generateId(),
+            type: notifType,
+            title: `Demande ${demande.numeroDemande}`,
+            message: notifBody,
+            createdAt: new Date().toISOString(),
+            read: false,
+            data: {
+              demandeId: demande.id,
+              numeroDemande: demande.numeroDemande,
+              statut: data.statut,
+              typeSoin: demande.typeSoin,
+              dateSoin: demande.dateSoin,
+              montantRembourse: data.montantRembourse,
+              motifRejet: data.motifRejet,
+            },
+          }).catch((err) => console.error('Realtime notification failed:', err))
         );
       }
     }

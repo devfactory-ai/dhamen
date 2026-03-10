@@ -23,7 +23,7 @@ export interface RealtimeNotification {
 
 interface WebSocketMessage {
   type: 'notification' | 'ping' | 'pong' | 'connected' | 'error';
-  payload?: RealtimeNotification;
+  data?: RealtimeNotification;
   error?: string;
 }
 
@@ -105,9 +105,9 @@ export function useRealtimeNotifications(options: UseRealtimeNotificationsOption
 
           switch (message.type) {
             case 'notification':
-              if (message.payload) {
-                setLastNotification(message.payload);
-                onNotification?.(message.payload);
+              if (message.data) {
+                setLastNotification(message.data);
+                onNotification?.(message.data);
 
                 // Invalidate notifications query to refresh the list
                 queryClient.invalidateQueries({ queryKey: ['sante-notifications'] });
