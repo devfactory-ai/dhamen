@@ -4,6 +4,8 @@ import { generateId } from '../lib/ulid';
 import type { Bindings, Variables } from '../types';
 import { getDb } from '../lib/db';
 import { extractBulletinData } from '../agents/ocr/ocr.agent';
+import { PushNotificationService } from '../services/push-notification.service';
+import { RealtimeNotificationsService } from '../services/realtime-notifications.service';
 
 const bulletinsSoins = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -1289,6 +1291,70 @@ bulletinsSoins.post('/manage/:id/approve', async (c) => {
     c.req.header('CF-Connecting-IP') || 'unknown'
   ).run();
 
+  // Fire-and-forget: notify adherent
+  const bulletinNumber = bulletin.bulletin_number as string;
+  const careType = bulletin.care_type as string || 'soin';
+  const formatAmount = (v: number) => (v / 1000).toFixed(3);
+  const notifBody = `Votre bulletin ${bulletinNumber} (${careType}) a ete approuve. Montant rembourse : ${formatAmount(approved_amount)} TND.`;
+
+  // Find the user account linked to this adherent (via email)
+  // Write notification to both tenant DB and platform DB (mobile may read from either)
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        const adherent = await db.prepare(`SELECT email FROM adherents WHERE id = ?`).bind(bulletin.adherent_id).first<{ email: string }>();
+        if (!adherent) return;
+
+        // Look up user in tenant DB first, then platform DB
+        let userId: string | null = null;
+        const tenantUser = await db.prepare(`SELECT id FROM users WHERE email = ? AND is_active = 1`).bind(adherent.email).first<{ id: string }>();
+        if (tenantUser) userId = tenantUser.id;
+        if (!userId) {
+          const platformUser = await c.env.DB.prepare(`SELECT id FROM users WHERE email = ? AND is_active = 1`).bind(adherent.email).first<{ id: string }>();
+          if (platformUser) userId = platformUser.id;
+        }
+        if (!userId) return;
+
+        const notifId = generateId();
+        const notifTitle = `Bulletin ${bulletinNumber} approuve`;
+
+        // 1. In-app notification — write to tenant DB
+        await db.prepare(`
+          INSERT INTO notifications (id, user_id, type, event_type, title, body, entity_id, entity_type, status, created_at)
+          VALUES (?, ?, 'IN_APP', 'SANTE_DEMANDE_APPROUVEE', ?, ?, ?, 'bulletin', 'PENDING', ?)
+        `).bind(notifId, userId, notifTitle, notifBody, bulletinId, now).run();
+
+        // Also write to platform DB so mobile can see it (mobile may not send tenant header)
+        if (db !== c.env.DB) {
+          await c.env.DB.prepare(`
+            INSERT INTO notifications (id, user_id, type, event_type, title, body, entity_id, entity_type, status, created_at)
+            VALUES (?, ?, 'IN_APP', 'SANTE_DEMANDE_APPROUVEE', ?, ?, ?, 'bulletin', 'PENDING', ?)
+          `).bind(notifId, userId, notifTitle, notifBody, bulletinId, now).run().catch(() => {});
+        }
+
+        // 2. Push notification
+        const pushService = new PushNotificationService(c.env);
+        await pushService.sendSanteNotification(userId, 'SANTE_DEMANDE_APPROUVEE', {
+          demandeId: bulletinId, numeroDemande: bulletinNumber, typeSoin: careType,
+          dateSoin: (bulletin.bulletin_date as string) || '', montantRembourse: String(approved_amount),
+        }).catch(() => {});
+
+        // 3. Realtime WebSocket
+        if (c.env.NOTIFICATION_HUB) {
+          const realtimeService = new RealtimeNotificationsService(c);
+          await realtimeService.sendToUser(userId, {
+            id: notifId, type: 'SANTE_DEMANDE_APPROUVEE',
+            title: notifTitle, message: notifBody,
+            createdAt: now, read: false,
+            data: { demandeId: bulletinId, numeroDemande: bulletinNumber, statut: 'approved', typeSoin: careType, montantRembourse: approved_amount },
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.error('Notification failed:', err);
+      }
+    })()
+  );
+
   return c.json({
     success: true,
     data: {
@@ -1357,6 +1423,69 @@ bulletinsSoins.post('/manage/:id/reject', async (c) => {
     JSON.stringify({ reason }),
     c.req.header('CF-Connecting-IP') || 'unknown'
   ).run();
+
+  // Fire-and-forget: notify adherent
+  const bulletinNumber = bulletin.bulletin_number as string;
+  const careType = bulletin.care_type as string || 'soin';
+  const notifBody = `Votre bulletin ${bulletinNumber} (${careType}) a ete rejete. Motif : ${reason}.`;
+
+  // Find the user account linked to this adherent (via email)
+  // Write notification to both tenant DB and platform DB (mobile may read from either)
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        const adherent = await db.prepare(`SELECT email FROM adherents WHERE id = ?`).bind(bulletin.adherent_id).first<{ email: string }>();
+        if (!adherent) return;
+
+        // Look up user in tenant DB first, then platform DB
+        let userId: string | null = null;
+        const tenantUser = await db.prepare(`SELECT id FROM users WHERE email = ? AND is_active = 1`).bind(adherent.email).first<{ id: string }>();
+        if (tenantUser) userId = tenantUser.id;
+        if (!userId) {
+          const platformUser = await c.env.DB.prepare(`SELECT id FROM users WHERE email = ? AND is_active = 1`).bind(adherent.email).first<{ id: string }>();
+          if (platformUser) userId = platformUser.id;
+        }
+        if (!userId) return;
+
+        const notifId = generateId();
+        const notifTitle = `Bulletin ${bulletinNumber} rejete`;
+
+        // 1. In-app notification — write to tenant DB
+        await db.prepare(`
+          INSERT INTO notifications (id, user_id, type, event_type, title, body, entity_id, entity_type, status, created_at)
+          VALUES (?, ?, 'IN_APP', 'SANTE_DEMANDE_REJETEE', ?, ?, ?, 'bulletin', 'PENDING', ?)
+        `).bind(notifId, userId, notifTitle, notifBody, bulletinId, now).run();
+
+        // Also write to platform DB so mobile can see it (mobile may not send tenant header)
+        if (db !== c.env.DB) {
+          await c.env.DB.prepare(`
+            INSERT INTO notifications (id, user_id, type, event_type, title, body, entity_id, entity_type, status, created_at)
+            VALUES (?, ?, 'IN_APP', 'SANTE_DEMANDE_REJETEE', ?, ?, ?, 'bulletin', 'PENDING', ?)
+          `).bind(notifId, userId, notifTitle, notifBody, bulletinId, now).run().catch(() => {});
+        }
+
+        // 2. Push notification
+        const pushService = new PushNotificationService(c.env);
+        await pushService.sendSanteNotification(userId, 'SANTE_DEMANDE_REJETEE', {
+          demandeId: bulletinId, numeroDemande: bulletinNumber, typeSoin: careType,
+          dateSoin: (bulletin.bulletin_date as string) || '', motifRejet: reason, montantRembourse: '0',
+        }).catch(() => {});
+
+        // 3. Realtime WebSocket
+        if (c.env.NOTIFICATION_HUB) {
+          const realtimeService = new RealtimeNotificationsService(c);
+          await realtimeService.sendToUser(userId, {
+            id: generateId(), type: 'SANTE_DEMANDE_REJETEE',
+            title: notifTitle, message: notifBody,
+            createdAt: now, read: false,
+            data: { demandeId: bulletinId, numeroDemande: bulletinNumber, statut: 'rejected', typeSoin: careType, motifRejet: reason },
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.error('Notification failed:', err);
+      }
+    })()
+  );
 
   return c.json({
     success: true,

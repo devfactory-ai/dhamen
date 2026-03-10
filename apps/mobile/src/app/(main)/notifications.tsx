@@ -186,7 +186,7 @@ export default function NotificationsScreen() {
     }).start();
   }, [fadeAnim]);
 
-  // Fetch notifications
+  // Fetch notifications (poll every 10s for realtime feel)
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['sante-notifications'],
     queryFn: async () => {
@@ -199,6 +199,7 @@ export default function NotificationsScreen() {
       }
       return { notifications: [], meta: { page: 1, limit: 20, total: 0 } };
     },
+    refetchInterval: 10000,
   });
 
   // Mark as read mutation
@@ -246,7 +247,7 @@ export default function NotificationsScreen() {
       markAsReadMutation.mutate(notification.id);
     }
 
-    if (notification.entityType === 'DEMANDE' && notification.entityId) {
+    if ((notification.entityType === 'DEMANDE' || notification.entityType === 'demande') && notification.entityId) {
       router.push(`/(main)/demandes/${notification.entityId}`);
     }
   };
