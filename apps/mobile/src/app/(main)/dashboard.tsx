@@ -112,13 +112,20 @@ export default function DashboardScreen() {
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const contentTranslate = useRef(new Animated.Value(20)).current;
 
+  // Poll unread count every 10s for realtime badge updates
   useEffect(() => {
+    const fetchCount = () => {
+      getUnreadCount().then((count) => {
+        setUnreadCount(count);
+        setBadgeCount(count);
+      });
+    };
+
     getUser().then(setUserState);
     registerToken();
-    getUnreadCount().then((count) => {
-      setUnreadCount(count);
-      setBadgeCount(count);
-    });
+    fetchCount();
+
+    const interval = setInterval(fetchCount, 10000);
 
     Animated.parallel([
       Animated.timing(headerOpacity, {
@@ -132,6 +139,8 @@ export default function DashboardScreen() {
         useNativeDriver: true,
       }),
     ]).start();
+
+    return () => clearInterval(interval);
   }, [registerToken, headerOpacity, contentTranslate]);
 
   const { data: demandes, isLoading: demandesLoading, refetch } = useQuery({

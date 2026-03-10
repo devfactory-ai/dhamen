@@ -147,13 +147,8 @@ notifications.get(
       { page, limit, unreadOnly }
     );
 
-    // Filter for SoinFlow notifications only
-    const santeNotifications = items.filter(
-      (n) => n.eventType.startsWith('SANTE_') || n.type === 'PUSH'
-    );
-
     return success(c, {
-      notifications: santeNotifications,
+      notifications: items,
       meta: {
         page,
         limit,

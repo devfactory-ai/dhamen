@@ -274,20 +274,28 @@ export class PushNotificationService {
         body: `Votre demande ${data.numeroDemande} a ete soumise avec succes.`,
       },
       SANTE_DEMANDE_APPROUVEE: {
-        title: 'Demande approuvee',
-        body: `Bonne nouvelle ! Votre demande ${data.numeroDemande} a ete approuvee. Montant rembourse: ${data.montantRembourse} TND.`,
+        title: `Demande ${data.numeroDemande} approuvee`,
+        body: `Votre demande de ${data.typeSoin || 'soin'} du ${data.dateSoin || ''} a ete approuvee. Montant rembourse : ${data.montantRembourse || '0'} TND.`,
       },
       SANTE_DEMANDE_REJETEE: {
-        title: 'Demande rejetee',
-        body: `Votre demande ${data.numeroDemande} a ete rejetee. Motif: ${data.motifRejet}.`,
+        title: `Demande ${data.numeroDemande} rejetee`,
+        body: `Votre demande de ${data.typeSoin || 'soin'} du ${data.dateSoin || ''} a ete rejetee. Motif : ${data.motifRejet || 'Non precise'}.`,
+      },
+      SANTE_DEMANDE_EN_EXAMEN: {
+        title: `Demande ${data.numeroDemande} en cours d'examen`,
+        body: `Votre demande de ${data.typeSoin || 'soin'} est en cours de traitement par votre assureur.`,
       },
       SANTE_INFO_REQUISE: {
-        title: 'Information requise',
-        body: `Des informations supplementaires sont requises pour votre demande ${data.numeroDemande}.`,
+        title: `Information requise pour ${data.numeroDemande}`,
+        body: `Votre assureur a besoin d'informations supplementaires pour votre demande de ${data.typeSoin || 'soin'}. ${data.notes || ''}`.trim(),
+      },
+      SANTE_DEMANDE_EN_PAIEMENT: {
+        title: `Paiement en cours pour ${data.numeroDemande}`,
+        body: `Le remboursement de ${data.montantRembourse || '0'} TND pour votre demande de ${data.typeSoin || 'soin'} est en cours de traitement.`,
       },
       SANTE_PAIEMENT_EFFECTUE: {
-        title: 'Paiement effectue',
-        body: `Le paiement de ${data.montant} TND pour votre demande ${data.numeroDemande} a ete effectue.`,
+        title: `Paiement effectue pour ${data.numeroDemande}`,
+        body: `Le montant de ${data.montantRembourse || data.montant || '0'} TND a ete verse pour votre demande de ${data.typeSoin || 'soin'} du ${data.dateSoin || ''}.`,
       },
       SANTE_BORDEREAU_GENERE: {
         title: 'Bordereau genere',
@@ -303,6 +311,8 @@ export class PushNotificationService {
 
     return this.sendToUser(userId, template.title, template.body, {
       eventType,
+      entityType: 'demande',
+      entityId: data.demandeId,
       ...data,
     });
   }

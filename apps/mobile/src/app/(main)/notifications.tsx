@@ -137,9 +137,12 @@ function NotificationCard({
             </Text>
             {isUnread && <View style={[styles.unreadDot, { backgroundColor: notifColors.color }]} />}
           </View>
-          <Text style={styles.notificationBody} numberOfLines={2}>
+          <Text style={styles.notificationBody} numberOfLines={4}>
             {notification.body}
           </Text>
+          {notification.eventType.includes('REJETEE') && (
+            <Text style={styles.actionHint}>Tapez pour voir les details</Text>
+          )}
           <Text style={styles.notificationTime}>
             {formatDate(notification.createdAt)}
           </Text>
@@ -183,7 +186,7 @@ export default function NotificationsScreen() {
     }).start();
   }, [fadeAnim]);
 
-  // Fetch notifications
+  // Fetch notifications (poll every 10s for realtime feel)
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['sante-notifications'],
     queryFn: async () => {
@@ -196,6 +199,7 @@ export default function NotificationsScreen() {
       }
       return { notifications: [], meta: { page: 1, limit: 20, total: 0 } };
     },
+    refetchInterval: 10000,
   });
 
   // Mark as read mutation
@@ -243,7 +247,7 @@ export default function NotificationsScreen() {
       markAsReadMutation.mutate(notification.id);
     }
 
-    if (notification.entityType === 'DEMANDE' && notification.entityId) {
+    if ((notification.entityType === 'DEMANDE' || notification.entityType === 'demande') && notification.entityId) {
       router.push(`/(main)/demandes/${notification.entityId}`);
     }
   };
@@ -534,6 +538,12 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     lineHeight: 20,
     marginBottom: spacing.xs,
+  },
+  actionHint: {
+    fontSize: typography.fontSize.xs,
+    color: colors.primary[600],
+    fontWeight: '500' as const,
+    marginTop: 4,
   },
   notificationTime: {
     fontSize: typography.fontSize.xs,

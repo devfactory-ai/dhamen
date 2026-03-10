@@ -7,6 +7,7 @@ dist/
 build/
 .turbo/
 .wrangler/
+.sdlc/
 
 # IDE
 .idea/
