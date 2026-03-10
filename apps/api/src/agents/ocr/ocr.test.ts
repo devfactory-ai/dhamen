@@ -7,6 +7,7 @@ import {
   parseDate,
   detectCareType,
   calculateConfidence,
+  calculateFieldConfidences,
   validateExtractedData,
   parseLineItems,
 } from './ocr.rules';
@@ -227,6 +228,80 @@ describe('OCR Rules', () => {
 
       const validated = validateExtractedData(data);
       expect(validated.confidence).toBeLessThanOrEqual(0.7);
+    });
+  });
+
+  describe('calculateFieldConfidences', () => {
+    it('returns 1.0 for all fields when data is complete and valid', () => {
+      const data: BulletinExtractedData = {
+        dateSoin: '2025-01-15',
+        typeSoin: 'pharmacie',
+        montantTotal: 50000,
+        praticien: { nom: 'Dr. Ben Ali', specialite: 'generaliste' },
+        lignes: [{ libelle: 'Doliprane', quantite: 1, prixUnitaire: 50000, montantTotal: 50000 }],
+        adherentMatricule: '12345678A',
+        confidence: 1.0,
+        warnings: [],
+      };
+      const result = calculateFieldConfidences(data);
+      expect(result.dateSoin).toBe(1.0);
+      expect(result.typeSoin).toBe(1.0);
+      expect(result.montantTotal).toBe(1.0);
+      expect(result.praticienNom).toBe(1.0);
+      expect(result.praticienSpecialite).toBe(1.0);
+      expect(result.lignes).toBe(1.0);
+      expect(result.adherentMatricule).toBe(1.0);
+    });
+
+    it('returns 0.0 for missing fields', () => {
+      const data: BulletinExtractedData = {
+        montantTotal: 0,
+        lignes: [],
+        confidence: 0,
+        warnings: [],
+      };
+      const result = calculateFieldConfidences(data);
+      expect(result.dateSoin).toBe(0.0);
+      expect(result.typeSoin).toBe(0.0);
+      expect(result.montantTotal).toBe(0.0);
+      expect(result.praticienNom).toBe(0.0);
+      expect(result.praticienSpecialite).toBe(0.0);
+      expect(result.lignes).toBe(0.0);
+      expect(result.adherentMatricule).toBe(0.0);
+    });
+
+    it('returns 0.5 for suspicious matricule format', () => {
+      const data: BulletinExtractedData = {
+        montantTotal: 50000,
+        lignes: [],
+        adherentMatricule: 'ABC123',
+        confidence: 0.5,
+        warnings: [],
+      };
+      const result = calculateFieldConfidences(data);
+      expect(result.adherentMatricule).toBe(0.5);
+    });
+
+    it('returns 0.7 for lignes when totals mismatch', () => {
+      const data: BulletinExtractedData = {
+        montantTotal: 50000,
+        lignes: [{ libelle: 'Item', quantite: 1, prixUnitaire: 20000, montantTotal: 20000 }],
+        confidence: 0.5,
+        warnings: [],
+      };
+      const result = calculateFieldConfidences(data);
+      expect(result.lignes).toBe(0.7);
+    });
+
+    it('returns 0.5 for suspiciously high montant', () => {
+      const data: BulletinExtractedData = {
+        montantTotal: 15_000_000,
+        lignes: [],
+        confidence: 0.5,
+        warnings: [],
+      };
+      const result = calculateFieldConfidences(data);
+      expect(result.montantTotal).toBe(0.5);
     });
   });
 

@@ -4,24 +4,28 @@
 import {
   createSanteDemande,
   findSanteDemandeAvecDetails,
+  findSanteDemandeById,
   listSanteDemandesAvecNoms,
   updateSanteDemandeStatut,
+  updateSanteDemandeBrouillon,
   getSanteDemandesStats,
 } from '@dhamen/db';
 import {
   santeDemandeCreateSchema,
+  santeDemandeSubmitSchema,
   santeDemandeUpdateStatutSchema,
   santeDemandeFiltersSchema,
   paginationSchema,
 } from '@dhamen/shared';
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
-import { created, notFound, paginated, success, forbidden } from '../../lib/response';
+import { created, notFound, paginated, success, forbidden, badRequest } from '../../lib/response';
 import { generateId } from '../../lib/ulid';
 import { logAudit } from '../../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../../middleware/auth';
 import type { Bindings, Variables } from '../../types';
 import { getDb } from '../../lib/db';
+import { PushNotificationService } from '../../services/push-notification.service';
 
 const demandes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -184,6 +188,82 @@ demandes.post(
     });
 
     return created(c, demande);
+  }
+);
+
+/**
+ * PATCH /api/v1/sante/demandes/:id
+ * Finalize a brouillon demande (adherent submits after OCR review)
+ */
+demandes.patch(
+  '/:id',
+  requireRole('ADHERENT'),
+  zValidator('json', santeDemandeSubmitSchema),
+  async (c) => {
+    const id = c.req.param('id');
+    const data = c.req.valid('json');
+    const user = c.get('user');
+
+    // Verify the demande exists and belongs to this adherent
+    const existing = await findSanteDemandeById(getDb(c), id);
+    if (!existing) {
+      return notFound(c, 'Demande non trouvée');
+    }
+
+    if (existing.adherentId !== user.sub) {
+      return forbidden(c, 'Accès non autorisé à cette demande');
+    }
+
+    if (existing.statut !== 'brouillon') {
+      return badRequest(c, 'Seule une demande en brouillon peut être soumise via cette route');
+    }
+
+    try {
+      const demande = await updateSanteDemandeBrouillon(getDb(c), id, {
+        montantDemande: data.montantDemande,
+        dateSoin: data.dateSoin,
+        typeSoin: data.typeSoin,
+        praticienId: data.praticienId,
+        notes: data.notes,
+      });
+
+      if (!demande) {
+        return notFound(c, 'Demande non trouvée');
+      }
+
+      await logAudit(getDb(c), {
+        userId: user.sub,
+        action: 'sante_demandes.submit',
+        entityType: 'sante_demandes',
+        entityId: id,
+        changes: {
+          previousStatut: 'brouillon',
+          newStatut: 'soumise',
+          montantDemande: data.montantDemande,
+          typeSoin: data.typeSoin,
+        },
+      });
+
+      // Fire-and-forget push notification
+      const pushService = new PushNotificationService(c.env);
+      c.executionCtx.waitUntil(
+        pushService.sendSanteNotification(user.sub, 'SANTE_DEMANDE_SOUMISE', {
+          demandeId: demande.id,
+          numeroDemande: demande.numeroDemande,
+          typeSoin: demande.typeSoin,
+          montant: String(demande.montantDemande),
+        }).catch((err) => {
+          console.error('Push notification failed:', err);
+        })
+      );
+
+      return success(c, demande);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'DEMANDE_NOT_BROUILLON') {
+        return badRequest(c, 'Seule une demande en brouillon peut être soumise via cette route');
+      }
+      throw error;
+    }
   }
 );
 

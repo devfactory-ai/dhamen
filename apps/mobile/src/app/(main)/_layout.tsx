@@ -1,51 +1,57 @@
 /**
- * Main app layout with enhanced bottom tabs
+ * Main app layout with modern bottom tab bar
  */
 import { useEffect, useRef } from 'react';
 import { Tabs } from 'expo-router';
-import { View, Text, StyleSheet, Animated, Platform } from 'react-native';
+import { View, StyleSheet, Animated, Platform, Dimensions, Text } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { colors, typography, spacing, shadows } from '@/theme';
+import { Ionicons } from '@expo/vector-icons';
+import { colors, typography } from '@/theme';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const TAB_COUNT = 5;
+const TAB_WIDTH = SCREEN_WIDTH / TAB_COUNT;
 
 interface TabIconProps {
-  name: string;
+  label: string;
   focused: boolean;
-  icon: string;
-  activeIcon: string;
+  iconName: keyof typeof Ionicons.glyphMap;
+  activeIconName: keyof typeof Ionicons.glyphMap;
 }
 
-function TabIcon({ name, focused, icon, activeIcon }: TabIconProps) {
+function TabIcon({ label, focused, iconName, activeIconName }: TabIconProps) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  const opacityAnim = useRef(new Animated.Value(focused ? 1 : 0.6)).current;
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: focused ? 1.1 : 1,
-        friction: 5,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: focused ? 1 : 0.6,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [focused, scaleAnim, opacityAnim]);
+    Animated.spring(scaleAnim, {
+      toValue: focused ? 1.08 : 1,
+      friction: 7,
+      tension: 100,
+      useNativeDriver: true,
+    }).start();
+  }, [focused, scaleAnim]);
 
   return (
     <View style={styles.tabIconContainer}>
       <Animated.View
         style={[
-          styles.iconWrapper,
-          focused && styles.iconWrapperActive,
-          { transform: [{ scale: scaleAnim }], opacity: opacityAnim },
+          styles.iconPill,
+          focused && styles.iconPillActive,
+          { transform: [{ scale: scaleAnim }] },
         ]}
       >
-        <Text style={styles.tabIcon}>{focused ? activeIcon : icon}</Text>
+        <Ionicons
+          name={focused ? activeIconName : iconName}
+          size={22}
+          color={focused ? colors.primary[500] : colors.text.tertiary}
+        />
       </Animated.View>
-      <Text style={[styles.tabLabel, focused && styles.tabLabelFocused]}>{name}</Text>
-      {focused && <View style={styles.activeIndicator} />}
+      <Text
+        style={[styles.tabLabel, focused && styles.tabLabelActive]}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
     </View>
   );
 }
@@ -59,9 +65,9 @@ export default function MainLayout() {
         tabBarShowLabel: false,
         tabBarBackground: () =>
           Platform.OS === 'ios' ? (
-            <BlurView intensity={80} tint="light" style={StyleSheet.absoluteFill} />
+            <BlurView intensity={90} tint="systemChromeMaterialLight" style={StyleSheet.absoluteFill} />
           ) : (
-            <View style={[StyleSheet.absoluteFill, styles.tabBarBackground]} />
+            <View style={[StyleSheet.absoluteFill, styles.tabBarBg]} />
           ),
       }}
     >
@@ -70,7 +76,12 @@ export default function MainLayout() {
         options={{
           title: 'Accueil',
           tabBarIcon: ({ focused }) => (
-            <TabIcon name="Accueil" focused={focused} icon="🏠" activeIcon="🏡" />
+            <TabIcon
+              label="Accueil"
+              focused={focused}
+              iconName="home-outline"
+              activeIconName="home"
+            />
           ),
         }}
       />
@@ -79,7 +90,12 @@ export default function MainLayout() {
         options={{
           title: 'Demandes',
           tabBarIcon: ({ focused }) => (
-            <TabIcon name="Demandes" focused={focused} icon="📋" activeIcon="📝" />
+            <TabIcon
+              label="Demandes"
+              focused={focused}
+              iconName="document-text-outline"
+              activeIconName="document-text"
+            />
           ),
         }}
       />
@@ -88,7 +104,12 @@ export default function MainLayout() {
         options={{
           title: 'Ma Carte',
           tabBarIcon: ({ focused }) => (
-            <TabIcon name="Carte" focused={focused} icon="💳" activeIcon="💎" />
+            <TabIcon
+              label="Carte"
+              focused={focused}
+              iconName="card-outline"
+              activeIconName="card"
+            />
           ),
         }}
       />
@@ -97,7 +118,12 @@ export default function MainLayout() {
         options={{
           title: 'Eligibilite',
           tabBarIcon: ({ focused }) => (
-            <TabIcon name="Eligibilite" focused={focused} icon="✅" activeIcon="✨" />
+            <TabIcon
+              label="Eligibilite"
+              focused={focused}
+              iconName="shield-checkmark-outline"
+              activeIconName="shield-checkmark"
+            />
           ),
         }}
       />
@@ -106,47 +132,22 @@ export default function MainLayout() {
         options={{
           title: 'Profil',
           tabBarIcon: ({ focused }) => (
-            <TabIcon name="Profil" focused={focused} icon="👤" activeIcon="😊" />
+            <TabIcon
+              label="Profil"
+              focused={focused}
+              iconName="person-outline"
+              activeIconName="person"
+            />
           ),
         }}
       />
       {/* Hidden screens (accessible via navigation) */}
-      <Tabs.Screen
-        name="notifications"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="praticiens"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="parametres"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="garanties"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="remboursements"
-        options={{
-          href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="bulletins"
-        options={{
-          href: null,
-        }}
-      />
+      <Tabs.Screen name="notifications" options={{ href: null }} />
+      <Tabs.Screen name="praticiens" options={{ href: null }} />
+      <Tabs.Screen name="parametres" options={{ href: null }} />
+      <Tabs.Screen name="garanties" options={{ href: null }} />
+      <Tabs.Screen name="remboursements" options={{ href: null }} />
+      <Tabs.Screen name="bulletins" options={{ href: null }} />
     </Tabs>
   );
 }
@@ -154,50 +155,47 @@ export default function MainLayout() {
 const styles = StyleSheet.create({
   tabBar: {
     position: 'absolute',
-    height: Platform.OS === 'ios' ? 88 : 70,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 8,
-    paddingTop: 12,
-    backgroundColor: Platform.OS === 'ios' ? 'transparent' : colors.background.secondary,
+    height: Platform.OS === 'ios' ? 85 : 64,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 6,
+    paddingTop: 6,
+    backgroundColor: Platform.OS === 'ios' ? 'transparent' : '#ffffff',
     borderTopWidth: 0,
-    ...shadows.lg,
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
   },
-  tabBarBackground: {
-    backgroundColor: colors.background.secondary,
+  tabBarBg: {
+    backgroundColor: '#ffffff',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#f1f5f9',
   },
   tabIconContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 4,
+    width: TAB_WIDTH,
+    paddingTop: 2,
   },
-  iconWrapper: {
+  iconPill: {
     alignItems: 'center',
     justifyContent: 'center',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 32,
+    borderRadius: 16,
   },
-  iconWrapperActive: {
-    backgroundColor: `${colors.primary[500]}15`,
-  },
-  tabIcon: {
-    fontSize: 22,
+  iconPillActive: {
+    backgroundColor: `${colors.primary[500]}12`,
   },
   tabLabel: {
-    fontSize: typography.fontSize.xs,
+    fontSize: 10,
     color: colors.text.tertiary,
-    marginTop: 2,
+    marginTop: 3,
     fontWeight: typography.fontWeight.medium,
+    letterSpacing: 0.1,
   },
-  tabLabelFocused: {
+  tabLabelActive: {
     color: colors.primary[500],
     fontWeight: typography.fontWeight.semibold,
-  },
-  activeIndicator: {
-    position: 'absolute',
-    bottom: -8,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.primary[500],
   },
 });

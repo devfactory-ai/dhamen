@@ -1,5 +1,9 @@
 /**
  * New Demande Screen - Camera capture for bulletin scan with OCR
+ *
+ * Flow: select-type -> capture -> page-review -> extracting -> ocr-review
+ * Supports multi-page document capture (F-006)
+ * Pattern modeled after bulletins/nouveau.tsx
  */
 import { useState, useRef } from 'react';
 import {
@@ -8,15 +12,20 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
+  Image as RNImage,
   Alert,
   ActivityIndicator,
   ScrollView,
   TextInput,
+  FlatList,
+  Platform,
 } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
+import { File } from 'expo-file-system/next';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import type { SanteTypeSoin } from '@dhamen/shared';
@@ -45,108 +54,256 @@ interface OCRExtractedData {
     montantTotal: number;
   }>;
   confidence: number;
+  fieldConfidences?: Record<string, number>;
   warnings: string[];
+}
+
+type Step = 'select-type' | 'capture' | 'page-review' | 'extracting' | 'ocr-review';
+
+async function validateImage(uri: string): Promise<{ valid: boolean; warnings: string[]; error?: string }> {
+  const warnings: string[] = [];
+
+  // 1. Check file size using new expo-file-system API
+  const file = new File(uri);
+  if (!file.exists) {
+    return { valid: false, warnings, error: 'Fichier introuvable' };
+  }
+  if (file.size && file.size > 10 * 1024 * 1024) {
+    return { valid: false, warnings, error: 'Le fichier depasse 10 Mo. Veuillez reduire la taille ou reprendre la photo.' };
+  }
+
+  // 2. Check format (from URI extension)
+  const ext = uri.split('.').pop()?.toLowerCase();
+  if (ext && !['jpg', 'jpeg', 'png'].includes(ext)) {
+    return { valid: false, warnings, error: 'Format non supporte. Seuls JPEG et PNG sont acceptes.' };
+  }
+
+  // 3. Check resolution (warning only, non-blocking)
+  return new Promise(resolve => {
+    RNImage.getSize(
+      uri,
+      (width, height) => {
+        if (width < 1280 || height < 960) {
+          warnings.push(`Resolution faible (${width}x${height}). Recommande: 1280x960 minimum pour une meilleure extraction.`);
+        }
+        resolve({ valid: true, warnings });
+      },
+      () => resolve({ valid: true, warnings }) // Can't check size, proceed anyway
+    );
+  });
+}
+
+function mergeOcrResults(results: OCRExtractedData[]): OCRExtractedData {
+  if (results.length === 0) {
+    return { montantTotal: 0, lignes: [], confidence: 0, warnings: [] };
+  }
+  if (results.length === 1) return results[0];
+
+  const merged: OCRExtractedData = {
+    dateSoin: results.find(r => r.dateSoin)?.dateSoin,
+    typeSoin: results.find(r => r.typeSoin)?.typeSoin,
+    montantTotal: results.reduce((sum, r) => sum + r.montantTotal, 0),
+    praticien: results.find(r => r.praticien?.nom)?.praticien,
+    lignes: results.flatMap(r => r.lignes),
+    confidence: Math.min(...results.map(r => r.confidence)),
+    warnings: results.flatMap(r => r.warnings),
+  };
+
+  // Merge field confidences: take minimum per field
+  const allConfidences = results.filter(r => r.fieldConfidences).map(r => r.fieldConfidences!);
+  if (allConfidences.length > 0) {
+    const mergedConfidences: Record<string, number> = {};
+    for (const fc of allConfidences) {
+      for (const [key, val] of Object.entries(fc)) {
+        mergedConfidences[key] = mergedConfidences[key] !== undefined
+          ? Math.min(mergedConfidences[key], val)
+          : val;
+      }
+    }
+    merged.fieldConfidences = mergedConfidences;
+  }
+
+  return merged;
 }
 
 export default function NouvelleDemande() {
   const [permission, requestPermission] = useCameraPermissions();
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [selectedType, setSelectedType] = useState<SanteTypeSoin | null>(null);
-  const [step, setStep] = useState<'select-type' | 'capture' | 'preview' | 'ocr-review'>('select-type');
+  const [step, setStep] = useState<Step>('select-type');
   const [ocrData, setOcrData] = useState<OCRExtractedData | null>(null);
-  const [isOcrLoading, setIsOcrLoading] = useState(false);
+  const [demandeId, setDemandeId] = useState<string | null>(null);
   const [editedAmount, setEditedAmount] = useState<string>('');
   const [editedDate, setEditedDate] = useState<string>('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [praticienName, setPraticienName] = useState('');
+  const [extractionProgress, setExtractionProgress] = useState('');
+  const [ocrError, setOcrError] = useState<string | null>(null);
   const cameraRef = useRef<CameraView>(null);
   const queryClient = useQueryClient();
 
-  const createDemande = useMutation({
-    mutationFn: async (data: {
-      typeSoin: SanteTypeSoin;
-      imageUri: string;
-      montantDemande?: number;
-      dateSoin?: string;
-    }) => {
-      // Create demande first
-      const createResponse = await apiClient.post<{ success: boolean; data: { id: string } }>(
+  const isLowConfidence = (field: string) =>
+    ocrData?.fieldConfidences?.[field] !== undefined &&
+    ocrData.fieldConfidences[field] < 0.7;
+
+  // Format amount for display (millimes to TND)
+  const formatAmount = (millimes: number) => {
+    return (millimes / 1000).toFixed(3);
+  };
+
+  // OCR extraction: create brouillon -> upload each page -> OCR each -> merge -> prefill
+  const runOcrExtraction = async (images: string[]) => {
+    setOcrError(null);
+
+    try {
+      // 1. Create brouillon demande
+      setExtractionProgress('Creation de la demande...');
+      const demandeResp = await apiClient.post<{ id: string; numeroDemande: string }>(
         '/sante/demandes',
         {
-          typeSoin: data.typeSoin,
-          montantDemande: data.montantDemande || 0,
-          dateSoin: data.dateSoin || new Date().toISOString().split('T')[0],
+          typeSoin: selectedType,
+          montantDemande: 0,
+          dateSoin: new Date().toISOString().split('T')[0],
+          statut: 'brouillon',
         }
       );
-
-      if (!createResponse.success || !createResponse.data?.id) {
+      if (!demandeResp.success || !demandeResp.data) {
         throw new Error('Failed to create demande');
       }
+      const createdId = (demandeResp.data as unknown as { data: { id: string } }).data?.id
+        ?? (demandeResp.data as unknown as { id: string }).id;
+      setDemandeId(createdId);
 
-      const demandeId = createResponse.data.id;
+      // 2. Upload and OCR each page
+      const ocrResults: OCRExtractedData[] = [];
+      const totalPages = images.length;
+      let hasTimeout = false;
 
-      // Upload document
-      const formData = new FormData();
-      formData.append('file', {
-        uri: data.imageUri,
-        type: 'image/jpeg',
-        name: 'bulletin.jpg',
-      } as unknown as Blob);
-      formData.append('demandeId', demandeId);
-      formData.append('typeDocument', 'bulletin_soin');
+      for (let i = 0; i < totalPages; i++) {
+        const imageUri = images[i];
+        setExtractionProgress(
+          totalPages > 1
+            ? `Extraction page ${i + 1}/${totalPages}...`
+            : 'Extraction des informations...'
+        );
 
-      const uploadResponse = await apiClient.upload<{ data: { id: string } }>('/sante/documents/upload', formData);
+        // Upload
+        const formData = new FormData();
+        formData.append('file', {
+          uri: imageUri,
+          type: 'image/jpeg',
+          name: `page_${i + 1}.jpg`,
+        } as unknown as Blob);
+        formData.append('demandeId', createdId);
+        formData.append('typeDocument', 'bulletin_soin');
 
-      if (!uploadResponse.success) {
-        throw new Error('Failed to upload document');
+        const uploadResp = await apiClient.upload<{ id: string }>('/sante/documents/upload', formData);
+        if (!uploadResp.success || !uploadResp.data) {
+          console.warn(`Upload failed for page ${i + 1}, skipping`);
+          continue;
+        }
+        const docId = (uploadResp.data as unknown as { data: { id: string } }).data?.id
+          ?? (uploadResp.data as unknown as { id: string }).id;
+
+        // Trigger OCR (with 15s timeout per page)
+        const ocrResp = await Promise.race([
+          apiClient.post<{ data: OCRExtractedData }>(`/sante/documents/${docId}/ocr`),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+        ]);
+
+        if (ocrResp === null) {
+          hasTimeout = true;
+        } else if (typeof ocrResp === 'object' && 'success' in ocrResp) {
+          if (ocrResp.success && ocrResp.data) {
+            const extracted = (ocrResp.data as unknown as { data: OCRExtractedData }).data
+              ?? (ocrResp.data as unknown as OCRExtractedData);
+            // Skip fallback results (confidence=0 means AI was unavailable)
+            if (extracted && extracted.confidence > 0) {
+              ocrResults.push(extracted);
+            } else {
+              console.warn(`OCR page ${i + 1}: resultat fallback (AI indisponible)`);
+            }
+          } else {
+            // OCR API returned an error
+            const errorMsg = (ocrResp as { error?: { message?: string } }).error?.message || '';
+            console.warn(`OCR page ${i + 1} echouee: ${errorMsg}`);
+          }
+        }
       }
 
-      // Trigger OCR in background (don't wait for it)
-      const documentId = uploadResponse.data?.id;
-      if (documentId) {
-        apiClient.post(`/sante/documents/${documentId}/ocr`).catch(console.error);
-      }
+      // 3. Merge results and prefill
+      if (ocrResults.length > 0) {
+        const merged = mergeOcrResults(ocrResults);
+        setOcrData(merged);
 
-      return { demandeId };
+        if (merged.dateSoin) setEditedDate(merged.dateSoin);
+        if (merged.typeSoin) setSelectedType(merged.typeSoin);
+        if (merged.montantTotal > 0) {
+          setEditedAmount((merged.montantTotal / 1000).toFixed(3));
+        }
+        if (merged.praticien?.nom) setPraticienName(merged.praticien.nom);
+
+        if (hasTimeout) {
+          setOcrError('L\'extraction de certaines pages a pris trop de temps. Verifiez les champs ci-dessous.');
+        }
+      } else if (hasTimeout) {
+        setOcrError('L\'extraction a pris trop de temps. Vous pouvez remplir les champs manuellement.');
+      } else {
+        setOcrError('L\'extraction automatique a echoue. Veuillez remplir les champs manuellement.');
+      }
+    } catch (error) {
+      console.warn('OCR extraction failed, continuing with manual entry:', error);
+      setOcrError('L\'extraction automatique a echoue. Veuillez remplir les champs manuellement.');
+    } finally {
+      setExtractionProgress('');
+      setStep('ocr-review');
+    }
+  };
+
+  // Submit mutation: PATCH brouillon -> soumise
+  const submitDemande = useMutation({
+    mutationFn: async (data: {
+      demandeId: string;
+      statut: 'soumise';
+      montantDemande: number;
+      dateSoin: string;
+      typeSoin: SanteTypeSoin;
+    }) => {
+      const response = await apiClient.patch<{ id: string; numeroDemande: string }>(
+        `/sante/demandes/${data.demandeId}`,
+        {
+          statut: data.statut,
+          montantDemande: data.montantDemande,
+          dateSoin: data.dateSoin,
+          typeSoin: data.typeSoin,
+        }
+      );
+      if (!response.success) {
+        const msg = response.error?.message || 'Erreur lors de la soumission';
+        throw new Error(msg);
+      }
+      return response.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['mes-demandes'] });
+      queryClient.invalidateQueries({ queryKey: ['sante-demandes'] });
+      queryClient.invalidateQueries({ queryKey: ['sante-stats'] });
+      const numDemande = (data as unknown as { data: { numeroDemande: string } })?.data?.numeroDemande
+        ?? (data as unknown as { numeroDemande: string })?.numeroDemande
+        ?? '';
       Alert.alert(
-        'Demande envoyee',
-        'Votre demande de remboursement a ete soumise avec succes.',
+        'Demande soumise',
+        `Votre demande ${numDemande} a ete soumise avec succes.`,
         [{ text: 'OK', onPress: () => router.back() }]
       );
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       Alert.alert(
         'Erreur',
-        'Une erreur est survenue lors de l\'envoi de votre demande. Veuillez reessayer.'
+        error.message || 'Une erreur est survenue lors de la soumission. Veuillez reessayer.'
       );
-      console.error('Create demande error:', error);
     },
   });
-
-  // OCR extraction after capture
-  const runOCR = async (imageUri: string) => {
-    setIsOcrLoading(true);
-    try {
-      // Create a temporary demande and upload document to trigger OCR
-      const formData = new FormData();
-      formData.append('file', {
-        uri: imageUri,
-        type: 'image/jpeg',
-        name: 'bulletin_ocr.jpg',
-      } as unknown as Blob);
-
-      // For OCR preview, we'll do a simplified extraction locally
-      // The full OCR will be done server-side after submission
-      setOcrData(null);
-      setStep('preview');
-    } catch (error) {
-      console.error('OCR error:', error);
-      setStep('preview');
-    } finally {
-      setIsOcrLoading(false);
-    }
-  };
 
   const handleCapture = async () => {
     if (!cameraRef.current) return;
@@ -157,8 +314,27 @@ export default function NouvelleDemande() {
         base64: false,
       });
       if (photo?.uri) {
-        setCapturedImage(photo.uri);
-        setStep('preview');
+        const validation = await validateImage(photo.uri);
+        if (!validation.valid) {
+          Alert.alert('Fichier invalide', validation.error!);
+          return;
+        }
+        if (validation.warnings.length > 0) {
+          Alert.alert(
+            'Qualite de l\'image',
+            validation.warnings.join('\n'),
+            [
+              { text: 'Reprendre', style: 'cancel' },
+              { text: 'Continuer quand meme', onPress: () => {
+                setCapturedImages(prev => [...prev, photo.uri]);
+                setStep('page-review');
+              }},
+            ]
+          );
+          return;
+        }
+        setCapturedImages(prev => [...prev, photo.uri]);
+        setStep('page-review');
       }
     } catch (error) {
       Alert.alert('Erreur', 'Impossible de prendre la photo');
@@ -174,34 +350,71 @@ export default function NouvelleDemande() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      setCapturedImage(result.assets[0].uri);
-      setStep('preview');
+      const uri = result.assets[0].uri;
+      const validation = await validateImage(uri);
+      if (!validation.valid) {
+        Alert.alert('Fichier invalide', validation.error!);
+        return;
+      }
+      if (validation.warnings.length > 0) {
+        Alert.alert(
+          'Qualite de l\'image',
+          validation.warnings.join('\n'),
+          [
+            { text: 'Annuler', style: 'cancel' },
+            { text: 'Continuer quand meme', onPress: () => {
+              setCapturedImages(prev => [...prev, uri]);
+              setStep('page-review');
+            }},
+          ]
+        );
+        return;
+      }
+      setCapturedImages(prev => [...prev, uri]);
+      setStep('page-review');
     }
   };
 
+  const handleRemovePage = (index: number) => {
+    setCapturedImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleProceedToExtraction = () => {
+    if (capturedImages.length === 0) return;
+    setStep('extracting');
+    runOcrExtraction(capturedImages);
+  };
+
   const handleRetake = () => {
-    setCapturedImage(null);
+    setCapturedImages([]);
+    setOcrData(null);
+    setOcrError(null);
+    setDemandeId(null);
+    setEditedAmount('');
+    setEditedDate('');
+    setPraticienName('');
+    setExtractionProgress('');
     setStep('capture');
   };
 
   const handleSubmit = () => {
-    if (!capturedImage || !selectedType) return;
+    if (!demandeId || !selectedType) return;
 
-    // Use edited or OCR values
-    const montant = editedAmount ? parseFloat(editedAmount) * 1000 : ocrData?.montantTotal || 0;
-    const date = editedDate || ocrData?.dateSoin || new Date().toISOString().split('T')[0];
+    const montant = parseFloat((editedAmount || '0').replace(',', '.'));
+    if (isNaN(montant) || montant <= 0) {
+      Alert.alert('Erreur', 'Veuillez saisir un montant valide');
+      return;
+    }
 
-    createDemande.mutate({
+    const dateSoin = editedDate || new Date().toISOString().split('T')[0];
+
+    submitDemande.mutate({
+      demandeId,
+      statut: 'soumise',
+      montantDemande: Math.round(montant * 1000), // TND -> millimes
+      dateSoin,
       typeSoin: selectedType,
-      imageUri: capturedImage,
-      montantDemande: montant,
-      dateSoin: date,
     });
-  };
-
-  // Format amount for display (millimes to TND)
-  const formatAmount = (millimes: number) => {
-    return (millimes / 1000).toFixed(3);
   };
 
   // Step 1: Select type of care
@@ -210,7 +423,7 @@ export default function NouvelleDemande() {
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Text style={styles.backText}>← Retour</Text>
+            <Text style={styles.backText}>{'<-'} Retour</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Nouvelle demande</Text>
         </View>
@@ -218,7 +431,7 @@ export default function NouvelleDemande() {
         <ScrollView style={styles.content}>
           <Text style={styles.stepTitle}>1. Type de soin</Text>
           <Text style={styles.stepDescription}>
-            Sélectionnez le type de soin pour votre demande de remboursement
+            Selectionnez le type de soin pour votre demande de remboursement
           </Text>
 
           <View style={styles.typesGrid}>
@@ -266,10 +479,10 @@ export default function NouvelleDemande() {
         <SafeAreaView style={styles.container}>
           <View style={styles.permissionContainer}>
             <Text style={styles.permissionText}>
-              Nous avons besoin de votre permission pour accéder à la caméra
+              Nous avons besoin de votre permission pour acceder a la camera
             </Text>
             <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
-              <Text style={styles.primaryButtonText}>Autoriser la caméra</Text>
+              <Text style={styles.primaryButtonText}>Autoriser la camera</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -279,10 +492,15 @@ export default function NouvelleDemande() {
     return (
       <SafeAreaView style={styles.cameraContainer}>
         <View style={styles.cameraHeader}>
-          <TouchableOpacity onPress={() => setStep('select-type')} style={styles.backButton}>
-            <Text style={styles.backTextWhite}>← Retour</Text>
+          <TouchableOpacity
+            onPress={() => setStep(capturedImages.length > 0 ? 'page-review' : 'select-type')}
+            style={styles.backButton}
+          >
+            <Text style={styles.backTextWhite}>{'<-'} Retour</Text>
           </TouchableOpacity>
-          <Text style={styles.cameraHeaderTitle}>Scanner le bulletin</Text>
+          <Text style={styles.cameraHeaderTitle}>
+            {capturedImages.length > 0 ? `Scanner page ${capturedImages.length + 1}` : 'Scanner le bulletin'}
+          </Text>
         </View>
 
         <CameraView ref={cameraRef} style={styles.camera} facing="back">
@@ -310,75 +528,269 @@ export default function NouvelleDemande() {
     );
   }
 
-  // Step 3: Preview and submit
+  // Step 3: Page review (multi-page support)
+  if (step === 'page-review') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={handleRetake} style={styles.backButton}>
+            <Text style={styles.backText}>{'<-'} Reprendre</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>
+            {capturedImages.length} page{capturedImages.length > 1 ? 's' : ''} capturee{capturedImages.length > 1 ? 's' : ''}
+          </Text>
+        </View>
+
+        <ScrollView style={styles.content}>
+          <Text style={styles.stepTitle}>Pages capturees</Text>
+          <Text style={styles.stepDescription}>
+            Vous pouvez ajouter d'autres pages ou continuer vers l'extraction.
+          </Text>
+
+          <View style={styles.pageGrid}>
+            {capturedImages.map((uri, index) => (
+              <View key={index} style={styles.pageThumbnailContainer}>
+                <Image source={{ uri }} style={styles.pageThumbnail} />
+                <View style={styles.pageBadge}>
+                  <Text style={styles.pageBadgeText}>Page {index + 1}</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.pageRemoveButton}
+                  onPress={() => {
+                    handleRemovePage(index);
+                    if (capturedImages.length <= 1) {
+                      setStep('capture');
+                    }
+                  }}
+                >
+                  <Text style={styles.pageRemoveText}>X</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => setStep('capture')}
+          >
+            <Text style={styles.secondaryButtonText}>Ajouter une page</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.primaryButton, capturedImages.length === 0 && styles.buttonDisabled]}
+            onPress={handleProceedToExtraction}
+            disabled={capturedImages.length === 0}
+          >
+            <Text style={styles.primaryButtonText}>Continuer vers l'extraction</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // Step 4: OCR extraction in progress
+  if (step === 'extracting') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={handleRetake} style={styles.backButton}>
+            <Text style={styles.backText}>{'<-'} Reprendre</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Analyse en cours</Text>
+        </View>
+
+        <View style={styles.extractingContainer}>
+          {capturedImages.length > 0 && (
+            <Image source={{ uri: capturedImages[0] }} style={styles.extractingImage} />
+          )}
+          <ActivityIndicator size="large" color="#1e3a5f" style={{ marginTop: 24 }} />
+          <Text style={styles.extractingTitle}>
+            {extractionProgress || 'Extraction des informations...'}
+          </Text>
+          <Text style={styles.extractingSubtitle}>
+            {capturedImages.length > 1
+              ? `Analyse de ${capturedImages.length} pages en cours.\nLes resultats seront fusionnes automatiquement.`
+              : 'Analyse du bulletin de soins en cours.\nLes champs seront pre-remplis automatiquement.'}
+          </Text>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => setStep('ocr-review')}
+          >
+            <Text style={styles.secondaryButtonText}>Passer et remplir manuellement</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Step 4: OCR review and submit
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={handleRetake} style={styles.backButton}>
-          <Text style={styles.backText}>← Reprendre</Text>
+          <Text style={styles.backText}>{'<-'} Reprendre</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Vérification</Text>
+        <Text style={styles.headerTitle}>Verification</Text>
       </View>
 
-      <ScrollView style={styles.content}>
-        <Text style={styles.stepTitle}>3. Vérification</Text>
-        <Text style={styles.stepDescription}>
-          Vérifiez que le bulletin est lisible avant d'envoyer
-        </Text>
-
-        {capturedImage && (
+      <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
+        {capturedImages.length > 0 && (
           <View style={styles.previewContainer}>
-            <Image source={{ uri: capturedImage }} style={styles.previewImage} />
-          </View>
-        )}
-
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Type de soin</Text>
-          <Text style={styles.summaryValue}>
-            {TYPES_SOIN.find((t) => t.value === selectedType)?.label}
-          </Text>
-        </View>
-
-        {/* OCR extracted data or manual input */}
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Montant (TND)</Text>
-          <TextInput
-            style={styles.amountInput}
-            value={editedAmount || (ocrData?.montantTotal ? formatAmount(ocrData.montantTotal) : '')}
-            onChangeText={setEditedAmount}
-            placeholder="Ex: 50.000"
-            keyboardType="decimal-pad"
-          />
-          {ocrData?.confidence && ocrData.confidence > 0.5 && (
-            <Text style={styles.ocrHint}>
-              Detecte automatiquement (confiance: {Math.round(ocrData.confidence * 100)}%)
-            </Text>
-          )}
-        </View>
-
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Date du soin</Text>
-          <TextInput
-            style={styles.amountInput}
-            value={editedDate || ocrData?.dateSoin || ''}
-            onChangeText={setEditedDate}
-            placeholder="AAAA-MM-JJ"
-          />
-        </View>
-
-        {ocrData?.praticien?.nom && (
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Praticien detecte</Text>
-            <Text style={styles.summaryValue}>{ocrData.praticien.nom}</Text>
-            {ocrData.praticien.specialite && (
-              <Text style={styles.summarySubvalue}>{ocrData.praticien.specialite}</Text>
+            {capturedImages.length === 1 ? (
+              <Image source={{ uri: capturedImages[0] }} style={styles.previewImage} />
+            ) : (
+              <FlatList
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={capturedImages}
+                keyExtractor={(_, i) => String(i)}
+                renderItem={({ item, index }) => (
+                  <View style={styles.reviewThumbnailContainer}>
+                    <Image source={{ uri: item }} style={styles.reviewThumbnail} />
+                    <Text style={styles.reviewThumbnailLabel}>Page {index + 1}</Text>
+                  </View>
+                )}
+                contentContainerStyle={styles.reviewThumbnailList}
+              />
             )}
           </View>
         )}
 
+        {ocrError && (
+          <View style={styles.errorCard}>
+            <Text style={styles.errorText}>{ocrError}</Text>
+            <Text style={styles.errorSubtext}>
+              Tous les champs sont modifiables ci-dessous.
+            </Text>
+          </View>
+        )}
+
+        {ocrData && ocrData.confidence > 0 && (
+          <View style={styles.ocrInfoCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.ocrInfoTitle}>
+                Champs pre-remplis automatiquement
+              </Text>
+              <Text style={styles.ocrInfoText}>
+                Confiance: {Math.round(ocrData.confidence * 100)}% — Verifiez et corrigez si necessaire.
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Type de soin */}
+        <View style={[
+          styles.formCard,
+          isLowConfidence('typeSoin') && styles.lowConfidenceCard,
+        ]}>
+          <View style={styles.formLabelRow}>
+            <Text style={styles.formLabel}>Type de soin</Text>
+            {isLowConfidence('typeSoin') && (
+              <Text style={styles.lowConfidenceWarning}>Confiance faible</Text>
+            )}
+          </View>
+          <Text style={styles.formValue}>
+            {TYPES_SOIN.find((t) => t.value === selectedType)?.label || 'Non defini'}
+          </Text>
+        </View>
+
+        {/* Date du soin */}
+        <View style={[
+          styles.formCard,
+          isLowConfidence('dateSoin') && styles.lowConfidenceCard,
+        ]}>
+          <View style={styles.formLabelRow}>
+            <Text style={styles.formLabel}>
+              Date du soin <Text style={styles.required}>*</Text>
+            </Text>
+            {isLowConfidence('dateSoin') && (
+              <Text style={styles.lowConfidenceWarning}>Confiance faible — verifiez cette valeur</Text>
+            )}
+          </View>
+          <TouchableOpacity
+            style={styles.datePickerButton}
+            onPress={() => setShowDatePicker(true)}
+          >
+            <Text style={editedDate ? styles.datePickerText : styles.datePickerPlaceholder}>
+              {editedDate
+                ? new Date(editedDate).toLocaleDateString('fr-TN', { day: '2-digit', month: 'long', year: 'numeric' })
+                : 'Selectionner une date'}
+            </Text>
+            <Text style={styles.datePickerIcon}>📅</Text>
+          </TouchableOpacity>
+          {showDatePicker && (
+            <DateTimePicker
+              value={editedDate ? new Date(editedDate) : new Date()}
+              mode="date"
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              maximumDate={new Date()}
+              locale="fr-TN"
+              onChange={(_event, selectedDate) => {
+                setShowDatePicker(Platform.OS === 'ios');
+                if (selectedDate) {
+                  setEditedDate(selectedDate.toISOString().split('T')[0]);
+                }
+              }}
+            />
+          )}
+        </View>
+
+        {/* Montant total */}
+        <View style={[
+          styles.formCard,
+          isLowConfidence('montantTotal') && styles.lowConfidenceCard,
+        ]}>
+          <View style={styles.formLabelRow}>
+            <Text style={styles.formLabel}>
+              Montant total (TND) <Text style={styles.required}>*</Text>
+            </Text>
+            {isLowConfidence('montantTotal') && (
+              <Text style={styles.lowConfidenceWarning}>Confiance faible — verifiez cette valeur</Text>
+            )}
+          </View>
+          <TextInput
+            style={styles.formInput}
+            value={editedAmount}
+            onChangeText={setEditedAmount}
+            placeholder="Ex: 50.000"
+            keyboardType="decimal-pad"
+          />
+        </View>
+
+        {/* Praticien */}
+        <View style={[
+          styles.formCard,
+          isLowConfidence('praticienNom') && styles.lowConfidenceCard,
+        ]}>
+          <View style={styles.formLabelRow}>
+            <Text style={styles.formLabel}>Praticien</Text>
+            {isLowConfidence('praticienNom') && (
+              <Text style={styles.lowConfidenceWarning}>Confiance faible — verifiez cette valeur</Text>
+            )}
+          </View>
+          <TextInput
+            style={styles.formInput}
+            value={praticienName}
+            onChangeText={setPraticienName}
+            placeholder="Nom du praticien"
+          />
+          {ocrData?.praticien?.specialite && (
+            <Text style={styles.formSubvalue}>{ocrData.praticien.specialite}</Text>
+          )}
+        </View>
+
+        {/* Articles/Actes (read-only from OCR) */}
         {ocrData?.lignes && ocrData.lignes.length > 0 && (
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Articles detectes</Text>
+          <View style={[
+            styles.formCard,
+            isLowConfidence('lignes') && styles.lowConfidenceCard,
+          ]}>
+            <View style={styles.formLabelRow}>
+              <Text style={styles.formLabel}>Articles/Actes detectes</Text>
+              {isLowConfidence('lignes') && (
+                <Text style={styles.lowConfidenceWarning}>Confiance faible</Text>
+              )}
+            </View>
             {ocrData.lignes.slice(0, 5).map((ligne, index) => (
               <View key={index} style={styles.ligneRow}>
                 <Text style={styles.ligneLibelle} numberOfLines={1}>{ligne.libelle}</Text>
@@ -391,20 +803,24 @@ export default function NouvelleDemande() {
           </View>
         )}
 
+        {/* Warnings */}
         {ocrData?.warnings && ocrData.warnings.length > 0 && (
           <View style={styles.warningCard}>
-            <Text style={styles.warningText}>
-              {ocrData.warnings[0]}
-            </Text>
+            {ocrData.warnings.map((w, i) => (
+              <Text key={i} style={styles.warningText}>{w}</Text>
+            ))}
           </View>
         )}
 
         <TouchableOpacity
-          style={[styles.primaryButton, createDemande.isPending && styles.buttonDisabled]}
+          style={[
+            styles.primaryButton,
+            (submitDemande.isPending || !editedAmount) && styles.buttonDisabled,
+          ]}
           onPress={handleSubmit}
-          disabled={createDemande.isPending}
+          disabled={submitDemande.isPending || !editedAmount}
         >
-          {createDemande.isPending ? (
+          {submitDemande.isPending ? (
             <ActivityIndicator color="#fff" />
           ) : (
             <Text style={styles.primaryButtonText}>Envoyer la demande</Text>
@@ -414,6 +830,8 @@ export default function NouvelleDemande() {
         <TouchableOpacity style={styles.secondaryButton} onPress={handleRetake}>
           <Text style={styles.secondaryButtonText}>Reprendre la photo</Text>
         </TouchableOpacity>
+
+        <View style={styles.bottomPadding} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -579,6 +997,33 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 24,
   },
+  extractingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  extractingImage: {
+    width: 200,
+    height: 140,
+    borderRadius: 12,
+    resizeMode: 'cover',
+    opacity: 0.7,
+  },
+  extractingTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1e3a5f',
+    marginTop: 16,
+  },
+  extractingSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 32,
+    lineHeight: 20,
+  },
   previewContainer: {
     borderRadius: 12,
     overflow: 'hidden',
@@ -586,77 +1031,105 @@ const styles = StyleSheet.create({
   },
   previewImage: {
     width: '100%',
-    height: 300,
+    height: 200,
     resizeMode: 'contain',
     backgroundColor: '#000',
   },
-  summaryCard: {
+  ocrInfoCard: {
+    flexDirection: 'row',
+    backgroundColor: '#f0fdf4',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    alignItems: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  ocrInfoTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#166534',
+    marginBottom: 2,
+  },
+  ocrInfoText: {
+    fontSize: 12,
+    color: '#15803d',
+  },
+  formCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: 'transparent',
   },
-  summaryLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
+  lowConfidenceCard: {
+    borderLeftColor: '#f59e0b',
+    backgroundColor: '#fffbeb',
   },
-  summaryValue: {
-    fontSize: 16,
-    fontWeight: '600',
+  formLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  formLabel: {
+    fontSize: 14,
+    fontWeight: '500',
     color: '#333',
   },
-  primaryButton: {
-    backgroundColor: '#1e3a5f',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 12,
+  required: {
+    color: '#ef4444',
   },
-  primaryButtonText: {
-    color: '#fff',
+  lowConfidenceWarning: {
+    fontSize: 11,
+    color: '#d97706',
+    fontWeight: '500',
+  },
+  formInput: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 12,
     fontSize: 16,
-    fontWeight: '600',
-  },
-  secondaryButton: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
+    color: '#333',
     borderWidth: 1,
     borderColor: '#e0e0e0',
   },
-  secondaryButtonText: {
-    color: '#666',
+  datePickerButton: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  datePickerText: {
     fontSize: 16,
-    fontWeight: '500',
+    color: '#333',
   },
-  buttonDisabled: {
-    opacity: 0.6,
+  datePickerPlaceholder: {
+    fontSize: 16,
+    color: '#999',
   },
-  amountInput: {
+  datePickerIcon: {
     fontSize: 18,
+  },
+  formValue: {
+    fontSize: 16,
     fontWeight: '600',
     color: '#333',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    paddingVertical: 8,
-    marginTop: 4,
   },
-  ocrHint: {
-    fontSize: 12,
-    color: '#28a745',
-    marginTop: 4,
-  },
-  summarySubvalue: {
-    fontSize: 14,
+  formSubvalue: {
+    fontSize: 13,
     color: '#666',
-    marginTop: 2,
+    marginTop: 4,
   },
   ligneRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 4,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
@@ -677,6 +1150,24 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontStyle: 'italic',
   },
+  errorCard: {
+    backgroundColor: '#fef2f2',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: '#ef4444',
+  },
+  errorText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#991b1b',
+    marginBottom: 4,
+  },
+  errorSubtext: {
+    fontSize: 12,
+    color: '#b91c1c',
+  },
   warningCard: {
     backgroundColor: '#fff3cd',
     borderRadius: 8,
@@ -688,5 +1179,104 @@ const styles = StyleSheet.create({
   warningText: {
     fontSize: 13,
     color: '#856404',
+    marginBottom: 2,
+  },
+  primaryButton: {
+    backgroundColor: '#1e3a5f',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  secondaryButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    marginBottom: 12,
+  },
+  secondaryButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  pageGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 16,
+  },
+  pageThumbnailContainer: {
+    width: '47%',
+    position: 'relative',
+  },
+  pageThumbnail: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    resizeMode: 'cover',
+    backgroundColor: '#e0e0e0',
+  },
+  pageBadge: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  pageBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  pageRemoveButton: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(220,53,69,0.85)',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pageRemoveText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  reviewThumbnailContainer: {
+    marginRight: 8,
+    alignItems: 'center',
+  },
+  reviewThumbnail: {
+    width: 100,
+    height: 70,
+    borderRadius: 8,
+    resizeMode: 'cover',
+    backgroundColor: '#e0e0e0',
+  },
+  reviewThumbnailLabel: {
+    fontSize: 11,
+    color: '#666',
+    marginTop: 4,
+  },
+  reviewThumbnailList: {
+    paddingVertical: 4,
+  },
+  bottomPadding: {
+    height: 40,
   },
 });

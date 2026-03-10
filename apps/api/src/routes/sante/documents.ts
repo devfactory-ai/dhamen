@@ -276,12 +276,17 @@ documents.post(
       return forbidden(c, 'Acces non autorise');
     }
 
-    // Check if already processed
-    if (doc.ocrStatus === 'completed' && doc.ocrResultJson) {
-      return success(c, {
-        message: 'OCR deja effectue',
-        data: JSON.parse(doc.ocrResultJson),
-      });
+    // Check if already processed (allow re-processing with ?force=true)
+    const forceReprocess = c.req.query('force') === 'true';
+    if (!forceReprocess && doc.ocrStatus === 'completed' && doc.ocrResultJson) {
+      const cachedResult = JSON.parse(doc.ocrResultJson);
+      // Don't return cached fallback results (confidence=0 means AI was unavailable)
+      if (cachedResult.confidence > 0) {
+        return success(c, {
+          message: 'OCR deja effectue',
+          data: cachedResult,
+        });
+      }
     }
 
     // Mark as processing
@@ -329,7 +334,10 @@ documents.post(
         data: extractedData,
       });
     } catch (error) {
-      // Mark as failed
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const isAiUnavailable = errorMessage === 'AI_NOT_AVAILABLE';
+
+      // Mark as failed (so it can be retried)
       await updateDocumentOcrStatus(getDb(c), id, 'failed');
 
       await logAudit(getDb(c), {
@@ -337,10 +345,14 @@ documents.post(
         action: 'sante_documents.ocr_failed',
         entityType: 'sante_documents',
         entityId: id,
-        changes: { error: error instanceof Error ? error.message : 'Unknown error' },
+        changes: { error: errorMessage },
       });
 
-      return badRequest(c, `Erreur OCR: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (isAiUnavailable) {
+        return badRequest(c, 'Service OCR non disponible. Veuillez remplir les champs manuellement.');
+      }
+
+      return badRequest(c, `Erreur OCR: ${errorMessage}`);
     }
   }
 );

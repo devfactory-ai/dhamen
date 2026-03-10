@@ -15,6 +15,7 @@ import {
   parseLineItems,
   validateExtractedData,
   calculateConfidence,
+  calculateFieldConfidences,
 } from './ocr.rules';
 
 // Workers AI model for vision
@@ -23,6 +24,10 @@ const VISION_MODEL = '@cf/meta/llama-3.2-11b-vision-instruct';
 // Prompt template for extraction
 const EXTRACTION_PROMPT = `Vous etes un assistant specialise dans l'analyse de documents medicaux tunisiens.
 Analysez cette image d'un bulletin de soins ou d'une facture medicale tunisienne.
+
+IMPORTANT: Le document peut etre en francais, en arabe, ou bilingue (francais/arabe).
+Si le document est en arabe, extrayez les informations et retournez-les en francais dans le JSON.
+Les noms propres (praticien, adherent) doivent etre translitteres en caracteres latins si necessaire.
 
 Extrayez les informations suivantes au format JSON:
 {
@@ -67,8 +72,8 @@ export async function extractBulletinData(
 
   // Check if AI binding exists
   if (!c.env.AI) {
-    console.warn('Workers AI not available, using fallback extraction');
-    return createFallbackResult();
+    console.warn('Workers AI not available');
+    throw new Error('AI_NOT_AVAILABLE');
   }
 
   try {
@@ -94,6 +99,7 @@ export async function extractBulletinData(
 
     // Calculate confidence
     extractedData.confidence = calculateConfidence(extractedData);
+    extractedData.fieldConfidences = calculateFieldConfidences(extractedData);
 
     // Validate and clean data
     const validatedData = validateExtractedData(extractedData);

@@ -350,7 +350,7 @@ export function BulletinsValidationPage() {
 
   const handleViewScan = (bulletin: BulletinSoins) => {
     if (bulletin.scan_url) {
-      window.open(bulletin.scan_url, '_blank');
+      window.open(`/api/v1/bulletins-soins/manage/${bulletin.id}/scan`, '_blank');
     }
   };
 

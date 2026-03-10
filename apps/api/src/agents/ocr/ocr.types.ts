@@ -54,9 +54,15 @@ export interface BulletinExtractedData {
 
   // Metadata
   confidence: number;
+  fieldConfidences?: FieldConfidence;
   warnings: string[];
   rawText?: string;
 }
+
+/**
+ * Per-field confidence scores for OCR extraction
+ */
+export type FieldConfidence = Record<string, number>;
 
 /**
  * OCR request parameters

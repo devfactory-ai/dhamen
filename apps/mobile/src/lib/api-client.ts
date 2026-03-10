@@ -320,7 +320,38 @@ class ApiClient {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' });
   }
 
-  async upload<T>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> {
+  async upload<T>(
+    endpoint: string,
+    formData: FormData,
+    options?: { maxRetries?: number; onRetry?: (attempt: number) => void }
+  ): Promise<ApiResponse<T>> {
+    const maxRetries = options?.maxRetries ?? 3;
+    let lastError: ApiResponse<T> | null = null;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      if (attempt > 0) {
+        // Exponential backoff: 1s, 2s, 4s
+        const delay = Math.pow(2, attempt - 1) * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        options?.onRetry?.(attempt);
+      }
+
+      const result = await this._doUpload<T>(endpoint, formData);
+
+      // Don't retry on non-network errors (auth, validation, server errors with response)
+      if (result.success) return result;
+
+      const code = result.error?.code;
+      const isRetryable = code === 'NETWORK_ERROR' || code === 'TIMEOUT';
+      if (!isRetryable) return result;
+
+      lastError = result;
+    }
+
+    return lastError!;
+  }
+
+  private async _doUpload<T>(endpoint: string, formData: FormData): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint}`;
 
     try {
@@ -336,41 +367,56 @@ class ApiClient {
       }
 
       // Note: Don't set Content-Type for FormData, let fetch set it with boundary
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: formData,
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-      if (!response.ok) {
-        if (response.status === 401 && token) {
-          const refreshed = await this.refreshTokenWithLocking();
-          if (refreshed) {
-            headers.Authorization = `Bearer ${await this.getAccessToken()}`;
-            const retryResponse = await fetch(url, {
-              method: 'POST',
-              headers,
-              body: formData,
-            });
-            return retryResponse.json();
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: formData,
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          if (response.status === 401 && token) {
+            const refreshed = await this.refreshTokenWithLocking();
+            if (refreshed) {
+              headers.Authorization = `Bearer ${await this.getAccessToken()}`;
+              const retryResponse = await fetch(url, {
+                method: 'POST',
+                headers,
+                body: formData,
+              });
+              return retryResponse.json();
+            }
+            await this.clearTokens();
+            emitAuthEvent('logout');
+            return {
+              success: false,
+              error: { code: 'SESSION_EXPIRED', message: 'Session expirée' },
+            };
           }
-          await this.clearTokens();
-          emitAuthEvent('logout');
+
+          const errorData = await response.json().catch(() => ({}));
           return {
             success: false,
-            error: { code: 'SESSION_EXPIRED', message: 'Session expirée' },
+            error: errorData.error || { code: 'UPLOAD_ERROR', message: 'Échec de l\'upload' },
           };
         }
 
-        const errorData = await response.json().catch(() => ({}));
+        return response.json();
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
         return {
           success: false,
-          error: errorData.error || { code: 'UPLOAD_ERROR', message: 'Échec de l\'upload' },
+          error: { code: 'TIMEOUT', message: 'La requête a expiré' },
         };
       }
 
-      return response.json();
-    } catch (error) {
       return {
         success: false,
         error: { code: 'NETWORK_ERROR', message: 'Erreur de connexion' },
