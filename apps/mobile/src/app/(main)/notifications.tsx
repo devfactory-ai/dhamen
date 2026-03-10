@@ -137,9 +137,12 @@ function NotificationCard({
             </Text>
             {isUnread && <View style={[styles.unreadDot, { backgroundColor: notifColors.color }]} />}
           </View>
-          <Text style={styles.notificationBody} numberOfLines={2}>
+          <Text style={styles.notificationBody} numberOfLines={4}>
             {notification.body}
           </Text>
+          {notification.eventType.includes('REJETEE') && (
+            <Text style={styles.actionHint}>Tapez pour voir les details</Text>
+          )}
           <Text style={styles.notificationTime}>
             {formatDate(notification.createdAt)}
           </Text>
@@ -534,6 +537,12 @@ const styles = StyleSheet.create({
     color: colors.text.secondary,
     lineHeight: 20,
     marginBottom: spacing.xs,
+  },
+  actionHint: {
+    fontSize: typography.fontSize.xs,
+    color: colors.primary[600],
+    fontWeight: '500' as const,
+    marginTop: 4,
   },
   notificationTime: {
     fontSize: typography.fontSize.xs,

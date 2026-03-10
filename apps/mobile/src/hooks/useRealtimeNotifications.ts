@@ -266,6 +266,13 @@ export function useGlobalRealtimeNotifications() {
       // Invalidate relevant queries based on notification type
       if (notification.type.includes('demande')) {
         queryClient.invalidateQueries({ queryKey: ['sante-demandes'] });
+        queryClient.invalidateQueries({ queryKey: ['mes-demandes'] });
+
+        // Also invalidate the specific demande detail if demandeId is available
+        const demandeId = notification.data?.demandeId as string | undefined;
+        if (demandeId) {
+          queryClient.invalidateQueries({ queryKey: ['demande', demandeId] });
+        }
       }
       if (notification.type.includes('paiement')) {
         queryClient.invalidateQueries({ queryKey: ['sante-paiements'] });
