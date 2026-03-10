@@ -25,6 +25,7 @@ interface SanteDocumentRow {
   taille_octets: number;
   ocr_status: 'pending' | 'processing' | 'completed' | 'failed' | 'skipped';
   ocr_result_json: string | null;
+  ocr_attempts: number;
   uploaded_by: string | null;
   created_at: string;
 }
@@ -41,6 +42,7 @@ function rowToDocument(row: SanteDocumentRow): SanteDocument {
     tailleOctets: row.taille_octets,
     ocrStatus: row.ocr_status,
     ocrResultJson: row.ocr_result_json,
+    ocrAttempts: row.ocr_attempts ?? 0,
     uploadedBy: row.uploaded_by,
     createdAt: row.created_at,
   };
@@ -140,6 +142,26 @@ export async function deleteDocument(db: D1Database, id: string): Promise<boolea
     .run();
 
   return result.meta.changes > 0;
+}
+
+export async function incrementOcrAttempts(db: D1Database, id: string): Promise<void> {
+  await db
+    .prepare(
+      'UPDATE sante_documents SET ocr_attempts = ocr_attempts + 1, updated_at = ? WHERE id = ?'
+    )
+    .bind(new Date().toISOString(), id)
+    .run();
+}
+
+export async function resetStaleOcrProcessing(db: D1Database): Promise<number> {
+  const threshold = new Date(Date.now() - 60_000).toISOString();
+  const result = await db
+    .prepare(
+      'UPDATE sante_documents SET ocr_status = ? WHERE ocr_status = ? AND updated_at < ?'
+    )
+    .bind('pending', 'processing', threshold)
+    .run();
+  return result.meta.changes ?? 0;
 }
 
 export async function countDocumentsByDemande(db: D1Database, demandeId: string): Promise<number> {

@@ -6,11 +6,14 @@ import {
   parseAmount,
   parseDate,
   detectCareType,
+  detectLanguage,
   calculateConfidence,
   calculateFieldConfidences,
   validateExtractedData,
   parseLineItems,
 } from './ocr.rules';
+import type { DocumentLanguage } from './ocr.types';
+import { deriveImageQuality } from './ocr.agent';
 import type { BulletinExtractedData } from './ocr.types';
 
 describe('OCR Rules', () => {
@@ -333,6 +336,55 @@ describe('OCR Rules', () => {
       const text = 'Random text without drugs or acts';
       const items = parseLineItems(text);
       expect(items.length).toBe(0);
+    });
+  });
+
+  describe('detectLanguage', () => {
+    it('returns fr for pure French text', () => {
+      expect(detectLanguage('Consultation medicale chez le docteur')).toBe('fr');
+      expect(detectLanguage('Pharmacie Centrale de Tunis')).toBe('fr');
+    });
+
+    it('returns ar for pure Arabic text', () => {
+      expect(detectLanguage('صيدلية المركزية')).toBe('ar');
+      expect(detectLanguage('استشارة طبية')).toBe('ar');
+    });
+
+    it('returns fr-ar for mixed French/Arabic text', () => {
+      expect(detectLanguage('Consultation استشارة medicale طبية')).toBe('fr-ar');
+      expect(detectLanguage('Pharmacie صيدلية')).toBe('fr-ar');
+    });
+
+    it('returns fr for empty text (default)', () => {
+      expect(detectLanguage('')).toBe('fr');
+    });
+  });
+
+  describe('deriveImageQuality', () => {
+    it('returns good for confidence >= 0.8', () => {
+      expect(deriveImageQuality(0.8)).toBe('good');
+      expect(deriveImageQuality(0.9)).toBe('good');
+      expect(deriveImageQuality(1.0)).toBe('good');
+    });
+
+    it('returns acceptable for confidence 0.5–0.79', () => {
+      expect(deriveImageQuality(0.5)).toBe('acceptable');
+      expect(deriveImageQuality(0.65)).toBe('acceptable');
+      expect(deriveImageQuality(0.79)).toBe('acceptable');
+    });
+
+    it('returns poor for confidence < 0.5', () => {
+      expect(deriveImageQuality(0.0)).toBe('poor');
+      expect(deriveImageQuality(0.3)).toBe('poor');
+      expect(deriveImageQuality(0.49)).toBe('poor');
+    });
+
+    it('returns good at exact boundary 0.8', () => {
+      expect(deriveImageQuality(0.8)).toBe('good');
+    });
+
+    it('returns acceptable at exact boundary 0.5', () => {
+      expect(deriveImageQuality(0.5)).toBe('acceptable');
     });
   });
 });
