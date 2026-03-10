@@ -13,3 +13,4 @@ export * from './convention';
 export * from './audit';
 export * from './api';
 export * from './sante';
+export * from './events';

@@ -55,6 +55,8 @@ export interface BulletinExtractedData {
   // Metadata
   confidence: number;
   fieldConfidences?: FieldConfidence;
+  metadata?: OcrMetadata;
+  language?: DocumentLanguage;
   warnings: string[];
   rawText?: string;
 }
@@ -63,6 +65,20 @@ export interface BulletinExtractedData {
  * Per-field confidence scores for OCR extraction
  */
 export type FieldConfidence = Record<string, number>;
+
+/**
+ * Detected document language
+ */
+export type DocumentLanguage = 'fr' | 'ar' | 'fr-ar';
+
+/**
+ * OCR extraction metadata
+ */
+export interface OcrMetadata {
+  imageQuality: 'good' | 'acceptable' | 'poor';
+  processingTimeMs: number;
+  modelVersion: string;
+}
 
 /**
  * OCR request parameters

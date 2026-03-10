@@ -4,7 +4,7 @@
  * Parsing rules and validation for Tunisian health documents
  */
 
-import type { BulletinExtractedData, BulletinLineItem, FieldConfidence } from './ocr.types';
+import type { BulletinExtractedData, BulletinLineItem, DocumentLanguage, FieldConfidence } from './ocr.types';
 
 /**
  * Common Tunisian drug names patterns
@@ -284,6 +284,20 @@ export function calculateFieldConfidences(data: BulletinExtractedData): FieldCon
   }
 
   return confidences;
+}
+
+/**
+ * Detect document language from text content
+ */
+const ARABIC_REGEX = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/;
+
+export function detectLanguage(text: string): DocumentLanguage {
+  if (!text) return 'fr';
+  const hasArabic = ARABIC_REGEX.test(text);
+  const hasLatin = /[a-zA-ZÀ-ÿ]/.test(text);
+  if (hasArabic && hasLatin) return 'fr-ar';
+  if (hasArabic) return 'ar';
+  return 'fr';
 }
 
 /**

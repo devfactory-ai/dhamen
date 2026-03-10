@@ -320,6 +320,38 @@ class ApiClient {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' });
   }
 
+  /**
+   * Poll OCR result endpoint until status is not 'processing'
+   */
+  async pollOcrResult<T>(
+    documentId: string,
+    options?: { maxAttempts?: number; intervalMs?: number }
+  ): Promise<ApiResponse<T>> {
+    const maxAttempts = options?.maxAttempts ?? 15;
+    const intervalMs = options?.intervalMs ?? 2000;
+
+    for (let i = 0; i < maxAttempts; i++) {
+      const result = await this.get<T>(`/sante/documents/${documentId}/ocr`);
+
+      if (!result.success) return result;
+
+      // Check if OCR is still processing
+      const data = result.data as Record<string, unknown> | undefined;
+      const status = (data as { data?: { ocrStatus?: string } })?.data?.ocrStatus
+        ?? (data as { ocrStatus?: string })?.ocrStatus;
+
+      if (status !== 'processing') return result;
+
+      // Wait before next poll
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+
+    return {
+      success: false,
+      error: { code: 'OCR_TIMEOUT', message: 'L\'extraction a pris trop de temps' },
+    };
+  }
+
   async upload<T>(
     endpoint: string,
     formData: FormData,

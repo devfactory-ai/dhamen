@@ -7,11 +7,12 @@
 
 import type { Context } from 'hono';
 import type { Bindings, Variables } from '../../types';
-import type { BulletinExtractedData, OCRRequest, OCRResult } from './ocr.types';
+import type { BulletinExtractedData, OCRRequest, OCRResult, OcrMetadata } from './ocr.types';
 import {
   parseAmount,
   parseDate,
   detectCareType,
+  detectLanguage,
   parseLineItems,
   validateExtractedData,
   calculateConfidence,
@@ -52,7 +53,8 @@ Extrayez les informations suivantes au format JSON:
   "adherentNom": "nom de l'adherent si visible",
   "adherentMatricule": "numero de matricule si visible",
   "numeroPrescription": "numero d'ordonnance si present",
-  "medecinPrescripteur": "nom du medecin prescripteur si present"
+  "medecinPrescripteur": "nom du medecin prescripteur si present",
+  "language": "fr ou ar ou fr-ar (langue principale du document)"
 }
 
 IMPORTANT:
@@ -60,6 +62,15 @@ IMPORTANT:
 - Si un montant est affiche comme "50,000" ou "50.000", c'est probablement 50 TND = 50000 millimes.
 - Retournez uniquement le JSON, sans texte supplementaire.
 - Si une information n'est pas visible, omettez-la du JSON.`;
+
+/**
+ * Derive image quality from confidence score
+ */
+export function deriveImageQuality(confidence: number): 'good' | 'acceptable' | 'poor' {
+  if (confidence >= 0.8) return 'good';
+  if (confidence >= 0.5) return 'acceptable';
+  return 'poor';
+}
 
 /**
  * Extract data from document image using Workers AI
@@ -104,7 +115,14 @@ export async function extractBulletinData(
     // Validate and clean data
     const validatedData = validateExtractedData(extractedData);
 
-    console.log(`OCR completed in ${Date.now() - startTime}ms, confidence: ${validatedData.confidence}`);
+    // Populate metadata
+    validatedData.metadata = {
+      imageQuality: deriveImageQuality(validatedData.confidence),
+      processingTimeMs: Date.now() - startTime,
+      modelVersion: VISION_MODEL,
+    };
+
+    console.log(`OCR completed in ${validatedData.metadata.processingTimeMs}ms, confidence: ${validatedData.confidence}`);
 
     return validatedData;
   } catch (error) {
@@ -168,6 +186,9 @@ function parseAIResponse(response: unknown): BulletinExtractedData {
       adherentMatricule: parsed.adherentMatricule || undefined,
       numeroPrescription: parsed.numeroPrescription || undefined,
       medecinPrescripteur: parsed.medecinPrescripteur || undefined,
+      language: parsed.language && ['fr', 'ar', 'fr-ar'].includes(parsed.language)
+        ? parsed.language
+        : detectLanguage(jsonMatch[0]),
       confidence: 0,
       warnings,
     };

@@ -47,6 +47,14 @@ export const ERROR_CODES = {
   RECONCILIATION_NO_CLAIMS: 'RECONCILIATION_NO_CLAIMS',
   RECONCILIATION_ALREADY_PAID: 'RECONCILIATION_ALREADY_PAID',
 
+  // OCR errors
+  OCR_IMAGE_UNREADABLE: 'OCR_IMAGE_UNREADABLE',
+  OCR_INVALID_DOCUMENT_TYPE: 'OCR_INVALID_DOCUMENT_TYPE',
+  OCR_ALREADY_PROCESSING: 'OCR_ALREADY_PROCESSING',
+  OCR_MAX_ATTEMPTS_REACHED: 'OCR_MAX_ATTEMPTS_REACHED',
+  OCR_AI_UNAVAILABLE: 'OCR_AI_UNAVAILABLE',
+  OCR_EXTRACTION_FAILED: 'OCR_EXTRACTION_FAILED',
+
   // System errors
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   DATABASE_ERROR: 'DATABASE_ERROR',
@@ -92,7 +100,23 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   [ERROR_CODES.RECONCILIATION_NO_CLAIMS]: 'Aucune demande à réconcilier',
   [ERROR_CODES.RECONCILIATION_ALREADY_PAID]: 'Bordereau déjà payé',
 
+  [ERROR_CODES.OCR_IMAGE_UNREADABLE]: 'Image illisible. Veuillez reprendre la photo avec un meilleur éclairage.',
+  [ERROR_CODES.OCR_INVALID_DOCUMENT_TYPE]: 'Le document ne semble pas être un bulletin de soin.',
+  [ERROR_CODES.OCR_ALREADY_PROCESSING]: 'Un traitement OCR est déjà en cours pour ce document.',
+  [ERROR_CODES.OCR_MAX_ATTEMPTS_REACHED]: 'Nombre maximum de tentatives OCR atteint (5). Veuillez saisir les données manuellement.',
+  [ERROR_CODES.OCR_AI_UNAVAILABLE]: 'Service OCR temporairement indisponible. Veuillez réessayer ou saisir les données manuellement.',
+  [ERROR_CODES.OCR_EXTRACTION_FAILED]: "Échec de l'extraction OCR. Veuillez réessayer ou saisir les données manuellement.",
+
   [ERROR_CODES.INTERNAL_ERROR]: 'Erreur interne du serveur',
   [ERROR_CODES.DATABASE_ERROR]: 'Erreur de base de données',
   [ERROR_CODES.RATE_LIMIT_EXCEEDED]: 'Trop de requêtes, veuillez réessayer plus tard',
 };
+
+export const OCR_HTTP_STATUS = {
+  [ERROR_CODES.OCR_IMAGE_UNREADABLE]: 422,
+  [ERROR_CODES.OCR_INVALID_DOCUMENT_TYPE]: 422,
+  [ERROR_CODES.OCR_ALREADY_PROCESSING]: 409,
+  [ERROR_CODES.OCR_MAX_ATTEMPTS_REACHED]: 429,
+  [ERROR_CODES.OCR_AI_UNAVAILABLE]: 503,
+  [ERROR_CODES.OCR_EXTRACTION_FAILED]: 500,
+} as const;

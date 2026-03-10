@@ -8,8 +8,10 @@ import {
   updateDocumentOcrStatus,
   deleteDocument,
   findSanteDemandeById,
+  incrementOcrAttempts,
 } from '@dhamen/db';
-import { SANTE_TYPES_DOCUMENT } from '@dhamen/shared';
+import { SANTE_TYPES_DOCUMENT, ERROR_CODES, ERROR_MESSAGES, OCR_HTTP_STATUS } from '@dhamen/shared';
+import type { OcrCompletedEvent, OcrFailedEvent } from '@dhamen/shared';
 import { Hono } from 'hono';
 import { created, notFound, success, forbidden, badRequest } from '../../lib/response';
 import { generateId } from '../../lib/ulid';
@@ -153,6 +155,55 @@ documents.get(
 );
 
 /**
+ * GET /api/v1/sante/documents/:id/ocr
+ * Retrieve OCR result for a document (supports polling)
+ */
+documents.get(
+  '/:id/ocr',
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  async (c) => {
+    const id = c.req.param('id');
+    const user = c.get('user');
+
+    const doc = await findDocumentById(getDb(c), id);
+    if (!doc) {
+      return notFound(c, 'Document introuvable');
+    }
+
+    // Verify access through demande
+    const demande = await findSanteDemandeById(getDb(c), doc.demandeId);
+    if (!demande) {
+      return notFound(c, 'Demande associée non trouvée');
+    }
+
+    if (user.role === 'ADHERENT' && demande.adherentId !== user.sub) {
+      return forbidden(c, 'Accès non autorisé');
+    }
+    if (user.role === 'PRATICIEN' && demande.praticienId !== user.providerId) {
+      return forbidden(c, 'Accès non autorisé');
+    }
+
+    const data: Record<string, unknown> = {
+      documentId: doc.id,
+      status: doc.ocrStatus,
+    };
+
+    if (doc.ocrStatus === 'completed' && doc.ocrResultJson) {
+      data.result = JSON.parse(doc.ocrResultJson);
+    }
+
+    if (doc.ocrStatus === 'failed') {
+      data.error = {
+        code: ERROR_CODES.OCR_EXTRACTION_FAILED,
+        message: ERROR_MESSAGES[ERROR_CODES.OCR_EXTRACTION_FAILED],
+      };
+    }
+
+    return success(c, data);
+  }
+);
+
+/**
  * POST /api/v1/sante/documents/upload
  * Upload a document to R2
  */
@@ -276,6 +327,34 @@ documents.post(
       return forbidden(c, 'Acces non autorise');
     }
 
+    // Locking: reject if already processing (ADR-003)
+    if (doc.ocrStatus === 'processing') {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: ERROR_CODES.OCR_ALREADY_PROCESSING,
+            message: ERROR_MESSAGES[ERROR_CODES.OCR_ALREADY_PROCESSING],
+          },
+        },
+        OCR_HTTP_STATUS[ERROR_CODES.OCR_ALREADY_PROCESSING]
+      );
+    }
+
+    // Attempt limit: max 5 retries (ADR-006)
+    if (doc.ocrAttempts >= 5) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: ERROR_CODES.OCR_MAX_ATTEMPTS_REACHED,
+            message: ERROR_MESSAGES[ERROR_CODES.OCR_MAX_ATTEMPTS_REACHED],
+          },
+        },
+        OCR_HTTP_STATUS[ERROR_CODES.OCR_MAX_ATTEMPTS_REACHED]
+      );
+    }
+
     // Check if already processed (allow re-processing with ?force=true)
     const forceReprocess = c.req.query('force') === 'true';
     if (!forceReprocess && doc.ocrStatus === 'completed' && doc.ocrResultJson) {
@@ -289,7 +368,8 @@ documents.post(
       }
     }
 
-    // Mark as processing
+    // Increment attempt counter and mark as processing
+    await incrementOcrAttempts(getDb(c), id);
     await updateDocumentOcrStatus(getDb(c), id, 'processing');
 
     // Get file from R2
@@ -329,6 +409,17 @@ documents.post(
         },
       });
 
+      // Emit OCR_COMPLETED event (fire-and-forget)
+      c.env.EVENTS_QUEUE.send({
+        type: 'OCR_COMPLETED',
+        documentId: id,
+        demandeId: doc.demandeId,
+        confidence: extractedData.confidence,
+        careType: extractedData.typeSoin,
+        montantTotal: extractedData.montantTotal,
+        timestamp: new Date().toISOString(),
+      } satisfies OcrCompletedEvent).catch(() => {});
+
       return success(c, {
         message: 'OCR termine avec succes',
         data: extractedData,
@@ -348,11 +439,30 @@ documents.post(
         changes: { error: errorMessage },
       });
 
-      if (isAiUnavailable) {
-        return badRequest(c, 'Service OCR non disponible. Veuillez remplir les champs manuellement.');
-      }
+      const errorCode = isAiUnavailable
+        ? ERROR_CODES.OCR_AI_UNAVAILABLE
+        : ERROR_CODES.OCR_EXTRACTION_FAILED;
 
-      return badRequest(c, `Erreur OCR: ${errorMessage}`);
+      // Emit OCR_FAILED event (fire-and-forget)
+      c.env.EVENTS_QUEUE.send({
+        type: 'OCR_FAILED',
+        documentId: id,
+        demandeId: doc.demandeId,
+        errorCode,
+        attempt: doc.ocrAttempts + 1,
+        timestamp: new Date().toISOString(),
+      } satisfies OcrFailedEvent).catch(() => {});
+
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: errorCode,
+            message: ERROR_MESSAGES[errorCode],
+          },
+        },
+        OCR_HTTP_STATUS[errorCode]
+      );
     }
   }
 );

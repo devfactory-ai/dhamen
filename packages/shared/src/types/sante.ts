@@ -201,6 +201,7 @@ export interface SanteDocument {
   tailleOctets: number;
   ocrStatus: 'pending' | 'processing' | 'completed' | 'failed' | 'skipped';
   ocrResultJson: string | null;
+  ocrAttempts: number;
   uploadedBy: string | null;
   createdAt: string;
 }

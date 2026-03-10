@@ -28,6 +28,8 @@ import { File } from 'expo-file-system/next';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { mergeOcrResults } from '@/lib/ocr-utils';
+import type { OCRExtractedData } from '@/lib/ocr-utils';
 import type { SanteTypeSoin } from '@dhamen/shared';
 
 const TYPES_SOIN: { value: SanteTypeSoin; label: string }[] = [
@@ -40,23 +42,6 @@ const TYPES_SOIN: { value: SanteTypeSoin; label: string }[] = [
   { value: 'kinesitherapie', label: 'Kinesitherapie' },
   { value: 'autre', label: 'Autre' },
 ];
-
-interface OCRExtractedData {
-  dateSoin?: string;
-  typeSoin?: SanteTypeSoin;
-  montantTotal: number;
-  praticien?: {
-    nom?: string;
-    specialite?: string;
-  };
-  lignes: Array<{
-    libelle: string;
-    montantTotal: number;
-  }>;
-  confidence: number;
-  fieldConfidences?: Record<string, number>;
-  warnings: string[];
-}
 
 type Step = 'select-type' | 'capture' | 'page-review' | 'extracting' | 'ocr-review';
 
@@ -91,39 +76,6 @@ async function validateImage(uri: string): Promise<{ valid: boolean; warnings: s
       () => resolve({ valid: true, warnings }) // Can't check size, proceed anyway
     );
   });
-}
-
-function mergeOcrResults(results: OCRExtractedData[]): OCRExtractedData {
-  if (results.length === 0) {
-    return { montantTotal: 0, lignes: [], confidence: 0, warnings: [] };
-  }
-  if (results.length === 1) return results[0];
-
-  const merged: OCRExtractedData = {
-    dateSoin: results.find(r => r.dateSoin)?.dateSoin,
-    typeSoin: results.find(r => r.typeSoin)?.typeSoin,
-    montantTotal: results.reduce((sum, r) => sum + r.montantTotal, 0),
-    praticien: results.find(r => r.praticien?.nom)?.praticien,
-    lignes: results.flatMap(r => r.lignes),
-    confidence: Math.min(...results.map(r => r.confidence)),
-    warnings: results.flatMap(r => r.warnings),
-  };
-
-  // Merge field confidences: take minimum per field
-  const allConfidences = results.filter(r => r.fieldConfidences).map(r => r.fieldConfidences!);
-  if (allConfidences.length > 0) {
-    const mergedConfidences: Record<string, number> = {};
-    for (const fc of allConfidences) {
-      for (const [key, val] of Object.entries(fc)) {
-        mergedConfidences[key] = mergedConfidences[key] !== undefined
-          ? Math.min(mergedConfidences[key], val)
-          : val;
-      }
-    }
-    merged.fieldConfidences = mergedConfidences;
-  }
-
-  return merged;
 }
 
 export default function NouvelleDemande() {
@@ -205,28 +157,52 @@ export default function NouvelleDemande() {
         const docId = (uploadResp.data as unknown as { data: { id: string } }).data?.id
           ?? (uploadResp.data as unknown as { id: string }).id;
 
-        // Trigger OCR (with 15s timeout per page)
-        const ocrResp = await Promise.race([
-          apiClient.post<{ data: OCRExtractedData }>(`/sante/documents/${docId}/ocr`),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
-        ]);
+        // Trigger OCR then poll for result
+        const triggerResp = await apiClient.post(`/sante/documents/${docId}/ocr`);
 
-        if (ocrResp === null) {
-          hasTimeout = true;
-        } else if (typeof ocrResp === 'object' && 'success' in ocrResp) {
-          if (ocrResp.success && ocrResp.data) {
-            const extracted = (ocrResp.data as unknown as { data: OCRExtractedData }).data
-              ?? (ocrResp.data as unknown as OCRExtractedData);
-            // Skip fallback results (confidence=0 means AI was unavailable)
-            if (extracted && extracted.confidence > 0) {
-              ocrResults.push(extracted);
-            } else {
-              console.warn(`OCR page ${i + 1}: resultat fallback (AI indisponible)`);
-            }
+        if (!triggerResp.success) {
+          const errorCode = triggerResp.error?.code || '';
+          // If already processing, still poll for result
+          if (errorCode !== 'OCR_ALREADY_PROCESSING') {
+            console.warn(`OCR page ${i + 1} trigger failed: ${triggerResp.error?.message || ''}`);
+            continue;
+          }
+        }
+
+        // Poll GET /sante/documents/:id/ocr every 2s (max 15 attempts = 30s)
+        const pollResp = await apiClient.pollOcrResult<{
+          data?: { ocrStatus: string; ocrResultJson?: string };
+          ocrStatus?: string;
+          ocrResultJson?: string;
+        }>(docId, { maxAttempts: 15, intervalMs: 2000 });
+
+        if (!pollResp.success) {
+          if (pollResp.error?.code === 'OCR_TIMEOUT') {
+            hasTimeout = true;
           } else {
-            // OCR API returned an error
-            const errorMsg = (ocrResp as { error?: { message?: string } }).error?.message || '';
-            console.warn(`OCR page ${i + 1} echouee: ${errorMsg}`);
+            console.warn(`OCR page ${i + 1} polling failed: ${pollResp.error?.message || ''}`);
+          }
+        } else if (pollResp.data) {
+          // Extract OCR result from response
+          const respData = (pollResp.data as unknown as { data: { ocrStatus: string; ocrResultJson?: string } }).data
+            ?? (pollResp.data as unknown as { ocrStatus: string; ocrResultJson?: string });
+
+          if (respData.ocrStatus === 'completed' && respData.ocrResultJson) {
+            try {
+              const extracted: OCRExtractedData = typeof respData.ocrResultJson === 'string'
+                ? JSON.parse(respData.ocrResultJson)
+                : respData.ocrResultJson;
+              // Skip fallback results (confidence=0 means AI was unavailable)
+              if (extracted && extracted.confidence > 0) {
+                ocrResults.push(extracted);
+              } else {
+                console.warn(`OCR page ${i + 1}: resultat fallback (AI indisponible)`);
+              }
+            } catch {
+              console.warn(`OCR page ${i + 1}: failed to parse OCR result`);
+            }
+          } else if (respData.ocrStatus === 'failed') {
+            console.warn(`OCR page ${i + 1}: extraction failed`);
           }
         }
       }
@@ -237,7 +213,7 @@ export default function NouvelleDemande() {
         setOcrData(merged);
 
         if (merged.dateSoin) setEditedDate(merged.dateSoin);
-        if (merged.typeSoin) setSelectedType(merged.typeSoin);
+        if (merged.typeSoin) setSelectedType(merged.typeSoin as SanteTypeSoin);
         if (merged.montantTotal > 0) {
           setEditedAmount((merged.montantTotal / 1000).toFixed(3));
         }
