@@ -132,7 +132,7 @@ export function BulletinsSaisiePage() {
   const [selectedBulletins, setSelectedBulletins] = useState<string[]>([]);
   const [showBatchDialog, setShowBatchDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
-  const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
+  const [exportBatch, setExportBatch] = useState<Batch | null>(null);
   const [newBatchName, setNewBatchName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -273,7 +273,7 @@ export function BulletinsSaisiePage() {
 
       // Get the CSV content
       const csvContent = await response.text();
-      return { csvContent, batchName: selectedBatch?.name || 'lot' };
+      return { csvContent, batchName: exportBatch?.name || 'lot' };
     },
     onSuccess: ({ csvContent, batchName }) => {
       // Create and download the CSV file
@@ -290,7 +290,7 @@ export function BulletinsSaisiePage() {
       queryClient.invalidateQueries({ queryKey: ['agent-batches'] });
       toast.success('Export CSV telecharge!');
       setShowExportDialog(false);
-      setSelectedBatch(null);
+      setExportBatch(null);
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Erreur lors de l\'export');
@@ -357,7 +357,7 @@ export function BulletinsSaisiePage() {
   };
 
   const handleExportBatch = (batch: Batch) => {
-    setSelectedBatch(batch);
+    setExportBatch(batch);
     setShowExportDialog(true);
   };
 
@@ -948,15 +948,15 @@ export function BulletinsSaisiePage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Exporter le lot en CSV</AlertDialogTitle>
             <AlertDialogDescription>
-              Voulez-vous exporter le lot "{selectedBatch?.name}" ?
+              Voulez-vous exporter le lot "{exportBatch?.name}" ?
               <br />
-              <span className="font-medium">{selectedBatch?.bulletins_count} bulletins</span> pour un total de <span className="font-medium">{formatAmount(selectedBatch?.total_amount || 0)}</span>
+              <span className="font-medium">{exportBatch?.bulletins_count} bulletins</span> pour un total de <span className="font-medium">{formatAmount(exportBatch?.total_amount || 0)}</span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => selectedBatch && exportBatchMutation.mutate(selectedBatch.id)}
+              onClick={() => exportBatch && exportBatchMutation.mutate(exportBatch.id)}
               disabled={exportBatchMutation.isPending}
             >
               {exportBatchMutation.isPending ? (
