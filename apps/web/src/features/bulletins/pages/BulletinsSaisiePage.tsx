@@ -38,6 +38,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FilePreviewList } from '@/components/ui/file-preview';
 import { apiClient } from '@/lib/api-client';
+import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { toast } from 'sonner';
 import {
   FileText,
@@ -124,6 +125,7 @@ type BulletinFormData = z.infer<typeof bulletinFormSchema>;
 
 export function BulletinsSaisiePage() {
   const queryClient = useQueryClient();
+  const { selectedCompany, selectedBatch } = useAgentContext();
   const [activeTab, setActiveTab] = useState('saisie');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -166,14 +168,16 @@ export function BulletinsSaisiePage() {
     },
   });
 
-  // Fetch batches
+  // Fetch batches for the selected company
   const { data: batchesData, isLoading: loadingBatches } = useQuery({
-    queryKey: ['agent-batches'],
+    queryKey: ['agent-batches', selectedCompany?.id],
     queryFn: async () => {
-      const response = await apiClient.get<Batch[]>('/bulletins-soins/batches');
+      if (!selectedCompany) return [];
+      const response = await apiClient.get<Batch[]>(`/bulletins-soins/agent/batches?companyId=${selectedCompany.id}`);
       if (!response.success) throw new Error(response.error?.message);
       return response.data || [];
     },
+    enabled: !!selectedCompany,
   });
 
   // Submit bulletin mutation
@@ -186,6 +190,11 @@ export function BulletinsSaisiePage() {
           form.append(key, String(value));
         }
       });
+
+      // Attach batch_id from agent context
+      if (selectedBatch) {
+        form.append('batch_id', selectedBatch.id);
+      }
 
       data.files.forEach((file, index) => {
         form.append(`scan_${index}`, file);
@@ -506,6 +515,27 @@ export function BulletinsSaisiePage() {
 
   return (
     <div className="space-y-6">
+      {/* Agent context banner */}
+      {selectedCompany && selectedBatch && (
+        <div className="flex items-center justify-between rounded-lg border bg-blue-50 border-blue-200 px-4 py-3">
+          <div className="flex items-center gap-4 text-sm">
+            <span className="font-medium text-blue-900">
+              Entreprise : <span className="text-blue-700">{selectedCompany.name}</span>
+            </span>
+            <span className="text-blue-300">|</span>
+            <span className="font-medium text-blue-900">
+              Lot : <span className="text-blue-700">{selectedBatch.name}</span>
+            </span>
+          </div>
+          <a
+            href="/select-context"
+            className="text-sm font-medium text-blue-600 underline hover:text-blue-800"
+          >
+            Changer
+          </a>
+        </div>
+      )}
+
       <PageHeader
         title="Saisie des Bulletins de Soins"
         description="Scannez et saisissez les bulletins recus, puis exportez par lot"
