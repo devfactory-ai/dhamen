@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useCompanies } from '../hooks/use-companies';
 import { useBatches, useCreateBatch } from '../hooks/use-batches';
 import { useAgentContext } from '../stores/agent-context';
+import { getUser } from '@/lib/auth';
 
 export default function SelectContextPage() {
   const navigate = useNavigate();
-  const { selectedCompany, setCompany, setBatch } = useAgentContext();
+  const { selectedCompany, setCompany, setBatch, setUserId } = useAgentContext();
+  const currentUser = getUser();
   const [search, setSearch] = useState('');
   const [newBatchName, setNewBatchName] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -29,6 +31,7 @@ export default function SelectContextPage() {
   }
 
   function handleSelectBatch(batch: { id: string; name: string; status: string; company_id: string }) {
+    if (currentUser) setUserId(currentUser.id);
     setBatch({
       id: batch.id,
       name: batch.name,
@@ -46,6 +49,7 @@ export default function SelectContextPage() {
       companyId: selectedCompany.id,
     });
 
+    if (currentUser) setUserId(currentUser.id);
     setBatch({
       id: result.id,
       name: result.name,

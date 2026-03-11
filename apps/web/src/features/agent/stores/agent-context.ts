@@ -15,22 +15,35 @@ interface Batch {
 }
 
 interface AgentContextState {
+  userId: string | null;
   selectedCompany: Company | null;
   selectedBatch: Batch | null;
   setCompany: (company: Company | null) => void;
   setBatch: (batch: Batch | null) => void;
+  setUserId: (userId: string) => void;
   clearContext: () => void;
+  clearIfDifferentUser: (userId: string) => void;
   isContextReady: () => boolean;
 }
 
 export const useAgentContext = create<AgentContextState>()(
   persist(
     (set, get) => ({
+      userId: null,
       selectedCompany: null,
       selectedBatch: null,
       setCompany: (company) => set({ selectedCompany: company, selectedBatch: null }),
       setBatch: (batch) => set({ selectedBatch: batch }),
-      clearContext: () => set({ selectedCompany: null, selectedBatch: null }),
+      setUserId: (userId) => set({ userId }),
+      clearContext: () => set({ userId: null, selectedCompany: null, selectedBatch: null }),
+      clearIfDifferentUser: (userId: string) => {
+        const state = get();
+        if (state.userId && state.userId !== userId) {
+          set({ userId, selectedCompany: null, selectedBatch: null });
+        } else {
+          set({ userId });
+        }
+      },
       isContextReady: () => {
         const state = get();
         return state.selectedCompany !== null && state.selectedBatch !== null;
@@ -38,7 +51,7 @@ export const useAgentContext = create<AgentContextState>()(
     }),
     {
       name: 'agent-context',
-      storage: createJSONStorage(() => sessionStorage),
+      storage: createJSONStorage(() => localStorage),
     }
   )
 );
