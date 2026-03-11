@@ -1,7 +1,7 @@
 ---
 id: TASK-005
 parent: REQ-003
-status: todo
+status: done
 dependencies: [TASK-001]
 files:
   - packages/db/migrations/0068_create_actes_bulletin.sql

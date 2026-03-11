@@ -1,7 +1,7 @@
 ---
 id: TASK-006
 parent: REQ-003
-status: todo
+status: done
 dependencies: [TASK-005]
 files:
   - packages/shared/src/schemas/acte-bulletin.ts

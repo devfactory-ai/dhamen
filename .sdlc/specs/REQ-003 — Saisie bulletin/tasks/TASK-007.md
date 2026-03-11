@@ -1,7 +1,7 @@
 ---
 id: TASK-007
 parent: REQ-003
-status: todo
+status: done
 dependencies: [TASK-004, TASK-006]
 files:
   - apps/web/src/features/bulletins/pages/BulletinsSaisiePage.tsx
