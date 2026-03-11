@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
+import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { PageHeader } from '@/components/ui/page-header';
@@ -106,6 +106,12 @@ const careTypeConfig = {
 };
 
 // Form schema
+const acteFormSchema = z.object({
+  code: z.string().optional(),
+  label: z.string().min(1, 'Libelle requis'),
+  amount: z.number().positive('Montant > 0'),
+});
+
 const bulletinFormSchema = z.object({
   bulletin_date: z.string().min(1, 'Date requise'),
   adherent_matricule: z.string().min(1, 'Matricule requis'),
@@ -118,7 +124,7 @@ const bulletinFormSchema = z.object({
   provider_specialty: z.string().optional(),
   care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']),
   care_description: z.string().optional(),
-  total_amount: z.number().min(0.01, 'Montant requis'),
+  actes: z.array(acteFormSchema).min(1, 'Au moins un acte requis'),
 });
 
 type BulletinFormData = z.infer<typeof bulletinFormSchema>;
@@ -143,16 +149,25 @@ export function BulletinsSaisiePage() {
     watch,
     setValue,
     reset,
+    control,
     formState: { errors },
   } = useForm<BulletinFormData>({
     resolver: zodResolver(bulletinFormSchema),
     defaultValues: {
       care_type: 'consultation',
       bulletin_date: new Date().toISOString().split('T')[0],
+      actes: [{ code: '', label: '', amount: 0 }],
     },
   });
 
+  const { fields: actesFields, append: appendActe, remove: removeActe } = useFieldArray({
+    control,
+    name: 'actes',
+  });
+
   const selectedCareType = watch('care_type');
+  const watchedActes = watch('actes');
+  const actesTotal = (watchedActes || []).reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
 
   // Fetch bulletins (drafts and in_batch)
   const { data: bulletinsData, isLoading: loadingBulletins } = useQuery({
@@ -186,10 +201,14 @@ export function BulletinsSaisiePage() {
       const form = new FormData();
 
       Object.entries(data.formData).forEach(([key, value]) => {
+        if (key === 'actes') return; // handled separately
         if (value !== undefined && value !== '') {
           form.append(key, String(value));
         }
       });
+
+      // Send actes as JSON array
+      form.append('actes', JSON.stringify(data.formData.actes));
 
       // Attach batch_id from agent context
       if (selectedBatch) {
@@ -764,19 +783,75 @@ export function BulletinsSaisiePage() {
                       </div>
                     </div>
 
-                    {/* Amount */}
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Montant total (TND) *</Label>
-                        <Input
-                          type="number"
-                          step="0.001"
-                          {...register('total_amount', { valueAsNumber: true })}
-                          placeholder="150.000"
-                        />
-                        {errors.total_amount && (
-                          <p className="text-sm text-destructive">{errors.total_amount.message}</p>
-                        )}
+                    {/* Actes medicaux */}
+                    <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-medium flex items-center gap-2">
+                          <FileText className="h-4 w-4" />
+                          Actes medicaux *
+                        </h4>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => appendActe({ code: '', label: '', amount: 0 })}
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Ajouter un acte
+                        </Button>
+                      </div>
+
+                      {errors.actes?.root && (
+                        <p className="text-sm text-destructive">{errors.actes.root.message}</p>
+                      )}
+
+                      {actesFields.map((field, index) => (
+                        <div key={field.id} className="flex items-start gap-2">
+                          <div className="w-24">
+                            <Input
+                              {...register(`actes.${index}.code`)}
+                              placeholder="Code"
+                              className="text-sm"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <Input
+                              {...register(`actes.${index}.label`)}
+                              placeholder="Libelle de l'acte (ex: Consultation generaliste)"
+                            />
+                            {errors.actes?.[index]?.label && (
+                              <p className="text-xs text-destructive mt-1">{errors.actes[index].label?.message}</p>
+                            )}
+                          </div>
+                          <div className="w-32">
+                            <Input
+                              type="number"
+                              step="0.001"
+                              {...register(`actes.${index}.amount`, { valueAsNumber: true })}
+                              placeholder="Montant"
+                            />
+                            {errors.actes?.[index]?.amount && (
+                              <p className="text-xs text-destructive mt-1">{errors.actes[index].amount?.message}</p>
+                            )}
+                          </div>
+                          {actesFields.length > 1 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeActe(index)}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+
+                      <div className="flex justify-end border-t pt-3">
+                        <p className="text-lg font-bold">
+                          Total : {formatAmount(actesTotal)}
+                        </p>
                       </div>
                     </div>
 
