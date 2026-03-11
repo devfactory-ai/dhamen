@@ -206,8 +206,9 @@ bulletinsAgent.post('/create', async (c) => {
         adherent_first_name, adherent_last_name, adherent_national_id,
         beneficiary_name, beneficiary_relationship,
         provider_name, provider_specialty, care_type, care_description,
-        total_amount, scan_url, batch_id, status, created_by, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        total_amount, scan_url, batch_id, status, created_by,
+        submission_date, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
     `).bind(
       bulletinId, bulletinNumber, bulletinDate, adherentId, adherentMatricule,
       adherentFirstName, adherentLastName, adherentNationalId,
