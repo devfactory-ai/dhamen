@@ -1,7 +1,7 @@
 ---
 id: TASK-002
 parent: REQ-002
-status: draft
+status: done
 dependencies: []
 files:
   - packages/shared/src/schemas/bulletin-batch.ts

@@ -1,7 +1,7 @@
 ---
 id: TASK-004
 parent: REQ-002
-status: draft
+status: done
 dependencies: [TASK-003]
 files:
   - apps/web/src/features/agent/stores/agent-context.ts

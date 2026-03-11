@@ -1,7 +1,7 @@
 ---
 id: TASK-001
 parent: REQ-002
-status: draft
+status: done
 dependencies: []
 files:
   - packages/db/migrations/0065_add_company_id_to_bulletin_batches.sql
