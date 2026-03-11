@@ -335,6 +335,7 @@ export function BulletinsSaisiePage() {
 
   // View bulletin detail
   const [viewBulletin, setViewBulletin] = useState<(BulletinSaisie & { actes?: { id: string; code: string; label: string; amount: number }[] }) | null>(null);
+  const [deleteBulletinId, setDeleteBulletinId] = useState<string | null>(null);
 
   const fetchBulletinDetail = async (id: string) => {
     const response = await apiClient.get<BulletinSaisie & { actes: { id: string; code: string; label: string; amount: number }[] }>(`/bulletins-soins/agent/${id}`);
@@ -508,11 +509,7 @@ export function BulletinsSaisiePage() {
               size="sm"
               variant="ghost"
               className="text-destructive hover:text-destructive"
-              onClick={() => {
-                if (confirm('Supprimer ce bulletin ?')) {
-                  deleteMutation.mutate(row.id);
-                }
-              }}
+              onClick={() => setDeleteBulletinId(row.id)}
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -1172,6 +1169,32 @@ export function BulletinsSaisiePage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete confirmation popup */}
+      <AlertDialog open={!!deleteBulletinId} onOpenChange={(open) => !open && setDeleteBulletinId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce bulletin ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irréversible. Le bulletin sera définitivement supprimé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteBulletinId) {
+                  deleteMutation.mutate(deleteBulletinId);
+                  setDeleteBulletinId(null);
+                }
+              }}
+            >
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
