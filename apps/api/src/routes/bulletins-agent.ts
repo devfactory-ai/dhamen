@@ -219,15 +219,10 @@ bulletinsAgent.get('/batches', async (c) => {
     }
 
     const results = await db.prepare(`
-      SELECT
-        b.*,
-        COUNT(bs.id) as bulletins_count,
-        COALESCE(SUM(bs.total_amount), 0) as total_amount
-      FROM bulletin_batches b
-      LEFT JOIN bulletins_soins bs ON bs.batch_id = b.id
-      WHERE b.company_id = ? AND b.status = ?
-      GROUP BY b.id
-      ORDER BY b.created_at DESC
+      SELECT *
+      FROM bulletin_batches
+      WHERE company_id = ? AND status = ?
+      ORDER BY created_at DESC
     `).bind(companyId, status).all();
 
     return c.json({
