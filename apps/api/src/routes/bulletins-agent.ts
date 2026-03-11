@@ -100,6 +100,7 @@ bulletinsAgent.post('/create', async (c) => {
   const careType = formData['care_type'] as string;
   const careDescription = formData['care_description'] as string || null;
   const totalAmount = parseFloat(formData['total_amount'] as string);
+  const batchId = formData['batch_id'] as string || null;
 
   // Validate required fields
   if (!bulletinDate || !adherentMatricule || !adherentFirstName || !adherentLastName ||
@@ -135,6 +136,27 @@ bulletinsAgent.post('/create', async (c) => {
   }
 
   try {
+    // Validate batch if provided
+    if (batchId) {
+      const batch = await db.prepare(
+        'SELECT id, status, created_by FROM bulletin_batches WHERE id = ? AND created_by = ?'
+      ).bind(batchId, user.id).first();
+
+      if (!batch) {
+        return c.json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Lot non trouve ou non autorise' },
+        }, 404);
+      }
+
+      if (batch.status !== 'open') {
+        return c.json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Le lot n\'est plus ouvert' },
+        }, 400);
+      }
+    }
+
     // Find adherent by matricule (optional - we still create the bulletin even if not found)
     let adherentId: string | null = null;
     const adherentResult = await db.prepare(
@@ -145,6 +167,8 @@ bulletinsAgent.post('/create', async (c) => {
       adherentId = adherentResult.id as string;
     }
 
+    const status = batchId ? 'in_batch' : 'draft';
+
     // Insert bulletin
     await db.prepare(`
       INSERT INTO bulletins_soins (
@@ -152,14 +176,14 @@ bulletinsAgent.post('/create', async (c) => {
         adherent_first_name, adherent_last_name, adherent_national_id,
         beneficiary_name, beneficiary_relationship,
         provider_name, provider_specialty, care_type, care_description,
-        total_amount, scan_url, status, created_by, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, datetime('now'))
+        total_amount, scan_url, batch_id, status, created_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `).bind(
       bulletinId, bulletinNumber, bulletinDate, adherentId, adherentMatricule,
       adherentFirstName, adherentLastName, adherentNationalId,
       beneficiaryName, beneficiaryRelationship,
       providerName, providerSpecialty, careType, careDescription,
-      totalAmount, scanUrl, user.id
+      totalAmount, scanUrl, batchId, status, user.id
     ).run();
 
     return c.json({
@@ -167,6 +191,7 @@ bulletinsAgent.post('/create', async (c) => {
       data: {
         id: bulletinId,
         bulletin_number: bulletinNumber,
+        status,
       },
     }, 201);
   } catch (error) {
