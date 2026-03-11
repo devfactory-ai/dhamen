@@ -72,7 +72,13 @@ export function useAuth() {
           // Agents must select company + batch before working
           const agentRoles = ['INSURER_AGENT', 'INSURER_ADMIN'];
           if (agentRoles.includes(data.user.role)) {
-            navigate('/select-context');
+            const agentCtx = useAgentContext.getState();
+            agentCtx.clearIfDifferentUser(data.user.id);
+            if (agentCtx.isContextReady()) {
+              navigate('/bulletins/saisie');
+            } else {
+              navigate('/select-context');
+            }
           } else {
             navigate('/dashboard');
           }

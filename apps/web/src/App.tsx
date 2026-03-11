@@ -6,6 +6,7 @@ import { DashboardPage } from '@/features/dashboard/pages/DashboardPage';
 import { Layout } from '@/components/layout/Layout';
 import { Toaster } from '@/components/ui/toaster';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { AgentContextGuard } from '@/components/guards/AgentContextGuard';
 import { SkipLinks } from '@/components/ui/skip-links';
 import { AnnouncerProvider } from '@/components/ui/screen-reader';
 import { PWAPrompts } from '@/components/ui/pwa-prompts';
@@ -214,7 +215,7 @@ function App() {
                     <Route path="/select-context" element={<SelectContextPage />} />
                     <Route path="/bulletins/validation" element={<BulletinsValidationPage />} />
                     <Route path="/bulletins/payments" element={<BulletinsPaymentPage />} />
-                    <Route path="/bulletins/saisie" element={<BulletinsSaisiePage />} />
+                    <Route path="/bulletins/saisie" element={<AgentContextGuard><BulletinsSaisiePage /></AgentContextGuard>} />
                     <Route path="/bulletins/archive" element={<BulletinsArchivePage />} />
                     <Route path="/reconciliation" element={<ReconciliationPage />} />
                     <Route path="/reconciliation/:id" element={<ReconciliationDetailsPage />} />

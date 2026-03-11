@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
+import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { PageHeader } from '@/components/ui/page-header';
@@ -38,6 +38,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FilePreviewList } from '@/components/ui/file-preview';
 import { apiClient } from '@/lib/api-client';
+import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { toast } from 'sonner';
 import {
   FileText,
@@ -105,6 +106,12 @@ const careTypeConfig = {
 };
 
 // Form schema
+const acteFormSchema = z.object({
+  code: z.string().optional(),
+  label: z.string().min(1, 'Libelle requis'),
+  amount: z.number().positive('Montant > 0'),
+});
+
 const bulletinFormSchema = z.object({
   bulletin_date: z.string().min(1, 'Date requise'),
   adherent_matricule: z.string().min(1, 'Matricule requis'),
@@ -117,20 +124,21 @@ const bulletinFormSchema = z.object({
   provider_specialty: z.string().optional(),
   care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']),
   care_description: z.string().optional(),
-  total_amount: z.number().min(0.01, 'Montant requis'),
+  actes: z.array(acteFormSchema).min(1, 'Au moins un acte requis'),
 });
 
 type BulletinFormData = z.infer<typeof bulletinFormSchema>;
 
 export function BulletinsSaisiePage() {
   const queryClient = useQueryClient();
+  const { selectedCompany, selectedBatch } = useAgentContext();
   const [activeTab, setActiveTab] = useState('saisie');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedBulletins, setSelectedBulletins] = useState<string[]>([]);
   const [showBatchDialog, setShowBatchDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
-  const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
+  const [exportBatch, setExportBatch] = useState<Batch | null>(null);
   const [newBatchName, setNewBatchName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -141,23 +149,33 @@ export function BulletinsSaisiePage() {
     watch,
     setValue,
     reset,
+    control,
     formState: { errors },
   } = useForm<BulletinFormData>({
     resolver: zodResolver(bulletinFormSchema),
     defaultValues: {
       care_type: 'consultation',
       bulletin_date: new Date().toISOString().split('T')[0],
+      actes: [{ code: '', label: '', amount: 0 }],
     },
   });
 
-  const selectedCareType = watch('care_type');
+  const { fields: actesFields, append: appendActe, remove: removeActe } = useFieldArray({
+    control,
+    name: 'actes',
+  });
 
-  // Fetch bulletins (drafts and in_batch)
+  const selectedCareType = watch('care_type');
+  const watchedActes = watch('actes');
+  const actesTotal = (watchedActes || []).reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+
+  // Fetch bulletins (drafts and in_batch) for current batch
   const { data: bulletinsData, isLoading: loadingBulletins } = useQuery({
-    queryKey: ['agent-bulletins', searchQuery],
+    queryKey: ['agent-bulletins', selectedBatch?.id, searchQuery],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.append('status', 'draft,in_batch');
+      if (selectedBatch) params.append('batchId', selectedBatch.id);
       if (searchQuery) params.append('search', searchQuery);
 
       const response = await apiClient.get<BulletinSaisie[]>(`/bulletins-soins/agent?${params}`);
@@ -166,14 +184,16 @@ export function BulletinsSaisiePage() {
     },
   });
 
-  // Fetch batches
+  // Fetch batches for the selected company
   const { data: batchesData, isLoading: loadingBatches } = useQuery({
-    queryKey: ['agent-batches'],
+    queryKey: ['agent-batches', selectedCompany?.id],
     queryFn: async () => {
-      const response = await apiClient.get<Batch[]>('/bulletins-soins/batches');
+      if (!selectedCompany) return [];
+      const response = await apiClient.get<Batch[]>(`/bulletins-soins/agent/batches?companyId=${selectedCompany.id}`);
       if (!response.success) throw new Error(response.error?.message);
       return response.data || [];
     },
+    enabled: !!selectedCompany,
   });
 
   // Submit bulletin mutation
@@ -182,10 +202,19 @@ export function BulletinsSaisiePage() {
       const form = new FormData();
 
       Object.entries(data.formData).forEach(([key, value]) => {
+        if (key === 'actes') return; // handled separately
         if (value !== undefined && value !== '') {
           form.append(key, String(value));
         }
       });
+
+      // Send actes as JSON array
+      form.append('actes', JSON.stringify(data.formData.actes));
+
+      // Attach batch_id from agent context
+      if (selectedBatch) {
+        form.append('batch_id', selectedBatch.id);
+      }
 
       data.files.forEach((file, index) => {
         form.append(`scan_${index}`, file);
@@ -264,7 +293,7 @@ export function BulletinsSaisiePage() {
 
       // Get the CSV content
       const csvContent = await response.text();
-      return { csvContent, batchName: selectedBatch?.name || 'lot' };
+      return { csvContent, batchName: exportBatch?.name || 'lot' };
     },
     onSuccess: ({ csvContent, batchName }) => {
       // Create and download the CSV file
@@ -281,12 +310,39 @@ export function BulletinsSaisiePage() {
       queryClient.invalidateQueries({ queryKey: ['agent-batches'] });
       toast.success('Export CSV telecharge!');
       setShowExportDialog(false);
-      setSelectedBatch(null);
+      setExportBatch(null);
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Erreur lors de l\'export');
     },
   });
+
+  // Delete bulletin mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (bulletinId: string) => {
+      const response = await apiClient.delete(`/bulletins-soins/agent/${bulletinId}`);
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
+      toast.success('Bulletin supprime');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors de la suppression');
+    },
+  });
+
+  // View bulletin detail
+  const [viewBulletin, setViewBulletin] = useState<(BulletinSaisie & { actes?: { id: string; code: string; label: string; amount: number }[] }) | null>(null);
+  const [deleteBulletinId, setDeleteBulletinId] = useState<string | null>(null);
+
+  const fetchBulletinDetail = async (id: string) => {
+    const response = await apiClient.get<BulletinSaisie & { actes: { id: string; code: string; label: string; amount: number }[] }>(`/bulletins-soins/agent/${id}`);
+    if (response.success) {
+      setViewBulletin(response.data);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -348,7 +404,7 @@ export function BulletinsSaisiePage() {
   };
 
   const handleExportBatch = (batch: Batch) => {
-    setSelectedBatch(batch);
+    setExportBatch(batch);
     setShowExportDialog(true);
   };
 
@@ -371,14 +427,7 @@ export function BulletinsSaisiePage() {
   const bulletinColumns = [
     {
       key: 'select',
-      header: (
-        <input
-          type="checkbox"
-          checked={selectedBulletins.length > 0 && selectedBulletins.length === (bulletinsData || []).filter(b => b.status === 'draft').length}
-          onChange={handleSelectAll}
-          className="h-4 w-4 rounded border-gray-300"
-        />
-      ),
+      header: '',
       render: (row: BulletinSaisie) => (
         row.status === 'draft' ? (
           <input
@@ -441,6 +490,31 @@ export function BulletinsSaisiePage() {
         <Badge variant={row.status === 'draft' ? 'secondary' : row.status === 'in_batch' ? 'default' : 'outline'}>
           {row.status === 'draft' ? 'Brouillon' : row.status === 'in_batch' ? `Lot: ${row.batch_name}` : 'Exporte'}
         </Badge>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (row: BulletinSaisie) => (
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => fetchBulletinDetail(row.id)}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          {row.status !== 'exported' && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setDeleteBulletinId(row.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       ),
     },
   ];
@@ -506,6 +580,27 @@ export function BulletinsSaisiePage() {
 
   return (
     <div className="space-y-6">
+      {/* Agent context banner */}
+      {selectedCompany && selectedBatch && (
+        <div className="flex items-center justify-between rounded-lg border bg-blue-50 border-blue-200 px-4 py-3">
+          <div className="flex items-center gap-4 text-sm">
+            <span className="font-medium text-blue-900">
+              Entreprise : <span className="text-blue-700">{selectedCompany.name}</span>
+            </span>
+            <span className="text-blue-300">|</span>
+            <span className="font-medium text-blue-900">
+              Lot : <span className="text-blue-700">{selectedBatch.name}</span>
+            </span>
+          </div>
+          <a
+            href="/select-context"
+            className="text-sm font-medium text-blue-600 underline hover:text-blue-800"
+          >
+            Changer
+          </a>
+        </div>
+      )}
+
       <PageHeader
         title="Saisie des Bulletins de Soins"
         description="Scannez et saisissez les bulletins recus, puis exportez par lot"
@@ -734,19 +829,75 @@ export function BulletinsSaisiePage() {
                       </div>
                     </div>
 
-                    {/* Amount */}
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Montant total (TND) *</Label>
-                        <Input
-                          type="number"
-                          step="0.001"
-                          {...register('total_amount', { valueAsNumber: true })}
-                          placeholder="150.000"
-                        />
-                        {errors.total_amount && (
-                          <p className="text-sm text-destructive">{errors.total_amount.message}</p>
-                        )}
+                    {/* Actes medicaux */}
+                    <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-medium flex items-center gap-2">
+                          <FileText className="h-4 w-4" />
+                          Actes medicaux *
+                        </h4>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => appendActe({ code: '', label: '', amount: 0 })}
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Ajouter un acte
+                        </Button>
+                      </div>
+
+                      {errors.actes?.root && (
+                        <p className="text-sm text-destructive">{errors.actes.root.message}</p>
+                      )}
+
+                      {actesFields.map((field, index) => (
+                        <div key={field.id} className="flex items-start gap-2">
+                          <div className="w-24">
+                            <Input
+                              {...register(`actes.${index}.code`)}
+                              placeholder="Code"
+                              className="text-sm"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <Input
+                              {...register(`actes.${index}.label`)}
+                              placeholder="Libelle de l'acte (ex: Consultation generaliste)"
+                            />
+                            {errors.actes?.[index]?.label && (
+                              <p className="text-xs text-destructive mt-1">{errors.actes[index].label?.message}</p>
+                            )}
+                          </div>
+                          <div className="w-32">
+                            <Input
+                              type="number"
+                              step="0.001"
+                              {...register(`actes.${index}.amount`, { valueAsNumber: true })}
+                              placeholder="Montant"
+                            />
+                            {errors.actes?.[index]?.amount && (
+                              <p className="text-xs text-destructive mt-1">{errors.actes[index].amount?.message}</p>
+                            )}
+                          </div>
+                          {actesFields.length > 1 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeActe(index)}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+
+                      <div className="flex justify-end border-t pt-3">
+                        <p className="text-lg font-bold">
+                          Total : {formatAmount(actesTotal)}
+                        </p>
                       </div>
                     </div>
 
@@ -918,15 +1069,15 @@ export function BulletinsSaisiePage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Exporter le lot en CSV</AlertDialogTitle>
             <AlertDialogDescription>
-              Voulez-vous exporter le lot "{selectedBatch?.name}" ?
+              Voulez-vous exporter le lot "{exportBatch?.name}" ?
               <br />
-              <span className="font-medium">{selectedBatch?.bulletins_count} bulletins</span> pour un total de <span className="font-medium">{formatAmount(selectedBatch?.total_amount || 0)}</span>
+              <span className="font-medium">{exportBatch?.bulletins_count} bulletins</span> pour un total de <span className="font-medium">{formatAmount(exportBatch?.total_amount || 0)}</span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => selectedBatch && exportBatchMutation.mutate(selectedBatch.id)}
+              onClick={() => exportBatch && exportBatchMutation.mutate(exportBatch.id)}
               disabled={exportBatchMutation.isPending}
             >
               {exportBatchMutation.isPending ? (
@@ -940,6 +1091,106 @@ export function BulletinsSaisiePage() {
                   Telecharger CSV
                 </>
               )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulletin Detail Dialog */}
+      <Dialog open={!!viewBulletin} onOpenChange={() => setViewBulletin(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Bulletin {viewBulletin?.bulletin_number}
+            </DialogTitle>
+          </DialogHeader>
+          {viewBulletin && (
+            <div className="space-y-4 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-muted-foreground">Date</p>
+                  <p className="font-medium">{formatDate(viewBulletin.bulletin_date)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Type</p>
+                  <p className="font-medium">{careTypeConfig[viewBulletin.care_type as keyof typeof careTypeConfig]?.label || viewBulletin.care_type}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Adherent</p>
+                  <p className="font-medium">{viewBulletin.adherent_first_name} {viewBulletin.adherent_last_name}</p>
+                  <p className="text-xs text-muted-foreground font-mono">{viewBulletin.adherent_matricule}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Praticien</p>
+                  <p className="font-medium">{viewBulletin.provider_name}</p>
+                </div>
+              </div>
+
+              {/* Actes */}
+              {viewBulletin.actes && viewBulletin.actes.length > 0 && (
+                <div className="space-y-2">
+                  <p className="font-medium">Actes medicaux</p>
+                  <div className="rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="px-3 py-2 text-left">Code</th>
+                          <th className="px-3 py-2 text-left">Libelle</th>
+                          <th className="px-3 py-2 text-right">Montant</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {viewBulletin.actes.map((acte) => (
+                          <tr key={acte.id} className="border-b last:border-0">
+                            <td className="px-3 py-2 font-mono">{acte.code || '-'}</td>
+                            <td className="px-3 py-2">{acte.label}</td>
+                            <td className="px-3 py-2 text-right font-medium">{formatAmount(acte.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-muted/30">
+                          <td colSpan={2} className="px-3 py-2 font-medium">Total</td>
+                          <td className="px-3 py-2 text-right font-bold">{formatAmount(viewBulletin.total_amount)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center pt-2 border-t">
+                <Badge variant={viewBulletin.status === 'draft' ? 'secondary' : viewBulletin.status === 'in_batch' ? 'default' : 'outline'}>
+                  {viewBulletin.status === 'draft' ? 'Brouillon' : viewBulletin.status === 'in_batch' ? 'Dans un lot' : 'Exporte'}
+                </Badge>
+                <p className="text-lg font-bold">{formatAmount(viewBulletin.total_amount)}</p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation popup */}
+      <AlertDialog open={!!deleteBulletinId} onOpenChange={(open) => !open && setDeleteBulletinId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce bulletin ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irréversible. Le bulletin sera définitivement supprimé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteBulletinId) {
+                  deleteMutation.mutate(deleteBulletinId);
+                  setDeleteBulletinId(null);
+                }
+              }}
+            >
+              Supprimer
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
