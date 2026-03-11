@@ -14,3 +14,4 @@ export * from './common';
 export * from './sante';
 export * from './appeal';
 export * from './pre-authorization';
+export * from './bulletin-batch';

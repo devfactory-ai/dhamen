@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { UserPublic, LoginRequest } from '@dhamen/shared';
 import { apiClient } from '@/lib/api-client';
 import { setTokens, clearTokens, getUser, setUser, isAuthenticated } from '@/lib/auth';
-
+import { useAgentContext } from '@/features/agent/stores/agent-context';
 interface LoginResponse {
   requiresMfa: boolean;
   requiresMfaSetup?: boolean;
@@ -69,7 +69,13 @@ export function useAuth() {
           setUserState(data.user);
           // Mark as authenticated in localStorage
           localStorage.setItem('isAuthenticated', 'true');
-          navigate('/dashboard');
+          // Agents must select company + batch before working
+          const agentRoles = ['INSURER_AGENT', 'INSURER_ADMIN'];
+          if (agentRoles.includes(data.user.role)) {
+            navigate('/select-context');
+          } else {
+            navigate('/dashboard');
+          }
           return { success: true, requiresMfa: false };
         }
 
@@ -95,6 +101,8 @@ export function useAuth() {
     } finally {
       clearTokens();
       setUserState(null);
+      // Clear agent context (company + batch selection) so it doesn't leak between accounts
+      useAgentContext.getState().clearContext();
       setIsLoading(false);
       navigate('/login');
     }

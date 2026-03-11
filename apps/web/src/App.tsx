@@ -89,6 +89,8 @@ const HRDashboardPage = lazy(() => import('@/features/hr-portal/pages/HRDashboar
 const HRAdherentsPage = lazy(() => import('@/features/hr-portal/pages/HRAdherentsPage').then(m => ({ default: m.default })));
 const HRContractsPage = lazy(() => import('@/features/hr-portal/pages/HRContractsPage').then(m => ({ default: m.default })));
 const HRClaimsPage = lazy(() => import('@/features/hr-portal/pages/HRClaimsPage').then(m => ({ default: m.default })));
+// Agent context selection
+const SelectContextPage = lazy(() => import('@/features/agent/pages/SelectContextPage').then(m => ({ default: m.default })));
 // Bulletins validation (insurer)
 const BulletinsValidationPage = lazy(() => import('@/features/bulletins/pages/BulletinsValidationPage').then(m => ({ default: m.default })));
 const BulletinsPaymentPage = lazy(() => import('@/features/bulletins/pages/BulletinsPaymentPage').then(m => ({ default: m.default })));
@@ -209,6 +211,7 @@ function App() {
                     <Route path="/contracts/:id/edit" element={<ContractFormPage />} />
                     <Route path="/claims/manage" element={<ClaimsManagePage />} />
                     <Route path="/claims/manage/:id/process" element={<ClaimProcessPage />} />
+                    <Route path="/select-context" element={<SelectContextPage />} />
                     <Route path="/bulletins/validation" element={<BulletinsValidationPage />} />
                     <Route path="/bulletins/payments" element={<BulletinsPaymentPage />} />
                     <Route path="/bulletins/saisie" element={<BulletinsSaisiePage />} />

@@ -2,6 +2,7 @@
  * Bulletins Agent Routes
  * Routes for insurance agents to create, manage batches, and export bulletins
  */
+import { createBatchSchema } from '@dhamen/shared';
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth';
 import { generateId } from '../lib/ulid';
@@ -178,7 +179,7 @@ bulletinsAgent.post('/create', async (c) => {
 });
 
 /**
- * GET /bulletins-soins/batches - List batches
+ * GET /bulletins-soins/batches - List batches filtered by company and status
  */
 bulletinsAgent.get('/batches', async (c) => {
   const user = c.get('user');
@@ -190,20 +191,39 @@ bulletinsAgent.get('/batches', async (c) => {
     }, 403);
   }
 
+  const companyId = c.req.query('companyId');
+  const status = c.req.query('status') || 'open';
+
+  if (!companyId) {
+    return c.json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'companyId requis' },
+    }, 400);
+  }
+
   const db = c.get('tenantDb') ?? c.env.DB;
 
   try {
+    // Verify company belongs to agent's insurer
+    if (user.insurerId) {
+      const company = await db.prepare(
+        'SELECT id FROM companies WHERE id = ? AND insurer_id = ?'
+      ).bind(companyId, user.insurerId).first();
+
+      if (!company) {
+        return c.json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Entreprise non autorisee' },
+        }, 403);
+      }
+    }
+
     const results = await db.prepare(`
-      SELECT
-        b.*,
-        COUNT(bs.id) as bulletins_count,
-        COALESCE(SUM(bs.total_amount), 0) as total_amount
-      FROM bulletin_batches b
-      LEFT JOIN bulletins_soins bs ON bs.batch_id = b.id
-      WHERE b.created_by = ?
-      GROUP BY b.id
-      ORDER BY b.created_at DESC
-    `).bind(user.id).all();
+      SELECT *
+      FROM bulletin_batches
+      WHERE company_id = ? AND status = ?
+      ORDER BY created_at DESC
+    `).bind(companyId, status).all();
 
     return c.json({
       success: true,
@@ -219,7 +239,7 @@ bulletinsAgent.get('/batches', async (c) => {
 });
 
 /**
- * POST /bulletins-soins/batches - Create a new batch
+ * POST /bulletins-soins/batches - Create a new batch for a company
  */
 bulletinsAgent.post('/batches', async (c) => {
   const user = c.get('user');
@@ -232,35 +252,46 @@ bulletinsAgent.post('/batches', async (c) => {
   }
 
   const db = c.get('tenantDb') ?? c.env.DB;
-  const body = await c.req.json<{ name: string; bulletinIds: string[] }>();
+  const body = await c.req.json();
 
-  if (!body.name || !body.bulletinIds || body.bulletinIds.length === 0) {
+  const parsed = createBatchSchema.safeParse(body);
+  if (!parsed.success) {
     return c.json({
       success: false,
-      error: { code: 'VALIDATION_ERROR', message: 'Nom et bulletins requis' },
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: parsed.error.errors.map((e) => e.message).join(', '),
+      },
     }, 400);
   }
 
-  const batchId = generateId();
+  const { name, companyId } = parsed.data;
 
   try {
-    // Create batch
-    await db.prepare(`
-      INSERT INTO bulletin_batches (id, name, status, created_by, created_at)
-      VALUES (?, ?, 'open', ?, datetime('now'))
-    `).bind(batchId, body.name, user.id).run();
+    // Verify company belongs to agent's insurer
+    if (user.insurerId) {
+      const company = await db.prepare(
+        'SELECT id FROM companies WHERE id = ? AND insurer_id = ?'
+      ).bind(companyId, user.insurerId).first();
 
-    // Update bulletins to link to batch
-    const placeholders = body.bulletinIds.map(() => '?').join(',');
+      if (!company) {
+        return c.json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Entreprise non autorisee' },
+        }, 403);
+      }
+    }
+
+    const batchId = generateId();
+
     await db.prepare(`
-      UPDATE bulletins_soins
-      SET batch_id = ?, status = 'in_batch'
-      WHERE id IN (${placeholders}) AND created_by = ? AND status = 'draft'
-    `).bind(batchId, ...body.bulletinIds, user.id).run();
+      INSERT INTO bulletin_batches (id, name, status, company_id, created_by, created_at)
+      VALUES (?, ?, 'open', ?, ?, datetime('now'))
+    `).bind(batchId, name, companyId, user.id).run();
 
     return c.json({
       success: true,
-      data: { id: batchId, name: body.name },
+      data: { id: batchId, name, companyId, status: 'open' },
     }, 201);
   } catch (error) {
     console.error('Error creating batch:', error);
