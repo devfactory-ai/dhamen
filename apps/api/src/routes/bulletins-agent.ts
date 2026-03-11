@@ -78,6 +78,167 @@ bulletinsAgent.get('/', async (c) => {
 });
 
 /**
+ * GET /bulletins-soins/batches - List batches filtered by company and status
+ * NOTE: Must be defined BEFORE /:id to avoid route conflict
+ */
+bulletinsAgent.get('/batches', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' },
+    }, 403);
+  }
+
+  const companyId = c.req.query('companyId');
+  const status = c.req.query('status') || 'open';
+
+  if (!companyId) {
+    return c.json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'companyId requis' },
+    }, 400);
+  }
+
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  try {
+    // Verify company belongs to agent's insurer
+    if (user.insurerId) {
+      const company = await db.prepare(
+        'SELECT id FROM companies WHERE id = ? AND insurer_id = ?'
+      ).bind(companyId, user.insurerId).first();
+
+      if (!company) {
+        return c.json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Entreprise non autorisee' },
+        }, 403);
+      }
+    }
+
+    const results = await db.prepare(`
+      SELECT *
+      FROM bulletin_batches
+      WHERE company_id = ? AND status = ?
+      ORDER BY created_at DESC
+    `).bind(companyId, status).all();
+
+    return c.json({
+      success: true,
+      data: results.results || [],
+    });
+  } catch (error) {
+    console.error('Error fetching batches:', error);
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: 'Erreur de base de donnees' },
+    }, 500);
+  }
+});
+
+/**
+ * GET /bulletins-soins/batches/:id/export - Export batch as CSV
+ * NOTE: Must be defined BEFORE /:id to avoid route conflict
+ */
+bulletinsAgent.get('/batches/:id/export', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' },
+    }, 403);
+  }
+
+  const batchId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  try {
+    // Verify batch ownership
+    const batch = await db.prepare(`
+      SELECT * FROM bulletin_batches WHERE id = ? AND created_by = ?
+    `).bind(batchId, user.id).first();
+
+    if (!batch) {
+      return c.json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Lot non trouve' },
+      }, 404);
+    }
+
+    // Get bulletins in batch
+    const bulletins = await db.prepare(`
+      SELECT * FROM bulletins_soins WHERE batch_id = ? ORDER BY bulletin_date
+    `).bind(batchId).all();
+
+    // Generate CSV
+    const headers = [
+      'Numero Bulletin',
+      'Date Bulletin',
+      'Matricule Adherent',
+      'Nom Adherent',
+      'Prenom Adherent',
+      'CIN',
+      'Beneficiaire',
+      'Lien Parente',
+      'Nom Praticien',
+      'Specialite',
+      'Type Soin',
+      'Description',
+      'Montant TND',
+    ];
+
+    const rows = (bulletins.results || []).map((b: Record<string, unknown>) => [
+      b.bulletin_number,
+      b.bulletin_date,
+      b.adherent_matricule,
+      b.adherent_last_name,
+      b.adherent_first_name,
+      b.adherent_national_id,
+      b.beneficiary_name || '',
+      b.beneficiary_relationship || '',
+      b.provider_name,
+      b.provider_specialty || '',
+      b.care_type,
+      b.care_description || '',
+      (b.total_amount as number).toFixed(3),
+    ]);
+
+    // Add BOM for Excel UTF-8 support
+    const BOM = '\uFEFF';
+    const csvContent = BOM + [
+      headers.join(';'),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(';')),
+    ].join('\n');
+
+    // Mark batch as exported
+    await db.prepare(`
+      UPDATE bulletin_batches SET status = 'exported', exported_at = datetime('now') WHERE id = ?
+    `).bind(batchId).run();
+
+    // Mark bulletins as exported
+    await db.prepare(`
+      UPDATE bulletins_soins SET status = 'exported' WHERE batch_id = ?
+    `).bind(batchId).run();
+
+    return new Response(csvContent, {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${batch.name}_export.csv"`,
+      },
+    });
+  } catch (error) {
+    console.error('Error exporting batch:', error);
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: 'Erreur lors de l\'export' },
+    }, 500);
+  }
+});
+
+/**
  * GET /bulletins-soins/agent/:id - Get bulletin details with actes
  */
 bulletinsAgent.get('/:id', async (c) => {
@@ -353,66 +514,6 @@ bulletinsAgent.post('/create', async (c) => {
 });
 
 /**
- * GET /bulletins-soins/batches - List batches filtered by company and status
- */
-bulletinsAgent.get('/batches', async (c) => {
-  const user = c.get('user');
-
-  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
-    return c.json({
-      success: false,
-      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' },
-    }, 403);
-  }
-
-  const companyId = c.req.query('companyId');
-  const status = c.req.query('status') || 'open';
-
-  if (!companyId) {
-    return c.json({
-      success: false,
-      error: { code: 'VALIDATION_ERROR', message: 'companyId requis' },
-    }, 400);
-  }
-
-  const db = c.get('tenantDb') ?? c.env.DB;
-
-  try {
-    // Verify company belongs to agent's insurer
-    if (user.insurerId) {
-      const company = await db.prepare(
-        'SELECT id FROM companies WHERE id = ? AND insurer_id = ?'
-      ).bind(companyId, user.insurerId).first();
-
-      if (!company) {
-        return c.json({
-          success: false,
-          error: { code: 'FORBIDDEN', message: 'Entreprise non autorisee' },
-        }, 403);
-      }
-    }
-
-    const results = await db.prepare(`
-      SELECT *
-      FROM bulletin_batches
-      WHERE company_id = ? AND status = ?
-      ORDER BY created_at DESC
-    `).bind(companyId, status).all();
-
-    return c.json({
-      success: true,
-      data: results.results || [],
-    });
-  } catch (error) {
-    console.error('Error fetching batches:', error);
-    return c.json({
-      success: false,
-      error: { code: 'DATABASE_ERROR', message: 'Erreur de base de donnees' },
-    }, 500);
-  }
-});
-
-/**
  * POST /bulletins-soins/batches - Create a new batch for a company
  */
 bulletinsAgent.post('/batches', async (c) => {
@@ -472,105 +573,6 @@ bulletinsAgent.post('/batches', async (c) => {
     return c.json({
       success: false,
       error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la creation du lot' },
-    }, 500);
-  }
-});
-
-/**
- * GET /bulletins-soins/batches/:id/export - Export batch as CSV
- */
-bulletinsAgent.get('/batches/:id/export', async (c) => {
-  const user = c.get('user');
-
-  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
-    return c.json({
-      success: false,
-      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' },
-    }, 403);
-  }
-
-  const batchId = c.req.param('id');
-  const db = c.get('tenantDb') ?? c.env.DB;
-
-  try {
-    // Verify batch ownership
-    const batch = await db.prepare(`
-      SELECT * FROM bulletin_batches WHERE id = ? AND created_by = ?
-    `).bind(batchId, user.id).first();
-
-    if (!batch) {
-      return c.json({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'Lot non trouve' },
-      }, 404);
-    }
-
-    // Get bulletins in batch
-    const bulletins = await db.prepare(`
-      SELECT * FROM bulletins_soins WHERE batch_id = ? ORDER BY bulletin_date
-    `).bind(batchId).all();
-
-    // Generate CSV
-    const headers = [
-      'Numero Bulletin',
-      'Date Bulletin',
-      'Matricule Adherent',
-      'Nom Adherent',
-      'Prenom Adherent',
-      'CIN',
-      'Beneficiaire',
-      'Lien Parente',
-      'Nom Praticien',
-      'Specialite',
-      'Type Soin',
-      'Description',
-      'Montant TND',
-    ];
-
-    const rows = (bulletins.results || []).map((b: Record<string, unknown>) => [
-      b.bulletin_number,
-      b.bulletin_date,
-      b.adherent_matricule,
-      b.adherent_last_name,
-      b.adherent_first_name,
-      b.adherent_national_id,
-      b.beneficiary_name || '',
-      b.beneficiary_relationship || '',
-      b.provider_name,
-      b.provider_specialty || '',
-      b.care_type,
-      b.care_description || '',
-      (b.total_amount as number).toFixed(3),
-    ]);
-
-    // Add BOM for Excel UTF-8 support
-    const BOM = '\uFEFF';
-    const csvContent = BOM + [
-      headers.join(';'),
-      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(';')),
-    ].join('\n');
-
-    // Mark batch as exported
-    await db.prepare(`
-      UPDATE bulletin_batches SET status = 'exported', exported_at = datetime('now') WHERE id = ?
-    `).bind(batchId).run();
-
-    // Mark bulletins as exported
-    await db.prepare(`
-      UPDATE bulletins_soins SET status = 'exported' WHERE batch_id = ?
-    `).bind(batchId).run();
-
-    return new Response(csvContent, {
-      headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${batch.name}_export.csv"`,
-      },
-    });
-  } catch (error) {
-    console.error('Error exporting batch:', error);
-    return c.json({
-      success: false,
-      error: { code: 'DATABASE_ERROR', message: 'Erreur lors de l\'export' },
     }, 500);
   }
 });
