@@ -13,11 +13,6 @@ interface Company {
   is_active: number;
 }
 
-interface CompaniesResponse {
-  data: Company[];
-  meta: { page: number; limit: number; total: number };
-}
-
 export function useCompanies(search?: string) {
   const user = getUser();
 
@@ -33,7 +28,7 @@ export function useCompanies(search?: string) {
       if (search) {
         params.search = search;
       }
-      const response = await apiClient.get<CompaniesResponse>('/companies', { params });
+      const response = await apiClient.get<Company[]>('/companies', { params });
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors du chargement des entreprises');
       }

@@ -15,7 +15,7 @@ export default function SelectContextPage() {
   const { data: batchesData, isLoading: batchesLoading } = useBatches(selectedCompany?.id ?? null);
   const createBatch = useCreateBatch();
 
-  const companies = companiesData?.data ?? [];
+  const companies = companiesData ?? [];
   const batches = batchesData ?? [];
 
   function handleSelectCompany(company: { id: string; name: string; matricule_fiscal: string }) {
