@@ -426,14 +426,7 @@ export function BulletinsSaisiePage() {
   const bulletinColumns = [
     {
       key: 'select',
-      header: (
-        <input
-          type="checkbox"
-          checked={selectedBulletins.length > 0 && selectedBulletins.length === (bulletinsData || []).filter(b => b.status === 'draft').length}
-          onChange={handleSelectAll}
-          className="h-4 w-4 rounded border-gray-300"
-        />
-      ),
+      header: '',
       render: (row: BulletinSaisie) => (
         row.status === 'draft' ? (
           <input
