@@ -1,7 +1,7 @@
 ---
 id: TASK-001
 parent: REQ-003
-status: todo
+status: done
 dependencies: []
 files:
   - packages/db/migrations/0066_add_batch_id_to_bulletins_soins.sql

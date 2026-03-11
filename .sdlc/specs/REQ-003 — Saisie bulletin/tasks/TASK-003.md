@@ -1,7 +1,7 @@
 ---
 id: TASK-003
 parent: REQ-003
-status: todo
+status: done
 dependencies: []
 files:
   - apps/web/src/components/guards/AgentContextGuard.tsx
