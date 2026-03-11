@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { getUser } from '@/lib/auth';
 
 interface Company {
   id: string;
@@ -18,13 +19,17 @@ interface CompaniesResponse {
 }
 
 export function useCompanies(search?: string) {
+  const user = getUser();
+
   return useQuery({
-    queryKey: ['companies', 'agent', search],
+    queryKey: ['companies', 'agent', user?.insurerId, search],
     queryFn: async () => {
       const params: Record<string, string | number> = {
-        isActive: 'true',
         limit: 100,
       };
+      if (user?.insurerId) {
+        params.insurerId = user.insurerId;
+      }
       if (search) {
         params.search = search;
       }
