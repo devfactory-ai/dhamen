@@ -2,7 +2,7 @@
  * Bulletins Agent Routes
  * Routes for insurance agents to create, manage batches, and export bulletins
  */
-import { createBatchSchema } from '@dhamen/shared';
+import { createBatchSchema, actesArraySchema } from '@dhamen/shared';
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth';
 import { generateId } from '../lib/ulid';
@@ -99,8 +99,38 @@ bulletinsAgent.post('/create', async (c) => {
   const providerSpecialty = formData['provider_specialty'] as string || null;
   const careType = formData['care_type'] as string;
   const careDescription = formData['care_description'] as string || null;
-  const totalAmount = parseFloat(formData['total_amount'] as string);
   const batchId = formData['batch_id'] as string || null;
+
+  // Parse actes array (JSON string from form)
+  const actesRaw = formData['actes'] as string;
+  let actes: { code?: string; label: string; amount: number }[] = [];
+
+  if (actesRaw) {
+    try {
+      const parsed = JSON.parse(actesRaw);
+      const result = actesArraySchema.safeParse(parsed);
+      if (!result.success) {
+        return c.json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: result.error.errors.map((e) => e.message).join(', '),
+          },
+        }, 400);
+      }
+      actes = result.data;
+    } catch {
+      return c.json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Format des actes invalide' },
+      }, 400);
+    }
+  }
+
+  // Calculate total from actes if provided, otherwise use legacy total_amount field
+  const totalAmount = actes.length > 0
+    ? actes.reduce((sum, a) => sum + a.amount, 0)
+    : parseFloat(formData['total_amount'] as string);
 
   // Validate required fields
   if (!bulletinDate || !adherentMatricule || !adherentFirstName || !adherentLastName ||
@@ -186,12 +216,25 @@ bulletinsAgent.post('/create', async (c) => {
       totalAmount, scanUrl, batchId, status, user.id
     ).run();
 
+    // Insert actes if provided
+    if (actes.length > 0) {
+      const stmts = actes.map((acte) => {
+        const acteId = generateId();
+        return db.prepare(
+          `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, created_at)
+           VALUES (?, ?, ?, ?, ?, datetime('now'))`
+        ).bind(acteId, bulletinId, acte.code || null, acte.label, acte.amount);
+      });
+      await db.batch(stmts);
+    }
+
     return c.json({
       success: true,
       data: {
         id: bulletinId,
         bulletin_number: bulletinNumber,
         status,
+        actes_count: actes.length,
       },
     }, 201);
   } catch (error) {
