@@ -30,6 +30,7 @@ bulletinsAgent.get('/', async (c) => {
   const db = c.get('tenantDb') ?? c.env.DB;
   const status = c.req.query('status') || 'draft,in_batch';
   const search = c.req.query('search');
+  const batchId = c.req.query('batchId');
 
   let query = `
     SELECT
@@ -41,6 +42,11 @@ bulletinsAgent.get('/', async (c) => {
     AND bs.status IN (${status.split(',').map(() => '?').join(',')})
   `;
   const params: (string | number)[] = [user.id, ...status.split(',')];
+
+  if (batchId) {
+    query += ' AND bs.batch_id = ?';
+    params.push(batchId);
+  }
 
   if (search) {
     query += ` AND (
@@ -67,6 +73,105 @@ bulletinsAgent.get('/', async (c) => {
     return c.json({
       success: false,
       error: { code: 'DATABASE_ERROR', message: 'Erreur de base de donnees' },
+    }, 500);
+  }
+});
+
+/**
+ * GET /bulletins-soins/agent/:id - Get bulletin details with actes
+ */
+bulletinsAgent.get('/:id', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' },
+    }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  try {
+    const bulletin = await db.prepare(
+      'SELECT bs.*, b.name as batch_name FROM bulletins_soins bs LEFT JOIN bulletin_batches b ON bs.batch_id = b.id WHERE bs.id = ? AND bs.created_by = ?'
+    ).bind(bulletinId, user.id).first();
+
+    if (!bulletin) {
+      return c.json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Bulletin non trouve' },
+      }, 404);
+    }
+
+    const actes = await db.prepare(
+      'SELECT * FROM actes_bulletin WHERE bulletin_id = ? ORDER BY created_at'
+    ).bind(bulletinId).all();
+
+    return c.json({
+      success: true,
+      data: {
+        ...bulletin,
+        actes: actes.results || [],
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching bulletin:', error);
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: 'Erreur de base de donnees' },
+    }, 500);
+  }
+});
+
+/**
+ * DELETE /bulletins-soins/agent/:id - Delete a draft bulletin
+ */
+bulletinsAgent.delete('/:id', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' },
+    }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  try {
+    const bulletin = await db.prepare(
+      'SELECT id, status FROM bulletins_soins WHERE id = ? AND created_by = ?'
+    ).bind(bulletinId, user.id).first();
+
+    if (!bulletin) {
+      return c.json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Bulletin non trouve' },
+      }, 404);
+    }
+
+    if (bulletin.status === 'exported') {
+      return c.json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Impossible de supprimer un bulletin exporte' },
+      }, 400);
+    }
+
+    // Delete actes first, then bulletin
+    await db.batch([
+      db.prepare('DELETE FROM actes_bulletin WHERE bulletin_id = ?').bind(bulletinId),
+      db.prepare('DELETE FROM bulletins_soins WHERE id = ?').bind(bulletinId),
+    ]);
+
+    return c.json({ success: true, data: { id: bulletinId } });
+  } catch (error) {
+    console.error('Error deleting bulletin:', error);
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la suppression' },
     }, 500);
   }
 });

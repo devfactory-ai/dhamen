@@ -169,12 +169,13 @@ export function BulletinsSaisiePage() {
   const watchedActes = watch('actes');
   const actesTotal = (watchedActes || []).reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
 
-  // Fetch bulletins (drafts and in_batch)
+  // Fetch bulletins (drafts and in_batch) for current batch
   const { data: bulletinsData, isLoading: loadingBulletins } = useQuery({
-    queryKey: ['agent-bulletins', searchQuery],
+    queryKey: ['agent-bulletins', selectedBatch?.id, searchQuery],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.append('status', 'draft,in_batch');
+      if (selectedBatch) params.append('batchId', selectedBatch.id);
       if (searchQuery) params.append('search', searchQuery);
 
       const response = await apiClient.get<BulletinSaisie[]>(`/bulletins-soins/agent?${params}`);
@@ -315,6 +316,32 @@ export function BulletinsSaisiePage() {
       toast.error(error.message || 'Erreur lors de l\'export');
     },
   });
+
+  // Delete bulletin mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (bulletinId: string) => {
+      const response = await apiClient.delete(`/bulletins-soins/agent/${bulletinId}`);
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
+      toast.success('Bulletin supprime');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors de la suppression');
+    },
+  });
+
+  // View bulletin detail
+  const [viewBulletin, setViewBulletin] = useState<(BulletinSaisie & { actes?: { id: string; code: string; label: string; amount: number }[] }) | null>(null);
+
+  const fetchBulletinDetail = async (id: string) => {
+    const response = await apiClient.get<BulletinSaisie & { actes: { id: string; code: string; label: string; amount: number }[] }>(`/bulletins-soins/agent/${id}`);
+    if (response.success) {
+      setViewBulletin(response.data);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -469,6 +496,35 @@ export function BulletinsSaisiePage() {
         <Badge variant={row.status === 'draft' ? 'secondary' : row.status === 'in_batch' ? 'default' : 'outline'}>
           {row.status === 'draft' ? 'Brouillon' : row.status === 'in_batch' ? `Lot: ${row.batch_name}` : 'Exporte'}
         </Badge>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (row: BulletinSaisie) => (
+        <div className="flex gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => fetchBulletinDetail(row.id)}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          {row.status !== 'exported' && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              onClick={() => {
+                if (confirm('Supprimer ce bulletin ?')) {
+                  deleteMutation.mutate(row.id);
+                }
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       ),
     },
   ];
@@ -1049,6 +1105,80 @@ export function BulletinsSaisiePage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Bulletin Detail Dialog */}
+      <Dialog open={!!viewBulletin} onOpenChange={() => setViewBulletin(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Bulletin {viewBulletin?.bulletin_number}
+            </DialogTitle>
+          </DialogHeader>
+          {viewBulletin && (
+            <div className="space-y-4 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-muted-foreground">Date</p>
+                  <p className="font-medium">{formatDate(viewBulletin.bulletin_date)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Type</p>
+                  <p className="font-medium">{careTypeConfig[viewBulletin.care_type as keyof typeof careTypeConfig]?.label || viewBulletin.care_type}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Adherent</p>
+                  <p className="font-medium">{viewBulletin.adherent_first_name} {viewBulletin.adherent_last_name}</p>
+                  <p className="text-xs text-muted-foreground font-mono">{viewBulletin.adherent_matricule}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Praticien</p>
+                  <p className="font-medium">{viewBulletin.provider_name}</p>
+                </div>
+              </div>
+
+              {/* Actes */}
+              {viewBulletin.actes && viewBulletin.actes.length > 0 && (
+                <div className="space-y-2">
+                  <p className="font-medium">Actes medicaux</p>
+                  <div className="rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="px-3 py-2 text-left">Code</th>
+                          <th className="px-3 py-2 text-left">Libelle</th>
+                          <th className="px-3 py-2 text-right">Montant</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {viewBulletin.actes.map((acte) => (
+                          <tr key={acte.id} className="border-b last:border-0">
+                            <td className="px-3 py-2 font-mono">{acte.code || '-'}</td>
+                            <td className="px-3 py-2">{acte.label}</td>
+                            <td className="px-3 py-2 text-right font-medium">{formatAmount(acte.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-muted/30">
+                          <td colSpan={2} className="px-3 py-2 font-medium">Total</td>
+                          <td className="px-3 py-2 text-right font-bold">{formatAmount(viewBulletin.total_amount)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center pt-2 border-t">
+                <Badge variant={viewBulletin.status === 'draft' ? 'secondary' : viewBulletin.status === 'in_batch' ? 'default' : 'outline'}>
+                  {viewBulletin.status === 'draft' ? 'Brouillon' : viewBulletin.status === 'in_batch' ? 'Dans un lot' : 'Exporte'}
+                </Badge>
+                <p className="text-lg font-bold">{formatAmount(viewBulletin.total_amount)}</p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
