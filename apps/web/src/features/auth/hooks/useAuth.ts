@@ -69,7 +69,13 @@ export function useAuth() {
           setUserState(data.user);
           // Mark as authenticated in localStorage
           localStorage.setItem('isAuthenticated', 'true');
-          navigate('/dashboard');
+          // Agents must select company + batch before working
+          const agentRoles = ['INSURER_AGENT', 'INSURER_ADMIN'];
+          if (agentRoles.includes(data.user.role)) {
+            navigate('/select-context');
+          } else {
+            navigate('/dashboard');
+          }
           return { success: true, requiresMfa: false };
         }
 
