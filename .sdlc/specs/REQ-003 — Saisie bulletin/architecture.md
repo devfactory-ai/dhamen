@@ -7,80 +7,61 @@ React + Vite
 Formulaire dynamique :
 
 - matricule adhérent
-- actes médicaux (liste)
+- actes médicaux (liste dynamique, ajouter/supprimer)
 - montant par acte
+- montant total calculé automatiquement (somme des actes)
 
 ## Backend
 
-Endpoint API :
+Endpoint API existant adapté :
 
-POST /api/v1/remboursements
+POST /api/v1/bulletins-soins/agent/create
+
+Body (multipart form) :
+- champs bulletin existants (date, adhérent, praticien, etc.)
+- batch_id (du lot actif)
+- actes[] : tableau JSON d'actes `[{ code, label, amount }]`
 
 ## Database (D1)
 
-Table remboursements
+Table `bulletins_soins` (existante, colonnes ajoutées via migrations 0065-0067) :
+- batch_id → lien vers bulletin_batches
+- created_by → agent qui a saisi
+- adherent_matricule, adherent_first_name, etc.
 
-id
-lot_id
-adherent_id
-created_at
-
-Table actes_remboursement
-
-id
-remboursement_id
-acte
-montant
+Table `actes_bulletin` (nouvelle) :
+- id TEXT PRIMARY KEY
+- bulletin_id TEXT REFERENCES bulletins_soins(id)
+- code TEXT (code acte médical, ex: CS, V, KB)
+- label TEXT (libellé de l'acte)
+- amount REAL (montant TND)
+- created_at TEXT
 
 ## Validation
 
 - matricule requis
 - au moins un acte
-- montant > 0
+- chaque acte doit avoir un code/libellé et un montant > 0
+- total_amount = somme des montants des actes
 
 ## Flux
 
-Frontend
+```
+Frontend (formulaire dynamique)
    ↓
-POST /remboursements
+POST /bulletins-soins/agent/create
    ↓
-validation
+validation Zod (bulletin + actes)
    ↓
-insert D1
+INSERT bulletins_soins + INSERT actes_bulletin (batch D1)
+```
 
 ---
 
-## Problèmes existants à corriger (identifiés lors du test REQ-002)
+## Problèmes corrigés (TASK-001 à TASK-004)
 
-### 1. Page saisie déconnectée du contexte agent
-
-`BulletinsSaisiePage.tsx` (952 lignes) existe déjà mais n'importe pas
-`useAgentContext`. Les bulletins créés ne sont pas liés au lot sélectionné.
-
-**Correction** : connecter le store Zustand `agent-context` à la page saisie,
-afficher l'entreprise et le lot actif en en-tête.
-
-### 2. Pas de `batch_id` envoyé à la création
-
-Le formulaire POST `/bulletins-soins/agent/create` ne transmet pas le
-`batch_id` du lot actif. Les bulletins sont créés en statut `draft` sans
-lien avec un lot.
-
-**Correction** : envoyer `batch_id` dans le formulaire, insérer avec
-statut `in_batch` quand un lot est sélectionné.
-
-### 3. API n'insère pas `batch_id`
-
-Le endpoint POST `/create` dans `bulletins-agent.ts` n'accepte pas et
-n'insère pas `batch_id` dans la table `bulletins_soins`.
-
-**Correction** : accepter `batch_id` optionnel, l'insérer dans le INSERT,
-adapter le statut en conséquence.
-
-### 4. Pas de garde de route
-
-Si un agent accède directement à `/bulletins/saisie` sans contexte
-(company + batch), rien ne le redirige vers `/select-context`.
-
-**Correction** : ajouter un guard qui vérifie `isContextReady()` et
-redirige vers `/select-context` si le contexte est incomplet.
+- ✅ Page saisie connectée au contexte agent (company + batch)
+- ✅ batch_id envoyé à la création, statut `in_batch`
+- ✅ API accepte et insère batch_id
+- ✅ Guard de route redirige agents sans contexte
+- ✅ Colonnes manquantes ajoutées (migrations 0066, 0067)
