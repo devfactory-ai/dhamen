@@ -12,6 +12,7 @@ const DEMO_ACCOUNTS = [
   { email: 'admin@dhamen.tn', role: 'Admin Plateforme', icon: '👑', color: 'from-purple-500 to-purple-600', category: 'admin' },
   { email: 'admin@star.com.tn', role: 'Assureur STAR', icon: '🏢', color: 'from-blue-500 to-blue-600', category: 'insurer' },
   { email: 'admin@gat.com.tn', role: 'Assureur GAT', icon: '🏛️', color: 'from-indigo-500 to-indigo-600', category: 'insurer' },
+  { email: 'admin@ami.com.tn', role: 'Assureur AMI', icon: '🛡️', color: 'from-rose-500 to-rose-600', category: 'insurer' },
   { email: 'pharma.centrale@email.tn', role: 'Pharmacien', icon: '💊', color: 'from-green-500 to-green-600', category: 'provider' },
   { email: 'dr.benali@email.tn', role: 'Médecin', icon: '🩺', color: 'from-teal-500 to-teal-600', category: 'provider' },
   { email: 'labo.central@email.tn', role: 'Laboratoire', icon: '🔬', color: 'from-orange-500 to-orange-600', category: 'provider' },
@@ -22,6 +23,7 @@ const DEMO_AGENT_ACCOUNTS = [
   { email: 'agent.star@email.tn', insurer: 'STAR', name: 'Sami Khlifi', icon: '📋', color: 'from-blue-400 to-blue-500' },
   { email: 'agent.gat@email.tn', insurer: 'GAT', name: 'Ines Mejri', icon: '📝', color: 'from-indigo-400 to-indigo-500' },
   { email: 'agent.comar@email.tn', insurer: 'COMAR', name: 'Karim Dridi', icon: '✅', color: 'from-slate-500 to-slate-600' },
+  { email: 'agent.ami@email.tn', insurer: 'AMI', name: 'Nadia Bouzid', icon: '🛡️', color: 'from-rose-400 to-rose-500' },
 ];
 
 // Demo HR accounts - different client companies
@@ -150,7 +152,7 @@ export function LoginForm() {
         {/* Insurance Agent Demo Accounts */}
         <div className="pt-3 border-t border-gray-100">
           <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-2 text-center">Agents Assurance</p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             {DEMO_AGENT_ACCOUNTS.map((account) => (
               <button
                 key={account.email}
