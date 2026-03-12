@@ -78,7 +78,8 @@ const navigationSections: NavSection[] = [
   {
     title: 'Gestion Assurance',
     items: [
-      { name: 'Adhérents', href: '/adherents', icon: UsersIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'] },
+      { name: 'Adhérents', href: '/adherents', icon: UsersIcon, roles: ['ADMIN'] },
+      { name: 'Adhérents', href: '/adherents/agent', icon: UsersIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
       { name: 'Contrats', href: '/contracts', icon: DocumentIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'] },
       { name: 'Gestion PEC', href: '/claims/manage', icon: ClipboardCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'] },
       { name: 'Saisie bulletins', href: '/bulletins/saisie', icon: DocumentsIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
