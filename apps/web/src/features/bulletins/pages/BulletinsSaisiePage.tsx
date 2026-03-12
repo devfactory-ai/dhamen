@@ -63,6 +63,9 @@ import {
   Search,
   FolderPlus,
   Check,
+  AlertTriangle,
+  Ban,
+  Info,
 } from 'lucide-react';
 
 // Types
@@ -81,12 +84,42 @@ interface BulletinSaisie {
   care_type: string;
   care_description: string;
   total_amount: number;
+  reimbursed_amount: number | null;
   scan_url: string | null;
   batch_id: string | null;
   batch_name: string | null;
   created_at: string;
-  status: 'draft' | 'in_batch' | 'exported';
+  status: 'draft' | 'in_batch' | 'exported' | 'soumis' | 'en_examen' | 'approuve' | 'rejete' | 'paye';
 }
+
+interface BulletinActeDetail {
+  id: string;
+  code: string;
+  label: string;
+  amount: number;
+  taux_remboursement: number | null;
+  montant_rembourse: number | null;
+  remboursement_brut: number | null;
+  plafond_depasse: number | null;
+}
+
+interface BulletinDetail extends BulletinSaisie {
+  actes?: BulletinActeDetail[];
+  plafond_global?: number | null;
+  plafond_consomme?: number | null;
+  plafond_consomme_avant?: number | null;
+}
+
+const bulletinStatusConfig: Record<string, { label: string; variant: 'secondary' | 'default' | 'outline' | 'destructive'; className?: string }> = {
+  draft: { label: 'Brouillon', variant: 'secondary' },
+  in_batch: { label: 'Dans un lot', variant: 'default' },
+  exported: { label: 'Exporte', variant: 'outline' },
+  soumis: { label: 'Soumis', variant: 'default' },
+  en_examen: { label: 'En examen', variant: 'default', className: 'bg-yellow-500 hover:bg-yellow-600' },
+  approuve: { label: 'Approuve', variant: 'default', className: 'bg-green-600 hover:bg-green-700' },
+  rejete: { label: 'Rejete', variant: 'destructive' },
+  paye: { label: 'Paye', variant: 'default', className: 'bg-emerald-700 hover:bg-emerald-800' },
+};
 
 interface Batch {
   id: string;
@@ -128,6 +161,14 @@ const bulletinFormSchema = z.object({
 });
 
 type BulletinFormData = z.infer<typeof bulletinFormSchema>;
+
+interface ActeReferentiel {
+  id: string;
+  code: string;
+  label: string;
+  taux_remboursement: number;
+  plafond_acte: number | null;
+}
 
 export function BulletinsSaisiePage() {
   const queryClient = useQueryClient();
@@ -194,6 +235,16 @@ export function BulletinsSaisiePage() {
       return response.data || [];
     },
     enabled: !!selectedCompany,
+  });
+
+  // Fetch actes referentiel
+  const { data: actesReferentiel } = useQuery({
+    queryKey: ['actes-referentiel'],
+    queryFn: async () => {
+      const response = await apiClient.get<ActeReferentiel[]>('/bulletins-soins/agent/actes-referentiel');
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data || [];
+    },
   });
 
   // Submit bulletin mutation
@@ -334,11 +385,11 @@ export function BulletinsSaisiePage() {
   });
 
   // View bulletin detail
-  const [viewBulletin, setViewBulletin] = useState<(BulletinSaisie & { actes?: { id: string; code: string; label: string; amount: number }[] }) | null>(null);
+  const [viewBulletin, setViewBulletin] = useState<BulletinDetail | null>(null);
   const [deleteBulletinId, setDeleteBulletinId] = useState<string | null>(null);
 
   const fetchBulletinDetail = async (id: string) => {
-    const response = await apiClient.get<BulletinSaisie & { actes: { id: string; code: string; label: string; amount: number }[] }>(`/bulletins-soins/agent/${id}`);
+    const response = await apiClient.get<BulletinDetail>(`/bulletins-soins/agent/${id}`);
     if (response.success) {
       setViewBulletin(response.data);
     }
@@ -410,10 +461,9 @@ export function BulletinsSaisiePage() {
 
   const formatAmount = (amount: number) => {
     return new Intl.NumberFormat('fr-TN', {
-      style: 'currency',
-      currency: 'TND',
-      minimumFractionDigits: 3,
-    }).format(amount);
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(amount) + ' DT';
   };
 
   const formatDate = (dateString: string) => {
@@ -853,18 +903,30 @@ export function BulletinsSaisiePage() {
 
                       {actesFields.map((field, index) => (
                         <div key={field.id} className="flex items-start gap-2">
-                          <div className="w-24">
-                            <Input
-                              {...register(`actes.${index}.code`)}
-                              placeholder="Code"
-                              className="text-sm"
-                            />
-                          </div>
                           <div className="flex-1">
-                            <Input
-                              {...register(`actes.${index}.label`)}
-                              placeholder="Libelle de l'acte (ex: Consultation generaliste)"
-                            />
+                            <Select
+                              value={watch(`actes.${index}.code`) || ''}
+                              onValueChange={(value) => {
+                                const ref = actesReferentiel?.find((a) => a.code === value);
+                                if (ref) {
+                                  setValue(`actes.${index}.code`, ref.code);
+                                  setValue(`actes.${index}.label`, ref.label);
+                                }
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Selectionner un acte" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {actesReferentiel?.map((acte) => (
+                                  <SelectItem key={acte.code} value={acte.code}>
+                                    <span className="font-mono text-xs mr-2">{acte.code}</span>
+                                    {acte.label}
+                                    <span className="text-muted-foreground ml-2">({Math.round(acte.taux_remboursement * 100)}%)</span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                             {errors.actes?.[index]?.label && (
                               <p className="text-xs text-destructive mt-1">{errors.actes[index].label?.message}</p>
                             )}
@@ -1098,7 +1160,7 @@ export function BulletinsSaisiePage() {
 
       {/* Bulletin Detail Dialog */}
       <Dialog open={!!viewBulletin} onOpenChange={() => setViewBulletin(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               Bulletin {viewBulletin?.bulletin_number}
@@ -1126,44 +1188,179 @@ export function BulletinsSaisiePage() {
                 </div>
               </div>
 
-              {/* Actes */}
+              {/* Actes medicaux */}
               {viewBulletin.actes && viewBulletin.actes.length > 0 && (
                 <div className="space-y-2">
-                  <p className="font-medium">Actes medicaux</p>
-                  <div className="rounded-md border">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b bg-muted/50">
-                          <th className="px-3 py-2 text-left">Code</th>
-                          <th className="px-3 py-2 text-left">Libelle</th>
-                          <th className="px-3 py-2 text-right">Montant</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {viewBulletin.actes.map((acte) => (
-                          <tr key={acte.id} className="border-b last:border-0">
-                            <td className="px-3 py-2 font-mono">{acte.code || '-'}</td>
-                            <td className="px-3 py-2">{acte.label}</td>
-                            <td className="px-3 py-2 text-right font-medium">{formatAmount(acte.amount)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr className="bg-muted/30">
-                          <td colSpan={2} className="px-3 py-2 font-medium">Total</td>
-                          <td className="px-3 py-2 text-right font-bold">{formatAmount(viewBulletin.total_amount)}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
+                  <p className="font-medium text-sm">Actes medicaux</p>
+                  <div className="rounded-md border divide-y">
+                    {viewBulletin.actes.map((acte) => {
+                      const isLimited = acte.plafond_depasse === 1 && (acte.montant_rembourse || 0) > 0;
+                      const isExhausted = acte.plafond_depasse === 1 && (acte.montant_rembourse || 0) === 0 && (acte.remboursement_brut || 0) > 0;
+                      const isUnreferenced = acte.taux_remboursement === 0 || acte.taux_remboursement == null;
+                      return (
+                        <div key={acte.id} className="p-3 space-y-1.5">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="font-medium text-sm">{acte.label}</p>
+                              <p className="text-xs text-muted-foreground font-mono">{acte.code || 'Sans code'}</p>
+                            </div>
+                            {isExhausted && <Badge variant="destructive" className="text-xs shrink-0">Plafond epuise</Badge>}
+                            {isLimited && <Badge className="text-xs bg-orange-500 hover:bg-orange-600 shrink-0">Limite par plafond</Badge>}
+                            {isUnreferenced && <Badge variant="secondary" className="text-xs shrink-0">Non reference</Badge>}
+                          </div>
+                          <div className="grid grid-cols-4 gap-2 text-xs">
+                            <div>
+                              <p className="text-muted-foreground">Montant</p>
+                              <p className="font-medium">{formatAmount(acte.amount)}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">Taux</p>
+                              <p className="font-medium">{acte.taux_remboursement != null ? `${Math.round(acte.taux_remboursement * 100)}%` : '-'}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">Remb. brut</p>
+                              <p className="font-medium">{acte.remboursement_brut != null ? formatAmount(acte.remboursement_brut) : '-'}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">Rembourse</p>
+                              <p className={`font-bold ${isExhausted ? 'text-destructive' : isLimited ? 'text-orange-500' : 'text-green-600'}`}>
+                                {acte.montant_rembourse != null ? formatAmount(acte.montant_rembourse) : '-'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
+              {/* TASK-012: alertes cas limites */}
+              {(() => {
+                const actes = viewBulletin.actes || [];
+                const exhaustedCount = actes.filter((a) => a.plafond_depasse === 1 && (a.montant_rembourse || 0) === 0 && (a.remboursement_brut || 0) > 0).length;
+                const limitedCount = actes.filter((a) => a.plafond_depasse === 1 && (a.montant_rembourse || 0) > 0).length;
+                const unreferencedCount = actes.filter((a) => a.taux_remboursement === 0 || a.taux_remboursement == null).length;
+                const plafondAvant = viewBulletin.plafond_consomme_avant ?? 0;
+                const plafondGlobal = viewBulletin.plafond_global ?? 0;
+                const plafondEpuiseAvant = plafondGlobal > 0 && plafondAvant >= plafondGlobal;
+
+                return (
+                  <div className="space-y-2">
+                    {plafondEpuiseAvant && (
+                      <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive">
+                        <Ban className="h-4 w-4 shrink-0" />
+                        <span>Plafond annuel epuise — aucun remboursement possible</span>
+                      </div>
+                    )}
+                    {limitedCount > 0 && !plafondEpuiseAvant && (
+                      <div className="flex items-center gap-2 rounded-md border border-orange-300 bg-orange-50 p-2 text-sm text-orange-700">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        <span>Remboursement limite par le plafond sur {limitedCount} acte{limitedCount > 1 ? 's' : ''}</span>
+                      </div>
+                    )}
+                    {exhaustedCount > 0 && !plafondEpuiseAvant && (
+                      <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-sm text-destructive">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        <span>{exhaustedCount} acte{exhaustedCount > 1 ? 's' : ''} non rembourse{exhaustedCount > 1 ? 's' : ''} — plafond atteint</span>
+                      </div>
+                    )}
+                    {unreferencedCount > 0 && (
+                      <div className="flex items-center gap-2 rounded-md border bg-muted/50 p-2 text-sm text-muted-foreground">
+                        <Info className="h-4 w-4 shrink-0" />
+                        <span>{unreferencedCount} acte{unreferencedCount > 1 ? 's' : ''} non reference{unreferencedCount > 1 ? 's' : ''} — taux 0%</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* TASK-013: totaux detailles */}
+              {viewBulletin.actes && viewBulletin.actes.length > 0 && (
+                <div className="rounded-md border bg-muted/20 p-3 space-y-1 text-sm">
+                  {(() => {
+                    const totalDeclare = viewBulletin.total_amount || 0;
+                    const totalBrut = (viewBulletin.actes || []).reduce((s, a) => s + (a.remboursement_brut || 0), 0);
+                    const totalFinal = viewBulletin.reimbursed_amount || 0;
+                    const reduction = totalBrut - totalFinal;
+                    return (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Montant declare total</span>
+                          <span className="font-medium">{formatAmount(totalDeclare)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Remboursement brut total</span>
+                          <span className="font-medium">{formatAmount(totalBrut)}</span>
+                        </div>
+                        <div className="flex justify-between border-t pt-1">
+                          <span className="font-medium">Remboursement final total</span>
+                          <span className="font-bold text-green-600">{formatAmount(totalFinal)}</span>
+                        </div>
+                        {reduction > 0 && (
+                          <div className="flex justify-between text-destructive">
+                            <span className="text-xs">Reduction plafond</span>
+                            <span className="text-xs font-medium">-{formatAmount(reduction)}</span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Plafond avec impact bulletin */}
+              {viewBulletin.plafond_global != null && viewBulletin.plafond_global > 0 && (
+                <div className="rounded-md border bg-muted/10 p-3 space-y-2.5">
+                  <div className="flex justify-between items-center">
+                    <p className="font-medium text-sm">Plafond annuel adherent</p>
+                    {viewBulletin.plafond_consomme != null && viewBulletin.plafond_consomme >= viewBulletin.plafond_global && (
+                      <Badge variant="destructive" className="text-xs">Plafond atteint</Badge>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Plafond global</span>
+                      <span className="font-medium">{formatAmount(viewBulletin.plafond_global)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Avant ce bulletin</span>
+                      <span className="font-medium">{formatAmount(viewBulletin.plafond_consomme_avant ?? 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Ce bulletin</span>
+                      <span className="font-medium text-blue-600">+{formatAmount(viewBulletin.reimbursed_amount || 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Restant</span>
+                      <span className="font-bold text-green-600">{formatAmount(viewBulletin.plafond_global - (viewBulletin.plafond_consomme || 0))}</span>
+                    </div>
+                  </div>
+                  {/* Segmented progress bar */}
+                  <div className="w-full bg-muted rounded-full h-2 flex overflow-hidden">
+                    <div
+                      className="h-2 bg-gray-400"
+                      style={{ width: `${Math.min(100, ((viewBulletin.plafond_consomme_avant ?? 0) / viewBulletin.plafond_global) * 100)}%` }}
+                    />
+                    <div
+                      className={`h-2 ${(viewBulletin.plafond_consomme || 0) >= viewBulletin.plafond_global ? 'bg-orange-500' : 'bg-green-500'}`}
+                      style={{ width: `${Math.min(100 - ((viewBulletin.plafond_consomme_avant ?? 0) / viewBulletin.plafond_global) * 100, ((viewBulletin.reimbursed_amount || 0) / viewBulletin.plafond_global) * 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex gap-3 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-400 inline-block" /> Avant</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Ce bulletin</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-muted inline-block border" /> Restant</span>
+                  </div>
+                </div>
+              )}
+
+              {/* TASK-011: status badge + footer */}
               <div className="flex justify-between items-center pt-2 border-t">
-                <Badge variant={viewBulletin.status === 'draft' ? 'secondary' : viewBulletin.status === 'in_batch' ? 'default' : 'outline'}>
-                  {viewBulletin.status === 'draft' ? 'Brouillon' : viewBulletin.status === 'in_batch' ? 'Dans un lot' : 'Exporte'}
-                </Badge>
-                <p className="text-lg font-bold">{formatAmount(viewBulletin.total_amount)}</p>
+                {(() => {
+                  const cfg = bulletinStatusConfig[viewBulletin.status] || { label: viewBulletin.status, variant: 'outline' as const };
+                  return <Badge variant={cfg.variant} className={cfg.className}>{cfg.label}</Badge>;
+                })()}
               </div>
             </div>
           )}
