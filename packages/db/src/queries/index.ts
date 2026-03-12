@@ -22,3 +22,6 @@ export * from './sante-garanties';
 export * from './sante-praticiens';
 export * from './sante-documents';
 export * from './sante-actes';
+
+// Remboursement queries
+export * from './actes-referentiel';
