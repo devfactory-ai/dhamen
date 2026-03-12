@@ -39,6 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FilePreviewList } from '@/components/ui/file-preview';
 import { apiClient } from '@/lib/api-client';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
+import { useSearchAdherents, type AdherentSearchResult } from '@/features/adherents/hooks/useAdherents';
 import { toast } from 'sonner';
 import {
   FileText,
@@ -182,7 +183,12 @@ export function BulletinsSaisiePage() {
   const [exportBatch, setExportBatch] = useState<Batch | null>(null);
   const [newBatchName, setNewBatchName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [adherentSearch, setAdherentSearch] = useState('');
+  const [showAdherentDropdown, setShowAdherentDropdown] = useState(false);
+  const [selectedAdherentInfo, setSelectedAdherentInfo] = useState<AdherentSearchResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: adherentResults } = useSearchAdherents(adherentSearch);
 
   const {
     register,
@@ -814,9 +820,61 @@ export function BulletinsSaisiePage() {
                         Informations Adherent
                       </h4>
                       <div className="grid gap-4 sm:grid-cols-2">
-                        <div className="space-y-2">
+                        <div className="space-y-2 relative">
                           <Label>Matricule *</Label>
-                          <Input {...register('adherent_matricule')} placeholder="MAT-XXXXXX" />
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <Input
+                              {...register('adherent_matricule')}
+                              placeholder="Rechercher par nom ou matricule..."
+                              className="pl-9"
+                              onChange={(e) => {
+                                register('adherent_matricule').onChange(e);
+                                setAdherentSearch(e.target.value);
+                                setShowAdherentDropdown(true);
+                                if (!e.target.value) setSelectedAdherentInfo(null);
+                              }}
+                              onFocus={() => adherentSearch.length >= 2 && setShowAdherentDropdown(true)}
+                              onBlur={() => setTimeout(() => setShowAdherentDropdown(false), 200)}
+                            />
+                          </div>
+                          {showAdherentDropdown && adherentResults && adherentResults.length > 0 && (
+                            <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                              {adherentResults.map((a) => (
+                                <button
+                                  key={a.id}
+                                  type="button"
+                                  className="w-full px-3 py-2 text-left hover:bg-gray-50 text-sm border-b last:border-0"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    setValue('adherent_matricule', a.matricule || '');
+                                    setValue('adherent_last_name', a.lastName || '');
+                                    setValue('adherent_first_name', a.firstName || '');
+                                    setAdherentSearch('');
+                                    setShowAdherentDropdown(false);
+                                    setSelectedAdherentInfo(a);
+                                  }}
+                                >
+                                  <span className="font-medium">{a.firstName} {a.lastName}</span>
+                                  <span className="text-gray-400 ml-2 font-mono text-xs">{a.matricule}</span>
+                                  {a.companyName && <span className="text-gray-400 ml-2 text-xs">— {a.companyName}</span>}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {selectedAdherentInfo && (
+                            <div className="text-xs text-green-600 flex items-center gap-1 mt-1">
+                              <Check className="w-3 h-3" />
+                              {selectedAdherentInfo.firstName} {selectedAdherentInfo.lastName}
+                              {selectedAdherentInfo.plafondGlobal != null && (
+                                <span className="text-gray-400 ml-1">
+                                  — Plafond restant : {new Intl.NumberFormat('fr-TN', { maximumFractionDigits: 0 }).format(
+                                    ((selectedAdherentInfo.plafondGlobal || 0) - (selectedAdherentInfo.plafondConsomme || 0)) / 1000
+                                  )} DT
+                                </span>
+                              )}
+                            </div>
+                          )}
                           {errors.adherent_matricule && (
                             <p className="text-sm text-destructive">{errors.adherent_matricule.message}</p>
                           )}

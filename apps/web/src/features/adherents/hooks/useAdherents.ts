@@ -23,38 +23,58 @@ export interface Adherent {
   updatedAt: string;
 }
 
-interface AdherentsResponse {
-  adherents: Adherent[];
-  total: number;
-}
-
-interface CreateAdherentData {
-  insurerId: string;
-  contractId?: string;
+export interface CreateAdherentData {
+  // Identité
   nationalId: string;
   firstName: string;
   lastName: string;
   dateOfBirth: string;
-  gender: string;
+  gender?: string;
+  lieuNaissance?: string;
+  etatCivil?: string;
+  dateMarriage?: string;
+  // Contact
   phone?: string;
+  mobile?: string;
   email?: string;
+  // Adresse
+  rue?: string;
   address?: string;
   city?: string;
-  relationship?: string;
-  primaryAdherentId?: string;
+  postalCode?: string;
+  // Entreprise & couverture
+  companyId?: string;
+  matricule?: string;
+  plafondGlobal?: number;
+  dateDebutAdhesion?: string;
+  dateFinAdhesion?: string;
+  rang?: number;
+  isActive?: boolean;
+  // Renseignements
+  banque?: string;
+  rib?: string;
+  regimeSocial?: string;
+  handicap?: boolean;
+  fonction?: string;
+  maladiChronique?: boolean;
+  matriculeConjoint?: string;
 }
 
-export function useAdherents(page = 1, limit = 20, search?: string) {
+export type UpdateAdherentData = Partial<Omit<CreateAdherentData, 'nationalId' | 'companyId'>>;
+
+export function useAdherents(page = 1, limit = 20, search?: string, companyId?: string) {
   return useQuery({
-    queryKey: ['adherents', page, limit, search],
+    queryKey: ['adherents', page, limit, search, companyId],
     queryFn: async () => {
-      const response = await apiClient.get<AdherentsResponse>('/adherents', {
-        params: { page, limit, search },
+      const response = await apiClient.get<Adherent[]>('/adherents', {
+        params: { page, limit, search, companyId },
       });
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors du chargement des adhérents');
       }
-      return response.data;
+      // The API returns { success, data: [...], meta: {...} } — meta is a sibling of data
+      const raw = response as unknown as { data: Adherent[]; meta: { page: number; limit: number; total: number; totalPages: number } };
+      return { data: raw.data, meta: raw.meta };
     },
   });
 }
@@ -89,6 +109,73 @@ export function useSearchAdherent(nationalId: string) {
   });
 }
 
+export function useNextMatricule(companyId?: string) {
+  return useQuery({
+    queryKey: ['adherents', 'next-matricule', companyId],
+    queryFn: async () => {
+      const response = await apiClient.get<{ matricule: string }>('/adherents/next-matricule', {
+        params: { companyId },
+      });
+      if (!response.success) return '0001';
+      return response.data?.matricule ?? '0001';
+    },
+    enabled: !!companyId,
+  });
+}
+
+export interface AdherentSearchResult {
+  id: string;
+  matricule: string;
+  firstName: string;
+  lastName: string;
+  companyName: string | null;
+  plafondGlobal: number | null;
+  plafondConsomme: number | null;
+}
+
+export function useSearchAdherents(query: string) {
+  return useQuery({
+    queryKey: ['adherents', 'autocomplete', query],
+    queryFn: async () => {
+      const response = await apiClient.get<AdherentSearchResult[]>('/adherents/search', {
+        params: { q: query },
+      });
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur de recherche');
+      }
+      return response.data;
+    },
+    enabled: query.length >= 2,
+  });
+}
+
+export interface AdherentBulletin {
+  id: string;
+  dateSoins: string;
+  status: string;
+  declaredAmount: number;
+  reimbursedAmount: number;
+  actesCount: number;
+  createdAt: string;
+}
+
+export function useAdherentBulletins(adherentId: string, page = 1, limit = 5) {
+  return useQuery({
+    queryKey: ['adherents', adherentId, 'bulletins', page, limit],
+    queryFn: async () => {
+      const response = await apiClient.get<AdherentBulletin[]>(`/adherents/${adherentId}/bulletins`, {
+        params: { page, limit },
+      });
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur lors du chargement des bulletins');
+      }
+      const raw = response as unknown as { data: AdherentBulletin[]; meta: { page: number; limit: number; total: number; totalPages: number } };
+      return { data: raw.data, meta: raw.meta };
+    },
+    enabled: !!adherentId,
+  });
+}
+
 export function useCreateAdherent() {
   const queryClient = useQueryClient();
 
@@ -110,7 +197,7 @@ export function useUpdateAdherent() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Partial<CreateAdherentData> & { isActive?: boolean } }) => {
+    mutationFn: async ({ id, data }: { id: string; data: UpdateAdherentData }) => {
       const response = await apiClient.put<Adherent>(`/adherents/${id}`, data);
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors de la mise à jour de l\'adhérent');
@@ -130,10 +217,10 @@ export function useDeleteAdherent() {
   return useMutation({
     mutationFn: async (id: string) => {
       const response = await apiClient.delete(`/adherents/${id}`);
-      if (!response.success) {
+      // 204 No Content returns a parse error — treat it as success
+      if (!response.success && response.error?.code !== 'PARSE_ERROR') {
         throw new Error(response.error?.message || 'Erreur lors de la suppression de l\'adhérent');
       }
-      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['adherents'] });

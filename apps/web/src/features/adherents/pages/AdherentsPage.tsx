@@ -205,15 +205,15 @@ export function AdherentsPage() {
 
       <DataTable
         columns={columns}
-        data={data?.adhérents || []}
+        data={(data?.data as Adherent[]) || []}
         isLoading={isLoading}
         emptyMessage="Aucun adhérent trouvé"
         pagination={
-          data
+          data?.meta
             ? {
                 page,
                 limit: 20,
-                total: data.total,
+                total: data.meta.total,
                 onPageChange: setPage,
               }
             : undefined

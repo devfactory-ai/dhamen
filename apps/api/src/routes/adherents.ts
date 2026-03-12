@@ -1,5 +1,4 @@
 import {
-  createAdherent,
   findAdherentById,
   listAdherents,
   softDeleteAdherent,
@@ -14,7 +13,7 @@ import {
 } from '@dhamen/shared';
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
-import { created, noContent, notFound, paginated, success } from '../lib/response';
+import { conflict, created, noContent, notFound, paginated, success } from '../lib/response';
 import { generateId } from '../lib/ulid';
 import { encrypt, decrypt, hashForIndex, maskCIN } from '../lib/encryption';
 import { logAudit } from '../middleware/audit-trail';
@@ -383,28 +382,213 @@ adherents.get('/me/card', requireRole('ADHERENT'), async (c) => {
 });
 
 /**
+ * GET /api/v1/adherents/search
+ * Quick search for autocomplete (max 10 results)
+ */
+adherents.get(
+  '/search',
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  async (c) => {
+    const q = c.req.query('q') || '';
+    if (q.length < 2) {
+      return c.json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Le paramètre q doit avoir au moins 2 caractères' },
+      }, 400);
+    }
+
+    const user = c.get('user');
+    const db = getDb(c);
+    const likeQ = `%${q}%`;
+
+    let query = `
+      SELECT a.id, a.matricule, a.first_name, a.last_name,
+             a.plafond_global, a.plafond_consomme,
+             co.name as company_name
+      FROM adherents a
+      LEFT JOIN companies co ON a.company_id = co.id
+      WHERE a.deleted_at IS NULL
+        AND (a.matricule LIKE ? OR a.first_name LIKE ? OR a.last_name LIKE ?)
+    `;
+    const params: unknown[] = [likeQ, likeQ, likeQ];
+
+    if (user.insurerId) {
+      query += ' AND co.insurer_id = ?';
+      params.push(user.insurerId);
+    }
+
+    query += ' ORDER BY a.last_name, a.first_name LIMIT 10';
+
+    const { results } = await db.prepare(query).bind(...params).all();
+
+    return success(c, results.map((r: Record<string, unknown>) => ({
+      id: r.id,
+      matricule: r.matricule,
+      firstName: r.first_name,
+      lastName: r.last_name,
+      companyName: r.company_name,
+      plafondGlobal: r.plafond_global,
+      plafondConsomme: r.plafond_consomme,
+    })));
+  }
+);
+
+/**
+ * GET /api/v1/adherents/next-matricule
+ * Get next available matricule for a company
+ */
+adherents.get(
+  '/next-matricule',
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  async (c) => {
+    const companyId = c.req.query('companyId');
+    if (!companyId) {
+      return success(c, { matricule: '0001' });
+    }
+    const db = getDb(c);
+    const maxResult = await db
+      .prepare(
+        `SELECT MAX(CAST(matricule AS INTEGER)) as max_mat
+         FROM adherents
+         WHERE company_id = ? AND matricule IS NOT NULL AND matricule != 'null'
+           AND matricule GLOB '[0-9]*' AND deleted_at IS NULL`
+      )
+      .bind(companyId)
+      .first<{ max_mat: number | null }>();
+    const next = (maxResult?.max_mat ?? 0) + 1;
+    return success(c, { matricule: String(next).padStart(4, '0') });
+  }
+);
+
+/**
  * GET /api/v1/adherents
  * List adherents with filters and pagination
  */
 adherents.get(
   '/',
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
-  zValidator('query', adherentFiltersSchema.merge(paginationSchema)),
   async (c) => {
-    const { city, search, page, limit } = c.req.valid('query');
+    const page = Number(c.req.query('page')) || 1;
+    const limit = Number(c.req.query('limit')) || 20;
+    const search = c.req.query('search') || undefined;
+    const city = c.req.query('city') || undefined;
+    const companyId = c.req.query('companyId') || undefined;
+    const user = c.get('user');
+    const db = getDb(c);
+    const offset = (page - 1) * limit;
 
-    const { data, total } = await listAdherents(getDb(c), {
-      city,
-      search,
+    let whereClause = 'a.deleted_at IS NULL';
+    const params: unknown[] = [];
+
+    if (companyId) {
+      whereClause += ' AND a.company_id = ?';
+      params.push(companyId);
+    }
+
+    if (user.insurerId) {
+      whereClause += ' AND co.insurer_id = ?';
+      params.push(user.insurerId);
+    }
+
+    if (city) {
+      whereClause += ' AND a.city = ?';
+      params.push(city);
+    }
+
+    if (search) {
+      whereClause += ' AND (a.first_name LIKE ? OR a.last_name LIKE ? OR a.matricule LIKE ? OR a.email LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    const countResult = await db
+      .prepare(`SELECT COUNT(*) as count FROM adherents a LEFT JOIN companies co ON a.company_id = co.id WHERE ${whereClause}`)
+      .bind(...params)
+      .first<{ count: number }>();
+
+    const total = countResult?.count ?? 0;
+
+    const { results } = await db
+      .prepare(
+        `SELECT a.*, co.name as company_name
+         FROM adherents a
+         LEFT JOIN companies co ON a.company_id = co.id
+         WHERE ${whereClause}
+         ORDER BY a.last_name, a.first_name ASC
+         LIMIT ? OFFSET ?`
+      )
+      .bind(...params, limit, offset)
+      .all();
+
+    return paginated(c, results.map((r: Record<string, unknown>) => ({
+      id: r.id,
+      matricule: r.matricule,
+      firstName: r.first_name,
+      lastName: r.last_name,
+      dateOfBirth: r.date_of_birth,
+      gender: r.gender,
+      email: r.email,
+      city: r.city,
+      companyId: r.company_id,
+      companyName: r.company_name,
+      plafondGlobal: r.plafond_global,
+      plafondConsomme: r.plafond_consomme,
+      ayantsDroitJson: r.ayants_droit_json,
+      createdAt: r.created_at,
+    })), {
       page,
       limit,
-    });
-
-    return paginated(c, data, {
-      page: page ?? 1,
-      limit: limit ?? 20,
       total,
-      totalPages: Math.ceil(total / (limit ?? 20)),
+      totalPages: Math.ceil(total / limit),
+    });
+  }
+);
+
+/**
+ * GET /api/v1/adherents/:id/bulletins
+ * Get an adherent's bulletin history
+ */
+adherents.get(
+  '/:id/bulletins',
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  async (c) => {
+    const adherentId = c.req.param('id');
+    const page = Number(c.req.query('page')) || 1;
+    const limit = Number(c.req.query('limit')) || 10;
+    const offset = (page - 1) * limit;
+    const db = getDb(c);
+
+    const countResult = await db
+      .prepare('SELECT COUNT(*) as count FROM bulletins_soins WHERE adherent_id = ?')
+      .bind(adherentId)
+      .first<{ count: number }>();
+
+    const total = countResult?.count ?? 0;
+
+    const { results } = await db
+      .prepare(
+        `SELECT bs.id, bs.date_soins, bs.status, bs.declared_amount, bs.reimbursed_amount, bs.created_at,
+                (SELECT COUNT(*) FROM actes_bulletin ab WHERE ab.bulletin_id = bs.id) as actes_count
+         FROM bulletins_soins bs
+         WHERE bs.adherent_id = ?
+         ORDER BY bs.date_soins DESC
+         LIMIT ? OFFSET ?`
+      )
+      .bind(adherentId, limit, offset)
+      .all();
+
+    return paginated(c, results.map((r: Record<string, unknown>) => ({
+      id: r.id,
+      dateSoins: r.date_soins,
+      status: r.status,
+      declaredAmount: r.declared_amount,
+      reimbursedAmount: r.reimbursed_amount,
+      actesCount: r.actes_count,
+      createdAt: r.created_at,
+    })), {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
     });
   }
 );
@@ -457,24 +641,97 @@ adherents.post(
     const nationalIdHash = await hashForIndex(data.nationalId, encryptionKey);
 
     const id = generateId();
-    const adherent = await createAdherent(getDb(c), id, data, encryptedNationalId, encryptedPhone);
+    const db = getDb(c);
+    const now = new Date().toISOString();
 
-    // Audit log (without sensitive data)
-    await logAudit(getDb(c), {
+    // Check matricule uniqueness within the company
+    if (data.matricule && data.companyId) {
+      const existing = await db
+        .prepare('SELECT id FROM adherents WHERE company_id = ? AND matricule = ? AND deleted_at IS NULL')
+        .bind(data.companyId, data.matricule)
+        .first();
+      if (existing) {
+        return conflict(c, `Le matricule "${data.matricule}" existe déjà dans cette entreprise`);
+      }
+    }
+
+    // Auto-generate matricule if not provided (sequential per company, like Acorad)
+    let matricule = data.matricule || null;
+    if (!matricule && data.companyId) {
+      const maxResult = await db
+        .prepare(
+          `SELECT MAX(CAST(matricule AS INTEGER)) as max_mat
+           FROM adherents
+           WHERE company_id = ? AND matricule IS NOT NULL AND matricule != 'null'
+             AND matricule GLOB '[0-9]*'`
+        )
+        .bind(data.companyId)
+        .first<{ max_mat: number | null }>();
+      const next = (maxResult?.max_mat ?? 0) + 1;
+      matricule = String(next).padStart(4, '0');
+    }
+
+    // Encrypt mobile and RIB if provided
+    const encryptedMobile = data.mobile ? await encrypt(data.mobile, encryptionKey) : null;
+    const encryptedRib = data.rib ? await encrypt(data.rib, encryptionKey) : null;
+
+    await db
+      .prepare(
+        `INSERT INTO adherents (
+          id, national_id_encrypted, national_id_hash, first_name, last_name,
+          date_of_birth, gender, lieu_naissance, etat_civil, date_mariage,
+          phone_encrypted, mobile_encrypted, email,
+          rue, address, city, postal_code, lat, lng,
+          company_id, matricule, plafond_global,
+          date_debut_adhesion, date_fin_adhesion, rang, is_active,
+          banque, rib_encrypted, regime_social, handicap,
+          fonction, maladie_chronique, matricule_conjoint,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        id, encryptedNationalId, nationalIdHash, data.firstName, data.lastName,
+        data.dateOfBirth, data.gender ?? null, data.lieuNaissance ?? null, data.etatCivil ?? null, data.dateMarriage ?? null,
+        encryptedPhone ?? null, encryptedMobile, data.email ?? null,
+        data.rue ?? null, data.address ?? null, data.city ?? null, data.postalCode ?? null, data.lat ?? null, data.lng ?? null,
+        data.companyId ?? null, matricule, data.plafondGlobal ?? null,
+        data.dateDebutAdhesion ?? null, data.dateFinAdhesion ?? null, data.rang ?? 0, data.isActive !== false ? 1 : 0,
+        data.banque ?? null, encryptedRib, data.regimeSocial ?? null, data.handicap ? 1 : 0,
+        data.fonction ?? null, data.maladiChronique ? 1 : 0, data.matriculeConjoint ?? null,
+        now, now
+      )
+      .run();
+
+    await logAudit(db, {
       userId: user?.sub,
       action: 'adherent.create',
       entityType: 'adherent',
       entityId: id,
-      changes: {
-        firstName: data.firstName,
-        lastName: data.lastName,
-        city: data.city,
-      },
+      changes: { firstName: data.firstName, lastName: data.lastName, companyId: data.companyId, matricule: data.matricule },
       ipAddress: c.req.header('CF-Connecting-IP'),
       userAgent: c.req.header('User-Agent'),
     });
 
-    return created(c, adherent);
+    const result = await db
+      .prepare(`SELECT a.*, co.name as co_name FROM adherents a LEFT JOIN companies co ON a.company_id = co.id WHERE a.id = ?`)
+      .bind(id)
+      .first<Record<string, unknown>>();
+
+    return created(c, {
+      id,
+      matricule,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      dateOfBirth: data.dateOfBirth,
+      gender: data.gender,
+      email: data.email,
+      city: data.city,
+      companyId: data.companyId,
+      companyName: result?.co_name,
+      plafondGlobal: data.plafondGlobal,
+      plafondConsomme: 0,
+      createdAt: now,
+    });
   }
 );
 
@@ -491,32 +748,121 @@ adherents.put(
     const data = c.req.valid('json');
     const user = c.get('user');
     const encryptionKey = getEncryptionKey(c);
+    const db = getDb(c);
 
-    // Encrypt phone if provided with AES-256-GCM
-    const encryptedPhone = data.phone ? await encrypt(data.phone, encryptionKey) : undefined;
-
-    const adherent = await updateAdherent(getDb(c), id, data, encryptedPhone);
-
-    if (!adherent) {
+    // Check adherent exists
+    const existing = await db.prepare('SELECT id, company_id FROM adherents WHERE id = ? AND deleted_at IS NULL').bind(id).first<{ id: string; company_id: string }>();
+    if (!existing) {
       return notFound(c, 'Adhérent non trouvé');
     }
 
-    // Audit log
-    await logAudit(getDb(c), {
+    // Check matricule uniqueness within the company on update
+    if (data.matricule && existing.company_id) {
+      const duplicate = await db
+        .prepare('SELECT id FROM adherents WHERE company_id = ? AND matricule = ? AND id != ? AND deleted_at IS NULL')
+        .bind(existing.company_id, data.matricule, id)
+        .first();
+      if (duplicate) {
+        return conflict(c, `Le matricule "${data.matricule}" existe déjà dans cette entreprise`);
+      }
+    }
+
+    // Build dynamic SET clause
+    const updates: string[] = [];
+    const params: unknown[] = [];
+
+    const simpleFields: Record<string, unknown> = {
+      first_name: data.firstName,
+      last_name: data.lastName,
+      date_of_birth: data.dateOfBirth,
+      gender: data.gender,
+      lieu_naissance: data.lieuNaissance,
+      etat_civil: data.etatCivil,
+      date_mariage: data.dateMarriage,
+      email: data.email,
+      rue: data.rue,
+      address: data.address,
+      city: data.city,
+      postal_code: data.postalCode,
+      lat: data.lat,
+      lng: data.lng,
+      matricule: data.matricule,
+      plafond_global: data.plafondGlobal,
+      date_debut_adhesion: data.dateDebutAdhesion,
+      date_fin_adhesion: data.dateFinAdhesion,
+      rang: data.rang,
+      banque: data.banque,
+      regime_social: data.regimeSocial,
+      fonction: data.fonction,
+      matricule_conjoint: data.matriculeConjoint,
+    };
+
+    for (const [col, val] of Object.entries(simpleFields)) {
+      if (val !== undefined) {
+        updates.push(`${col} = ?`);
+        params.push(val);
+      }
+    }
+
+    // Boolean fields
+    if (data.isActive !== undefined) { updates.push('is_active = ?'); params.push(data.isActive ? 1 : 0); }
+    if (data.handicap !== undefined) { updates.push('handicap = ?'); params.push(data.handicap ? 1 : 0); }
+    if (data.maladiChronique !== undefined) { updates.push('maladie_chronique = ?'); params.push(data.maladiChronique ? 1 : 0); }
+
+    // Encrypted fields
+    if (data.phone !== undefined) {
+      updates.push('phone_encrypted = ?');
+      params.push(data.phone ? await encrypt(data.phone, encryptionKey) : null);
+    }
+    if (data.mobile !== undefined) {
+      updates.push('mobile_encrypted = ?');
+      params.push(data.mobile ? await encrypt(data.mobile, encryptionKey) : null);
+    }
+    if (data.rib !== undefined) {
+      updates.push('rib_encrypted = ?');
+      params.push(data.rib ? await encrypt(data.rib, encryptionKey) : null);
+    }
+
+    if (updates.length === 0) {
+      return success(c, { id, message: 'Aucune modification' });
+    }
+
+    updates.push('updated_at = ?');
+    params.push(new Date().toISOString());
+    params.push(id);
+
+    await db.prepare(`UPDATE adherents SET ${updates.join(', ')} WHERE id = ?`).bind(...params).run();
+
+    await logAudit(db, {
       userId: user?.sub,
       action: 'adherent.update',
       entityType: 'adherent',
       entityId: id,
-      changes: {
-        firstName: data.firstName,
-        lastName: data.lastName,
-        city: data.city,
-      },
+      changes: { firstName: data.firstName, lastName: data.lastName, matricule: data.matricule },
       ipAddress: c.req.header('CF-Connecting-IP'),
       userAgent: c.req.header('User-Agent'),
     });
 
-    return success(c, adherent);
+    // Return updated adherent
+    const updated = await db
+      .prepare(`SELECT a.*, co.name as company_name FROM adherents a LEFT JOIN companies co ON a.company_id = co.id WHERE a.id = ?`)
+      .bind(id)
+      .first<Record<string, unknown>>();
+
+    return success(c, {
+      id,
+      matricule: updated?.matricule,
+      firstName: updated?.first_name,
+      lastName: updated?.last_name,
+      dateOfBirth: updated?.date_of_birth,
+      gender: updated?.gender,
+      email: updated?.email,
+      city: updated?.city,
+      companyId: updated?.company_id,
+      companyName: updated?.company_name,
+      plafondGlobal: updated?.plafond_global,
+      plafondConsomme: updated?.plafond_consomme,
+    });
   }
 );
 
@@ -622,7 +968,7 @@ adherents.post(
  * DELETE /api/v1/adherents/:id
  * Soft delete an adherent
  */
-adherents.delete('/:id', requireRole('ADMIN'), async (c) => {
+adherents.delete('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
   const id = c.req.param('id');
   const user = c.get('user');
 

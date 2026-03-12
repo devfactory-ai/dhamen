@@ -1,30 +1,83 @@
 import { z } from 'zod';
 
 export const genderSchema = z.enum(['M', 'F']);
+export const etatCivilSchema = z.enum(['celibataire', 'marie', 'divorce', 'veuf']);
+export const regimeSocialSchema = z.enum(['CNSS', 'CNRPS']);
 
 export const adherentCreateSchema = z.object({
+  // Identité
   nationalId: z.string().min(8, 'Numéro national invalide'),
   firstName: z.string().min(1, 'Prénom requis'),
   lastName: z.string().min(1, 'Nom requis'),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide (YYYY-MM-DD)'),
   gender: genderSchema.optional(),
+  lieuNaissance: z.string().optional(),
+  etatCivil: etatCivilSchema.optional(),
+  dateMarriage: z.string().optional(),
+  // Contact
   phone: z.string().optional(),
+  mobile: z.string().optional(),
   email: z.string().email().optional(),
+  // Adresse
+  rue: z.string().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
+  postalCode: z.string().optional(),
   lat: z.number().min(-90).max(90).optional(),
   lng: z.number().min(-180).max(180).optional(),
+  // Entreprise & couverture
+  companyId: z.string().optional(),
+  matricule: z.string().optional(),
+  plafondGlobal: z.number().min(0).optional(),
+  dateDebutAdhesion: z.string().optional(),
+  dateFinAdhesion: z.string().optional(),
+  rang: z.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+  // Renseignements complémentaires
+  banque: z.string().optional(),
+  rib: z.string().optional(),
+  regimeSocial: regimeSocialSchema.optional(),
+  handicap: z.boolean().optional(),
+  fonction: z.string().optional(),
+  maladiChronique: z.boolean().optional(),
+  matriculeConjoint: z.string().optional(),
 });
 
 export const adherentUpdateSchema = z.object({
+  // Identité
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  gender: genderSchema.optional(),
+  lieuNaissance: z.string().optional(),
+  etatCivil: etatCivilSchema.optional(),
+  dateMarriage: z.string().optional(),
+  // Contact
   phone: z.string().optional(),
+  mobile: z.string().optional(),
   email: z.string().email().optional(),
+  // Adresse
+  rue: z.string().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
+  postalCode: z.string().optional(),
   lat: z.number().min(-90).max(90).optional(),
   lng: z.number().min(-180).max(180).optional(),
+  // Entreprise & couverture
+  matricule: z.string().optional(),
+  plafondGlobal: z.number().min(0).optional(),
+  dateDebutAdhesion: z.string().optional(),
+  dateFinAdhesion: z.string().optional(),
+  rang: z.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+  // Renseignements complémentaires
+  banque: z.string().optional(),
+  rib: z.string().optional(),
+  regimeSocial: regimeSocialSchema.optional(),
+  handicap: z.boolean().optional(),
+  fonction: z.string().optional(),
+  maladiChronique: z.boolean().optional(),
+  matriculeConjoint: z.string().optional(),
 });
 
 export const adherentFiltersSchema = z.object({
