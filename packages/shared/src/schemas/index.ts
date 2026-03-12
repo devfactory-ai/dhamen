@@ -16,3 +16,4 @@ export * from './appeal';
 export * from './pre-authorization';
 export * from './bulletin-batch';
 export * from './acte-bulletin';
+export * from './remboursement';

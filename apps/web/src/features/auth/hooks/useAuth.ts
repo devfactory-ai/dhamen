@@ -72,9 +72,9 @@ export function useAuth() {
           // Agents must select company + batch before working
           const agentRoles = ['INSURER_AGENT', 'INSURER_ADMIN'];
           if (agentRoles.includes(data.user.role)) {
-            const agentCtx = useAgentContext.getState();
-            agentCtx.clearIfDifferentUser(data.user.id);
-            if (agentCtx.isContextReady()) {
+            useAgentContext.getState().clearIfDifferentUser(data.user.id);
+            // Re-read state after update
+            if (useAgentContext.getState().isContextReady()) {
               navigate('/bulletins/saisie');
             } else {
               navigate('/select-context');

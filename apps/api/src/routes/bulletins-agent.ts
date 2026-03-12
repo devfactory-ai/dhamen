@@ -3,15 +3,35 @@
  * Routes for insurance agents to create, manage batches, and export bulletins
  */
 import { createBatchSchema, actesArraySchema } from '@dhamen/shared';
+import type { ActeInput } from '@dhamen/shared';
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth';
 import { generateId } from '../lib/ulid';
+import { calculateRemboursementBulletin } from '../services/remboursement.service';
+import { findActeRefByCode, listActesReferentiel } from '@dhamen/db';
 import type { Bindings, Variables } from '../types';
 
 const bulletinsAgent = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 // Apply auth middleware to all routes
 bulletinsAgent.use('*', authMiddleware());
+
+/**
+ * GET /bulletins-soins/agent/actes-referentiel - List available medical acts
+ */
+bulletinsAgent.get('/actes-referentiel', async (c) => {
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  try {
+    const actes = await listActesReferentiel(db);
+    return c.json({ success: true, data: actes });
+  } catch (error) {
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: 'Erreur chargement referentiel' },
+    }, 500);
+  }
+});
 
 /**
  * GET /bulletins-soins/agent - List agent's bulletins
@@ -270,11 +290,31 @@ bulletinsAgent.get('/:id', async (c) => {
       'SELECT * FROM actes_bulletin WHERE bulletin_id = ? ORDER BY created_at'
     ).bind(bulletinId).all();
 
+    // Fetch adherent plafond if linked
+    let plafondGlobal: number | null = null;
+    let plafondConsomme: number | null = null;
+    if (bulletin.adherent_id) {
+      const adh = await db.prepare(
+        'SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?'
+      ).bind(bulletin.adherent_id).first<{ plafond_global: number | null; plafond_consomme: number | null }>();
+      if (adh) {
+        plafondGlobal = adh.plafond_global;
+        plafondConsomme = adh.plafond_consomme;
+      }
+    }
+
+    // plafond_consomme_avant = current consumption minus this bulletin's reimbursement
+    const reimbursedAmount = (bulletin.reimbursed_amount as number) || 0;
+    const plafondConsommeAvant = plafondConsomme != null ? plafondConsomme - reimbursedAmount : null;
+
     return c.json({
       success: true,
       data: {
         ...bulletin,
         actes: actes.results || [],
+        plafond_global: plafondGlobal,
+        plafond_consomme: plafondConsomme,
+        plafond_consomme_avant: plafondConsommeAvant,
       },
     });
   } catch (error) {
@@ -483,16 +523,71 @@ bulletinsAgent.post('/create', async (c) => {
       totalAmount, scanUrl, batchId, status, user.id
     ).run();
 
-    // Insert actes if provided
+    // Insert actes and calculate reimbursement
+    let reimbursedAmount: number | null = null;
+
     if (actes.length > 0) {
-      const stmts = actes.map((acte) => {
+      // Resolve taux from actes_referentiel and build ActeInput[]
+      const actesInput: ActeInput[] = [];
+      for (const acte of actes) {
+        let taux = 0;
+        const code = acte.code?.trim();
+        if (code) {
+          const ref = await findActeRefByCode(db, code);
+          if (ref) {
+            taux = ref.taux_remboursement;
+          }
+        }
+        actesInput.push({
+          code: code || '',
+          label: acte.label,
+          montantActe: acte.amount,
+          tauxRemboursement: taux,
+        });
+      }
+
+      // Get adherent plafond
+      let plafondRestant = 0;
+      if (adherentId) {
+        const adh = await db.prepare(
+          'SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?'
+        ).bind(adherentId).first<{ plafond_global: number | null; plafond_consomme: number | null }>();
+        if (adh && adh.plafond_global) {
+          plafondRestant = adh.plafond_global - (adh.plafond_consomme || 0);
+        }
+      }
+
+      // Calculate reimbursement
+      const calcul = calculateRemboursementBulletin(actesInput, plafondRestant);
+      reimbursedAmount = calcul.totalRembourse;
+
+      // Insert actes with reimbursement data
+      const stmts = actes.map((acte, i) => {
         const acteId = generateId();
+        const acteResult = calcul.actes[i]!;
         return db.prepare(
-          `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, created_at)
-           VALUES (?, ?, ?, ?, ?, datetime('now'))`
-        ).bind(acteId, bulletinId, acte.code || null, acte.label, acte.amount);
+          `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), datetime('now'))`
+        ).bind(
+          acteId, bulletinId, acte.code?.trim() || null, acte.label, acte.amount,
+          acteResult.tauxRemboursement, acteResult.remboursementFinal,
+          acteResult.remboursementBrut, acteResult.plafondDepasse ? 1 : 0,
+          acte.code?.trim() || null
+        );
       });
       await db.batch(stmts);
+
+      // Update bulletin reimbursed_amount
+      await db.prepare(
+        'UPDATE bulletins_soins SET reimbursed_amount = ? WHERE id = ?'
+      ).bind(reimbursedAmount, bulletinId).run();
+
+      // Update adherent plafond_consomme
+      if (adherentId && reimbursedAmount > 0) {
+        await db.prepare(
+          'UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?'
+        ).bind(reimbursedAmount, adherentId).run();
+      }
     }
 
     return c.json({
@@ -502,13 +597,14 @@ bulletinsAgent.post('/create', async (c) => {
         bulletin_number: bulletinNumber,
         status,
         actes_count: actes.length,
+        reimbursed_amount: reimbursedAmount,
       },
     }, 201);
   } catch (error) {
     console.error('Error creating bulletin:', error);
     return c.json({
       success: false,
-      error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la creation' },
+      error: { code: 'DATABASE_ERROR', message: error instanceof Error ? error.message : 'Erreur lors de la creation' },
     }, 500);
   }
 });
