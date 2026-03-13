@@ -460,15 +460,16 @@ fraud.post('/alerts/:id/investigate', requireRole('ADMIN', 'SOIN_GESTIONNAIRE'),
 
   // Audit log
   await db.prepare(`
-    INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `).bind(
     generateId(),
     user.sub,
     'FRAUD_INVESTIGATE',
     'sante_demandes',
     alertId,
-    JSON.stringify({ previousStatut: claim.statut, scoreFraude: claim.score_fraude })
+    JSON.stringify({ previousStatut: claim.statut, scoreFraude: claim.score_fraude }),
+    c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown'
   ).run();
 
   return c.json({
@@ -549,15 +550,16 @@ fraud.post(
 
     // Audit log
     await db.prepare(`
-      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `).bind(
       generateId(),
       user.sub,
       'FRAUD_RESOLVE',
       'sante_demandes',
       alertId,
-      JSON.stringify({ resolution, notes, actions, previousStatut: claim.statut })
+      JSON.stringify({ resolution, notes, actions, previousStatut: claim.statut }),
+      c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown'
     ).run();
 
     return c.json({

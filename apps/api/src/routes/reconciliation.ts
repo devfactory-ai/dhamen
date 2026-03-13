@@ -360,8 +360,8 @@ reconciliation.post(
 
     // Audit log
     await getDb(c).prepare(`
-      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .bind(
         ulid(),
@@ -370,6 +370,7 @@ reconciliation.post(
         'RECONCILIATION',
         insurerId,
         JSON.stringify({ periodStart, periodEnd, cycleType, count: results.length }),
+        c.req.header('CF-Connecting-IP') || 'unknown',
         now
       )
       .run();
@@ -436,8 +437,8 @@ reconciliation.post(
 
     // Audit log
     await getDb(c).prepare(`
-      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .bind(
         ulid(),
@@ -446,6 +447,7 @@ reconciliation.post(
         'RECONCILIATION_ITEM',
         itemId,
         JSON.stringify({ previousStatus: item.status }),
+        c.req.header('CF-Connecting-IP') || 'unknown',
         now
       )
       .run();
@@ -524,8 +526,8 @@ reconciliation.post(
 
     // Audit log
     await getDb(c).prepare(`
-      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .bind(
         ulid(),
@@ -534,6 +536,7 @@ reconciliation.post(
         'RECONCILIATION_DISCREPANCY',
         discrepancyId,
         JSON.stringify({ resolution, adjustedAmount }),
+        c.req.header('CF-Connecting-IP') || 'unknown',
         now
       )
       .run();

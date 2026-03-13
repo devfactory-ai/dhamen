@@ -236,10 +236,10 @@ bordereaux.post('/:id/submit', async (c) => {
 
   // Log audit
   await getDb(c).prepare(`
-    INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `)
-    .bind(ulid(), user.sub, 'SUBMIT', 'BORDEREAU', bordereauId, JSON.stringify({ previousStatus: 'DRAFT' }))
+    .bind(ulid(), user.sub, 'SUBMIT', 'BORDEREAU', bordereauId, JSON.stringify({ previousStatus: 'DRAFT' }), c.req.header('CF-Connecting-IP') || 'unknown')
     .run();
 
   return c.json({
@@ -293,10 +293,10 @@ bordereaux.post(
       .run();
 
     await getDb(c).prepare(`
-      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `)
-      .bind(ulid(), user.sub, 'VALIDATE', 'BORDEREAU', bordereauId, JSON.stringify({ previousStatus: 'SUBMITTED' }))
+      .bind(ulid(), user.sub, 'VALIDATE', 'BORDEREAU', bordereauId, JSON.stringify({ previousStatus: 'SUBMITTED' }), c.req.header('CF-Connecting-IP') || 'unknown')
       .run();
 
     return c.json({
@@ -362,10 +362,10 @@ bordereaux.post(
       .run();
 
     await getDb(c).prepare(`
-      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, details, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `)
-      .bind(ulid(), user.sub, 'PAY', 'BORDEREAU', bordereauId, JSON.stringify({ paymentReference, paidAt }))
+      .bind(ulid(), user.sub, 'PAY', 'BORDEREAU', bordereauId, JSON.stringify({ paymentReference, paidAt }), c.req.header('CF-Connecting-IP') || 'unknown')
       .run();
 
     return c.json({
