@@ -915,11 +915,18 @@ bulletinsSoins.get('/manage', async (c) => {
     params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
   }
 
+  // Filter by insurer
+  if (user.insurerId) {
+    whereClause += ' AND co.insurer_id = ?';
+    params.push(user.insurerId);
+  }
+
   // Get total count
   const countResult = await db.prepare(`
     SELECT COUNT(*) as total
     FROM bulletins_soins bs
     JOIN adherents a ON bs.adherent_id = a.id
+    JOIN companies co ON a.company_id = co.id
     ${whereClause}
   `).bind(...params).first<{ total: number }>();
 
@@ -934,6 +941,7 @@ bulletinsSoins.get('/manage', async (c) => {
       b.relationship as beneficiary_relationship
     FROM bulletins_soins bs
     JOIN adherents a ON bs.adherent_id = a.id
+    JOIN companies co ON a.company_id = co.id
     LEFT JOIN beneficiaries b ON bs.beneficiary_id = b.id
     ${whereClause}
     ORDER BY
@@ -975,24 +983,35 @@ bulletinsSoins.get('/manage/stats', async (c) => {
     }, 403);
   }
 
+  // Build insurer filter
+  let statsWhere = 'WHERE 1=1';
+  const statsParams: string[] = [];
+  if (user.insurerId) {
+    statsWhere += ' AND co.insurer_id = ?';
+    statsParams.push(user.insurerId);
+  }
+
   const stats = await db.prepare(`
     SELECT
       COUNT(*) as total,
-      SUM(CASE WHEN status = 'scan_uploaded' THEN 1 ELSE 0 END) as scan_uploaded,
-      SUM(CASE WHEN status = 'paper_received' THEN 1 ELSE 0 END) as paper_received,
-      SUM(CASE WHEN status = 'paper_incomplete' THEN 1 ELSE 0 END) as paper_incomplete,
-      SUM(CASE WHEN status = 'paper_complete' THEN 1 ELSE 0 END) as paper_complete,
-      SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing,
-      SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
-      SUM(CASE WHEN status = 'pending_payment' THEN 1 ELSE 0 END) as pending_payment,
-      SUM(CASE WHEN status = 'reimbursed' THEN 1 ELSE 0 END) as reimbursed,
-      SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected,
-      COALESCE(SUM(total_amount), 0) as total_amount,
-      COALESCE(SUM(reimbursed_amount), 0) as total_reimbursed,
-      COALESCE(SUM(CASE WHEN status IN ('approved', 'pending_payment') THEN total_amount ELSE 0 END), 0) as awaiting_payment_amount,
-      COALESCE(SUM(CASE WHEN status NOT IN ('reimbursed', 'rejected') THEN total_amount ELSE 0 END), 0) as pending_amount
-    FROM bulletins_soins
-  `).first();
+      SUM(CASE WHEN bs.status = 'scan_uploaded' THEN 1 ELSE 0 END) as scan_uploaded,
+      SUM(CASE WHEN bs.status = 'paper_received' THEN 1 ELSE 0 END) as paper_received,
+      SUM(CASE WHEN bs.status = 'paper_incomplete' THEN 1 ELSE 0 END) as paper_incomplete,
+      SUM(CASE WHEN bs.status = 'paper_complete' THEN 1 ELSE 0 END) as paper_complete,
+      SUM(CASE WHEN bs.status = 'processing' THEN 1 ELSE 0 END) as processing,
+      SUM(CASE WHEN bs.status = 'approved' THEN 1 ELSE 0 END) as approved,
+      SUM(CASE WHEN bs.status = 'pending_payment' THEN 1 ELSE 0 END) as pending_payment,
+      SUM(CASE WHEN bs.status = 'reimbursed' THEN 1 ELSE 0 END) as reimbursed,
+      SUM(CASE WHEN bs.status = 'rejected' THEN 1 ELSE 0 END) as rejected,
+      COALESCE(SUM(bs.total_amount), 0) as total_amount,
+      COALESCE(SUM(bs.reimbursed_amount), 0) as total_reimbursed,
+      COALESCE(SUM(CASE WHEN bs.status IN ('approved', 'pending_payment') THEN bs.total_amount ELSE 0 END), 0) as awaiting_payment_amount,
+      COALESCE(SUM(CASE WHEN bs.status NOT IN ('reimbursed', 'rejected') THEN bs.total_amount ELSE 0 END), 0) as pending_amount
+    FROM bulletins_soins bs
+    JOIN adherents a ON bs.adherent_id = a.id
+    JOIN companies co ON a.company_id = co.id
+    ${statsWhere}
+  `).bind(...statsParams).first();
 
   return c.json({
     success: true,
@@ -1019,9 +1038,14 @@ bulletinsSoins.get('/manage/:id/scan', async (c) => {
   const storage = c.env.STORAGE;
 
   try {
-    const bulletin = await db.prepare(`
-      SELECT scan_url FROM bulletins_soins WHERE id = ?
-    `).bind(bulletinId).first<{ scan_url: string | null }>();
+    // Verify bulletin belongs to this insurer
+    let scanQuery = `SELECT bs.scan_url FROM bulletins_soins bs LEFT JOIN adherents a ON bs.adherent_id = a.id LEFT JOIN companies co ON a.company_id = co.id WHERE bs.id = ?`;
+    const scanParams: string[] = [bulletinId];
+    if (user.insurerId) {
+      scanQuery += ' AND co.insurer_id = ?';
+      scanParams.push(user.insurerId);
+    }
+    const bulletin = await db.prepare(scanQuery).bind(...scanParams).first<{ scan_url: string | null }>();
 
     if (!bulletin?.scan_url) {
       return c.json({
@@ -1068,6 +1092,13 @@ bulletinsSoins.get('/manage/:id', async (c) => {
     }, 403);
   }
 
+  let detailWhere = 'WHERE bs.id = ?';
+  const detailParams: string[] = [bulletinId];
+  if (user.insurerId) {
+    detailWhere += ' AND co.insurer_id = ?';
+    detailParams.push(user.insurerId);
+  }
+
   const bulletin = await db.prepare(`
     SELECT
       bs.*,
@@ -1078,17 +1109,18 @@ bulletinsSoins.get('/manage/:id', async (c) => {
       a.phone_encrypted as adherent_phone,
       b.full_name as beneficiary_name,
       b.relationship as beneficiary_relationship,
-      c.contract_number,
-      c.plan_type,
-      c.coverage_json,
+      ct.contract_number,
+      ct.plan_type,
+      ct.coverage_json,
       i.name as insurer_name
     FROM bulletins_soins bs
     JOIN adherents a ON bs.adherent_id = a.id
+    JOIN companies co ON a.company_id = co.id
     LEFT JOIN beneficiaries b ON bs.beneficiary_id = b.id
-    LEFT JOIN contracts c ON c.adherent_id = a.id AND c.status = 'active'
-    LEFT JOIN insurers i ON c.insurer_id = i.id
-    WHERE bs.id = ?
-  `).bind(bulletinId).first();
+    LEFT JOIN contracts ct ON ct.adherent_id = a.id AND ct.status = 'active'
+    LEFT JOIN insurers i ON ct.insurer_id = i.id
+    ${detailWhere}
+  `).bind(...detailParams).first();
 
   if (!bulletin) {
     return c.json({
@@ -1130,10 +1162,14 @@ bulletinsSoins.put('/manage/:id/status', async (c) => {
     }, 400);
   }
 
-  // Get current bulletin
-  const bulletin = await db.prepare(`
-    SELECT * FROM bulletins_soins WHERE id = ?
-  `).bind(bulletinId).first();
+  // Get current bulletin (verify insurer ownership)
+  let statusQuery = `SELECT bs.* FROM bulletins_soins bs LEFT JOIN adherents a ON bs.adherent_id = a.id LEFT JOIN companies co ON a.company_id = co.id WHERE bs.id = ?`;
+  const statusParams: string[] = [bulletinId];
+  if (user.insurerId) {
+    statusQuery += ' AND co.insurer_id = ?';
+    statusParams.push(user.insurerId);
+  }
+  const bulletin = await db.prepare(statusQuery).bind(...statusParams).first();
 
   if (!bulletin) {
     return c.json({
@@ -1257,9 +1293,14 @@ bulletinsSoins.post('/manage/:id/approve', async (c) => {
     }, 400);
   }
 
-  const bulletin = await db.prepare(`
-    SELECT * FROM bulletins_soins WHERE id = ?
-  `).bind(bulletinId).first();
+  // Verify bulletin belongs to this insurer
+  let approveQuery = `SELECT bs.* FROM bulletins_soins bs LEFT JOIN adherents a ON bs.adherent_id = a.id LEFT JOIN companies co ON a.company_id = co.id WHERE bs.id = ?`;
+  const approveParams: string[] = [bulletinId];
+  if (user.insurerId) {
+    approveQuery += ' AND co.insurer_id = ?';
+    approveParams.push(user.insurerId);
+  }
+  const bulletin = await db.prepare(approveQuery).bind(...approveParams).first();
 
   if (!bulletin) {
     return c.json({
@@ -1391,9 +1432,14 @@ bulletinsSoins.post('/manage/:id/reject', async (c) => {
     }, 400);
   }
 
-  const bulletin = await db.prepare(`
-    SELECT * FROM bulletins_soins WHERE id = ?
-  `).bind(bulletinId).first();
+  // Verify bulletin belongs to this insurer
+  let rejectQuery = `SELECT bs.* FROM bulletins_soins bs LEFT JOIN adherents a ON bs.adherent_id = a.id LEFT JOIN companies co ON a.company_id = co.id WHERE bs.id = ?`;
+  const rejectParams: string[] = [bulletinId];
+  if (user.insurerId) {
+    rejectQuery += ' AND co.insurer_id = ?';
+    rejectParams.push(user.insurerId);
+  }
+  const bulletin = await db.prepare(rejectQuery).bind(...rejectParams).first();
 
   if (!bulletin) {
     return c.json({
@@ -1525,9 +1571,21 @@ bulletinsSoins.get('/payments', async (c) => {
     const statuses = status.split(',').map(s => s.trim());
     const placeholders = statuses.map(() => '?').join(',');
 
+    // Build insurer filter
+    let payInsurer = '';
+    const payInsurerParams: string[] = [];
+    if (user.insurerId) {
+      payInsurer = ' AND co.insurer_id = ?';
+      payInsurerParams.push(user.insurerId);
+    }
+
     const countResult = await db.prepare(`
-      SELECT COUNT(*) as total FROM bulletins_soins WHERE status IN (${placeholders})
-    `).bind(...statuses).first<{ total: number }>();
+      SELECT COUNT(*) as total
+      FROM bulletins_soins bs
+      JOIN adherents a ON bs.adherent_id = a.id
+      JOIN companies co ON a.company_id = co.id
+      WHERE bs.status IN (${placeholders})${payInsurer}
+    `).bind(...statuses, ...payInsurerParams).first<{ total: number }>();
 
     const bulletins = await db.prepare(`
       SELECT
@@ -1536,16 +1594,17 @@ bulletinsSoins.get('/payments', async (c) => {
         a.last_name as adherent_last_name,
         a.national_id_encrypted as adherent_national_id,
         a.rib_encrypted as adherent_rib,
-        c.contract_number,
-        i.name as insurer_name
+        ct.contract_number,
+        ins.name as insurer_name
       FROM bulletins_soins bs
-      LEFT JOIN adherents a ON bs.adherent_id = a.id
-      LEFT JOIN contracts c ON c.adherent_id = a.id AND c.status = 'active'
-      LEFT JOIN insurers i ON c.insurer_id = i.id
-      WHERE bs.status IN (${placeholders})
+      JOIN adherents a ON bs.adherent_id = a.id
+      JOIN companies co ON a.company_id = co.id
+      LEFT JOIN contracts ct ON ct.adherent_id = a.id AND ct.status = 'active'
+      LEFT JOIN insurers ins ON ct.insurer_id = ins.id
+      WHERE bs.status IN (${placeholders})${payInsurer}
       ORDER BY bs.approved_date ASC
       LIMIT ? OFFSET ?
-    `).bind(...statuses, limit, offset).all();
+    `).bind(...statuses, ...payInsurerParams, limit, offset).all();
 
     return c.json({
       success: true,
@@ -1580,18 +1639,29 @@ bulletinsSoins.get('/payments/stats', async (c) => {
     }, 403);
   }
 
+  // Build insurer filter
+  let payStatsWhere = 'WHERE 1=1';
+  const payStatsParams: string[] = [];
+  if (user.insurerId) {
+    payStatsWhere += ' AND co.insurer_id = ?';
+    payStatsParams.push(user.insurerId);
+  }
+
   const stats = await db.prepare(`
     SELECT
-      SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved_count,
-      SUM(CASE WHEN status = 'approved' THEN COALESCE(approved_amount, 0) ELSE 0 END) as approved_amount,
-      SUM(CASE WHEN status = 'pending_payment' THEN 1 ELSE 0 END) as pending_payment_count,
-      SUM(CASE WHEN status = 'pending_payment' THEN COALESCE(approved_amount, 0) ELSE 0 END) as pending_payment_amount,
-      SUM(CASE WHEN status = 'reimbursed' AND date(reimbursement_date) = date('now') THEN 1 ELSE 0 END) as today_paid_count,
-      SUM(CASE WHEN status = 'reimbursed' AND date(reimbursement_date) = date('now') THEN COALESCE(reimbursed_amount, 0) ELSE 0 END) as today_paid_amount,
-      SUM(CASE WHEN status = 'reimbursed' AND date(reimbursement_date) >= date('now', '-7 days') THEN 1 ELSE 0 END) as week_paid_count,
-      SUM(CASE WHEN status = 'reimbursed' AND date(reimbursement_date) >= date('now', '-7 days') THEN COALESCE(reimbursed_amount, 0) ELSE 0 END) as week_paid_amount
-    FROM bulletins_soins
-  `).first();
+      SUM(CASE WHEN bs.status = 'approved' THEN 1 ELSE 0 END) as approved_count,
+      SUM(CASE WHEN bs.status = 'approved' THEN COALESCE(bs.approved_amount, 0) ELSE 0 END) as approved_amount,
+      SUM(CASE WHEN bs.status = 'pending_payment' THEN 1 ELSE 0 END) as pending_payment_count,
+      SUM(CASE WHEN bs.status = 'pending_payment' THEN COALESCE(bs.approved_amount, 0) ELSE 0 END) as pending_payment_amount,
+      SUM(CASE WHEN bs.status = 'reimbursed' AND date(bs.reimbursement_date) = date('now') THEN 1 ELSE 0 END) as today_paid_count,
+      SUM(CASE WHEN bs.status = 'reimbursed' AND date(bs.reimbursement_date) = date('now') THEN COALESCE(bs.reimbursed_amount, 0) ELSE 0 END) as today_paid_amount,
+      SUM(CASE WHEN bs.status = 'reimbursed' AND date(bs.reimbursement_date) >= date('now', '-7 days') THEN 1 ELSE 0 END) as week_paid_count,
+      SUM(CASE WHEN bs.status = 'reimbursed' AND date(bs.reimbursement_date) >= date('now', '-7 days') THEN COALESCE(bs.reimbursed_amount, 0) ELSE 0 END) as week_paid_amount
+    FROM bulletins_soins bs
+    JOIN adherents a ON bs.adherent_id = a.id
+    JOIN companies co ON a.company_id = co.id
+    ${payStatsWhere}
+  `).bind(...payStatsParams).first();
 
   return c.json({
     success: true,
@@ -1630,9 +1700,14 @@ bulletinsSoins.post('/payments/process', async (c) => {
     }, 400);
   }
 
-  const bulletin = await db.prepare(`
-    SELECT * FROM bulletins_soins WHERE id = ? AND status IN ('approved', 'pending_payment')
-  `).bind(bulletin_id).first();
+  // Verify bulletin belongs to this insurer
+  let processQuery = `SELECT bs.* FROM bulletins_soins bs LEFT JOIN adherents a ON bs.adherent_id = a.id LEFT JOIN companies co ON a.company_id = co.id WHERE bs.id = ? AND bs.status IN ('approved', 'pending_payment')`;
+  const processParams: (string)[] = [bulletin_id];
+  if (user.insurerId) {
+    processQuery += ' AND co.insurer_id = ?';
+    processParams.push(user.insurerId);
+  }
+  const bulletin = await db.prepare(processQuery).bind(...processParams).first();
 
   if (!bulletin) {
     return c.json({
@@ -1719,9 +1794,14 @@ bulletinsSoins.post('/payments/batch', async (c) => {
 
   for (const bulletinId of bulletin_ids) {
     try {
-      const bulletin = await db.prepare(`
-        SELECT * FROM bulletins_soins WHERE id = ? AND status IN ('approved', 'pending_payment')
-      `).bind(bulletinId).first();
+      // Verify bulletin belongs to this insurer
+      let batchQuery = `SELECT bs.* FROM bulletins_soins bs LEFT JOIN adherents a ON bs.adherent_id = a.id LEFT JOIN companies co ON a.company_id = co.id WHERE bs.id = ? AND bs.status IN ('approved', 'pending_payment')`;
+      const batchParams: string[] = [bulletinId];
+      if (user.insurerId) {
+        batchQuery += ' AND co.insurer_id = ?';
+        batchParams.push(user.insurerId);
+      }
+      const bulletin = await db.prepare(batchQuery).bind(...batchParams).first();
 
       if (!bulletin) {
         results.push({ id: bulletinId, success: false, error: 'Non trouvé ou non éligible' });
@@ -1793,9 +1873,14 @@ bulletinsSoins.post('/payments/:id/mark-pending', async (c) => {
     }, 403);
   }
 
-  const bulletin = await db.prepare(`
-    SELECT * FROM bulletins_soins WHERE id = ? AND status = 'approved'
-  `).bind(bulletinId).first();
+  // Verify bulletin belongs to this insurer
+  let markQuery = `SELECT bs.* FROM bulletins_soins bs LEFT JOIN adherents a ON bs.adherent_id = a.id LEFT JOIN companies co ON a.company_id = co.id WHERE bs.id = ? AND bs.status = 'approved'`;
+  const markParams: string[] = [bulletinId];
+  if (user.insurerId) {
+    markQuery += ' AND co.insurer_id = ?';
+    markParams.push(user.insurerId);
+  }
+  const bulletin = await db.prepare(markQuery).bind(...markParams).first();
 
   if (!bulletin) {
     return c.json({
@@ -1821,6 +1906,480 @@ bulletinsSoins.post('/payments/:id/mark-pending', async (c) => {
       message: 'Bulletin marqué en attente de paiement',
     },
   });
+});
+
+// ─────────────────────────────────────────────────────────────
+// History endpoints (REQ-007)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * GET /bulletins-soins/history/stats - Aggregated reimbursement statistics
+ */
+bulletinsSoins.get('/history/stats', async (c) => {
+  const user = c.get('user');
+  const db = getDb(c);
+
+  if (!['INSURER_AGENT', 'INSURER_ADMIN', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents assureur' },
+    }, 403);
+  }
+
+  const dateFrom = c.req.query('dateFrom');
+  const dateTo = c.req.query('dateTo');
+
+  let periodClause = '';
+  const periodParams: string[] = [];
+
+  // Filter by insurer
+  if (user.insurerId) {
+    periodClause += ' AND co.insurer_id = ?';
+    periodParams.push(user.insurerId);
+  }
+  if (dateFrom) {
+    periodClause += ' AND bs.bulletin_date >= ?';
+    periodParams.push(dateFrom);
+  }
+  if (dateTo) {
+    periodClause += ' AND bs.bulletin_date <= ?';
+    periodParams.push(dateTo);
+  }
+
+  const histJoin = 'FROM bulletins_soins bs JOIN adherents a ON bs.adherent_id = a.id JOIN companies co ON a.company_id = co.id';
+
+  try {
+    // Count + sum by status
+    const { results: byStatus } = await db.prepare(`
+      SELECT bs.status, COUNT(*) as count, COALESCE(SUM(bs.total_amount), 0) as total_declared, COALESCE(SUM(bs.reimbursed_amount), 0) as total_reimbursed
+      ${histJoin}
+      WHERE bs.status IN ('approved', 'reimbursed', 'rejected')${periodClause}
+      GROUP BY bs.status
+    `).bind(...periodParams).all();
+
+    // By care type
+    const { results: byCareType } = await db.prepare(`
+      SELECT bs.care_type, COUNT(*) as count, COALESCE(SUM(bs.reimbursed_amount), 0) as total_reimbursed
+      ${histJoin}
+      WHERE bs.status IN ('approved', 'reimbursed', 'rejected')${periodClause}
+      GROUP BY bs.care_type
+    `).bind(...periodParams).all();
+
+    // Monthly evolution (last 12 months)
+    const { results: monthly } = await db.prepare(`
+      SELECT strftime('%Y-%m', bs.bulletin_date) as month, COUNT(*) as count, COALESCE(SUM(bs.reimbursed_amount), 0) as total_reimbursed
+      ${histJoin}
+      WHERE bs.status IN ('approved', 'reimbursed', 'rejected')${periodClause}
+      GROUP BY strftime('%Y-%m', bs.bulletin_date)
+      ORDER BY month DESC
+      LIMIT 12
+    `).bind(...periodParams).all();
+
+    // Aggregate totals
+    let totalBulletins = 0;
+    let totalDeclared = 0;
+    let totalReimbursed = 0;
+    const statusCounts: Record<string, number> = { approved: 0, reimbursed: 0, rejected: 0 };
+
+    for (const row of byStatus) {
+      const count = Number(row.count) || 0;
+      totalBulletins += count;
+      totalDeclared += Number(row.total_declared) || 0;
+      totalReimbursed += Number(row.total_reimbursed) || 0;
+      statusCounts[row.status as string] = count;
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        totalBulletins,
+        totalDeclared,
+        totalReimbursed,
+        byStatus: statusCounts,
+        byCareType: byCareType.map((r) => ({
+          careType: r.care_type,
+          count: Number(r.count),
+          totalReimbursed: Number(r.total_reimbursed),
+        })),
+        monthly: monthly.map((r) => ({
+          month: r.month,
+          count: Number(r.count),
+          totalReimbursed: Number(r.total_reimbursed),
+        })),
+      },
+    });
+  } catch (err) {
+    console.error('History stats error:', err);
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: `Erreur statistiques: ${err instanceof Error ? err.message : String(err)}` },
+    }, 500);
+  }
+});
+
+/**
+ * GET /bulletins-soins/history/export - Export history as CSV
+ */
+bulletinsSoins.get('/history/export', async (c) => {
+  const user = c.get('user');
+  const db = getDb(c);
+
+  if (!['INSURER_AGENT', 'INSURER_ADMIN', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents assureur' },
+    }, 403);
+  }
+
+  const adherentId = c.req.query('adherentId');
+  const dateFrom = c.req.query('dateFrom');
+  const dateTo = c.req.query('dateTo');
+  const careType = c.req.query('careType');
+  const status = c.req.query('status');
+
+  let whereClause = "WHERE bs.status IN ('approved', 'reimbursed', 'rejected')";
+  const params: (string | number)[] = [];
+
+  // Filter by insurer
+  if (user.insurerId) {
+    whereClause += ' AND co.insurer_id = ?';
+    params.push(user.insurerId);
+  }
+  if (adherentId) {
+    whereClause += ' AND bs.adherent_id = ?';
+    params.push(adherentId);
+  }
+  if (dateFrom) {
+    whereClause += ' AND bs.bulletin_date >= ?';
+    params.push(dateFrom);
+  }
+  if (dateTo) {
+    whereClause += ' AND bs.bulletin_date <= ?';
+    params.push(dateTo);
+  }
+  if (careType) {
+    whereClause += ' AND bs.care_type = ?';
+    params.push(careType);
+  }
+  if (status) {
+    whereClause += ' AND bs.status = ?';
+    params.push(status);
+  }
+
+  try {
+    const { results } = await db.prepare(`
+      SELECT bs.bulletin_number, bs.bulletin_date, bs.adherent_matricule,
+             COALESCE(a.first_name, bs.adherent_first_name) as adherent_first_name,
+             COALESCE(a.last_name, bs.adherent_last_name) as adherent_last_name,
+             bs.care_type, bs.total_amount, bs.reimbursed_amount, bs.status, bs.validated_at
+      FROM bulletins_soins bs
+      LEFT JOIN adherents a ON bs.adherent_id = a.id
+      LEFT JOIN companies co ON a.company_id = co.id
+      ${whereClause}
+      ORDER BY bs.bulletin_date DESC
+      LIMIT 10000
+    `).bind(...params).all();
+
+    // Build CSV with BOM for Excel compatibility
+    const BOM = '\uFEFF';
+    const header = 'Numero Bulletin;Date;Matricule Adherent;Nom Adherent;Prenom Adherent;Type Soin;Montant Declare;Montant Rembourse;Statut;Date Validation';
+    const lines = results.map((r) => {
+      const fields = [
+        r.bulletin_number || '',
+        r.bulletin_date || '',
+        r.adherent_matricule || '',
+        r.adherent_last_name || '',
+        r.adherent_first_name || '',
+        r.care_type || '',
+        r.total_amount != null ? String(r.total_amount) : '0',
+        r.reimbursed_amount != null ? String(r.reimbursed_amount) : '0',
+        r.status || '',
+        r.validated_at || '',
+      ];
+      return fields.map(f => `"${String(f).replace(/"/g, '""')}"`).join(';');
+    });
+
+    const csv = BOM + header + '\n' + lines.join('\n');
+    const today = new Date().toISOString().slice(0, 10);
+
+    return new Response(csv, {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="historique-remboursements-${today}.csv"`,
+      },
+    });
+  } catch (err) {
+    console.error('History export error:', err);
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: `Erreur export: ${err instanceof Error ? err.message : String(err)}` },
+    }, 500);
+  }
+});
+
+/**
+ * GET /bulletins-soins/history/:id - Detailed view of a single bulletin
+ */
+bulletinsSoins.get('/history/:id', async (c) => {
+  const user = c.get('user');
+  const db = getDb(c);
+
+  if (!['INSURER_AGENT', 'INSURER_ADMIN', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents assureur' },
+    }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+
+  try {
+    let histDetailWhere = 'WHERE bs.id = ?';
+    const histDetailParams: string[] = [bulletinId];
+    if (user.insurerId) {
+      histDetailWhere += ' AND co.insurer_id = ?';
+      histDetailParams.push(user.insurerId);
+    }
+
+    const bulletin = await db.prepare(`
+      SELECT bs.*,
+             a.first_name as adh_first_name, a.last_name as adh_last_name,
+             a.matricule as adh_matricule, a.national_id_encrypted as adh_national_id,
+             a.plafond_global as adh_plafond_global, a.plafond_consomme as adh_plafond_consomme,
+             a.email as adh_email
+      FROM bulletins_soins bs
+      LEFT JOIN adherents a ON bs.adherent_id = a.id
+      LEFT JOIN companies co ON a.company_id = co.id
+      ${histDetailWhere}
+    `).bind(...histDetailParams).first();
+
+    if (!bulletin) {
+      return c.json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Bulletin non trouve' },
+      }, 404);
+    }
+
+    // Only show bulletins with final status
+    const finalStatuses = ['approved', 'reimbursed', 'rejected'];
+    if (!finalStatuses.includes(bulletin.status as string)) {
+      return c.json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Ce bulletin n\'est pas encore dans un statut final' },
+      }, 404);
+    }
+
+    // Get actes
+    const { results: actes } = await db.prepare(`
+      SELECT id, code, label, amount, taux_remboursement, montant_rembourse,
+             remboursement_brut, plafond_depasse, acte_ref_id
+      FROM actes_bulletin
+      WHERE bulletin_id = ?
+      ORDER BY created_at ASC
+    `).bind(bulletinId).all();
+
+    const plafondGlobal = Number(bulletin.adh_plafond_global) || 0;
+    const plafondConsomme = Number(bulletin.adh_plafond_consomme) || 0;
+
+    return c.json({
+      success: true,
+      data: {
+        id: bulletin.id,
+        bulletinNumber: bulletin.bulletin_number,
+        bulletinDate: bulletin.bulletin_date,
+        status: bulletin.status,
+        careType: bulletin.care_type,
+        careDescription: bulletin.care_description,
+        providerName: bulletin.provider_name,
+        providerSpecialty: bulletin.provider_specialty,
+        totalAmount: bulletin.total_amount,
+        reimbursedAmount: bulletin.reimbursed_amount,
+        rejectionReason: bulletin.rejection_reason,
+        scanUrl: bulletin.scan_url,
+        scanFilename: bulletin.scan_filename,
+        validatedAt: bulletin.validated_at,
+        validatedBy: bulletin.validated_by,
+        approvedDate: bulletin.approved_date,
+        paymentDate: bulletin.payment_date,
+        paymentMethod: bulletin.payment_method,
+        paymentReference: bulletin.payment_reference,
+        agentNotes: bulletin.agent_notes,
+        createdAt: bulletin.created_at,
+        adherent: {
+          id: bulletin.adherent_id,
+          firstName: bulletin.adh_first_name || bulletin.adherent_first_name,
+          lastName: bulletin.adh_last_name || bulletin.adherent_last_name,
+          matricule: bulletin.adh_matricule || bulletin.adherent_matricule,
+          nationalId: bulletin.adh_national_id || bulletin.adherent_national_id,
+          email: bulletin.adh_email || null,
+          plafondGlobal,
+          plafondConsomme,
+          plafondRestant: Math.max(0, plafondGlobal - plafondConsomme),
+        },
+        beneficiary: bulletin.beneficiary_name ? {
+          name: bulletin.beneficiary_name,
+          relationship: bulletin.beneficiary_relationship,
+        } : null,
+        actes: actes.map((a) => ({
+          id: a.id,
+          code: a.code,
+          label: a.label,
+          amount: a.amount,
+          tauxRemboursement: a.taux_remboursement,
+          montantRembourse: a.montant_rembourse,
+          remboursementBrut: a.remboursement_brut,
+          plafondDepasse: a.plafond_depasse === 1,
+          acteRefId: a.acte_ref_id,
+        })),
+        totaux: {
+          totalDeclare: actes.reduce((sum, a) => sum + (Number(a.amount) || 0), 0),
+          totalRembourse: actes.reduce((sum, a) => sum + (Number(a.montant_rembourse) || 0), 0),
+          nbActes: actes.length,
+          nbPlafondDepasse: actes.filter(a => a.plafond_depasse === 1).length,
+        },
+      },
+    });
+  } catch (err) {
+    console.error('History detail error:', err);
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: `Erreur detail: ${err instanceof Error ? err.message : String(err)}` },
+    }, 500);
+  }
+});
+
+/**
+ * GET /bulletins-soins/history - List bulletins with final status (approved, reimbursed, rejected)
+ */
+bulletinsSoins.get('/history', async (c) => {
+  const user = c.get('user');
+  const db = getDb(c);
+
+  if (!['INSURER_AGENT', 'INSURER_ADMIN', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents assureur' },
+    }, 403);
+  }
+
+  const adherentId = c.req.query('adherentId');
+  const dateFrom = c.req.query('dateFrom');
+  const dateTo = c.req.query('dateTo');
+  const careType = c.req.query('careType');
+  const status = c.req.query('status');
+  const search = c.req.query('search');
+  const sortBy = c.req.query('sortBy') || 'bulletin_date';
+  const sortOrder = c.req.query('sortOrder') === 'asc' ? 'ASC' : 'DESC';
+  const page = parseInt(c.req.query('page') || '1');
+  const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
+  const offset = (page - 1) * limit;
+
+  // Whitelist sortBy to prevent SQL injection
+  const allowedSortColumns: Record<string, string> = {
+    bulletin_date: 'bs.bulletin_date',
+    total_amount: 'bs.total_amount',
+    reimbursed_amount: 'bs.reimbursed_amount',
+    status: 'bs.status',
+    created_at: 'bs.created_at',
+  };
+  const sortColumn = allowedSortColumns[sortBy] || 'bs.bulletin_date';
+
+  let whereClause = "WHERE bs.status IN ('approved', 'reimbursed', 'rejected')";
+  const params: (string | number)[] = [];
+
+  // Filter by insurer
+  if (user.insurerId) {
+    whereClause += ' AND co.insurer_id = ?';
+    params.push(user.insurerId);
+  }
+  if (adherentId) {
+    whereClause += ' AND bs.adherent_id = ?';
+    params.push(adherentId);
+  }
+  if (dateFrom) {
+    whereClause += ' AND bs.bulletin_date >= ?';
+    params.push(dateFrom);
+  }
+  if (dateTo) {
+    whereClause += ' AND bs.bulletin_date <= ?';
+    params.push(dateTo);
+  }
+  if (careType) {
+    whereClause += ' AND bs.care_type = ?';
+    params.push(careType);
+  }
+  if (status && ['approved', 'reimbursed', 'rejected'].includes(status)) {
+    whereClause += ' AND bs.status = ?';
+    params.push(status);
+  }
+  if (search) {
+    whereClause += ' AND (bs.bulletin_number LIKE ? OR bs.adherent_first_name LIKE ? OR bs.adherent_last_name LIKE ? OR bs.adherent_matricule LIKE ? OR a.first_name LIKE ? OR a.last_name LIKE ?)';
+    const s = `%${search}%`;
+    params.push(s, s, s, s, s, s);
+  }
+
+  try {
+    // Count
+    const countResult = await db.prepare(`
+      SELECT COUNT(*) as total
+      FROM bulletins_soins bs
+      LEFT JOIN adherents a ON bs.adherent_id = a.id
+      LEFT JOIN companies co ON a.company_id = co.id
+      ${whereClause}
+    `).bind(...params).first<{ total: number }>();
+
+    const total = countResult?.total || 0;
+
+    // Main query
+    const { results } = await db.prepare(`
+      SELECT bs.id, bs.bulletin_number, bs.bulletin_date, bs.care_type, bs.status,
+             bs.total_amount, bs.reimbursed_amount, bs.validated_at, bs.payment_date,
+             bs.scan_url, bs.adherent_id,
+             COALESCE(a.first_name, bs.adherent_first_name) as adherent_first_name,
+             COALESCE(a.last_name, bs.adherent_last_name) as adherent_last_name,
+             COALESCE(a.matricule, bs.adherent_matricule) as adherent_matricule,
+             (SELECT COUNT(*) FROM actes_bulletin ab WHERE ab.bulletin_id = bs.id) as actes_count
+      FROM bulletins_soins bs
+      LEFT JOIN adherents a ON bs.adherent_id = a.id
+      LEFT JOIN companies co ON a.company_id = co.id
+      ${whereClause}
+      ORDER BY ${sortColumn} ${sortOrder}
+      LIMIT ? OFFSET ?
+    `).bind(...params, limit, offset).all();
+
+    return c.json({
+      success: true,
+      data: results.map((r) => ({
+        id: r.id,
+        bulletinNumber: r.bulletin_number,
+        bulletinDate: r.bulletin_date,
+        careType: r.care_type,
+        status: r.status,
+        totalAmount: r.total_amount,
+        reimbursedAmount: r.reimbursed_amount,
+        validatedAt: r.validated_at,
+        paymentDate: r.payment_date,
+        hasScan: !!r.scan_url,
+        adherentId: r.adherent_id,
+        adherentFirstName: r.adherent_first_name,
+        adherentLastName: r.adherent_last_name,
+        adherentMatricule: r.adherent_matricule,
+        actesCount: r.actes_count,
+      })),
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (err) {
+    console.error('History list error:', err);
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: `Erreur historique: ${err instanceof Error ? err.message : String(err)}` },
+    }, 500);
+  }
 });
 
 export { bulletinsSoins };
