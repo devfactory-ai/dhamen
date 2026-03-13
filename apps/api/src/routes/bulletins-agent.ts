@@ -497,23 +497,43 @@ bulletinsAgent.post('/create', async (c) => {
     }
 
     // Find adherent by matricule, then fallback to national_id or name match
+    // Always filter by insurer to prevent cross-insurer data leaks
     let adherentId: string | null = null;
-    let adherentResult = await db.prepare(
-      'SELECT id FROM adherents WHERE matricule = ?'
-    ).bind(adherentMatricule).first();
+    let adherentResult: Record<string, unknown> | null = null;
 
-    // Fallback: search by national_id (encrypted or hash)
-    if (!adherentResult && adherentNationalId) {
+    if (user.insurerId) {
       adherentResult = await db.prepare(
-        'SELECT id FROM adherents WHERE national_id_encrypted LIKE ? OR national_id_hash = ?'
-      ).bind(`%${adherentNationalId}%`, adherentNationalId).first();
-    }
+        'SELECT a.id FROM adherents a JOIN companies co ON a.company_id = co.id WHERE a.matricule = ? AND co.insurer_id = ?'
+      ).bind(adherentMatricule, user.insurerId).first();
 
-    // Fallback: search by first + last name
-    if (!adherentResult && adherentFirstName && adherentLastName) {
+      if (!adherentResult && adherentNationalId) {
+        adherentResult = await db.prepare(
+          'SELECT a.id FROM adherents a JOIN companies co ON a.company_id = co.id WHERE (a.national_id_encrypted LIKE ? OR a.national_id_hash = ?) AND co.insurer_id = ?'
+        ).bind(`%${adherentNationalId}%`, adherentNationalId, user.insurerId).first();
+      }
+
+      if (!adherentResult && adherentFirstName && adherentLastName) {
+        adherentResult = await db.prepare(
+          'SELECT a.id FROM adherents a JOIN companies co ON a.company_id = co.id WHERE a.first_name = ? AND a.last_name = ? AND co.insurer_id = ?'
+        ).bind(adherentFirstName, adherentLastName, user.insurerId).first();
+      }
+    } else {
+      // ADMIN without insurer — no filter
       adherentResult = await db.prepare(
-        'SELECT id FROM adherents WHERE first_name = ? AND last_name = ?'
-      ).bind(adherentFirstName, adherentLastName).first();
+        'SELECT id FROM adherents WHERE matricule = ?'
+      ).bind(adherentMatricule).first();
+
+      if (!adherentResult && adherentNationalId) {
+        adherentResult = await db.prepare(
+          'SELECT id FROM adherents WHERE national_id_encrypted LIKE ? OR national_id_hash = ?'
+        ).bind(`%${adherentNationalId}%`, adherentNationalId).first();
+      }
+
+      if (!adherentResult && adherentFirstName && adherentLastName) {
+        adherentResult = await db.prepare(
+          'SELECT id FROM adherents WHERE first_name = ? AND last_name = ?'
+        ).bind(adherentFirstName, adherentLastName).first();
+      }
     }
 
     if (adherentResult) {
