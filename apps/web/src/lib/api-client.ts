@@ -339,6 +339,59 @@ class ApiClient {
   }
 
   /**
+   * Upload a file using FormData (multipart/form-data)
+   */
+  async upload<T>(endpoint: string, formData: FormData, options?: RequestOptions): Promise<ApiResponse<T>> {
+    const { params, timeout = REQUEST_TIMEOUT_MS, ...init } = options || {};
+    let url = `${this.baseUrl}${endpoint}`;
+
+    if (params) {
+      const searchParams = new URLSearchParams();
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined) {
+          searchParams.append(key, String(value));
+        }
+      }
+      const queryString = searchParams.toString();
+      if (queryString) {
+        url += `?${queryString}`;
+      }
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const token = this.getAccessToken();
+      const tenantHeaders = getTenantHeader();
+      const headers: Record<string, string> = { ...tenantHeaders };
+
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const response = await fetch(url, {
+        ...init,
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: controller.signal,
+        credentials: 'include',
+      });
+
+      const data: ApiResponse<T> = await response.json();
+      return data;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { success: false, error: { code: 'TIMEOUT', message: 'La requête a expiré' } };
+      }
+      return { success: false, error: { code: 'NETWORK_ERROR', message: 'Erreur de connexion au serveur' } };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
    * Get the base URL for direct access (e.g., file downloads)
    */
   getBaseUrl(): string {

@@ -41,6 +41,8 @@ import { apiClient } from '@/lib/api-client';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { useSearchAdherents, type AdherentSearchResult } from '@/features/adherents/hooks/useAdherents';
 import { toast } from 'sonner';
+import { useBulletinValidation } from '@/hooks/use-bulletin-validation';
+import { ScanUpload } from '@/features/bulletins/components/scan-upload';
 import {
   FileText,
   Upload,
@@ -67,6 +69,7 @@ import {
   AlertTriangle,
   Ban,
   Info,
+  CheckCircle2,
 } from 'lucide-react';
 
 // Types
@@ -115,6 +118,7 @@ const bulletinStatusConfig: Record<string, { label: string; variant: 'secondary'
   draft: { label: 'Brouillon', variant: 'secondary' },
   in_batch: { label: 'Dans un lot', variant: 'default' },
   exported: { label: 'Exporte', variant: 'outline' },
+  approved: { label: 'Valide', variant: 'default', className: 'bg-green-600 hover:bg-green-700' },
   soumis: { label: 'Soumis', variant: 'default' },
   en_examen: { label: 'En examen', variant: 'default', className: 'bg-yellow-500 hover:bg-yellow-600' },
   approuve: { label: 'Approuve', variant: 'default', className: 'bg-green-600 hover:bg-green-700' },
@@ -152,6 +156,7 @@ const bulletinFormSchema = z.object({
   adherent_first_name: z.string().min(2, 'Prenom requis'),
   adherent_last_name: z.string().min(2, 'Nom requis'),
   adherent_national_id: z.string().min(8, 'CIN requis'),
+  adherent_email: z.string().email('Email invalide').optional().or(z.literal('')),
   beneficiary_name: z.string().optional(),
   beneficiary_relationship: z.string().optional(),
   provider_name: z.string().min(2, 'Nom du praticien requis'),
@@ -187,6 +192,10 @@ export function BulletinsSaisiePage() {
   const [showAdherentDropdown, setShowAdherentDropdown] = useState(false);
   const [selectedAdherentInfo, setSelectedAdherentInfo] = useState<AdherentSearchResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showValidateDialog, setShowValidateDialog] = useState(false);
+  const [validateBulletinTarget, setValidateBulletinTarget] = useState<BulletinDetail | null>(null);
+  const [validateNotes, setValidateNotes] = useState('');
+  const validateMutation = useBulletinValidation();
 
   const { data: adherentResults } = useSearchAdherents(adherentSearch);
 
@@ -560,6 +569,23 @@ export function BulletinsSaisiePage() {
           >
             <Eye className="h-4 w-4" />
           </Button>
+          {['draft', 'in_batch'].includes(row.status) && (
+            <Button
+              size="sm"
+              variant="default"
+              className="bg-green-600 hover:bg-green-700"
+              title="Valider le bulletin"
+              onClick={async () => {
+                const response = await apiClient.get<BulletinDetail>(`/bulletins-soins/agent/${row.id}`);
+                if (response.success && response.data) {
+                  setValidateBulletinTarget(response.data);
+                  setShowValidateDialog(true);
+                }
+              }}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+            </Button>
+          )}
           {row.status !== 'exported' && (
             <Button
               size="sm"
@@ -850,6 +876,7 @@ export function BulletinsSaisiePage() {
                                     setValue('adherent_matricule', a.matricule || '');
                                     setValue('adherent_last_name', a.lastName || '');
                                     setValue('adherent_first_name', a.firstName || '');
+                                    setValue('adherent_email', a.email || '');
                                     setAdherentSearch('');
                                     setShowAdherentDropdown(false);
                                     setSelectedAdherentInfo(a);
@@ -902,6 +929,13 @@ export function BulletinsSaisiePage() {
                         </div>
                       </div>
                       <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>Email adherent</Label>
+                          <Input {...register('adherent_email')} type="email" placeholder="adherent@email.tn" />
+                          {errors.adherent_email && (
+                            <p className="text-sm text-destructive">{errors.adherent_email.message}</p>
+                          )}
+                        </div>
                         <div className="space-y-2">
                           <Label>Nom du beneficiaire (si different)</Label>
                           <Input {...register('beneficiary_name')} />
@@ -1413,17 +1447,122 @@ export function BulletinsSaisiePage() {
                 </div>
               )}
 
-              {/* TASK-011: status badge + footer */}
+              {/* Scan upload */}
+              <ScanUpload
+                bulletinId={viewBulletin.id}
+                existingScanUrl={viewBulletin.scan_url}
+                existingScanFilename={viewBulletin.scan_url ? viewBulletin.scan_url.split('/').pop() : null}
+                onUploadComplete={() => fetchBulletinDetail(viewBulletin.id)}
+              />
+
+              {/* Status badge + actions */}
               <div className="flex justify-between items-center pt-2 border-t">
                 {(() => {
                   const cfg = bulletinStatusConfig[viewBulletin.status] || { label: viewBulletin.status, variant: 'outline' as const };
                   return <Badge variant={cfg.variant} className={cfg.className}>{cfg.label}</Badge>;
                 })()}
+                {['draft', 'in_batch'].includes(viewBulletin.status) && (
+                  <Button
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={() => {
+                      setValidateBulletinTarget(viewBulletin);
+                      setShowValidateDialog(true);
+                    }}
+                  >
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    Valider le bulletin
+                  </Button>
+                )}
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Validate confirmation dialog */}
+      <AlertDialog open={showValidateDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowValidateDialog(false);
+          setValidateBulletinTarget(null);
+          setValidateNotes('');
+        }
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Valider le bulletin</AlertDialogTitle>
+            <AlertDialogDescription>
+              Confirmez la validation du bulletin {validateBulletinTarget?.bulletin_number}. Le remboursement sera enregistre definitivement.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {validateBulletinTarget && (
+            <div className="py-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground">Adherent</p>
+                  <p className="font-medium">{validateBulletinTarget.adherent_first_name} {validateBulletinTarget.adherent_last_name}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Montant declare</p>
+                  <p className="font-medium">{validateBulletinTarget.total_amount?.toFixed(3)} TND</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Actes</p>
+                  <p className="font-medium">{validateBulletinTarget.actes?.length || 0} acte(s)</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Montant rembourse</p>
+                  <p className="font-medium text-green-600">{(validateBulletinTarget.reimbursed_amount || 0).toFixed(3)} TND</p>
+                </div>
+              </div>
+              <div>
+                <Label className="text-sm">Notes (optionnel)</Label>
+                <Textarea
+                  value={validateNotes}
+                  onChange={(e) => setValidateNotes(e.target.value)}
+                  placeholder="Notes de validation..."
+                  className="mt-1"
+                  rows={2}
+                />
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <Button
+              onClick={(e) => {
+                e.preventDefault();
+                if (!validateBulletinTarget) return;
+                validateMutation.mutate({
+                  id: validateBulletinTarget.id,
+                  reimbursed_amount: validateBulletinTarget.reimbursed_amount || validateBulletinTarget.total_amount || 0,
+                  notes: validateNotes || undefined,
+                }, {
+                  onSuccess: () => {
+                    setShowValidateDialog(false);
+                    setValidateBulletinTarget(null);
+                    setValidateNotes('');
+                    setViewBulletin(null);
+                  },
+                });
+              }}
+              disabled={validateMutation.isPending}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {validateMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Validation...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Valider
+                </>
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete confirmation popup */}
       <AlertDialog open={!!deleteBulletinId} onOpenChange={(open) => !open && setDeleteBulletinId(null)}>
