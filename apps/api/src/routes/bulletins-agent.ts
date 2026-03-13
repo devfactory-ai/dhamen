@@ -477,9 +477,20 @@ bulletinsAgent.post('/create', async (c) => {
   try {
     // Validate batch if provided
     if (batchId) {
-      const batch = await db.prepare(
-        'SELECT id, status, created_by FROM bulletin_batches WHERE id = ? AND created_by = ?'
-      ).bind(batchId, user.id).first();
+      // INSURER_ADMIN can use any batch from their insurer's companies
+      // INSURER_AGENT can only use their own batches
+      let batchQuery: string;
+      const batchParams: string[] = [batchId];
+
+      if (user.role === 'INSURER_ADMIN' && user.insurerId) {
+        batchQuery = 'SELECT bb.id, bb.status, bb.created_by FROM bulletin_batches bb JOIN companies co ON bb.company_id = co.id WHERE bb.id = ? AND co.insurer_id = ?';
+        batchParams.push(user.insurerId);
+      } else {
+        batchQuery = 'SELECT id, status, created_by FROM bulletin_batches WHERE id = ? AND created_by = ?';
+        batchParams.push(user.id);
+      }
+
+      const batch = await db.prepare(batchQuery).bind(...batchParams).first();
 
       if (!batch) {
         return c.json({
