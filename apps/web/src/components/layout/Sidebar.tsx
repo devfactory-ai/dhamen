@@ -84,6 +84,7 @@ const navigationSections: NavSection[] = [
       { name: 'Gestion PEC', href: '/claims/manage', icon: ClipboardCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'] },
       { name: 'Saisie bulletins', href: '/bulletins/saisie', icon: DocumentsIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
       { name: 'Validation bulletins', href: '/bulletins/validation', icon: ClipboardCheckIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
+      { name: 'Historique remboursements', href: '/bulletins/history', icon: DocumentsIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
       { name: 'Paiements adhérents', href: '/bulletins/payments', icon: CurrencyIcon, roles: ['INSURER_ADMIN'] },
       { name: 'Archives bulletins', href: '/bulletins/archive', icon: DocumentsIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
       { name: 'Réconciliation', href: '/reconciliation', icon: CalculatorIcon, roles: ['ADMIN', 'INSURER_ADMIN'] },
