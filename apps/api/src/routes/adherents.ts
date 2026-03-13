@@ -567,11 +567,11 @@ adherents.get(
 
     const { results } = await db
       .prepare(
-        `SELECT bs.id, bs.date_soins, bs.status, bs.declared_amount, bs.reimbursed_amount, bs.created_at,
+        `SELECT bs.id, bs.bulletin_date, bs.bulletin_number, bs.status, bs.total_amount, bs.reimbursed_amount, bs.care_type, bs.created_at,
                 (SELECT COUNT(*) FROM actes_bulletin ab WHERE ab.bulletin_id = bs.id) as actes_count
          FROM bulletins_soins bs
          WHERE bs.adherent_id = ?
-         ORDER BY bs.date_soins DESC
+         ORDER BY bs.bulletin_date DESC
          LIMIT ? OFFSET ?`
       )
       .bind(adherentId, limit, offset)
@@ -579,9 +579,11 @@ adherents.get(
 
     return paginated(c, results.map((r: Record<string, unknown>) => ({
       id: r.id,
-      dateSoins: r.date_soins,
+      bulletinNumber: r.bulletin_number,
+      dateSoins: r.bulletin_date,
       status: r.status,
-      declaredAmount: r.declared_amount,
+      careType: r.care_type,
+      declaredAmount: r.total_amount,
       reimbursedAmount: r.reimbursed_amount,
       actesCount: r.actes_count,
       createdAt: r.created_at,
