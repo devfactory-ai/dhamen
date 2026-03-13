@@ -547,6 +547,13 @@ bulletinsAgent.post('/create', async (c) => {
       }
     }
 
+    if (!adherentResult) {
+      return c.json({
+        success: false,
+        error: { code: 'ADHERENT_NOT_FOUND', message: 'Adhérent non trouvé. Vérifiez le matricule ou le CIN.' },
+      }, 404);
+    }
+
     if (adherentResult) {
       adherentId = adherentResult.id as string;
       // Update adherent email if provided and not already set
