@@ -128,6 +128,7 @@ export interface AdherentSearchResult {
   matricule: string;
   firstName: string;
   lastName: string;
+  email: string | null;
   companyName: string | null;
   plafondGlobal: number | null;
   plafondConsomme: number | null;

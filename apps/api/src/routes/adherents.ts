@@ -402,7 +402,7 @@ adherents.get(
     const likeQ = `%${q}%`;
 
     let query = `
-      SELECT a.id, a.matricule, a.first_name, a.last_name,
+      SELECT a.id, a.matricule, a.first_name, a.last_name, a.email,
              a.plafond_global, a.plafond_consomme,
              co.name as company_name
       FROM adherents a
@@ -426,6 +426,7 @@ adherents.get(
       matricule: r.matricule,
       firstName: r.first_name,
       lastName: r.last_name,
+      email: r.email || null,
       companyName: r.company_name,
       plafondGlobal: r.plafond_global,
       plafondConsomme: r.plafond_consomme,
