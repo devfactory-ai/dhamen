@@ -2,12 +2,14 @@
  * Bulletins Agent Routes
  * Routes for insurance agents to create, manage batches, and export bulletins
  */
-import { createBatchSchema, actesArraySchema } from '@dhamen/shared';
-import type { ActeInput } from '@dhamen/shared';
+import { createBatchSchema, actesArraySchema, validateBulletinSchema } from '@dhamen/shared';
+import type { ActeInput, ValidateBulletinResponse } from '@dhamen/shared';
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth';
 import { generateId } from '../lib/ulid';
 import { calculateRemboursementBulletin } from '../services/remboursement.service';
+import { PushNotificationService } from '../services/push-notification.service';
+import { RealtimeNotificationsService } from '../services/realtime-notifications.service';
 import { findActeRefByCode, listActesReferentiel } from '@dhamen/db';
 import type { Bindings, Variables } from '../types';
 
@@ -399,6 +401,7 @@ bulletinsAgent.post('/create', async (c) => {
   const adherentFirstName = formData['adherent_first_name'] as string;
   const adherentLastName = formData['adherent_last_name'] as string;
   const adherentNationalId = formData['adherent_national_id'] as string;
+  const adherentEmail = formData['adherent_email'] as string || null;
   const beneficiaryName = formData['beneficiary_name'] as string || null;
   const beneficiaryRelationship = formData['beneficiary_relationship'] as string || null;
   const providerName = formData['provider_name'] as string;
@@ -493,14 +496,40 @@ bulletinsAgent.post('/create', async (c) => {
       }
     }
 
-    // Find adherent by matricule (optional - we still create the bulletin even if not found)
+    // Find adherent by matricule, then fallback to national_id or name match
     let adherentId: string | null = null;
-    const adherentResult = await db.prepare(
+    let adherentResult = await db.prepare(
       'SELECT id FROM adherents WHERE matricule = ?'
     ).bind(adherentMatricule).first();
 
+    // Fallback: search by national_id (encrypted or hash)
+    if (!adherentResult && adherentNationalId) {
+      adherentResult = await db.prepare(
+        'SELECT id FROM adherents WHERE national_id_encrypted LIKE ? OR national_id_hash = ?'
+      ).bind(`%${adherentNationalId}%`, adherentNationalId).first();
+    }
+
+    // Fallback: search by first + last name
+    if (!adherentResult && adherentFirstName && adherentLastName) {
+      adherentResult = await db.prepare(
+        'SELECT id FROM adherents WHERE first_name = ? AND last_name = ?'
+      ).bind(adherentFirstName, adherentLastName).first();
+    }
+
     if (adherentResult) {
       adherentId = adherentResult.id as string;
+      // Update adherent email if provided and not already set
+      if (adherentEmail) {
+        await db.prepare(
+          'UPDATE adherents SET email = ? WHERE id = ? AND (email IS NULL OR email = ?)'
+        ).bind(adherentEmail, adherentId, adherentEmail).run();
+      }
+      // Update matricule if empty
+      if (adherentMatricule) {
+        await db.prepare(
+          'UPDATE adherents SET matricule = ? WHERE id = ? AND (matricule IS NULL OR matricule = "")'
+        ).bind(adherentMatricule, adherentId).run();
+      }
     }
 
     const status = batchId ? 'in_batch' : 'draft';
@@ -669,6 +698,351 @@ bulletinsAgent.post('/batches', async (c) => {
     return c.json({
       success: false,
       error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la creation du lot' },
+    }, 500);
+  }
+});
+
+/**
+ * POST /bulletins-soins/agent/:id/validate - Validate a bulletin and record reimbursement
+ */
+bulletinsAgent.post('/:id/validate', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' },
+    }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  const body = await c.req.json();
+  const parsed = validateBulletinSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({
+      success: false,
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: parsed.error.errors.map((e) => e.message).join(', '),
+      },
+    }, 400);
+  }
+
+  const { reimbursed_amount, notes } = parsed.data;
+
+  try {
+    // Fetch bulletin and verify ownership
+    const bulletin = await db.prepare(
+      'SELECT id, status, adherent_id, reimbursed_amount, bulletin_number, care_type, bulletin_date FROM bulletins_soins WHERE id = ? AND created_by = ?'
+    ).bind(bulletinId, user.id).first<{
+      id: string; status: string; adherent_id: string | null;
+      reimbursed_amount: number | null; bulletin_number: string;
+      care_type: string | null; bulletin_date: string | null;
+    }>();
+
+    if (!bulletin) {
+      return c.json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Bulletin non trouve' },
+      }, 404);
+    }
+
+    // Only draft, in_batch, or processing bulletins can be validated
+    const validStatuses = ['draft', 'in_batch', 'processing'];
+    if (!validStatuses.includes(bulletin.status)) {
+      return c.json({
+        success: false,
+        error: { code: 'BULLETIN_ALREADY_VALIDATED', message: 'Ce bulletin a deja ete valide ou est dans un statut final' },
+      }, 409);
+    }
+
+    const now = new Date().toISOString();
+
+    // Update bulletin status and reimbursement
+    await db.prepare(`
+      UPDATE bulletins_soins
+      SET status = 'approved',
+          reimbursed_amount = ?,
+          validated_at = ?,
+          validated_by = ?,
+          approved_date = ?,
+          approved_amount = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).bind(reimbursed_amount, now, user.id, now, reimbursed_amount, now, bulletinId).run();
+
+    // Update adherent plafond_consomme (adjust delta if reimbursement changed)
+    if (bulletin.adherent_id) {
+      const previousAmount = bulletin.reimbursed_amount || 0;
+      const delta = reimbursed_amount - previousAmount;
+      if (delta !== 0) {
+        await db.prepare(
+          'UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?'
+        ).bind(delta, bulletin.adherent_id).run();
+      }
+    }
+
+    // Audit log
+    await db.prepare(`
+      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+      VALUES (?, ?, 'bulletin_validated', 'bulletins_soins', ?, ?, ?, datetime('now'))
+    `).bind(
+      generateId(), user.id, bulletinId,
+      JSON.stringify({ reimbursed_amount, notes: notes || null, previous_status: bulletin.status }),
+      c.req.header('CF-Connecting-IP') || 'unknown'
+    ).run();
+
+    const response: ValidateBulletinResponse = {
+      id: bulletinId,
+      status: 'approved',
+      reimbursed_amount,
+      validated_at: now,
+      validated_by: user.id,
+    };
+
+    // Fire-and-forget: notify adherent (in-app + push + realtime)
+    if (bulletin.adherent_id) {
+      const bulletinNumber = bulletin.bulletin_number;
+      const careType = bulletin.care_type || 'soin';
+      const formatAmt = (v: number) => v.toFixed(3);
+      const notifBody = `Votre bulletin ${bulletinNumber} (${careType}) a ete approuve. Montant rembourse : ${formatAmt(reimbursed_amount)} TND.`;
+      const notifTitle = `Bulletin ${bulletinNumber} approuve`;
+
+      c.executionCtx.waitUntil(
+        (async () => {
+          try {
+            const adherent = await db.prepare(
+              'SELECT email FROM adherents WHERE id = ?'
+            ).bind(bulletin.adherent_id).first<{ email: string }>();
+            if (!adherent?.email) return;
+
+            // Find user account by email
+            let userId: string | null = null;
+            const tenantUser = await db.prepare(
+              'SELECT id FROM users WHERE email = ? AND is_active = 1'
+            ).bind(adherent.email).first<{ id: string }>();
+            if (tenantUser) userId = tenantUser.id;
+            if (!userId) {
+              const platformUser = await c.env.DB.prepare(
+                'SELECT id FROM users WHERE email = ? AND is_active = 1'
+              ).bind(adherent.email).first<{ id: string }>();
+              if (platformUser) userId = platformUser.id;
+            }
+            if (!userId) return;
+
+            const notifId = generateId();
+
+            // 1. In-app notification — tenant DB
+            await db.prepare(`
+              INSERT INTO notifications (id, user_id, type, event_type, title, body, entity_id, entity_type, status, created_at)
+              VALUES (?, ?, 'IN_APP', 'SANTE_DEMANDE_APPROUVEE', ?, ?, ?, 'bulletin', 'PENDING', ?)
+            `).bind(notifId, userId, notifTitle, notifBody, bulletinId, now).run();
+
+            // Also write to platform DB for mobile
+            if (db !== c.env.DB) {
+              await c.env.DB.prepare(`
+                INSERT INTO notifications (id, user_id, type, event_type, title, body, entity_id, entity_type, status, created_at)
+                VALUES (?, ?, 'IN_APP', 'SANTE_DEMANDE_APPROUVEE', ?, ?, ?, 'bulletin', 'PENDING', ?)
+              `).bind(notifId, userId, notifTitle, notifBody, bulletinId, now).run().catch(() => {});
+            }
+
+            // 2. Push notification
+            const pushService = new PushNotificationService(c.env);
+            await pushService.sendSanteNotification(userId, 'SANTE_DEMANDE_APPROUVEE', {
+              demandeId: bulletinId, numeroDemande: bulletinNumber,
+              typeSoin: careType, dateSoin: bulletin.bulletin_date || '',
+              montantRembourse: String(reimbursed_amount),
+            }).catch(() => {});
+
+            // 3. Realtime WebSocket
+            if (c.env.NOTIFICATION_HUB) {
+              const realtimeService = new RealtimeNotificationsService(c);
+              await realtimeService.sendToUser(userId, {
+                id: notifId, type: 'SANTE_DEMANDE_APPROUVEE',
+                title: notifTitle, message: notifBody,
+                createdAt: now, read: false,
+                data: { demandeId: bulletinId, numeroDemande: bulletinNumber, statut: 'approved', typeSoin: careType, montantRembourse: reimbursed_amount },
+              }).catch(() => {});
+            }
+          } catch (err) {
+            console.error('Notification failed:', err);
+          }
+        })()
+      );
+    }
+
+    return c.json({ success: true, data: response });
+  } catch (error) {
+    console.error('Error validating bulletin:', error);
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la validation' },
+    }, 500);
+  }
+});
+
+/**
+ * POST /bulletins-soins/agent/:id/upload-scan - Upload a scan for a bulletin
+ */
+bulletinsAgent.post('/:id/upload-scan', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' },
+    }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const storage = c.env.STORAGE;
+
+  try {
+    // Verify bulletin ownership
+    const bulletin = await db.prepare(
+      'SELECT id FROM bulletins_soins WHERE id = ? AND created_by = ?'
+    ).bind(bulletinId, user.id).first();
+
+    if (!bulletin) {
+      return c.json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Bulletin non trouve' },
+      }, 404);
+    }
+
+    // Parse multipart form data
+    const formData = await c.req.parseBody();
+    const file = formData['scan'] as File | undefined;
+
+    if (!file || !(file instanceof File) || file.size === 0) {
+      return c.json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Fichier scan requis' },
+      }, 400);
+    }
+
+    // Validate MIME type
+    const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+    if (!allowedTypes.includes(file.type)) {
+      return c.json({
+        success: false,
+        error: { code: 'INVALID_FILE_TYPE', message: 'Type de fichier non supporte. Formats acceptes : JPEG, PNG, PDF' },
+      }, 400);
+    }
+
+    // Validate file size (10 MB)
+    const maxSize = 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+      return c.json({
+        success: false,
+        error: { code: 'FILE_TOO_LARGE', message: 'Le fichier ne doit pas depasser 10 Mo' },
+      }, 400);
+    }
+
+    // Upload to R2
+    const r2Key = `bulletins/${bulletinId}/${file.name}`;
+    const arrayBuffer = await file.arrayBuffer();
+    await storage.put(r2Key, arrayBuffer, {
+      httpMetadata: { contentType: file.type },
+      customMetadata: { uploadedBy: user.id, bulletinId },
+    });
+
+    const scanUrl = `https://dhamen-files.r2.cloudflarestorage.com/${r2Key}`;
+
+    // Update bulletin with scan info
+    await db.prepare(`
+      UPDATE bulletins_soins
+      SET scan_url = ?, scan_filename = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(scanUrl, file.name, bulletinId).run();
+
+    // Audit log
+    await db.prepare(`
+      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+      VALUES (?, ?, 'scan_uploaded', 'bulletins_soins', ?, ?, ?, datetime('now'))
+    `).bind(
+      generateId(), user.id, bulletinId,
+      JSON.stringify({ filename: file.name, size: file.size, mime_type: file.type }),
+      c.req.header('CF-Connecting-IP') || 'unknown'
+    ).run();
+
+    return c.json({
+      success: true,
+      data: { scan_url: scanUrl, scan_filename: file.name },
+    });
+  } catch (error) {
+    console.error('Error uploading scan:', error);
+    return c.json({
+      success: false,
+      error: { code: 'STORAGE_ERROR', message: 'Erreur lors de l\'upload du scan' },
+    }, 500);
+  }
+});
+
+/**
+ * GET /bulletins-soins/agent/:id/scan - Download the scan attached to a bulletin
+ */
+bulletinsAgent.get('/:id/scan', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' },
+    }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const storage = c.env.STORAGE;
+
+  try {
+    const bulletin = await db.prepare(
+      'SELECT scan_url, scan_filename FROM bulletins_soins WHERE id = ? AND created_by = ?'
+    ).bind(bulletinId, user.id).first<{ scan_url: string | null; scan_filename: string | null }>();
+
+    if (!bulletin) {
+      return c.json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Bulletin non trouve' },
+      }, 404);
+    }
+
+    if (!bulletin.scan_url) {
+      return c.json({
+        success: false,
+        error: { code: 'SCAN_NOT_FOUND', message: 'Aucun scan attache a ce bulletin' },
+      }, 404);
+    }
+
+    // Extract R2 key from URL
+    const R2_URL_PREFIX = 'https://dhamen-files.r2.cloudflarestorage.com/';
+    const r2Key = bulletin.scan_url.startsWith(R2_URL_PREFIX)
+      ? bulletin.scan_url.slice(R2_URL_PREFIX.length)
+      : bulletin.scan_url;
+
+    const object = await storage.get(r2Key);
+
+    if (!object) {
+      return c.json({
+        success: false,
+        error: { code: 'STORAGE_ERROR', message: 'Fichier introuvable dans le stockage' },
+      }, 500);
+    }
+
+    const headers = new Headers();
+    headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
+    headers.set('Content-Disposition', `inline; filename="${bulletin.scan_filename || 'scan'}"`);
+
+    return new Response(object.body, { headers });
+  } catch (error) {
+    console.error('Error downloading scan:', error);
+    return c.json({
+      success: false,
+      error: { code: 'STORAGE_ERROR', message: 'Erreur lors du chargement du scan' },
     }, 500);
   }
 });

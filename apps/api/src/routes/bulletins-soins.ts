@@ -1516,46 +1516,54 @@ bulletinsSoins.get('/payments', async (c) => {
     }, 403);
   }
 
-  const status = c.req.query('status') || 'approved,pending_payment';
-  const page = parseInt(c.req.query('page') || '1');
-  const limit = parseInt(c.req.query('limit') || '50');
-  const offset = (page - 1) * limit;
+  try {
+    const status = c.req.query('status') || 'approved,pending_payment';
+    const page = parseInt(c.req.query('page') || '1');
+    const limit = parseInt(c.req.query('limit') || '50');
+    const offset = (page - 1) * limit;
 
-  const statuses = status.split(',').map(s => s.trim());
-  const placeholders = statuses.map(() => '?').join(',');
+    const statuses = status.split(',').map(s => s.trim());
+    const placeholders = statuses.map(() => '?').join(',');
 
-  const countResult = await db.prepare(`
-    SELECT COUNT(*) as total FROM bulletins_soins WHERE status IN (${placeholders})
-  `).bind(...statuses).first<{ total: number }>();
+    const countResult = await db.prepare(`
+      SELECT COUNT(*) as total FROM bulletins_soins WHERE status IN (${placeholders})
+    `).bind(...statuses).first<{ total: number }>();
 
-  const bulletins = await db.prepare(`
-    SELECT
-      bs.*,
-      a.first_name as adherent_first_name,
-      a.last_name as adherent_last_name,
-      a.national_id_encrypted as adherent_national_id,
-      a.rib_encrypted as adherent_rib,
-      c.contract_number,
-      i.name as insurer_name
-    FROM bulletins_soins bs
-    JOIN adherents a ON bs.adherent_id = a.id
-    LEFT JOIN contracts c ON c.adherent_id = a.id AND c.status = 'active'
-    LEFT JOIN insurers i ON c.insurer_id = i.id
-    WHERE bs.status IN (${placeholders})
-    ORDER BY bs.approved_date ASC
-    LIMIT ? OFFSET ?
-  `).bind(...statuses, limit, offset).all();
+    const bulletins = await db.prepare(`
+      SELECT
+        bs.*,
+        a.first_name as adherent_first_name,
+        a.last_name as adherent_last_name,
+        a.national_id_encrypted as adherent_national_id,
+        a.rib_encrypted as adherent_rib,
+        c.contract_number,
+        i.name as insurer_name
+      FROM bulletins_soins bs
+      LEFT JOIN adherents a ON bs.adherent_id = a.id
+      LEFT JOIN contracts c ON c.adherent_id = a.id AND c.status = 'active'
+      LEFT JOIN insurers i ON c.insurer_id = i.id
+      WHERE bs.status IN (${placeholders})
+      ORDER BY bs.approved_date ASC
+      LIMIT ? OFFSET ?
+    `).bind(...statuses, limit, offset).all();
 
-  return c.json({
-    success: true,
-    data: bulletins.results,
-    meta: {
-      page,
-      limit,
-      total: countResult?.total || 0,
-      totalPages: Math.ceil((countResult?.total || 0) / limit),
-    },
-  });
+    return c.json({
+      success: true,
+      data: bulletins.results,
+      meta: {
+        page,
+        limit,
+        total: countResult?.total || 0,
+        totalPages: Math.ceil((countResult?.total || 0) / limit),
+      },
+    });
+  } catch (err) {
+    console.error('Payments list error:', err);
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: `Erreur chargement paiements: ${err instanceof Error ? err.message : String(err)}` },
+    }, 500);
+  }
 });
 
 /**

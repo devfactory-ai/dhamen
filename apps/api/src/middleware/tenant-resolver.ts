@@ -75,6 +75,8 @@ function getDbBinding(subdomain: string): keyof Bindings | null {
  */
 export const tenantResolverMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
   const host = c.req.header('Host') || '';
+  const hostLower = host.toLowerCase();
+  const isDev = hostLower.includes('localhost') || hostLower.includes('127.0.0.1');
   let subdomain = extractSubdomain(host);
 
   // Fallback: Check X-Tenant-Code header (for API access without subdomain)
@@ -119,24 +121,33 @@ export const tenantResolverMiddleware: MiddlewareHandler<AppEnv> = async (c, nex
     return next();
   }
 
+  // Build tenant config for resolved subdomain
+  const tenant: TenantConfig = {
+    tenantId: subdomain,
+    code: subdomain.toUpperCase(),
+    name: `${subdomain.toUpperCase()} Assurances`,
+    subdomain,
+    databaseBinding: getDbBinding(subdomain) || 'DB',
+    status: 'active',
+    createdAt: new Date().toISOString(),
+  };
+
+  // In development, always use c.env.DB (single shared database).
+  // Tenant-specific D1 databases (DB_STAR, DB_GAT, etc.) are only used in production
+  // where each tenant has its own fully migrated and populated database.
+  if (isDev) {
+    c.set('tenantDb', c.env.DB);
+    c.set('tenant', tenant);
+    c.set('isPlatformAdmin', false);
+    return next();
+  }
+
   // Check hardcoded tenant mapping first (faster than KV lookup)
   const dbBinding = getDbBinding(subdomain);
   if (dbBinding) {
     const db = c.env[dbBinding] as D1Database;
 
-    // Create tenant config from hardcoded mapping
-    const tenant: TenantConfig = {
-      tenantId: subdomain,
-      code: subdomain.toUpperCase(),
-      name: `${subdomain.toUpperCase()} Assurances`,
-      subdomain,
-      databaseBinding: dbBinding,
-      status: 'active',
-      createdAt: new Date().toISOString(),
-    };
-
     // If the tenant DB exists, verify it has tables; otherwise fall back to legacy DB.
-    // This handles local dev where tenant DBs may not be migrated yet.
     if (db) {
       try {
         await db.prepare('SELECT 1 FROM users LIMIT 1').first();

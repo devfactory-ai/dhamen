@@ -513,7 +513,7 @@ export function BulletinsValidationPage() {
                 className="bg-green-600 hover:bg-green-700"
                 onClick={() => {
                   setSelectedBulletin(row);
-                  setReimbursedAmount(row.total_amount.toString());
+                  setReimbursedAmount((row.reimbursed_amount ?? row.total_amount).toString());
                   setShowApproveDialog(true);
                 }}
               >
@@ -916,7 +916,7 @@ export function BulletinsValidationPage() {
                   <Button
                     className="bg-green-600 hover:bg-green-700"
                     onClick={() => {
-                      setReimbursedAmount(selectedBulletin.total_amount.toString());
+                      setReimbursedAmount((selectedBulletin.reimbursed_amount ?? selectedBulletin.total_amount).toString());
                       setShowApproveDialog(true);
                     }}
                   >
@@ -949,6 +949,15 @@ export function BulletinsValidationPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4">
+            {selectedBulletin && Number(reimbursedAmount) === 0 && (
+              <div className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 p-3 mb-4">
+                <AlertCircle className="h-5 w-5 text-orange-600 mt-0.5 shrink-0" />
+                <div className="text-sm text-orange-800">
+                  <p className="font-semibold">Plafond atteint</p>
+                  <p>Le montant rembourse est de 0 TND. Tous les actes ont depasse le plafond. Le bulletin sera approuve sans remboursement.</p>
+                </div>
+              </div>
+            )}
             <Label>Montant du remboursement (TND)</Label>
             <Input
               type="number"

@@ -94,7 +94,12 @@ export default function BulletinsPaymentPage() {
     queryKey: ['bulletins-payments', statusFilter, page],
     queryFn: async () => {
       const response = await apiClient.get(`/bulletins-soins/payments?status=${statusFilter}&page=${page}&limit=50`);
-      return response.data;
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur chargement paiements');
+      }
+      // API returns { success, data: [...], meta: {...} } — data and meta are siblings at top level
+      const raw = response as unknown as { success: boolean; data: BulletinPayment[]; meta: { page: number; limit: number; total: number; totalPages: number } };
+      return { data: raw.data ?? [], meta: raw.meta };
     },
   });
 
@@ -103,7 +108,10 @@ export default function BulletinsPaymentPage() {
     queryKey: ['bulletins-payment-stats'],
     queryFn: async () => {
       const response = await apiClient.get('/bulletins-soins/payments/stats');
-      return response.data.data as PaymentStats;
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur chargement stats');
+      }
+      return response.data as PaymentStats;
     },
   });
 
