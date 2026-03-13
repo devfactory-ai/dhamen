@@ -477,9 +477,20 @@ bulletinsAgent.post('/create', async (c) => {
   try {
     // Validate batch if provided
     if (batchId) {
-      const batch = await db.prepare(
-        'SELECT id, status, created_by FROM bulletin_batches WHERE id = ? AND created_by = ?'
-      ).bind(batchId, user.id).first();
+      // INSURER_ADMIN can use any batch from their insurer's companies
+      // INSURER_AGENT can only use their own batches
+      let batchQuery: string;
+      const batchParams: string[] = [batchId];
+
+      if (user.role === 'INSURER_ADMIN' && user.insurerId) {
+        batchQuery = 'SELECT bb.id, bb.status, bb.created_by FROM bulletin_batches bb JOIN companies co ON bb.company_id = co.id WHERE bb.id = ? AND co.insurer_id = ?';
+        batchParams.push(user.insurerId);
+      } else {
+        batchQuery = 'SELECT id, status, created_by FROM bulletin_batches WHERE id = ? AND created_by = ?';
+        batchParams.push(user.id);
+      }
+
+      const batch = await db.prepare(batchQuery).bind(...batchParams).first();
 
       if (!batch) {
         return c.json({
@@ -497,23 +508,50 @@ bulletinsAgent.post('/create', async (c) => {
     }
 
     // Find adherent by matricule, then fallback to national_id or name match
+    // Always filter by insurer to prevent cross-insurer data leaks
     let adherentId: string | null = null;
-    let adherentResult = await db.prepare(
-      'SELECT id FROM adherents WHERE matricule = ?'
-    ).bind(adherentMatricule).first();
+    let adherentResult: Record<string, unknown> | null = null;
 
-    // Fallback: search by national_id (encrypted or hash)
-    if (!adherentResult && adherentNationalId) {
+    if (user.insurerId) {
       adherentResult = await db.prepare(
-        'SELECT id FROM adherents WHERE national_id_encrypted LIKE ? OR national_id_hash = ?'
-      ).bind(`%${adherentNationalId}%`, adherentNationalId).first();
+        'SELECT a.id FROM adherents a JOIN companies co ON a.company_id = co.id WHERE a.matricule = ? AND co.insurer_id = ?'
+      ).bind(adherentMatricule, user.insurerId).first();
+
+      if (!adherentResult && adherentNationalId) {
+        adherentResult = await db.prepare(
+          'SELECT a.id FROM adherents a JOIN companies co ON a.company_id = co.id WHERE (a.national_id_encrypted LIKE ? OR a.national_id_hash = ?) AND co.insurer_id = ?'
+        ).bind(`%${adherentNationalId}%`, adherentNationalId, user.insurerId).first();
+      }
+
+      if (!adherentResult && adherentFirstName && adherentLastName) {
+        adherentResult = await db.prepare(
+          'SELECT a.id FROM adherents a JOIN companies co ON a.company_id = co.id WHERE a.first_name = ? AND a.last_name = ? AND co.insurer_id = ?'
+        ).bind(adherentFirstName, adherentLastName, user.insurerId).first();
+      }
+    } else {
+      // ADMIN without insurer — no filter
+      adherentResult = await db.prepare(
+        'SELECT id FROM adherents WHERE matricule = ?'
+      ).bind(adherentMatricule).first();
+
+      if (!adherentResult && adherentNationalId) {
+        adherentResult = await db.prepare(
+          'SELECT id FROM adherents WHERE national_id_encrypted LIKE ? OR national_id_hash = ?'
+        ).bind(`%${adherentNationalId}%`, adherentNationalId).first();
+      }
+
+      if (!adherentResult && adherentFirstName && adherentLastName) {
+        adherentResult = await db.prepare(
+          'SELECT id FROM adherents WHERE first_name = ? AND last_name = ?'
+        ).bind(adherentFirstName, adherentLastName).first();
+      }
     }
 
-    // Fallback: search by first + last name
-    if (!adherentResult && adherentFirstName && adherentLastName) {
-      adherentResult = await db.prepare(
-        'SELECT id FROM adherents WHERE first_name = ? AND last_name = ?'
-      ).bind(adherentFirstName, adherentLastName).first();
+    if (!adherentResult) {
+      return c.json({
+        success: false,
+        error: { code: 'ADHERENT_NOT_FOUND', message: 'Adhérent non trouvé. Vérifiez le matricule ou le CIN.' },
+      }, 404);
     }
 
     if (adherentResult) {
