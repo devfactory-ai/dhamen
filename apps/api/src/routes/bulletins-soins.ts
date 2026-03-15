@@ -2082,7 +2082,19 @@ bulletinsSoins.get('/history/export', async (c) => {
 
     // Build CSV with BOM for Excel compatibility
     const BOM = '\uFEFF';
-    const header = 'Numero Bulletin;Date;Matricule Adherent;Nom Adherent;Prenom Adherent;Type Soin;Montant Declare;Montant Rembourse;Statut;Date Validation';
+    const headerFields = [
+      'Numero Bulletin',
+      'Date',
+      'Matricule Adherent',
+      'Nom Adherent',
+      'Prenom Adherent',
+      'Type Soin',
+      'Montant Declare',
+      'Montant Rembourse',
+      'Statut',
+      'Date Validation',
+    ];
+    const header = headerFields.map(h => `"${h}"`).join(';');
     const lines = results.map((r) => {
       const fields = [
         r.bulletin_number || '',
