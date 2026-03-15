@@ -141,10 +141,19 @@ bulletinsAgent.get('/batches', async (c) => {
     }
 
     const results = await db.prepare(`
-      SELECT *
-      FROM bulletin_batches
-      WHERE company_id = ? AND status = ?
-      ORDER BY created_at DESC
+      SELECT bb.*,
+             COALESCE(agg.bulletins_count, 0) AS bulletins_count,
+             COALESCE(agg.total_amount, 0) AS total_amount
+      FROM bulletin_batches bb
+      LEFT JOIN (
+        SELECT batch_id,
+               COUNT(*) AS bulletins_count,
+               SUM(COALESCE(total_amount, 0)) AS total_amount
+        FROM bulletins_soins
+        GROUP BY batch_id
+      ) agg ON agg.batch_id = bb.id
+      WHERE bb.company_id = ? AND bb.status = ?
+      ORDER BY bb.created_at DESC
     `).bind(companyId, status).all();
 
     return c.json({
@@ -161,7 +170,8 @@ bulletinsAgent.get('/batches', async (c) => {
 });
 
 /**
- * GET /bulletins-soins/batches/:id/export - Export batch as CSV
+ * GET /bulletins-soins/batches/:id/export - Export batch as CSV (2 columns: matricule, montant)
+ * Format: UTF-8 BOM, comma separator, filename dhamen_lot_{id}_{date}.csv
  * NOTE: Must be defined BEFORE /:id to avoid route conflict
  */
 bulletinsAgent.get('/batches/:id/export', async (c) => {
@@ -175,13 +185,24 @@ bulletinsAgent.get('/batches/:id/export', async (c) => {
   }
 
   const batchId = c.req.param('id');
+  const force = c.req.query('force') === 'true';
   const db = c.get('tenantDb') ?? c.env.DB;
 
   try {
-    // Verify batch ownership
-    const batch = await db.prepare(`
-      SELECT * FROM bulletin_batches WHERE id = ? AND created_by = ?
-    `).bind(batchId, user.id).first();
+    // Verify batch ownership — INSURER_ADMIN can export any batch from their insurer
+    let batch: Record<string, unknown> | null = null;
+
+    if (user.role === 'INSURER_ADMIN' && user.insurerId) {
+      batch = await db.prepare(`
+        SELECT bb.* FROM bulletin_batches bb
+        JOIN companies co ON bb.company_id = co.id
+        WHERE bb.id = ? AND co.insurer_id = ?
+      `).bind(batchId, user.insurerId).first();
+    } else {
+      batch = await db.prepare(
+        'SELECT * FROM bulletin_batches WHERE id = ? AND created_by = ?'
+      ).bind(batchId, user.id).first();
+    }
 
     if (!batch) {
       return c.json({
@@ -190,72 +211,69 @@ bulletinsAgent.get('/batches/:id/export', async (c) => {
       }, 404);
     }
 
-    // Get bulletins in batch
+    // Prevent re-export unless force=true
+    if (batch.status === 'exported' && !force) {
+      return c.json({
+        success: false,
+        error: { code: 'BATCH_ALREADY_EXPORTED', message: 'Ce lot a deja ete exporte. Utilisez ?force=true pour re-exporter.' },
+      }, 409);
+    }
+
+    // Get only approved/reimbursed bulletins (2 columns only), limited to 5000
     const bulletins = await db.prepare(`
-      SELECT * FROM bulletins_soins WHERE batch_id = ? ORDER BY bulletin_date
+      SELECT bs.adherent_matricule, bs.reimbursed_amount
+      FROM bulletins_soins bs
+      WHERE bs.batch_id = ? AND bs.status IN ('approved', 'reimbursed')
+      ORDER BY bs.bulletin_date
+      LIMIT 5000
     `).bind(batchId).all();
 
-    // Generate CSV
-    const headers = [
-      'Numero Bulletin',
-      'Date Bulletin',
-      'Matricule Adherent',
-      'Nom Adherent',
-      'Prenom Adherent',
-      'CIN',
-      'Beneficiaire',
-      'Lien Parente',
-      'Nom Praticien',
-      'Specialite',
-      'Type Soin',
-      'Description',
-      'Montant TND',
-    ];
-
-    const rows = (bulletins.results || []).map((b: Record<string, unknown>) => [
-      b.bulletin_number,
-      b.bulletin_date,
-      b.adherent_matricule,
-      b.adherent_last_name,
-      b.adherent_first_name,
-      b.adherent_national_id,
-      b.beneficiary_name || '',
-      b.beneficiary_relationship || '',
-      b.provider_name,
-      b.provider_specialty || '',
-      b.care_type,
-      b.care_description || '',
-      (b.total_amount as number).toFixed(3),
-    ]);
-
-    // Add BOM for Excel UTF-8 support
+    // Build CSV — 2 columns: matricule_adherent, montant_remboursement (comma separator per architecture.md)
     const BOM = '\uFEFF';
-    const csvContent = BOM + [
-      headers.join(';'),
-      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(';')),
-    ].join('\n');
+    const header = 'matricule_adherent,montant_remboursement';
+    const rows = (bulletins.results || []).map((b: Record<string, unknown>) => {
+      const matricule = b.adherent_matricule ? String(b.adherent_matricule) : 'INCONNU';
+      const montant = b.reimbursed_amount != null ? Number(b.reimbursed_amount) : 0;
+      return `${matricule},${montant}`;
+    });
+
+    const csvContent = BOM + header + '\n' + rows.join('\n');
+    const today = new Date().toISOString().slice(0, 10);
+    const filename = `dhamen_lot_${batchId}_${today}.csv`;
 
     // Mark batch as exported
     await db.prepare(`
       UPDATE bulletin_batches SET status = 'exported', exported_at = datetime('now') WHERE id = ?
     `).bind(batchId).run();
 
-    // Mark bulletins as exported
+    // Mark validated bulletins as exported
     await db.prepare(`
-      UPDATE bulletins_soins SET status = 'exported' WHERE batch_id = ?
+      UPDATE bulletins_soins SET status = 'exported' WHERE batch_id = ? AND status IN ('approved', 'reimbursed')
     `).bind(batchId).run();
+
+    // Audit trail
+    await db.prepare(`
+      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+      VALUES (?, ?, 'batch_csv_export', 'bulletin_batches', ?, ?, ?, datetime('now'))
+    `).bind(
+      generateId(),
+      user.id,
+      batchId,
+      JSON.stringify({ bulletins_count: (bulletins.results || []).length, force }),
+      c.req.header('CF-Connecting-IP') || 'unknown'
+    ).run();
 
     return new Response(csvContent, {
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${batch.name}_export.csv"`,
+        'Content-Disposition': `attachment; filename="${filename}"`,
       },
     });
   } catch (error) {
     console.error('Error exporting batch:', error);
     return c.json({
       success: false,
-      error: { code: 'DATABASE_ERROR', message: 'Erreur lors de l\'export' },
+      error: { code: 'DATABASE_ERROR', message: `Erreur lors de l'export: ${error instanceof Error ? error.message : String(error)}` },
     }, 500);
   }
 });
@@ -507,42 +525,44 @@ bulletinsAgent.post('/create', async (c) => {
       }
     }
 
-    // Find adherent by matricule, then fallback to national_id or name match
+    // Find adherent by matricule and verify identity coherence
     // Always filter by insurer to prevent cross-insurer data leaks
     let adherentId: string | null = null;
     let adherentResult: Record<string, unknown> | null = null;
 
+    const adherentSelectCols = 'a.id, a.first_name, a.last_name, a.national_id_hash';
+
     if (user.insurerId) {
       adherentResult = await db.prepare(
-        'SELECT a.id FROM adherents a JOIN companies co ON a.company_id = co.id WHERE a.matricule = ? AND co.insurer_id = ?'
+        `SELECT ${adherentSelectCols} FROM adherents a JOIN companies co ON a.company_id = co.id WHERE a.matricule = ? AND co.insurer_id = ?`
       ).bind(adherentMatricule, user.insurerId).first();
 
       if (!adherentResult && adherentNationalId) {
         adherentResult = await db.prepare(
-          'SELECT a.id FROM adherents a JOIN companies co ON a.company_id = co.id WHERE (a.national_id_encrypted LIKE ? OR a.national_id_hash = ?) AND co.insurer_id = ?'
+          `SELECT ${adherentSelectCols} FROM adherents a JOIN companies co ON a.company_id = co.id WHERE (a.national_id_encrypted LIKE ? OR a.national_id_hash = ?) AND co.insurer_id = ?`
         ).bind(`%${adherentNationalId}%`, adherentNationalId, user.insurerId).first();
       }
 
       if (!adherentResult && adherentFirstName && adherentLastName) {
         adherentResult = await db.prepare(
-          'SELECT a.id FROM adherents a JOIN companies co ON a.company_id = co.id WHERE a.first_name = ? AND a.last_name = ? AND co.insurer_id = ?'
+          `SELECT ${adherentSelectCols} FROM adherents a JOIN companies co ON a.company_id = co.id WHERE a.first_name = ? AND a.last_name = ? AND co.insurer_id = ?`
         ).bind(adherentFirstName, adherentLastName, user.insurerId).first();
       }
     } else {
       // ADMIN without insurer — no filter
       adherentResult = await db.prepare(
-        'SELECT id FROM adherents WHERE matricule = ?'
+        `SELECT ${adherentSelectCols} FROM adherents a WHERE a.matricule = ?`
       ).bind(adherentMatricule).first();
 
       if (!adherentResult && adherentNationalId) {
         adherentResult = await db.prepare(
-          'SELECT id FROM adherents WHERE national_id_encrypted LIKE ? OR national_id_hash = ?'
+          `SELECT ${adherentSelectCols} FROM adherents a WHERE a.national_id_encrypted LIKE ? OR a.national_id_hash = ?`
         ).bind(`%${adherentNationalId}%`, adherentNationalId).first();
       }
 
       if (!adherentResult && adherentFirstName && adherentLastName) {
         adherentResult = await db.prepare(
-          'SELECT id FROM adherents WHERE first_name = ? AND last_name = ?'
+          `SELECT ${adherentSelectCols} FROM adherents a WHERE a.first_name = ? AND a.last_name = ?`
         ).bind(adherentFirstName, adherentLastName).first();
       }
     }
@@ -552,6 +572,24 @@ bulletinsAgent.post('/create', async (c) => {
         success: false,
         error: { code: 'ADHERENT_NOT_FOUND', message: 'Adhérent non trouvé. Vérifiez le matricule ou le CIN.' },
       }, 404);
+    }
+
+    // Verify identity coherence: matricule must match the name or CIN provided
+    const dbFirstName = adherentResult.first_name as string | null;
+    const dbLastName = adherentResult.last_name as string | null;
+    const nameMatches = dbFirstName?.toLowerCase() === adherentFirstName.toLowerCase()
+      && dbLastName?.toLowerCase() === adherentLastName.toLowerCase();
+    const cinMatches = !adherentNationalId || !adherentResult.national_id_hash
+      || adherentResult.national_id_hash === adherentNationalId;
+
+    if (!nameMatches && !cinMatches) {
+      return c.json({
+        success: false,
+        error: {
+          code: 'ADHERENT_IDENTITY_MISMATCH',
+          message: 'Le matricule ne correspond pas au nom/prénom ou CIN saisi. Vérifiez les informations de l\'adhérent.',
+        },
+      }, 400);
     }
 
     if (adherentResult) {
