@@ -5,6 +5,7 @@ import { LoginPage } from '@/features/auth/pages/LoginPage';
 import { DashboardPage } from '@/features/dashboard/pages/DashboardPage';
 import { Layout } from '@/components/layout/Layout';
 import { Toaster } from '@/components/ui/toaster';
+import { Toaster as SonnerToaster } from 'sonner';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AgentContextGuard } from '@/components/guards/AgentContextGuard';
 import { SkipLinks } from '@/components/ui/skip-links';
@@ -292,6 +293,7 @@ function App() {
         />
         </Routes>
         <Toaster />
+        <SonnerToaster position="top-right" richColors />
         <PWAPrompts />
       </AnnouncerProvider>
     </ErrorBoundary>

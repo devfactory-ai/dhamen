@@ -339,10 +339,11 @@ export function BulletinsSaisiePage() {
 
   // Export batch mutation
   const exportBatchMutation = useMutation({
-    mutationFn: async (batchId: string) => {
+    mutationFn: async ({ batchId, force = false }: { batchId: string; force?: boolean }) => {
       const token = localStorage.getItem('accessToken');
+      const qs = force ? '?force=true' : '';
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || '/api/v1'}/bulletins-soins/batches/${batchId}/export`,
+        `${import.meta.env.VITE_API_URL || '/api/v1'}/bulletins-soins/agent/batches/${batchId}/export${qs}`,
         {
           method: 'GET',
           credentials: 'include',
@@ -357,23 +358,33 @@ export function BulletinsSaisiePage() {
         throw new Error(error.error?.message || 'Erreur lors de l\'export');
       }
 
-      // Get the CSV content
+      // Extract filename from Content-Disposition
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = `dhamen_lot_${batchId}_${new Date().toISOString().slice(0, 10)}.csv`;
+      if (disposition) {
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        if (match?.[1]) {
+          filename = match[1];
+        }
+      }
+
       const csvContent = await response.text();
-      return { csvContent, batchName: exportBatch?.name || 'lot' };
+      return { csvContent, filename };
     },
-    onSuccess: ({ csvContent, batchName }) => {
-      // Create and download the CSV file
+    onSuccess: ({ csvContent, filename }) => {
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      link.setAttribute('download', `${batchName}_${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute('download', filename);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      URL.revokeObjectURL(url);
 
       queryClient.invalidateQueries({ queryKey: ['agent-batches'] });
+      queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
       toast.success('Export CSV telecharge!');
       setShowExportDialog(false);
       setExportBatch(null);
@@ -647,10 +658,11 @@ export function BulletinsSaisiePage() {
             size="sm"
             variant="outline"
             onClick={() => handleExportBatch(row)}
+            disabled={!row.bulletins_count}
             className="gap-1"
           >
             <FileSpreadsheet className="h-4 w-4" />
-            Export CSV
+            {row.status === 'exported' ? 'Re-exporter' : 'Export CSV'}
           </Button>
         </div>
       ),
@@ -758,6 +770,30 @@ export function BulletinsSaisiePage() {
 
         {/* Tab: Saisie */}
         <TabsContent value="saisie">
+          {!selectedBatch ? (
+            <Card className="border-amber-200 bg-amber-50">
+              <CardContent className="pt-6">
+                <div className="flex flex-col items-center gap-4 py-8 text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-100">
+                    <AlertTriangle className="h-7 w-7 text-amber-600" />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold text-amber-900">Aucun lot selectionne</h3>
+                    <p className="text-sm text-amber-700 max-w-md">
+                      Vous devez selectionner une entreprise et un lot avant de pouvoir saisir un bulletin.
+                      Rendez-vous sur la page de selection de contexte pour choisir ou creer un lot.
+                    </p>
+                  </div>
+                  <Button asChild className="mt-2">
+                    <a href="/select-context">
+                      <FolderPlus className="mr-2 h-4 w-4" />
+                      Selectionner un lot
+                    </a>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
           <div className="grid gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <Card>
@@ -1120,6 +1156,7 @@ export function BulletinsSaisiePage() {
               </Card>
             </div>
           </div>
+          )}
         </TabsContent>
 
         {/* Tab: Liste */}
@@ -1221,9 +1258,15 @@ export function BulletinsSaisiePage() {
       <AlertDialog open={showExportDialog} onOpenChange={setShowExportDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Exporter le lot en CSV</AlertDialogTitle>
+            <AlertDialogTitle>
+              {exportBatch?.status === 'exported' ? 'Re-exporter le lot en CSV' : 'Exporter le lot en CSV'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Voulez-vous exporter le lot "{exportBatch?.name}" ?
+              {exportBatch?.status === 'exported' ? (
+                <>Ce lot a deja ete exporte. Voulez-vous re-exporter "{exportBatch?.name}" ?</>
+              ) : (
+                <>Voulez-vous exporter le lot "{exportBatch?.name}" ?</>
+              )}
               <br />
               <span className="font-medium">{exportBatch?.bulletins_count} bulletins</span> pour un total de <span className="font-medium">{formatAmount(exportBatch?.total_amount || 0)}</span>
             </AlertDialogDescription>
@@ -1231,7 +1274,10 @@ export function BulletinsSaisiePage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => exportBatch && exportBatchMutation.mutate(exportBatch.id)}
+              onClick={() => exportBatch && exportBatchMutation.mutate({
+                batchId: exportBatch.id,
+                force: exportBatch.status === 'exported',
+              })}
               disabled={exportBatchMutation.isPending}
             >
               {exportBatchMutation.isPending ? (
@@ -1242,7 +1288,7 @@ export function BulletinsSaisiePage() {
               ) : (
                 <>
                   <Download className="mr-2 h-4 w-4" />
-                  Telecharger CSV
+                  {exportBatch?.status === 'exported' ? 'Re-exporter CSV' : 'Telecharger CSV'}
                 </>
               )}
             </AlertDialogAction>
