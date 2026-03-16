@@ -6,47 +6,47 @@
 -- ============================================
 
 -- Approved pharmacy claims
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, validated_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, validated_at, updated_at) VALUES
 ('01DEMO_CLM_PH001', 'pharmacy', '01JCVMKB1AP2N3X4Y5Z6A7B8C9', '01JCVMK9A1P2N3X4Y5Z6A7B8C9', '01JCVMKA1AP2N3X4Y5Z6A7B8C9', '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 45000, 36000, 9000, 5, 'approved', '2026-03-01 09:15:00', '2026-03-01 09:15:30', '2026-03-01 09:15:30'),
 ('01DEMO_CLM_PH002', 'pharmacy', '01JCVMKB1BP2N3X4Y5Z6A7B8D0', '01JCVMK9A1P2N3X4Y5Z6A7B8C9', '01JCVMKA1BP2N3X4Y5Z6A7B8D0', '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 32500, 27625, 4875, 3, 'approved', '2026-03-01 10:30:00', '2026-03-01 10:30:25', '2026-03-01 10:30:25'),
 ('01DEMO_CLM_PH003', 'pharmacy', '01JCVMKB1CP2N3X4Y5Z6A7B8E1', '01JCVMK9A2P2N3X4Y5Z6A7B8D0', '01JCVMKA1CP2N3X4Y5Z6A7B8E1', '01JCVMK8R7P2N3X4Y5Z6A7B8D0', 78000, 58500, 19500, 8, 'approved', '2026-03-01 11:00:00', '2026-03-01 11:00:20', '2026-03-01 11:00:20'),
 ('01DEMO_CLM_PH004', 'pharmacy', '01JCVMKB1DP2N3X4Y5Z6A7B8F2', '01JCVMK9A3P2N3X4Y5Z6A7B8E1', '01JCVMKA1DP2N3X4Y5Z6A7B8F2', '01JCVMK8R7P2N3X4Y5Z6A7B8D0', 125000, 100000, 25000, 12, 'paid', '2026-02-25 14:20:00', '2026-02-25 14:20:30', '2026-02-28 10:00:00');
 
 -- Pending pharmacy claims
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, updated_at) VALUES
 ('01DEMO_CLM_PH005', 'pharmacy', '01JCVMKB1EP2N3X4Y5Z6A7B8G3', '01JCVMK9A1P2N3X4Y5Z6A7B8C9', '01JCVMKA1EP2N3X4Y5Z6A7B8G3', '01JCVMK8R7P2N3X4Y5Z6A7B8E1', 55000, 44000, 11000, 15, 'pending', '2026-03-03 08:00:00', '2026-03-03 08:00:00'),
 ('01DEMO_CLM_PH006', 'pharmacy', '01JCVMKB1FP2N3X4Y5Z6A7B8H4', '01JCVMK9A2P2N3X4Y5Z6A7B8D0', '01JCVMKA1FP2N3X4Y5Z6A7B8H4', '01JCVMK8R7P2N3X4Y5Z6A7B8E1', 28000, 23800, 4200, 4, 'pending', '2026-03-03 08:30:00', '2026-03-03 08:30:00'),
 ('01DEMO_CLM_PH007', 'pharmacy', '01JCVMKB1GP2N3X4Y5Z6A7B8I5', '01JCVMK9A4P2N3X4Y5Z6A7B8F2', '01JCVMKA1GP2N3X4Y5Z6A7B8I5', '01JCVMK8R7P2N3X4Y5Z6A7B8F2', 92000, 64400, 27600, 22, 'pending', '2026-03-03 09:00:00', '2026-03-03 09:00:00');
 
 -- Rejected pharmacy claims
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, fraud_flags_json, status, notes, created_at, validated_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, fraud_flags_json, status, notes, created_at, validated_at, updated_at) VALUES
 ('01DEMO_CLM_PH008', 'pharmacy', '01JCVMKB1HP2N3X4Y5Z6A7B8J6', '01JCVMK9A1P2N3X4Y5Z6A7B8C9', '01JCVMKA1HP2N3X4Y5Z6A7B8J6', '01JCVMK8R7P2N3X4Y5Z6A7B8F2', 350000, 0, 350000, 72, '["montant_eleve","frequence_anormale"]', 'rejected', 'Montant anormalement élevé - fraude suspectée', '2026-02-28 16:00:00', '2026-03-01 09:00:00', '2026-03-01 09:00:00'),
 ('01DEMO_CLM_PH009', 'pharmacy', '01JCVMKB1IP2N3X4Y5Z6A7B8K7', '01JCVMK9A3P2N3X4Y5Z6A7B8E1', '01JCVMKA1IP2N3X4Y5Z6A7B8K7', '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 15000, 0, 15000, 45, '["medication_incompatible"]', 'rejected', 'Médicament incompatible avec traitement en cours', '2026-02-27 11:30:00', '2026-02-27 14:00:00', '2026-02-27 14:00:00');
 
 -- High fraud score pending review
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, fraud_flags_json, status, created_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, fraud_flags_json, status, created_at, updated_at) VALUES
 ('01DEMO_CLM_PH010', 'pharmacy', '01JCVMKB1JP2N3X4Y5Z6A7B8L8', '01JCVMK9A1P2N3X4Y5Z6A7B8C9', '01JCVMKA1JP2N3X4Y5Z6A7B8L8', '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 280000, 238000, 42000, 65, '["montant_eleve","frequence_anormale","hors_zone_geographique"]', 'pending_review', '2026-03-02 15:00:00', '2026-03-02 15:00:00');
 
 -- ============================================
 -- CONSULTATION CLAIMS (10)
 -- ============================================
 
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, validated_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, validated_at, updated_at) VALUES
 ('01DEMO_CLM_CO001', 'consultation', '01JCVMKB1AP2N3X4Y5Z6A7B8C9', '01JCVMK9B1P2N3X4Y5Z6A7B8C9', '01JCVMKA1AP2N3X4Y5Z6A7B8C9', '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 35000, 24500, 10500, 2, 'approved', '2026-03-01 08:00:00', '2026-03-01 08:00:15', '2026-03-01 08:00:15'),
 ('01DEMO_CLM_CO002', 'consultation', '01JCVMKB1BP2N3X4Y5Z6A7B8D0', '01JCVMK9B2P2N3X4Y5Z6A7B8D0', '01JCVMKA1BP2N3X4Y5Z6A7B8D0', '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 60000, 48000, 12000, 6, 'approved', '2026-02-28 10:00:00', '2026-02-28 10:00:20', '2026-02-28 10:00:20'),
 ('01DEMO_CLM_CO003', 'consultation', '01JCVMKB1CP2N3X4Y5Z6A7B8E1', '01JCVMK9B3P2N3X4Y5Z6A7B8E1', '01JCVMKA1CP2N3X4Y5Z6A7B8E1', '01JCVMK8R7P2N3X4Y5Z6A7B8D0', 25000, 17500, 7500, 1, 'approved', '2026-02-27 14:30:00', '2026-02-27 14:30:10', '2026-02-27 14:30:10'),
 ('01DEMO_CLM_CO004', 'consultation', '01JCVMKB1DP2N3X4Y5Z6A7B8F2', '01JCVMK9B4P2N3X4Y5Z6A7B8F2', '01JCVMKA1DP2N3X4Y5Z6A7B8F2', '01JCVMK8R7P2N3X4Y5Z6A7B8D0', 45000, 33750, 11250, 3, 'paid', '2026-02-20 09:00:00', '2026-02-20 09:00:30', '2026-02-25 10:00:00');
 
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, updated_at) VALUES
 ('01DEMO_CLM_CO005', 'consultation', '01JCVMKB1EP2N3X4Y5Z6A7B8G3', '01JCVMK9B1P2N3X4Y5Z6A7B8C9', '01JCVMKA1EP2N3X4Y5Z6A7B8G3', '01JCVMK8R7P2N3X4Y5Z6A7B8E1', 40000, 30000, 10000, 8, 'pending', '2026-03-03 07:45:00', '2026-03-03 07:45:00'),
 ('01DEMO_CLM_CO006', 'consultation', '01JCVMKB1FP2N3X4Y5Z6A7B8H4', '01JCVMK9B2P2N3X4Y5Z6A7B8D0', '01JCVMKA1FP2N3X4Y5Z6A7B8H4', '01JCVMK8R7P2N3X4Y5Z6A7B8E1', 75000, 60000, 15000, 10, 'pending', '2026-03-02 16:00:00', '2026-03-02 16:00:00'),
 ('01DEMO_CLM_CO007', 'consultation', '01JCVMKB1GP2N3X4Y5Z6A7B8I5', '01JCVMK9B3P2N3X4Y5Z6A7B8E1', '01JCVMKA1GP2N3X4Y5Z6A7B8I5', '01JCVMK8R7P2N3X4Y5Z6A7B8F2', 30000, 19500, 10500, 5, 'pending', '2026-03-03 09:30:00', '2026-03-03 09:30:00');
 
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, notes, created_at, validated_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, notes, created_at, validated_at, updated_at) VALUES
 ('01DEMO_CLM_CO008', 'consultation', '01JCVMKB1HP2N3X4Y5Z6A7B8J6', '01JCVMK9B1P2N3X4Y5Z6A7B8C9', '01JCVMKA1HP2N3X4Y5Z6A7B8J6', '01JCVMK8R7P2N3X4Y5Z6A7B8F2', 35000, 0, 35000, 38, 'rejected', 'Spécialité non couverte par le contrat', '2026-02-26 11:00:00', '2026-02-26 15:00:00', '2026-02-26 15:00:00');
 
 -- Eligible (pre-approved by AI)
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, updated_at) VALUES
 ('01DEMO_CLM_CO009', 'consultation', '01JCVMKB1IP2N3X4Y5Z6A7B8K7', '01JCVMK9B4P2N3X4Y5Z6A7B8F2', '01JCVMKA1IP2N3X4Y5Z6A7B8K7', '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 50000, 37500, 12500, 4, 'eligible', '2026-03-03 10:00:00', '2026-03-03 10:00:00'),
 ('01DEMO_CLM_CO010', 'consultation', '01JCVMKB1JP2N3X4Y5Z6A7B8L8', '01JCVMK9B2P2N3X4Y5Z6A7B8D0', '01JCVMKA1JP2N3X4Y5Z6A7B8L8', '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 85000, 72250, 12750, 7, 'eligible', '2026-03-02 14:00:00', '2026-03-02 14:00:00');
 
@@ -54,15 +54,15 @@ INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id,
 -- HOSPITALIZATION CLAIMS (5)
 -- ============================================
 
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, validated_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, validated_at, updated_at) VALUES
 ('01DEMO_CLM_HO001', 'hospitalization', '01JCVMKB1BP2N3X4Y5Z6A7B8D0', '01JCVMK9D1P2N3X4Y5Z6A7B8C9', '01JCVMKA1BP2N3X4Y5Z6A7B8D0', '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 2500000, 2375000, 125000, 3, 'approved', '2026-02-15 08:00:00', '2026-02-15 14:00:00', '2026-02-15 14:00:00'),
 ('01DEMO_CLM_HO002', 'hospitalization', '01JCVMKB1NP2N3X4Y5Z6A7B8P2', '01JCVMK9D2P2N3X4Y5Z6A7B8D0', '01JCVMKA1NP2N3X4Y5Z6A7B8P2', '01JCVMK8R7P2N3X4Y5Z6A7B8E1', 1800000, 1710000, 90000, 5, 'paid', '2026-02-10 10:00:00', '2026-02-10 16:00:00', '2026-02-20 10:00:00');
 
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, updated_at) VALUES
 ('01DEMO_CLM_HO003', 'hospitalization', '01JCVMKB1FP2N3X4Y5Z6A7B8H4', '01JCVMK9D1P2N3X4Y5Z6A7B8C9', '01JCVMKA1FP2N3X4Y5Z6A7B8H4', '01JCVMK8R7P2N3X4Y5Z6A7B8E1', 3200000, 3040000, 160000, 18, 'pending', '2026-03-02 07:00:00', '2026-03-02 07:00:00'),
 ('01DEMO_CLM_HO004', 'hospitalization', '01JCVMKB1DP2N3X4Y5Z6A7B8F2', '01JCVMK9D2P2N3X4Y5Z6A7B8D0', '01JCVMKA1DP2N3X4Y5Z6A7B8F2', '01JCVMK8R7P2N3X4Y5Z6A7B8D0', 1500000, 1350000, 150000, 9, 'pending', '2026-03-01 12:00:00', '2026-03-01 12:00:00');
 
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, fraud_flags_json, status, created_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, fraud_flags_json, status, created_at, updated_at) VALUES
 ('01DEMO_CLM_HO005', 'hospitalization', '01JCVMKB1LP2N3X4Y5Z6A7B8N0', '01JCVMK9D1P2N3X4Y5Z6A7B8C9', '01JCVMKA1LP2N3X4Y5Z6A7B8N0', '01JCVMK8R7P2N3X4Y5Z6A7B8D0', 5500000, 4950000, 550000, 55, '["montant_eleve","sejour_prolonge"]', 'pending_review', '2026-02-28 08:00:00', '2026-02-28 08:00:00');
 
 -- ============================================
@@ -70,11 +70,11 @@ INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id,
 -- We'll use consultation type with lab providers
 -- ============================================
 
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, validated_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, validated_at, updated_at) VALUES
 ('01DEMO_CLM_LB001', 'consultation', '01JCVMKB1AP2N3X4Y5Z6A7B8C9', '01JCVMK9C1P2N3X4Y5Z6A7B8C9', '01JCVMKA1AP2N3X4Y5Z6A7B8C9', '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 65000, 48750, 16250, 2, 'approved', '2026-02-28 08:30:00', '2026-02-28 08:30:15', '2026-02-28 08:30:15'),
 ('01DEMO_CLM_LB002', 'consultation', '01JCVMKB1CP2N3X4Y5Z6A7B8E1', '01JCVMK9C2P2N3X4Y5Z6A7B8D0', '01JCVMKA1CP2N3X4Y5Z6A7B8E1', '01JCVMK8R7P2N3X4Y5Z6A7B8D0', 120000, 84000, 36000, 4, 'approved', '2026-02-27 09:00:00', '2026-02-27 09:00:20', '2026-02-27 09:00:20');
 
-INSERT INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, updated_at) VALUES
+INSERT OR IGNORE INTO claims (id, type, contract_id, provider_id, adherent_id, insurer_id, total_amount, covered_amount, copay_amount, fraud_score, status, created_at, updated_at) VALUES
 ('01DEMO_CLM_LB003', 'consultation', '01JCVMKB1EP2N3X4Y5Z6A7B8G3', '01JCVMK9C1P2N3X4Y5Z6A7B8C9', '01JCVMKA1EP2N3X4Y5Z6A7B8G3', '01JCVMK8R7P2N3X4Y5Z6A7B8E1', 95000, 76000, 19000, 6, 'pending', '2026-03-03 07:30:00', '2026-03-03 07:30:00'),
 ('01DEMO_CLM_LB004', 'consultation', '01JCVMKB1GP2N3X4Y5Z6A7B8I5', '01JCVMK9C2P2N3X4Y5Z6A7B8D0', '01JCVMKA1GP2N3X4Y5Z6A7B8I5', '01JCVMK8R7P2N3X4Y5Z6A7B8F2', 42000, 27300, 14700, 3, 'pending', '2026-03-02 11:00:00', '2026-03-02 11:00:00'),
 ('01DEMO_CLM_LB005', 'consultation', '01JCVMKB1IP2N3X4Y5Z6A7B8K7', '01JCVMK9C1P2N3X4Y5Z6A7B8C9', '01JCVMKA1IP2N3X4Y5Z6A7B8K7', '01JCVMK8R7P2N3X4Y5Z6A7B8C9', 180000, 135000, 45000, 11, 'eligible', '2026-03-02 09:00:00', '2026-03-02 09:00:00');

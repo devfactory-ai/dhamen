@@ -49,7 +49,7 @@ export function useCreateBatch() {
 }
 
 /**
- * Export a batch as CSV (2 columns: matricule_adherent, montant_remboursement)
+ * Export a batch as CTRL recap CSV (9 columns)
  * Downloads the file via Blob + temporary link
  */
 export function useExportBatchCSV() {
@@ -80,7 +80,7 @@ export function useExportBatchCSV() {
 
       // Extract filename from Content-Disposition header
       const disposition = response.headers.get('Content-Disposition');
-      let filename = `dhamen_lot_${batchId}_${new Date().toISOString().slice(0, 10)}.csv`;
+      let filename = `dhamen_ctrl_${batchId}_${new Date().toISOString().slice(0, 10)}.csv`;
       if (disposition) {
         const match = disposition.match(/filename="?([^"]+)"?/);
         if (match?.[1]) {
@@ -101,6 +101,54 @@ export function useExportBatchCSV() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['batches'] });
+    },
+  });
+}
+
+/**
+ * Export a batch as detailed bordereau CSV (12 columns, one row per acte)
+ * Downloads the file via Blob + temporary link
+ */
+export function useExportBatchDetailCSV() {
+  return useMutation({
+    mutationFn: async ({ batchId, token }: { batchId: string; token: string | null }) => {
+      const baseUrl = import.meta.env.VITE_API_URL || '/api/v1';
+      const response = await fetch(`${baseUrl}/bulletins-soins/agent/batches/${batchId}/export-detail`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error('Lot non trouve');
+        }
+        if (response.status === 403) {
+          throw new Error('Acces non autorise');
+        }
+        throw new Error('Erreur export detaille');
+      }
+
+      // Extract filename from Content-Disposition header
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = `dhamen_detail_${batchId}_${new Date().toISOString().slice(0, 10)}.csv`;
+      if (disposition) {
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        if (match?.[1]) {
+          filename = match[1];
+        }
+      }
+
+      // Download via Blob
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
     },
   });
 }

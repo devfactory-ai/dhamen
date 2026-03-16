@@ -1,15 +1,15 @@
 -- Migration: Add user_id column to adherents table
 -- Description: Links adherent records to user accounts for mobile app authentication
 -- Required by bulletins-soins and other adherent-facing API routes
-
--- Add user_id column
-ALTER TABLE adherents ADD COLUMN user_id TEXT REFERENCES users(id);
+-- NOTE: Column already exists in DB (applied outside migration tracking). Using safe no-op.
+-- Original: ALTER TABLE adherents ADD COLUMN user_id TEXT REFERENCES users(id);
+SELECT 1;
 
 -- Create index for fast lookup
 CREATE INDEX IF NOT EXISTS idx_adherents_user_id ON adherents(user_id);
 
 -- Link existing demo adherent users (from migration 0040) to their adherent records
--- Matched by first_name + last_name + email
+-- Matched by first_name + last_name + email (UPDATEs are idempotent)
 UPDATE adherents SET user_id = '01JCVMKC2AP2N3X4Y5Z6A7B8C9' WHERE id = '01JCVMKA1AP2N3X4Y5Z6A7B8C9';
 UPDATE adherents SET user_id = '01JCVMKC2BP2N3X4Y5Z6A7B8D0' WHERE id = '01JCVMKA1BP2N3X4Y5Z6A7B8D0';
 UPDATE adherents SET user_id = '01JCVMKC2CP2N3X4Y5Z6A7B8E1' WHERE id = '01JCVMKA1CP2N3X4Y5Z6A7B8E1';
