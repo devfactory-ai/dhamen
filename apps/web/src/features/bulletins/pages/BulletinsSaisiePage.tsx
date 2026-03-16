@@ -167,6 +167,7 @@ const bulletinFormSchema = z.object({
   adherent_last_name: z.string().min(2, 'Nom requis'),
   adherent_national_id: z.string().min(8, 'CIN requis'),
   adherent_email: z.string().email('Email invalide').optional().or(z.literal('')),
+  adherent_address: z.string().optional(),
   beneficiary_name: z.string().optional(),
   beneficiary_relationship: z.string().optional(),
   care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']),
@@ -497,27 +498,20 @@ export function BulletinsSaisiePage() {
         formData.append('files', file);
       }
 
-      const res = await fetch('https://grady-semistiff-willia.ngrok-free.dev/analyse-bulletin', {
-        method: 'POST',
-        headers: { 'accept': 'application/json' },
-        body: formData,
-      });
+      // Call backend proxy (REQ-010 / TASK-002)
+      const res = await apiClient.upload<Record<string, unknown>>(
+        '/bulletins-soins/agent/analyse-bulletin',
+        formData,
+        { timeout: 120000 }
+      );
 
-      if (!res.ok) throw new Error(`Erreur OCR: ${res.status}`);
+      if (!res.success) throw new Error(res.error?.message || 'Erreur OCR');
 
-      const result = await res.json();
-      let parsed = result;
-
-      // Handle raw_response wrapping (markdown json block)
-      if (typeof result.raw_response === 'string') {
-        const jsonMatch = result.raw_response.match(/```json\s*([\s\S]*?)\s*```/);
-        if (jsonMatch?.[1]) {
-          parsed = JSON.parse(jsonMatch[1]);
-        }
-      }
-
-      const info = parsed.infos_adherent;
-      const actes = parsed.volet_medical;
+      // Response is already cleaned by backend (markdown stripped, actes enriched)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const parsed = res.data as any;
+      const info = parsed?.infos_adherent;
+      const actes = parsed?.volet_medical;
 
       // Auto-fill adherent fields
       if (info) {
@@ -533,19 +527,30 @@ export function BulletinsSaisiePage() {
           setAdherentSearch(info.numero_contrat.replace(/\s+/g, ''));
         }
         if (info.date_signature) {
-          // Convert DD/MM/YYYY to YYYY-MM-DD
           const dateParts = info.date_signature.split('/');
           if (dateParts.length === 3) {
             setValue('bulletin_date', `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`);
           }
         }
+        if (info.adresse) {
+          setValue('adherent_address', info.adresse);
+        }
+        // Map beneficiaire_coche -> lien de parente (TASK-006)
+        if (info.beneficiaire_coche) {
+          const benef = info.beneficiaire_coche.toLowerCase().trim();
+          if (benef.includes('conjoint')) {
+            setValue('beneficiary_relationship', 'spouse');
+          } else if (benef.includes('enfant')) {
+            setValue('beneficiary_relationship', 'child');
+          } else if (benef.includes('parent') || benef.includes('ascendant')) {
+            setValue('beneficiary_relationship', 'parent');
+          }
+        }
       }
 
-      // Auto-fill actes
+      // Auto-fill actes with enriched codes from backend (TASK-003)
       if (Array.isArray(actes) && actes.length > 0) {
-        // Clear existing actes and replace
         const currentActes = watch('actes');
-        // Remove all except first, then update
         while (currentActes.length > 1) {
           removeActe(currentActes.length - 1);
         }
@@ -555,16 +560,19 @@ export function BulletinsSaisiePage() {
             .replace(/[^\d.,]/g, '')
             .replace(',', '.');
           const montant = parseFloat(montantStr) || 0;
+          const code = acte.matched_code || '';
+          const label = acte.matched_label || acte.nature_acte || '';
 
           if (i === 0) {
-            setValue('actes.0.label', acte.nature_acte || '');
+            setValue('actes.0.code', code);
+            setValue('actes.0.label', label);
             setValue('actes.0.amount', montant);
             setValue('actes.0.nom_prof_sant', acte.nom_praticien || '');
             setValue('actes.0.ref_prof_sant', acte.matricule_fiscale || '');
           } else {
             appendActe({
-              code: '',
-              label: acte.nature_acte || '',
+              code,
+              label,
               amount: montant,
               nom_prof_sant: acte.nom_praticien || '',
               ref_prof_sant: acte.matricule_fiscale || '',
@@ -1143,6 +1151,10 @@ export function BulletinsSaisiePage() {
                           )}
                         </div>
                       </div>
+                      <div className="space-y-2">
+                        <Label>Adresse</Label>
+                        <Input {...register('adherent_address')} placeholder="Adresse de l'adherent" />
+                      </div>
                       <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-2">
                           <Label>Email adherent</Label>
@@ -1157,11 +1169,15 @@ export function BulletinsSaisiePage() {
                         </div>
                         <div className="space-y-2">
                           <Label>Lien de parente</Label>
-                          <Select onValueChange={(v) => setValue('beneficiary_relationship', v)}>
+                          <Select
+                            value={watch('beneficiary_relationship') || ''}
+                            onValueChange={(v) => setValue('beneficiary_relationship', v)}
+                          >
                             <SelectTrigger>
                               <SelectValue placeholder="Choisir..." />
                             </SelectTrigger>
                             <SelectContent>
+                              <SelectItem value="self">Adherent lui-meme</SelectItem>
                               <SelectItem value="spouse">Conjoint(e)</SelectItem>
                               <SelectItem value="child">Enfant</SelectItem>
                               <SelectItem value="parent">Parent</SelectItem>
