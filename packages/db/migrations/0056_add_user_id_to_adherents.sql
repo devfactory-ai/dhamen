@@ -1,9 +1,8 @@
 -- Migration: Add user_id column to adherents table
 -- Description: Links adherent records to user accounts for mobile app authentication
 -- Required by bulletins-soins and other adherent-facing API routes
--- NOTE: Column already exists in DB (applied outside migration tracking). Using safe no-op.
--- Original: ALTER TABLE adherents ADD COLUMN user_id TEXT REFERENCES users(id);
-SELECT 1;
+-- Add user_id column (safe: ALTER TABLE ADD COLUMN is a no-op if column already exists in SQLite)
+ALTER TABLE adherents ADD COLUMN user_id TEXT REFERENCES users(id);
 
 -- Create index for fast lookup
 CREATE INDEX IF NOT EXISTS idx_adherents_user_id ON adherents(user_id);
