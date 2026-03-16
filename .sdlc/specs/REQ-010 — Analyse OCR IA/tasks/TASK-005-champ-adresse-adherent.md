@@ -1,7 +1,7 @@
 ---
 id: TASK-005
 title: Ajout champ adresse adherent
-status: todo
+status: done
 priority: should
 requires: []
 ref: ADR-004

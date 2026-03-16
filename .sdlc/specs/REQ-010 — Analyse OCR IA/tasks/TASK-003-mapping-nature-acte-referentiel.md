@@ -1,7 +1,7 @@
 ---
 id: TASK-003
 title: Mapping intelligent nature_acte -> codes referentiel
-status: todo
+status: done
 priority: must
 requires: [TASK-001]
 ref: ADR-003

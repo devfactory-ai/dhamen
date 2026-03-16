@@ -1,7 +1,7 @@
 ---
 id: REQ-010
 title: Analyse OCR / IA des bulletins de soins (portail agent)
-status: draft
+status: done
 ---
 
 # REQ-010 — Analyse OCR / IA des bulletins de soins

@@ -1,7 +1,7 @@
 ---
 id: TASK-006
 title: Mapping beneficiaire_coche -> lien de parente
-status: todo
+status: done
 priority: should
 requires: []
 ref: ADR-001

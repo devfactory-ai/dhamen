@@ -1,7 +1,7 @@
 ---
 id: TASK-002
 title: Integration frontend via proxy API
-status: todo
+status: done
 priority: must
 requires: [TASK-001]
 ref: ADR-001

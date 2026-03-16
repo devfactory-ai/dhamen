@@ -1,7 +1,7 @@
 ---
 id: TASK-004
 title: Mapping complet OCR -> champs formulaire
-status: todo
+status: done
 priority: must
 requires: [TASK-002, TASK-003]
 ref: ADR-001

@@ -1,7 +1,7 @@
 ---
 id: TASK-001
 title: Proxy backend OCR (endpoint analyse-bulletin)
-status: todo
+status: done
 priority: must
 requires: []
 ref: ADR-001, ADR-002
