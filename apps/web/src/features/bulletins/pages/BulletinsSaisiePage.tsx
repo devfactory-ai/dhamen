@@ -75,6 +75,7 @@ import {
   Ban,
   Info,
   CheckCircle2,
+  ScanSearch,
 } from 'lucide-react';
 
 // Types
@@ -196,6 +197,7 @@ export function BulletinsSaisiePage() {
   const [validateBulletinTarget, setValidateBulletinTarget] = useState<BulletinDetail | null>(null);
   const [validateNotes, setValidateNotes] = useState('');
   const validateMutation = useBulletinValidation();
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const { data: adherentResults } = useSearchAdherents(adherentSearch);
   const { data: familleData } = useAdherentFamille(selectedAdherentInfo?.id);
@@ -484,6 +486,102 @@ export function BulletinsSaisiePage() {
 
   const handleRemoveFile = (index: number) => {
     setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const analyzeWithOCR = async () => {
+    if (selectedFiles.length === 0) return;
+    setIsAnalyzing(true);
+    try {
+      const formData = new FormData();
+      for (const file of selectedFiles) {
+        formData.append('files', file);
+      }
+
+      const res = await fetch('https://grady-semistiff-willia.ngrok-free.dev/analyse-bulletin', {
+        method: 'POST',
+        headers: { 'accept': 'application/json' },
+        body: formData,
+      });
+
+      if (!res.ok) throw new Error(`Erreur OCR: ${res.status}`);
+
+      const result = await res.json();
+      let parsed = result;
+
+      // Handle raw_response wrapping (markdown json block)
+      if (typeof result.raw_response === 'string') {
+        const jsonMatch = result.raw_response.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch?.[1]) {
+          parsed = JSON.parse(jsonMatch[1]);
+        }
+      }
+
+      const info = parsed.infos_adherent;
+      const actes = parsed.volet_medical;
+
+      // Auto-fill adherent fields
+      if (info) {
+        if (info.nom_prenom) {
+          const parts = info.nom_prenom.trim().split(/\s+/);
+          if (parts.length >= 2) {
+            setValue('adherent_last_name', parts[0]!);
+            setValue('adherent_first_name', parts.slice(1).join(' '));
+          }
+        }
+        if (info.numero_contrat) {
+          setValue('adherent_matricule', info.numero_contrat.replace(/\s+/g, ''));
+          setAdherentSearch(info.numero_contrat.replace(/\s+/g, ''));
+        }
+        if (info.date_signature) {
+          // Convert DD/MM/YYYY to YYYY-MM-DD
+          const dateParts = info.date_signature.split('/');
+          if (dateParts.length === 3) {
+            setValue('bulletin_date', `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`);
+          }
+        }
+      }
+
+      // Auto-fill actes
+      if (Array.isArray(actes) && actes.length > 0) {
+        // Clear existing actes and replace
+        const currentActes = watch('actes');
+        // Remove all except first, then update
+        while (currentActes.length > 1) {
+          removeActe(currentActes.length - 1);
+        }
+
+        actes.forEach((acte: Record<string, string | null>, i: number) => {
+          const montantStr = (acte.montant_honoraires || acte.montant_facture || '0')
+            .replace(/[^\d.,]/g, '')
+            .replace(',', '.');
+          const montant = parseFloat(montantStr) || 0;
+
+          if (i === 0) {
+            setValue('actes.0.label', acte.nature_acte || '');
+            setValue('actes.0.amount', montant);
+            setValue('actes.0.nom_prof_sant', acte.nom_praticien || '');
+            setValue('actes.0.ref_prof_sant', acte.matricule_fiscale || '');
+          } else {
+            appendActe({
+              code: '',
+              label: acte.nature_acte || '',
+              amount: montant,
+              nom_prof_sant: acte.nom_praticien || '',
+              ref_prof_sant: acte.matricule_fiscale || '',
+              cod_msgr: '',
+              lib_msgr: '',
+            });
+          }
+        });
+      }
+
+      toast.success('Analyse terminee — champs remplis automatiquement');
+    } catch (error) {
+      console.error('OCR analysis error:', error);
+      toast.error('Erreur lors de l\'analyse du bulletin');
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const onSubmitForm = async (data: BulletinFormData) => {
@@ -878,15 +976,35 @@ export function BulletinsSaisiePage() {
                             files={selectedFiles}
                             onRemove={handleRemoveFile}
                           />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => fileInputRef.current?.click()}
-                          >
-                            <Upload className="h-4 w-4 mr-2" />
-                            Ajouter un autre fichier
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => fileInputRef.current?.click()}
+                            >
+                              <Upload className="h-4 w-4 mr-2" />
+                              Ajouter un fichier
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={analyzeWithOCR}
+                              disabled={isAnalyzing}
+                            >
+                              {isAnalyzing ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Analyse en cours...
+                                </>
+                              ) : (
+                                <>
+                                  <ScanSearch className="h-4 w-4 mr-2" />
+                                  Analyser avec IA
+                                </>
+                              )}
+                            </Button>
+                          </div>
                         </div>
                       ) : (
                         <div
