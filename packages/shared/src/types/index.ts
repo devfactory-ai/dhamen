@@ -17,3 +17,4 @@ export * from './events';
 export * from './bulletin-batch';
 export * from './remboursement';
 export * from './bulletin-validation';
+export * from './acte';

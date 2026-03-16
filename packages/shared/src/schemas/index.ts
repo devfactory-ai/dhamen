@@ -18,3 +18,4 @@ export * from './bulletin-batch';
 export * from './acte-bulletin';
 export * from './remboursement';
 export * from './bulletin-validation';
+export * from './acte-referentiel';
