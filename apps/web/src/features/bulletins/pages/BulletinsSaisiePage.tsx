@@ -150,7 +150,7 @@ const acteFormSchema = z.object({
   label: z.string().min(1, 'Libelle requis'),
   amount: z.number().positive('Montant > 0'),
   ref_prof_sant: z.string().optional(),
-  nom_prof_sant: z.string().optional(),
+  nom_prof_sant: z.string().min(2, 'Nom du praticien requis'),
   cod_msgr: z.string().optional(),
   lib_msgr: z.string().optional(),
 });
@@ -164,8 +164,6 @@ const bulletinFormSchema = z.object({
   adherent_email: z.string().email('Email invalide').optional().or(z.literal('')),
   beneficiary_name: z.string().optional(),
   beneficiary_relationship: z.string().optional(),
-  provider_name: z.string().min(2, 'Nom du praticien requis'),
-  provider_specialty: z.string().optional(),
   care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']),
   care_description: z.string().optional(),
   actes: z.array(acteFormSchema).min(1, 'Au moins un acte requis'),
@@ -1049,21 +1047,6 @@ export function BulletinsSaisiePage() {
                       </div>
                     </div>
 
-                    {/* Provider info */}
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Nom du praticien *</Label>
-                        <Input {...register('provider_name')} placeholder="Dr. Mohamed Ali" />
-                        {errors.provider_name && (
-                          <p className="text-sm text-destructive">{errors.provider_name.message}</p>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Specialite</Label>
-                        <Input {...register('provider_specialty')} placeholder="Generaliste, Cardiologue..." />
-                      </div>
-                    </div>
-
                     {/* Actes medicaux */}
                     <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
                       <div className="flex items-center justify-between">
@@ -1127,18 +1110,21 @@ export function BulletinsSaisiePage() {
                           {/* Professionnel de sante */}
                           <div className="grid gap-2 sm:grid-cols-2">
                             <div>
-                              <Label className="text-xs text-muted-foreground">Ref. professionnel de sante</Label>
+                              <Label className="text-xs font-medium">Nom du praticien *</Label>
+                              <Input
+                                {...register(`actes.${index}.nom_prof_sant`)}
+                                placeholder="Dr. Mohamed Ali"
+                                className="h-8 text-sm"
+                              />
+                              {errors.actes?.[index]?.nom_prof_sant && (
+                                <p className="text-xs text-destructive mt-1">{errors.actes[index].nom_prof_sant?.message}</p>
+                              )}
+                            </div>
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Ref. praticien</Label>
                               <Input
                                 {...register(`actes.${index}.ref_prof_sant`)}
                                 placeholder="Code praticien"
-                                className="h-8 text-xs"
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-xs text-muted-foreground">Nom professionnel de sante</Label>
-                              <Input
-                                {...register(`actes.${index}.nom_prof_sant`)}
-                                placeholder="Nom du praticien"
                                 className="h-8 text-xs"
                               />
                             </div>
@@ -1442,7 +1428,7 @@ export function BulletinsSaisiePage() {
                 </div>
                 <div>
                   <p className="text-muted-foreground">Praticien</p>
-                  <p className="font-medium">{viewBulletin.provider_name}</p>
+                  <p className="font-medium">{viewBulletin.provider_name || '—'}</p>
                 </div>
               </div>
 

@@ -76,11 +76,11 @@ export function ActeSelector({ value, onChange, disabled }: ActeSelectorProps) {
   };
 
   return (
-    <Select value={value || ''} onValueChange={handleValueChange} disabled={disabled}>
+    <Select value={value || undefined} onValueChange={handleValueChange} disabled={disabled}>
       <SelectTrigger>
         <SelectValue placeholder="Selectionner un acte" />
       </SelectTrigger>
-      <SelectContent className="max-h-80">
+      <SelectContent className="max-h-80 overflow-y-auto" position="popper" sideOffset={4}>
         {(groupes || []).map((groupe) => (
           <SelectGroup key={groupe.famille.id}>
             <SelectLabel className="bg-muted/50 py-1.5 font-semibold text-primary/80 text-xs">

@@ -730,7 +730,7 @@ bulletinsAgent.post('/create', async (c) => {
   const adherentEmail = (formData['adherent_email'] as string) || null;
   const beneficiaryName = (formData['beneficiary_name'] as string) || null;
   const beneficiaryRelationship = (formData['beneficiary_relationship'] as string) || null;
-  const providerName = formData['provider_name'] as string;
+  const providerName = (formData['provider_name'] as string) || null;
   const providerSpecialty = (formData['provider_specialty'] as string) || null;
   const careType = formData['care_type'] as string;
   const careDescription = (formData['care_description'] as string) || null;
@@ -1127,8 +1127,8 @@ bulletinsAgent.post('/create', async (c) => {
           const baremeResult = baremeResults[i]!;
           return db
             .prepare(
-              `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), datetime('now'))`
+              `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, ref_prof_sant, nom_prof_sant, cod_msgr, lib_msgr, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), ?, ?, ?, ?, datetime('now'))`
             )
             .bind(
               acteId,
@@ -1144,7 +1144,11 @@ bulletinsAgent.post('/create', async (c) => {
                 baremeResult.plafondGlobalApplique
                 ? 1
                 : 0,
-              acte.code?.trim() || null
+              acte.code?.trim() || null,
+              acte.ref_prof_sant?.trim() || null,
+              acte.nom_prof_sant?.trim() || null,
+              acte.cod_msgr?.trim() || null,
+              acte.lib_msgr?.trim() || null
             );
         });
         await db.batch(stmts);
@@ -1226,8 +1230,8 @@ bulletinsAgent.post('/create', async (c) => {
           const acteResult = calcul.actes[i]!;
           return db
             .prepare(
-              `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), datetime('now'))`
+              `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, ref_prof_sant, nom_prof_sant, cod_msgr, lib_msgr, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), ?, ?, ?, ?, datetime('now'))`
             )
             .bind(
               acteId,
@@ -1239,7 +1243,11 @@ bulletinsAgent.post('/create', async (c) => {
               acteResult.remboursementFinal,
               acteResult.remboursementBrut,
               acteResult.plafondDepasse ? 1 : 0,
-              acte.code?.trim() || null
+              acte.code?.trim() || null,
+              acte.ref_prof_sant?.trim() || null,
+              acte.nom_prof_sant?.trim() || null,
+              acte.cod_msgr?.trim() || null,
+              acte.lib_msgr?.trim() || null
             );
         });
         await db.batch(stmts);
