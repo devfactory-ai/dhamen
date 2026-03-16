@@ -13,8 +13,8 @@ CREATE TABLE IF NOT EXISTS actes_referentiel (
 CREATE INDEX IF NOT EXISTS idx_actes_referentiel_code ON actes_referentiel(code);
 CREATE INDEX IF NOT EXISTS idx_actes_referentiel_active ON actes_referentiel(is_active);
 
--- Seed: actes médicaux courants en Tunisie
-INSERT INTO actes_referentiel (id, code, label, taux_remboursement, plafond_acte) VALUES
+-- Seed: actes médicaux courants en Tunisie (INSERT OR IGNORE to be idempotent)
+INSERT OR IGNORE INTO actes_referentiel (id, code, label, taux_remboursement, plafond_acte) VALUES
   ('acte-001', 'CONS-GEN', 'Consultation médecin généraliste', 0.70, NULL),
   ('acte-002', 'CONS-SPE', 'Consultation médecin spécialiste', 0.70, NULL),
   ('acte-003', 'RADIO', 'Radiologie', 0.80, NULL),
