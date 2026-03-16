@@ -3,6 +3,8 @@ import { z } from 'zod';
 export const genderSchema = z.enum(['M', 'F']);
 export const etatCivilSchema = z.enum(['celibataire', 'marie', 'divorce', 'veuf']);
 export const regimeSocialSchema = z.enum(['CNSS', 'CNRPS']);
+export const codeTypeSchema = z.enum(['A', 'C', 'E']);
+export const codeSituationFamSchema = z.enum(['C', 'M', 'D', 'V']);
 
 export const adherentCreateSchema = z.object({
   // Identité
@@ -41,6 +43,11 @@ export const adherentCreateSchema = z.object({
   fonction: z.string().optional(),
   maladiChronique: z.boolean().optional(),
   matriculeConjoint: z.string().optional(),
+  // Famille
+  codeType: codeTypeSchema.optional(),
+  parentAdherentId: z.string().optional(),
+  rangPres: z.number().int().min(0).max(99).optional(),
+  codeSituationFam: codeSituationFamSchema.optional(),
 });
 
 export const adherentUpdateSchema = z.object({
@@ -78,6 +85,11 @@ export const adherentUpdateSchema = z.object({
   fonction: z.string().optional(),
   maladiChronique: z.boolean().optional(),
   matriculeConjoint: z.string().optional(),
+  // Famille
+  codeType: codeTypeSchema.optional(),
+  parentAdherentId: z.string().optional(),
+  rangPres: z.number().int().min(0).max(99).optional(),
+  codeSituationFam: codeSituationFamSchema.optional(),
 });
 
 export const adherentFiltersSchema = z.object({

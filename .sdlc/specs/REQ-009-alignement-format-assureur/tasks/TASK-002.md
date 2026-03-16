@@ -1,7 +1,7 @@
 ---
 id: TASK-002
 parent: REQ-009
-status: todo
+status: done
 dependencies: [TASK-001]
 files:
   - packages/db/migrations/0078_create_contrat_periodes_baremes.sql

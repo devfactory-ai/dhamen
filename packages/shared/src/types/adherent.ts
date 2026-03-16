@@ -62,3 +62,19 @@ export interface AdherentFilters {
   city?: string;
   search?: string;
 }
+
+export type CodeType = 'A' | 'C' | 'E';
+export type CodeSituationFam = 'C' | 'M' | 'D' | 'V';
+
+export interface AdherentFamille extends Adherent {
+  codeType: CodeType | null;
+  parentAdherentId: string | null;
+  rangPres: number;
+  codeSituationFam: CodeSituationFam | null;
+}
+
+export interface FamilleComplete {
+  principal: AdherentFamille;
+  conjoint: AdherentFamille | null;
+  enfants: AdherentFamille[];
+}

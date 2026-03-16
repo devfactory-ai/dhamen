@@ -597,6 +597,70 @@ adherents.get(
 );
 
 /**
+ * GET /api/v1/adherents/:id/famille
+ * Get adherent's family group (principal + ayants-droit)
+ */
+adherents.get(
+  '/:id/famille',
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  async (c) => {
+    const id = c.req.param('id');
+    const db = getDb(c);
+
+    // Get the adherent
+    const adherent = await db
+      .prepare('SELECT * FROM adherents WHERE id = ? AND deleted_at IS NULL')
+      .bind(id)
+      .first<Record<string, unknown>>();
+
+    if (!adherent) {
+      return notFound(c, 'Adhérent non trouvé');
+    }
+
+    // Determine the principal id
+    const principalId = adherent.parent_adherent_id ? String(adherent.parent_adherent_id) : id;
+
+    // Get principal
+    const principal = await db
+      .prepare('SELECT * FROM adherents WHERE id = ? AND deleted_at IS NULL')
+      .bind(principalId)
+      .first<Record<string, unknown>>();
+
+    if (!principal) {
+      return notFound(c, 'Adhérent principal non trouvé');
+    }
+
+    // Get all ayants-droit
+    const { results: ayantsDroit } = await db
+      .prepare('SELECT * FROM adherents WHERE parent_adherent_id = ? AND deleted_at IS NULL ORDER BY rang_pres ASC')
+      .bind(principalId)
+      .all();
+
+    const mapAdherent = (r: Record<string, unknown>) => ({
+      id: r.id,
+      matricule: r.matricule,
+      firstName: r.first_name,
+      lastName: r.last_name,
+      dateOfBirth: r.date_of_birth,
+      gender: r.gender,
+      codeType: r.code_type || 'A',
+      rangPres: r.rang_pres ?? 0,
+      codeSituationFam: r.code_situation_fam,
+      parentAdherentId: r.parent_adherent_id,
+    });
+
+    const conjoint = ayantsDroit.find((a: Record<string, unknown>) => a.code_type === 'C') || null;
+    const enfants = ayantsDroit.filter((a: Record<string, unknown>) => a.code_type === 'E');
+
+    return success(c, {
+      principal: mapAdherent(principal),
+      conjoint: conjoint ? mapAdherent(conjoint) : null,
+      enfants: enfants.map((e: Record<string, unknown>) => mapAdherent(e)),
+    });
+  }
+);
+
+/**
  * GET /api/v1/adherents/:id
  * Get an adherent by ID
  */

@@ -1,7 +1,7 @@
 ---
 id: TASK-003
 parent: REQ-009
-status: todo
+status: done
 dependencies: []
 files:
   - packages/db/migrations/0079_add_famille_fields_adherents.sql

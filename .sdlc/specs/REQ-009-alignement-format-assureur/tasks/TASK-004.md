@@ -1,7 +1,7 @@
 ---
 id: TASK-004
 parent: REQ-009
-status: todo
+status: done
 dependencies: []
 files:
   - packages/db/migrations/0080_add_bulletin_fields.sql

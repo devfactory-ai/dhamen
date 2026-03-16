@@ -19,3 +19,5 @@ export * from './acte-bulletin';
 export * from './remboursement';
 export * from './bulletin-validation';
 export * from './acte-referentiel';
+export * from './contrat-periode';
+export * from './bulletin-soins';
