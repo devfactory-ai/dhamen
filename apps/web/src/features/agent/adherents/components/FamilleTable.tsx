@@ -1,4 +1,4 @@
-import type { FamilleMembre } from '../../hooks/use-adherent-famille';
+import type { FamilleMembre } from '@/features/agent/hooks/use-adherent-famille';
 
 interface FamilleTableProps {
   principal: FamilleMembre;

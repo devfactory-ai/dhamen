@@ -42,6 +42,10 @@ import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { useSearchAdherents, type AdherentSearchResult } from '@/features/adherents/hooks/useAdherents';
 import { toast } from 'sonner';
 import { useBulletinValidation } from '@/hooks/use-bulletin-validation';
+import { useAdherentFamille } from '@/features/agent/hooks/use-adherent-famille';
+import { useAdherentPlafonds } from '@/features/agent/hooks/use-adherent-plafonds';
+import { FamilleTable } from '@/features/agent/adherents/components/FamilleTable';
+import { PlafondsCard } from '@/features/agent/adherents/components/PlafondsCard';
 import { ScanUpload } from '@/features/bulletins/components/scan-upload';
 import { ActeSelector } from '@/features/agent/bulletins/components/ActeSelector';
 import {
@@ -194,6 +198,8 @@ export function BulletinsSaisiePage() {
   const validateMutation = useBulletinValidation();
 
   const { data: adherentResults } = useSearchAdherents(adherentSearch);
+  const { data: familleData } = useAdherentFamille(selectedAdherentInfo?.id);
+  const { data: plafondsData } = useAdherentPlafonds(selectedAdherentInfo?.id);
 
   const {
     register,
@@ -1221,6 +1227,33 @@ export function BulletinsSaisiePage() {
                   <p><kbd className="px-1 bg-gray-100 rounded">Ctrl+S</kbd> Enregistrer</p>
                 </CardContent>
               </Card>
+
+              {selectedAdherentInfo && plafondsData && (
+                <PlafondsCard
+                  global={plafondsData.global}
+                  parFamille={plafondsData.parFamille}
+                  totalConsomme={plafondsData.totalConsomme}
+                  totalPlafond={plafondsData.totalPlafond}
+                />
+              )}
+
+              {selectedAdherentInfo && familleData && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Famille</CardTitle>
+                    <CardDescription className="text-xs">
+                      Adherent principal et ayants droit
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <FamilleTable
+                      principal={familleData.principal}
+                      conjoint={familleData.conjoint}
+                      enfants={familleData.enfants}
+                    />
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </div>
           )}

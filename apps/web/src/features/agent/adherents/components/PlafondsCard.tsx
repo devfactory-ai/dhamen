@@ -1,4 +1,4 @@
-import type { PlafondAvecFamille } from '../../hooks/use-adherent-plafonds';
+import type { PlafondAvecFamille } from '@/features/agent/hooks/use-adherent-plafonds';
 
 interface PlafondsCardProps {
   global: PlafondAvecFamille | null;
