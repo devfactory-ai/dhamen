@@ -775,13 +775,13 @@ bulletinsAgent.post('/create', async (c) => {
       : Number.parseFloat(formData['total_amount'] as string);
 
   // Validate required fields
+  // Note: providerName is optional since REQ-009 moved praticien to per-acte level
   if (
     !bulletinDate ||
     !adherentMatricule ||
     !adherentFirstName ||
     !adherentLastName ||
     !adherentNationalId ||
-    !providerName ||
     !careType ||
     isNaN(totalAmount)
   ) {
@@ -980,6 +980,9 @@ bulletinsAgent.post('/create', async (c) => {
 
     const status = batchId ? 'in_batch' : 'draft';
 
+    // Fallback: derive provider_name from first acte's nom_prof_sant if not provided at bulletin level
+    const effectiveProviderName = providerName || (actes.length > 0 && (actes[0] as Record<string, unknown>).nom_prof_sant) || null;
+
     // Insert bulletin
     await db
       .prepare(`
@@ -1003,7 +1006,7 @@ bulletinsAgent.post('/create', async (c) => {
         adherentNationalId,
         beneficiaryName,
         beneficiaryRelationship,
-        providerName,
+        effectiveProviderName,
         providerSpecialty,
         careType,
         careDescription,
