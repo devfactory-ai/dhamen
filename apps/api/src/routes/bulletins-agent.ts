@@ -10,7 +10,7 @@ import { generateId } from '../lib/ulid';
 import { calculateRemboursementBulletin } from '../services/remboursement.service';
 import { PushNotificationService } from '../services/push-notification.service';
 import { RealtimeNotificationsService } from '../services/realtime-notifications.service';
-import { findActeRefByCode, listActesReferentiel } from '@dhamen/db';
+import { findActeRefByCode, listActesReferentiel, listActesGroupesParFamille } from '@dhamen/db';
 import type { Bindings, Variables } from '../types';
 
 const bulletinsAgent = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -31,6 +31,23 @@ bulletinsAgent.get('/actes-referentiel', async (c) => {
     return c.json({
       success: false,
       error: { code: 'DATABASE_ERROR', message: 'Erreur chargement referentiel' },
+    }, 500);
+  }
+});
+
+/**
+ * GET /bulletins-soins/agent/actes-referentiel/groupes - List acts grouped by family
+ */
+bulletinsAgent.get('/actes-referentiel/groupes', async (c) => {
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  try {
+    const groupes = await listActesGroupesParFamille(db);
+    return c.json({ success: true, data: groupes });
+  } catch (error) {
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: 'Erreur chargement referentiel groupe' },
     }, 500);
   }
 });
@@ -170,8 +187,10 @@ bulletinsAgent.get('/batches', async (c) => {
 });
 
 /**
- * GET /bulletins-soins/batches/:id/export - Export batch as CSV (2 columns: matricule, montant)
- * Format: UTF-8 BOM, comma separator, filename dhamen_lot_{id}_{date}.csv
+ * GET /bulletins-soins/batches/:id/export - Export batch as CTRL recap CSV (9 columns)
+ * Format: UTF-8 BOM, comma separator, one row per adherent (grouped + summed)
+ * Columns: Numero_De_Contrat, Souscripteur, Numero_De_Bordereau, Matricule_Isante,
+ *          Matricule_Assureur, Nom, Prenom, Rib, Remb
  * NOTE: Must be defined BEFORE /:id to avoid route conflict
  */
 bulletinsAgent.get('/batches/:id/export', async (c) => {
@@ -219,27 +238,53 @@ bulletinsAgent.get('/batches/:id/export', async (c) => {
       }, 409);
     }
 
-    // Get only approved/reimbursed bulletins (2 columns only), limited to 5000
-    const bulletins = await db.prepare(`
-      SELECT bs.adherent_matricule, bs.reimbursed_amount
+    // CTRL 9-column recap: group by adherent, sum reimbursed amounts
+    const recapRows = await db.prepare(`
+      SELECT
+        COALESCE(ct.contract_number, '') AS numero_contrat,
+        COALESCE(co.name, '') AS souscripteur,
+        bb.name AS numero_bordereau,
+        COALESCE(a.matricule, bs.adherent_matricule, '') AS matricule_isante,
+        COALESCE(a.matricule, bs.adherent_matricule, '') AS matricule_assureur,
+        COALESCE(a.last_name, bs.adherent_last_name, '') AS nom,
+        COALESCE(a.first_name, bs.adherent_first_name, '') AS prenom,
+        COALESCE(a.rib_encrypted, '') AS rib,
+        SUM(COALESCE(bs.reimbursed_amount, 0)) AS remb
       FROM bulletins_soins bs
+      JOIN bulletin_batches bb ON bs.batch_id = bb.id
+      LEFT JOIN adherents a ON bs.adherent_id = a.id
+      LEFT JOIN companies co ON a.company_id = co.id
+      LEFT JOIN contracts ct ON ct.adherent_id = a.id AND ct.status = 'active'
       WHERE bs.batch_id = ? AND bs.status IN ('approved', 'reimbursed')
-      ORDER BY bs.bulletin_date
+      GROUP BY COALESCE(a.id, bs.adherent_matricule)
+      ORDER BY nom, prenom
       LIMIT 5000
     `).bind(batchId).all();
 
-    // Build CSV — 2 columns: matricule_adherent, montant_remboursement (comma separator per architecture.md)
+    // Build CSV — 9 columns CTRL format
     const BOM = '\uFEFF';
-    const header = 'matricule_adherent,montant_remboursement';
-    const rows = (bulletins.results || []).map((b: Record<string, unknown>) => {
-      const matricule = b.adherent_matricule ? String(b.adherent_matricule) : 'INCONNU';
-      const montant = b.reimbursed_amount != null ? Number(b.reimbursed_amount) : 0;
-      return `${matricule},${montant}`;
+    const header = 'Numero_De_Contrat,Souscripteur,Numero_De_Bordereau,Matricule_Isante,Matricule_Assureur,Nom,Prenom,Rib,Remb';
+    const rows = (recapRows.results || []).map((r: Record<string, unknown>) => {
+      const escape = (v: unknown) => {
+        const s = v != null ? String(v) : '';
+        return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      return [
+        escape(r.numero_contrat),
+        escape(r.souscripteur),
+        escape(r.numero_bordereau),
+        escape(r.matricule_isante),
+        escape(r.matricule_assureur),
+        escape(r.nom),
+        escape(r.prenom),
+        escape(r.rib),
+        r.remb != null ? Number(r.remb) : 0,
+      ].join(',');
     });
 
     const csvContent = BOM + header + '\n' + rows.join('\n');
     const today = new Date().toISOString().slice(0, 10);
-    const filename = `dhamen_lot_${batchId}_${today}.csv`;
+    const filename = `dhamen_ctrl_${batchId}_${today}.csv`;
 
     // Mark batch as exported
     await db.prepare(`
@@ -259,7 +304,7 @@ bulletinsAgent.get('/batches/:id/export', async (c) => {
       generateId(),
       user.id,
       batchId,
-      JSON.stringify({ bulletins_count: (bulletins.results || []).length, force }),
+      JSON.stringify({ format: 'ctrl_recap', rows_count: (recapRows.results || []).length, force }),
       c.req.header('CF-Connecting-IP') || 'unknown'
     ).run();
 
@@ -274,6 +319,128 @@ bulletinsAgent.get('/batches/:id/export', async (c) => {
     return c.json({
       success: false,
       error: { code: 'DATABASE_ERROR', message: `Erreur lors de l'export: ${error instanceof Error ? error.message : String(error)}` },
+    }, 500);
+  }
+});
+
+/**
+ * GET /bulletins-soins/batches/:id/export-detail - Export detailed bordereau CSV
+ * Format: UTF-8 BOM, comma separator, one row per acte line
+ * Columns: Num_Cont, Mat, Rang_Pres, Nom_Pren_Prest, Dat_Bs, Cod_Act,
+ *          Frais_Engag, Mnt_Act_Remb, Cod_Msgr, Lib_Msgr, Ref_Prof_Sant, Nom_Prof_Sant
+ * NOTE: Must be defined BEFORE /:id to avoid route conflict
+ */
+bulletinsAgent.get('/batches/:id/export-detail', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' },
+    }, 403);
+  }
+
+  const batchId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  try {
+    // Verify batch ownership
+    let batch: Record<string, unknown> | null = null;
+
+    if (user.role === 'INSURER_ADMIN' && user.insurerId) {
+      batch = await db.prepare(`
+        SELECT bb.* FROM bulletin_batches bb
+        JOIN companies co ON bb.company_id = co.id
+        WHERE bb.id = ? AND co.insurer_id = ?
+      `).bind(batchId, user.insurerId).first();
+    } else {
+      batch = await db.prepare(
+        'SELECT * FROM bulletin_batches WHERE id = ? AND created_by = ?'
+      ).bind(batchId, user.id).first();
+    }
+
+    if (!batch) {
+      return c.json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Lot non trouve' },
+      }, 404);
+    }
+
+    // Detailed bordereau: one row per acte line
+    const detailRows = await db.prepare(`
+      SELECT
+        COALESCE(ct.contract_number, '') AS num_cont,
+        COALESCE(a.matricule, bs.adherent_matricule, '') AS mat,
+        COALESCE(a.rang_pres, bs.rang_pres, 0) AS rang_pres,
+        COALESCE(a.last_name || ' ' || a.first_name, bs.adherent_last_name || ' ' || bs.adherent_first_name, '') AS nom_pren_prest,
+        bs.bulletin_date AS dat_bs,
+        COALESCE(ab.code, '') AS cod_act,
+        COALESCE(ab.amount, 0) AS frais_engag,
+        COALESCE(ab.montant_rembourse, 0) AS mnt_act_remb,
+        COALESCE(ab.cod_msgr, '') AS cod_msgr,
+        COALESCE(ab.lib_msgr, '') AS lib_msgr,
+        COALESCE(ab.ref_prof_sant, '') AS ref_prof_sant,
+        COALESCE(ab.nom_prof_sant, bs.provider_name, '') AS nom_prof_sant
+      FROM bulletins_soins bs
+      JOIN actes_bulletin ab ON ab.bulletin_id = bs.id
+      LEFT JOIN adherents a ON bs.adherent_id = a.id
+      LEFT JOIN contracts ct ON ct.adherent_id = a.id AND ct.status = 'active'
+      WHERE bs.batch_id = ? AND bs.status IN ('approved', 'reimbursed', 'exported')
+      ORDER BY mat, dat_bs, ab.created_at
+      LIMIT 10000
+    `).bind(batchId).all();
+
+    // Build CSV — 12 columns detailed format
+    const BOM = '\uFEFF';
+    const header = 'Num_Cont,Mat,Rang_Pres,Nom_Pren_Prest,Dat_Bs,Cod_Act,Frais_Engag,Mnt_Act_Remb,Cod_Msgr,Lib_Msgr,Ref_Prof_Sant,Nom_Prof_Sant';
+    const rows = (detailRows.results || []).map((r: Record<string, unknown>) => {
+      const escape = (v: unknown) => {
+        const s = v != null ? String(v) : '';
+        return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      return [
+        escape(r.num_cont),
+        escape(r.mat),
+        r.rang_pres != null ? Number(r.rang_pres) : 0,
+        escape(r.nom_pren_prest),
+        escape(r.dat_bs),
+        escape(r.cod_act),
+        r.frais_engag != null ? Number(r.frais_engag) : 0,
+        r.mnt_act_remb != null ? Number(r.mnt_act_remb) : 0,
+        escape(r.cod_msgr),
+        escape(r.lib_msgr),
+        escape(r.ref_prof_sant),
+        escape(r.nom_prof_sant),
+      ].join(',');
+    });
+
+    const csvContent = BOM + header + '\n' + rows.join('\n');
+    const today = new Date().toISOString().slice(0, 10);
+    const filename = `dhamen_detail_${batchId}_${today}.csv`;
+
+    // Audit trail
+    await db.prepare(`
+      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+      VALUES (?, ?, 'batch_detail_csv_export', 'bulletin_batches', ?, ?, ?, datetime('now'))
+    `).bind(
+      generateId(),
+      user.id,
+      batchId,
+      JSON.stringify({ format: 'bordereau_detail', rows_count: (detailRows.results || []).length }),
+      c.req.header('CF-Connecting-IP') || 'unknown'
+    ).run();
+
+    return new Response(csvContent, {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+      },
+    });
+  } catch (error) {
+    console.error('Error exporting batch detail:', error);
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: `Erreur lors de l'export detaille: ${error instanceof Error ? error.message : String(error)}` },
     }, 500);
   }
 });

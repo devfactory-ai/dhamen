@@ -1,7 +1,7 @@
 ---
 id: TASK-005
 parent: REQ-009
-status: todo
+status: done
 dependencies: [TASK-001, TASK-003]
 files:
   - packages/db/migrations/0081_create_plafonds_prestataire.sql

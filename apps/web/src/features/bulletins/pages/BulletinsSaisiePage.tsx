@@ -43,6 +43,7 @@ import { useSearchAdherents, type AdherentSearchResult } from '@/features/adhere
 import { toast } from 'sonner';
 import { useBulletinValidation } from '@/hooks/use-bulletin-validation';
 import { ScanUpload } from '@/features/bulletins/components/scan-upload';
+import { ActeSelector } from '@/features/agent/bulletins/components/ActeSelector';
 import {
   FileText,
   Upload,
@@ -148,6 +149,10 @@ const acteFormSchema = z.object({
   code: z.string().optional(),
   label: z.string().min(1, 'Libelle requis'),
   amount: z.number().positive('Montant > 0'),
+  ref_prof_sant: z.string().optional(),
+  nom_prof_sant: z.string().optional(),
+  cod_msgr: z.string().optional(),
+  lib_msgr: z.string().optional(),
 });
 
 const bulletinFormSchema = z.object({
@@ -168,14 +173,6 @@ const bulletinFormSchema = z.object({
 
 type BulletinFormData = z.infer<typeof bulletinFormSchema>;
 
-interface ActeReferentiel {
-  id: string;
-  code: string;
-  label: string;
-  taux_remboursement: number;
-  plafond_acte: number | null;
-}
-
 export function BulletinsSaisiePage() {
   const queryClient = useQueryClient();
   const { selectedCompany, selectedBatch } = useAgentContext();
@@ -185,6 +182,7 @@ export function BulletinsSaisiePage() {
   const [selectedBulletins, setSelectedBulletins] = useState<string[]>([]);
   const [showBatchDialog, setShowBatchDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showExportDetailDialog, setShowExportDetailDialog] = useState(false);
   const [exportBatch, setExportBatch] = useState<Batch | null>(null);
   const [newBatchName, setNewBatchName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -212,7 +210,7 @@ export function BulletinsSaisiePage() {
     defaultValues: {
       care_type: 'consultation',
       bulletin_date: new Date().toISOString().split('T')[0],
-      actes: [{ code: '', label: '', amount: 0 }],
+      actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', cod_msgr: '', lib_msgr: '' }],
     },
   });
 
@@ -250,16 +248,6 @@ export function BulletinsSaisiePage() {
       return response.data || [];
     },
     enabled: !!selectedCompany,
-  });
-
-  // Fetch actes referentiel
-  const { data: actesReferentiel } = useQuery({
-    queryKey: ['actes-referentiel'],
-    queryFn: async () => {
-      const response = await apiClient.get<ActeReferentiel[]>('/bulletins-soins/agent/actes-referentiel');
-      if (!response.success) throw new Error(response.error?.message);
-      return response.data || [];
-    },
   });
 
   // Submit bulletin mutation
@@ -394,6 +382,60 @@ export function BulletinsSaisiePage() {
     },
   });
 
+  // Export batch detail mutation (bordereau detaille)
+  const exportDetailMutation = useMutation({
+    mutationFn: async ({ batchId }: { batchId: string }) => {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL || '/api/v1'}/bulletins-soins/agent/batches/${batchId}/export-detail`,
+        {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Erreur lors de l\'export detaille');
+      }
+
+      // Extract filename from Content-Disposition
+      const disposition = response.headers.get('Content-Disposition');
+      let filename = `dhamen_detail_${batchId}_${new Date().toISOString().slice(0, 10)}.csv`;
+      if (disposition) {
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        if (match?.[1]) {
+          filename = match[1];
+        }
+      }
+
+      const csvContent = await response.text();
+      return { csvContent, filename };
+    },
+    onSuccess: ({ csvContent, filename }) => {
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success('Export detaille telecharge!');
+      setShowExportDetailDialog(false);
+      setExportBatch(null);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors de l\'export detaille');
+    },
+  });
+
   // Delete bulletin mutation
   const deleteMutation = useMutation({
     mutationFn: async (bulletinId: string) => {
@@ -483,6 +525,11 @@ export function BulletinsSaisiePage() {
   const handleExportBatch = (batch: Batch) => {
     setExportBatch(batch);
     setShowExportDialog(true);
+  };
+
+  const handleExportDetailBatch = (batch: Batch) => {
+    setExportBatch(batch);
+    setShowExportDetailDialog(true);
   };
 
   const formatAmount = (amount: number) => {
@@ -662,7 +709,17 @@ export function BulletinsSaisiePage() {
             className="gap-1"
           >
             <FileSpreadsheet className="h-4 w-4" />
-            {row.status === 'exported' ? 'Re-exporter' : 'Export CSV'}
+            {row.status === 'exported' ? 'Re-exporter' : 'Export recap'}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => handleExportDetailBatch(row)}
+            disabled={!row.bulletins_count}
+            className="gap-1"
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            Export detaille
           </Button>
         </div>
       ),
@@ -1018,7 +1075,7 @@ export function BulletinsSaisiePage() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => appendActe({ code: '', label: '', amount: 0 })}
+                          onClick={() => appendActe({ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', cod_msgr: '', lib_msgr: '' })}
                         >
                           <Plus className="h-4 w-4 mr-1" />
                           Ajouter un acte
@@ -1030,57 +1087,81 @@ export function BulletinsSaisiePage() {
                       )}
 
                       {actesFields.map((field, index) => (
-                        <div key={field.id} className="flex items-start gap-2">
-                          <div className="flex-1">
-                            <Select
-                              value={watch(`actes.${index}.code`) || ''}
-                              onValueChange={(value) => {
-                                const ref = actesReferentiel?.find((a) => a.code === value);
-                                if (ref) {
-                                  setValue(`actes.${index}.code`, ref.code);
-                                  setValue(`actes.${index}.label`, ref.label);
-                                }
-                              }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Selectionner un acte" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {actesReferentiel?.map((acte) => (
-                                  <SelectItem key={acte.code} value={acte.code}>
-                                    <span className="font-mono text-xs mr-2">{acte.code}</span>
-                                    {acte.label}
-                                    <span className="text-muted-foreground ml-2">({Math.round(acte.taux_remboursement * 100)}%)</span>
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            {errors.actes?.[index]?.label && (
-                              <p className="text-xs text-destructive mt-1">{errors.actes[index].label?.message}</p>
+                        <div key={field.id} className="space-y-2 rounded-md border bg-background p-3">
+                          <div className="flex items-start gap-2">
+                            <div className="flex-1">
+                              <ActeSelector
+                                value={watch(`actes.${index}.code`) || ''}
+                                onChange={(code, acte) => {
+                                  setValue(`actes.${index}.code`, code);
+                                  setValue(`actes.${index}.label`, acte.label);
+                                }}
+                              />
+                              {errors.actes?.[index]?.label && (
+                                <p className="text-xs text-destructive mt-1">{errors.actes[index].label?.message}</p>
+                              )}
+                            </div>
+                            <div className="w-32">
+                              <Input
+                                type="number"
+                                step="0.001"
+                                {...register(`actes.${index}.amount`, { valueAsNumber: true })}
+                                placeholder="Montant"
+                              />
+                              {errors.actes?.[index]?.amount && (
+                                <p className="text-xs text-destructive mt-1">{errors.actes[index].amount?.message}</p>
+                              )}
+                            </div>
+                            {actesFields.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeActe(index)}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
                             )}
                           </div>
-                          <div className="w-32">
-                            <Input
-                              type="number"
-                              step="0.001"
-                              {...register(`actes.${index}.amount`, { valueAsNumber: true })}
-                              placeholder="Montant"
-                            />
-                            {errors.actes?.[index]?.amount && (
-                              <p className="text-xs text-destructive mt-1">{errors.actes[index].amount?.message}</p>
-                            )}
+                          {/* Professionnel de sante */}
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Ref. professionnel de sante</Label>
+                              <Input
+                                {...register(`actes.${index}.ref_prof_sant`)}
+                                placeholder="Code praticien"
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Nom professionnel de sante</Label>
+                              <Input
+                                {...register(`actes.${index}.nom_prof_sant`)}
+                                placeholder="Nom du praticien"
+                                className="h-8 text-xs"
+                              />
+                            </div>
                           </div>
-                          {actesFields.length > 1 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeActe(index)}
-                              className="text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
+                          {/* Observations */}
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Code observation</Label>
+                              <Input
+                                {...register(`actes.${index}.cod_msgr`)}
+                                placeholder="Code obs."
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs text-muted-foreground">Libelle observation</Label>
+                              <Input
+                                {...register(`actes.${index}.lib_msgr`)}
+                                placeholder="Observation"
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                          </div>
                         </div>
                       ))}
 
@@ -1289,6 +1370,45 @@ export function BulletinsSaisiePage() {
                 <>
                   <Download className="mr-2 h-4 w-4" />
                   {exportBatch?.status === 'exported' ? 'Re-exporter CSV' : 'Telecharger CSV'}
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Export Detail Dialog */}
+      <AlertDialog open={showExportDetailDialog} onOpenChange={setShowExportDetailDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Exporter le bordereau detaille
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Voulez-vous telecharger le bordereau detaille du lot "{exportBatch?.name}" ?
+              <br />
+              Ce fichier contient toutes les lignes d&apos;actes avec les codes, montants engages et rembourses.
+              <br />
+              <span className="font-medium">{exportBatch?.bulletins_count} bulletins</span> pour un total de <span className="font-medium">{formatAmount(exportBatch?.total_amount || 0)}</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => exportBatch && exportDetailMutation.mutate({
+                batchId: exportBatch.id,
+              })}
+              disabled={exportDetailMutation.isPending}
+            >
+              {exportDetailMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Export...
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-4 w-4" />
+                  Telecharger detaille
                 </>
               )}
             </AlertDialogAction>

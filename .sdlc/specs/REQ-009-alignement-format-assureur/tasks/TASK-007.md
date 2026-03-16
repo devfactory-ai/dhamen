@@ -1,7 +1,7 @@
 ---
 id: TASK-007
 parent: REQ-009
-status: todo
+status: done
 dependencies: [TASK-004]
 files:
   - apps/api/src/routes/bulletins-agent.ts

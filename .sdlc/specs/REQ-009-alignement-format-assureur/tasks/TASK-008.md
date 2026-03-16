@@ -1,7 +1,7 @@
 ---
 id: TASK-008
 parent: REQ-009
-status: todo
+status: done
 dependencies: [TASK-001, TASK-004]
 files:
   - apps/web/src/features/agent/bulletins/components/ActeSelector.tsx

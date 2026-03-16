@@ -597,6 +597,74 @@ adherents.get(
 );
 
 /**
+ * GET /api/v1/adherents/:id/plafonds
+ * Get adherent's reimbursement ceiling consumption
+ */
+adherents.get(
+  '/:id/plafonds',
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  async (c) => {
+    const id = c.req.param('id');
+    const annee = Number(c.req.query('annee')) || new Date().getFullYear();
+    const db = getDb(c);
+
+    // Check adherent exists
+    const adherent = await db
+      .prepare('SELECT id FROM adherents WHERE id = ? AND deleted_at IS NULL')
+      .bind(id)
+      .first();
+
+    if (!adherent) {
+      return notFound(c, 'Adhérent non trouvé');
+    }
+
+    // Get all plafonds for this adherent and year
+    const { results } = await db
+      .prepare(
+        `SELECT p.*, fa.code as famille_code, fa.label as famille_label
+         FROM plafonds_prestataire p
+         LEFT JOIN familles_actes fa ON p.famille_acte_id = fa.id
+         WHERE p.adherent_id = ? AND p.annee = ?
+         ORDER BY fa.ordre ASC NULLS FIRST`
+      )
+      .bind(id, annee)
+      .all();
+
+    const mapPlafond = (r: Record<string, unknown>) => {
+      const plafond = Number(r.montant_plafond) || 0;
+      const consomme = Number(r.montant_consomme) || 0;
+      return {
+        id: r.id,
+        adherentId: r.adherent_id,
+        contractId: r.contract_id,
+        annee: r.annee,
+        familleActeId: r.famille_acte_id,
+        typeMaladie: r.type_maladie,
+        montantPlafond: plafond,
+        montantConsomme: consomme,
+        familleCode: r.famille_code || null,
+        familleLabel: r.famille_label || null,
+        pourcentageConsomme: plafond > 0 ? Math.round((consomme / plafond) * 100) : 0,
+        montantRestant: Math.max(0, plafond - consomme),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      };
+    };
+
+    const all = results.map((r: Record<string, unknown>) => mapPlafond(r));
+    const global = all.find((p) => p.familleActeId === null) || null;
+    const parFamille = all.filter((p) => p.familleActeId !== null);
+
+    return success(c, {
+      global,
+      parFamille,
+      totalConsomme: all.reduce((sum, p) => sum + (p.familleActeId ? p.montantConsomme : 0), 0),
+      totalPlafond: global?.montantPlafond || 0,
+    });
+  }
+);
+
+/**
  * GET /api/v1/adherents/:id/famille
  * Get adherent's family group (principal + ayants-droit)
  */
