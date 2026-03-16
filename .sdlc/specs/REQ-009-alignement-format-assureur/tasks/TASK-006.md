@@ -1,7 +1,7 @@
 ---
 id: TASK-006
 parent: REQ-009
-status: todo
+status: done
 dependencies: [TASK-001, TASK-002, TASK-005]
 files:
   - apps/api/src/services/remboursement.service.ts
