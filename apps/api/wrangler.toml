@@ -99,7 +99,92 @@ new_classes = ["RateLimiter"]
 tag = "v2"
 new_classes = ["NotificationHub"]
 
-# Staging environment
+# ============================================
+# DEV ENVIRONMENT (branch: develop)
+# Deployed via: wrangler deploy --env dev
+# ============================================
+
+[env.dev]
+name = "dhamen-api-dev"
+
+[env.dev.vars]
+ENVIRONMENT = "development"
+API_VERSION = "v1"
+JWT_ISSUER = "dhamen"
+JWT_EXPIRES_IN = "900"
+REFRESH_EXPIRES_IN = "86400"
+
+# Legacy DB
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "dhamen-db"
+database_id = "83076129-b19e-49e9-a77c-6668252d38cc"
+migrations_dir = "../../packages/db/migrations"
+
+# Multi-tenant D1
+[[env.dev.d1_databases]]
+binding = "DB_PLATFORM"
+database_name = "dhamen-platform"
+database_id = "177d1c79-e45e-4d8e-8d36-7322fc4034d6"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.dev.d1_databases]]
+binding = "DB_STAR"
+database_name = "dhamen-star"
+database_id = "359616bc-cf96-4613-a06c-a784af509abf"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.dev.d1_databases]]
+binding = "DB_GAT"
+database_name = "dhamen-gat"
+database_id = "7dac8e2c-d0e5-4b89-8431-0fb54cdf8ae4"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.dev.d1_databases]]
+binding = "DB_COMAR"
+database_name = "dhamen-comar"
+database_id = "454bd8a2-e536-47e9-bf38-fd11da820bf5"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.dev.d1_databases]]
+binding = "DB_AMI"
+database_name = "dhamen-ami"
+database_id = "7575cb4b-ae0d-4fd6-9dd3-22b467d434b7"
+migrations_dir = "../../packages/db/migrations"
+
+# KV
+[[env.dev.kv_namespaces]]
+binding = "CACHE"
+id = "22194f538ced43e7aba76bc0c4dfbaaa"
+
+[[env.dev.kv_namespaces]]
+binding = "TENANT_REGISTRY"
+id = "0b9124d8d7ea4deb97df39dc69bc3d90"
+
+# R2
+[[env.dev.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "dhamen-files"
+
+# Durable Objects
+[[env.dev.durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[env.dev.durable_objects.bindings]]
+name = "NOTIFICATION_HUB"
+class_name = "NotificationHub"
+
+# AI
+[env.dev.ai]
+binding = "AI"
+
+# ============================================
+# STAGING ENVIRONMENT (branch: staging)
+# Deployed via: wrangler deploy --env staging
+# NOT deployed yet — resources need to be created first
+# ============================================
+
 [env.staging]
 name = "dhamen-api-staging"
 
@@ -110,20 +195,59 @@ JWT_ISSUER = "dhamen"
 JWT_EXPIRES_IN = "900"
 REFRESH_EXPIRES_IN = "86400"
 
+# Legacy DB
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "dhamen-db-staging"
 database_id = "7be5e065-bfba-4b94-8f7e-87226fcd2665"
 migrations_dir = "../../packages/db/migrations"
 
+# Multi-tenant D1 — PLACEHOLDER IDs (create with: wrangler d1 create dhamen-staging-<tenant>)
+[[env.staging.d1_databases]]
+binding = "DB_PLATFORM"
+database_name = "dhamen-staging-platform"
+database_id = "REPLACE_WITH_STAGING_PLATFORM_D1_ID"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.staging.d1_databases]]
+binding = "DB_STAR"
+database_name = "dhamen-staging-star"
+database_id = "REPLACE_WITH_STAGING_STAR_D1_ID"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.staging.d1_databases]]
+binding = "DB_GAT"
+database_name = "dhamen-staging-gat"
+database_id = "REPLACE_WITH_STAGING_GAT_D1_ID"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.staging.d1_databases]]
+binding = "DB_COMAR"
+database_name = "dhamen-staging-comar"
+database_id = "REPLACE_WITH_STAGING_COMAR_D1_ID"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.staging.d1_databases]]
+binding = "DB_AMI"
+database_name = "dhamen-staging-ami"
+database_id = "REPLACE_WITH_STAGING_AMI_D1_ID"
+migrations_dir = "../../packages/db/migrations"
+
+# KV
 [[env.staging.kv_namespaces]]
 binding = "CACHE"
 id = "287b62ff109946bea823c4f39fde0690"
 
+[[env.staging.kv_namespaces]]
+binding = "TENANT_REGISTRY"
+id = "REPLACE_WITH_STAGING_TENANT_REGISTRY_KV_ID"
+
+# R2
 [[env.staging.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "dhamen-files-staging"
 
+# Durable Objects
 [[env.staging.durable_objects.bindings]]
 name = "RATE_LIMITER"
 class_name = "RateLimiter"
@@ -132,20 +256,19 @@ class_name = "RateLimiter"
 name = "NOTIFICATION_HUB"
 class_name = "NotificationHub"
 
+# AI
 [env.staging.ai]
 binding = "AI"
 
-# Production environment
-# IMPORTANT: Before deploying to production, create these resources:
-# 1. wrangler d1 create dhamen-db-production
-# 2. wrangler kv:namespace create CACHE --env production
-# 3. wrangler r2 bucket create dhamen-files-production
-# 4. wrangler secret put JWT_SECRET --env production
-# 5. wrangler secret put ENCRYPTION_KEY --env production
-# Then update the IDs below with the actual values.
+# ============================================
+# PRODUCTION ENVIRONMENT (branch: main)
+# Deployed via: wrangler deploy --env production
+# NOT deployed yet — resources and secrets must be created first
+# See: docs/deployment.md for setup instructions
+# ============================================
 
 [env.production]
-name = "dhamen-api-production"
+name = "dhamen-api"
 
 [env.production.vars]
 ENVIRONMENT = "production"
@@ -154,20 +277,59 @@ JWT_ISSUER = "dhamen"
 JWT_EXPIRES_IN = "900"
 REFRESH_EXPIRES_IN = "86400"
 
+# Legacy DB
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "dhamen-db-production"
 database_id = "REPLACE_WITH_PRODUCTION_D1_ID"
 migrations_dir = "../../packages/db/migrations"
 
+# Multi-tenant D1 — PLACEHOLDER IDs (create with: wrangler d1 create dhamen-prod-<tenant>)
+[[env.production.d1_databases]]
+binding = "DB_PLATFORM"
+database_name = "dhamen-prod-platform"
+database_id = "REPLACE_WITH_PRODUCTION_PLATFORM_D1_ID"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.production.d1_databases]]
+binding = "DB_STAR"
+database_name = "dhamen-prod-star"
+database_id = "REPLACE_WITH_PRODUCTION_STAR_D1_ID"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.production.d1_databases]]
+binding = "DB_GAT"
+database_name = "dhamen-prod-gat"
+database_id = "REPLACE_WITH_PRODUCTION_GAT_D1_ID"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.production.d1_databases]]
+binding = "DB_COMAR"
+database_name = "dhamen-prod-comar"
+database_id = "REPLACE_WITH_PRODUCTION_COMAR_D1_ID"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.production.d1_databases]]
+binding = "DB_AMI"
+database_name = "dhamen-prod-ami"
+database_id = "REPLACE_WITH_PRODUCTION_AMI_D1_ID"
+migrations_dir = "../../packages/db/migrations"
+
+# KV
 [[env.production.kv_namespaces]]
 binding = "CACHE"
 id = "REPLACE_WITH_PRODUCTION_KV_ID"
 
+[[env.production.kv_namespaces]]
+binding = "TENANT_REGISTRY"
+id = "REPLACE_WITH_PRODUCTION_TENANT_REGISTRY_KV_ID"
+
+# R2
 [[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "dhamen-files-production"
 
+# Durable Objects
 [[env.production.durable_objects.bindings]]
 name = "RATE_LIMITER"
 class_name = "RateLimiter"
@@ -176,5 +338,6 @@ class_name = "RateLimiter"
 name = "NOTIFICATION_HUB"
 class_name = "NotificationHub"
 
+# AI
 [env.production.ai]
 binding = "AI"
