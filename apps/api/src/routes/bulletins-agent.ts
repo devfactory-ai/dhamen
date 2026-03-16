@@ -738,7 +738,7 @@ bulletinsAgent.post('/create', async (c) => {
 
   // Parse actes array (JSON string from form)
   const actesRaw = formData['actes'] as string;
-  let actes: { code?: string; label: string; amount: number }[] = [];
+  let actes: { code?: string; label: string; amount: number; ref_prof_sant?: string; nom_prof_sant?: string; cod_msgr?: string; lib_msgr?: string }[] = [];
 
   if (actesRaw) {
     try {
@@ -1029,9 +1029,8 @@ bulletinsAgent.post('/create', async (c) => {
         const contract = await db
           .prepare(
             `SELECT c.id FROM contracts c
-           JOIN adherents a ON a.company_id = c.company_id
-           WHERE a.id = ? AND c.is_active = 1
-             AND c.date_debut <= ? AND c.date_fin >= ?
+           WHERE c.adherent_id = ? AND c.status = 'active'
+             AND c.start_date <= ? AND c.end_date >= ?
            LIMIT 1`
           )
           .bind(adherentId, bulletinDate, bulletinDate)
