@@ -7,7 +7,13 @@
 -- If the ALTER fails, the migration was already partially applied
 -- We wrap in a transaction-safe way using CREATE TABLE IF NOT EXISTS as a guard
 
--- Backfill any reimbursed bulletins (always safe to re-run)
+-- Add payment workflow columns
+ALTER TABLE bulletins_soins ADD COLUMN approved_date TEXT;
+ALTER TABLE bulletins_soins ADD COLUMN approved_amount REAL;
+ALTER TABLE bulletins_soins ADD COLUMN paper_received_date TEXT;
+ALTER TABLE bulletins_soins ADD COLUMN estimated_reimbursement_date TEXT;
+
+-- Backfill any reimbursed bulletins
 UPDATE bulletins_soins
 SET approved_date = processing_date,
     approved_amount = reimbursed_amount

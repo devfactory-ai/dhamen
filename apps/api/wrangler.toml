@@ -202,35 +202,35 @@ database_name = "dhamen-db-staging"
 database_id = "7be5e065-bfba-4b94-8f7e-87226fcd2665"
 migrations_dir = "../../packages/db/migrations"
 
-# Multi-tenant D1 — PLACEHOLDER IDs (create with: wrangler d1 create dhamen-staging-<tenant>)
+# Multi-tenant D1
 [[env.staging.d1_databases]]
 binding = "DB_PLATFORM"
 database_name = "dhamen-staging-platform"
-database_id = "REPLACE_WITH_STAGING_PLATFORM_D1_ID"
+database_id = "c917e3ab-ed82-403d-a00f-209771ab758c"
 migrations_dir = "../../packages/db/migrations"
 
 [[env.staging.d1_databases]]
 binding = "DB_STAR"
 database_name = "dhamen-staging-star"
-database_id = "REPLACE_WITH_STAGING_STAR_D1_ID"
+database_id = "9793c5be-adfb-4932-a97a-8e64c5e79f89"
 migrations_dir = "../../packages/db/migrations"
 
 [[env.staging.d1_databases]]
 binding = "DB_GAT"
 database_name = "dhamen-staging-gat"
-database_id = "REPLACE_WITH_STAGING_GAT_D1_ID"
+database_id = "480b97e5-79c5-4d1a-9b4c-1b2fe2abc1f6"
 migrations_dir = "../../packages/db/migrations"
 
 [[env.staging.d1_databases]]
 binding = "DB_COMAR"
 database_name = "dhamen-staging-comar"
-database_id = "REPLACE_WITH_STAGING_COMAR_D1_ID"
+database_id = "ee1b6840-0fb8-46b6-8e1f-1f4557250ea8"
 migrations_dir = "../../packages/db/migrations"
 
 [[env.staging.d1_databases]]
 binding = "DB_AMI"
 database_name = "dhamen-staging-ami"
-database_id = "REPLACE_WITH_STAGING_AMI_D1_ID"
+database_id = "854fd2b8-868d-433b-b17c-c47315ce7f29"
 migrations_dir = "../../packages/db/migrations"
 
 # KV
@@ -240,7 +240,7 @@ id = "287b62ff109946bea823c4f39fde0690"
 
 [[env.staging.kv_namespaces]]
 binding = "TENANT_REGISTRY"
-id = "REPLACE_WITH_STAGING_TENANT_REGISTRY_KV_ID"
+id = "c4e9b63074b54cef9637c0ff93797603"
 
 # R2
 [[env.staging.r2_buckets]]

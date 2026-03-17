@@ -5,7 +5,7 @@
 | Branch | Environment | Worker Name | Auto-deploy |
 |--------|-------------|-------------|-------------|
 | `develop` | dev | `dhamen-api-dev` | Yes (current) |
-| `staging` | staging | `dhamen-api-staging` | Not yet |
+| `staging` | staging | `dhamen-api-staging` | Yes (current) |
 | `main` | production | `dhamen-api` | Not yet |
 
 ## Environments
