@@ -1,7 +1,18 @@
 import type { ApiResponse, PaginatedResponse, ApiError as SharedApiError } from '@dhamen/shared';
 import { getTenantHeader } from './tenant';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
+function resolveApiUrl(): string {
+  const env = import.meta.env.VITE_ENV || 'local';
+  const urls: Record<string, string> = {
+    local: import.meta.env.VITE_API_URL || 'http://localhost:8787/api/v1',
+    dev: import.meta.env.VITE_API_URL_DEV ?? '/api/v1',
+    staging: import.meta.env.VITE_API_URL_STAGING ?? '/api/v1',
+    prod: import.meta.env.VITE_API_URL_PROD ?? '/api/v1',
+  };
+  return urls[env] || urls.local;
+}
+
+const API_BASE_URL = resolveApiUrl();
 const REQUEST_TIMEOUT_MS = 30000;
 
 interface RequestOptions extends RequestInit {
