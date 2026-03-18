@@ -4,8 +4,9 @@ export const acteBulletinSchema = z.object({
   code: z.string().optional(),
   label: z.string().min(1, 'Libellé de l\'acte requis'),
   amount: z.number().positive('Le montant doit être supérieur à 0'),
-  ref_prof_sant: z.string().optional(),
+  ref_prof_sant: z.string().min(1, 'Matricule fiscale requis'),
   nom_prof_sant: z.string().min(1, 'Nom du praticien requis'),
+  care_description: z.string().optional(),
   cod_msgr: z.string().optional(),
   lib_msgr: z.string().optional(),
 });

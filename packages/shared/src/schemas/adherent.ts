@@ -5,10 +5,14 @@ export const etatCivilSchema = z.enum(['celibataire', 'marie', 'divorce', 'veuf'
 export const regimeSocialSchema = z.enum(['CNSS', 'CNRPS']);
 export const codeTypeSchema = z.enum(['A', 'C', 'E']);
 export const codeSituationFamSchema = z.enum(['C', 'M', 'D', 'V']);
+export const typePieceIdentiteSchema = z.enum(['CIN', 'PASSEPORT', 'CARTE_SEJOUR', 'AUTRE']);
+export const etatFicheSchema = z.enum(['TEMPORAIRE', 'NON_TEMPORAIRE']);
 
 export const adherentCreateSchema = z.object({
   // Identité
-  nationalId: z.string().min(8, 'Numéro national invalide'),
+  nationalId: z.string().optional().or(z.literal('')),
+  typePieceIdentite: typePieceIdentiteSchema.optional(),
+  dateEditionPiece: z.string().optional(),
   firstName: z.string().min(1, 'Prénom requis'),
   lastName: z.string().min(1, 'Nom requis'),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide (YYYY-MM-DD)'),
@@ -48,10 +52,16 @@ export const adherentCreateSchema = z.object({
   parentAdherentId: z.string().optional(),
   rangPres: z.number().int().min(0).max(99).optional(),
   codeSituationFam: codeSituationFamSchema.optional(),
+  // Champs Acorad
+  contreVisiteObligatoire: z.boolean().optional(),
+  etatFiche: etatFicheSchema.optional(),
+  credit: z.number().min(0).optional(),
 });
 
 export const adherentUpdateSchema = z.object({
   // Identité
+  typePieceIdentite: typePieceIdentiteSchema.optional(),
+  dateEditionPiece: z.string().optional(),
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -90,6 +100,10 @@ export const adherentUpdateSchema = z.object({
   parentAdherentId: z.string().optional(),
   rangPres: z.number().int().min(0).max(99).optional(),
   codeSituationFam: codeSituationFamSchema.optional(),
+  // Champs Acorad
+  contreVisiteObligatoire: z.boolean().optional(),
+  etatFiche: etatFicheSchema.optional(),
+  credit: z.number().min(0).optional(),
 });
 
 export const adherentFiltersSchema = z.object({

@@ -41,6 +41,7 @@ const ReportsPage = lazy(() => import('@/features/reports/pages/ReportsPage').th
 const SettingsPage = lazy(() => import('@/features/settings/pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const MfaSetupPage = lazy(() => import('@/features/settings/pages/MfaSetupPage').then(m => ({ default: m.default })));
 const NotificationsSettingsPage = lazy(() => import('@/features/settings/pages/NotificationsSettingsPage').then(m => ({ default: m.default })));
+const AboutPage = lazy(() => import('@/features/about/pages/AboutPage'));
 const MfaVerifyPage = lazy(() => import('@/features/auth/pages/MfaVerifyPage').then(m => ({ default: m.MfaVerifyPage })));
 const SanteDemandesPage = lazy(() => import('@/features/sante/pages/SanteDemandesPage').then(m => ({ default: m.SanteDemandesPage })));
 const SanteDemandeDetailsPage = lazy(() => import('@/features/sante/pages/SanteDemandeDetailsPage').then(m => ({ default: m.default })));
@@ -100,7 +101,7 @@ const BulletinsSaisiePage = lazy(() => import('@/features/bulletins/pages/Bullet
 const BulletinsArchivePage = lazy(() => import('@/features/bulletins/pages/BulletinsArchivePage').then(m => ({ default: m.default })));
 const BulletinsHistoryPage = lazy(() => import('@/features/bulletins/pages/BulletinsHistoryPage').then(m => ({ default: m.default })));
 const AgentAdherentsPage = lazy(() => import('@/features/adherents/pages/AgentAdherentsPage').then(m => ({ default: m.AgentAdherentsPage })));
-// Appeals pages
+// Appeals page
 const AppealsPage = lazy(() => import('@/features/appeals/pages/AppealsPage').then(m => ({ default: m.AppealsPage })));
 const AppealDetailsPage = lazy(() => import('@/features/appeals/pages/AppealDetailsPage').then(m => ({ default: m.default })));
 // Pre-Authorizations pages
@@ -282,6 +283,7 @@ function App() {
                     <Route path="/adherent/providers" element={<AdherentProvidersPage />} />
                     {/* Common routes */}
                     <Route path="/reports" element={<ReportsPage />} />
+                    <Route path="/about" element={<AboutPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
                     <Route path="/settings/mfa" element={<MfaSetupPage />} />
                     <Route path="/settings/notifications" element={<NotificationsSettingsPage />} />
