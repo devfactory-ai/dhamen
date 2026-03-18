@@ -7,11 +7,11 @@ interface LayoutProps {
 }
 
 export function Layout({ children }: LayoutProps) {
-  const { sidebarOpen, setSidebarOpen } = useUIStore();
+  const { sidebarOpen, sidebarCollapsed, setSidebarOpen } = useUIStore();
 
   return (
-    <div className="flex min-h-screen bg-muted/30">
-      {/* Sidebar */}
+    <div className="min-h-screen bg-muted/30">
+      {/* Sidebar (fixed) */}
       <Sidebar />
 
       {/* Mobile overlay */}
@@ -26,11 +26,26 @@ export function Layout({ children }: LayoutProps) {
         />
       )}
 
-      {/* Main content */}
-      <div className="flex flex-1 flex-col">
+      {/* Main content - offset by sidebar width */}
+      <div
+        className="flex flex-col min-h-screen transition-all duration-300"
+        style={{ marginLeft: `var(--sidebar-width)` }}
+      >
         <Header />
-        <main className="flex-1 p-4 lg:p-6">{children}</main>
+        <main className="flex-1 p-4 lg:p-6 overflow-y-auto">{children}</main>
       </div>
+
+      {/* CSS variable for sidebar width */}
+      <style>{`
+        :root {
+          --sidebar-width: ${sidebarCollapsed ? '68px' : '288px'};
+        }
+        @media (max-width: 1023px) {
+          :root {
+            --sidebar-width: 0px;
+          }
+        }
+      `}</style>
     </div>
   );
 }

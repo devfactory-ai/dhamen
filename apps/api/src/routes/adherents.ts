@@ -404,9 +404,11 @@ adherents.get(
     let query = `
       SELECT a.id, a.matricule, a.first_name, a.last_name, a.email,
              a.plafond_global, a.plafond_consomme,
-             co.name as company_name
+             co.name as company_name,
+             ct.plan_type as contract_type
       FROM adherents a
       LEFT JOIN companies co ON a.company_id = co.id
+      LEFT JOIN contracts ct ON ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE'
       WHERE a.deleted_at IS NULL
         AND (a.matricule LIKE ? OR a.first_name LIKE ? OR a.last_name LIKE ?)
     `;
@@ -430,6 +432,7 @@ adherents.get(
       companyName: r.company_name,
       plafondGlobal: r.plafond_global,
       plafondConsomme: r.plafond_consomme,
+      contractType: r.contract_type || null,
     })));
   }
 );
@@ -769,11 +772,11 @@ adherents.post(
     const encryptionKey = getEncryptionKey(c);
 
     // Encrypt sensitive data with AES-256-GCM
-    const encryptedNationalId = await encrypt(data.nationalId, encryptionKey);
+    const encryptedNationalId = data.nationalId ? await encrypt(data.nationalId, encryptionKey) : null;
     const encryptedPhone = data.phone ? await encrypt(data.phone, encryptionKey) : undefined;
 
     // Store hash for searchability (allows lookup without decryption)
-    const nationalIdHash = await hashForIndex(data.nationalId, encryptionKey);
+    const nationalIdHash = data.nationalId ? await hashForIndex(data.nationalId, encryptionKey) : null;
 
     const id = generateId();
     const db = getDb(c);
@@ -821,8 +824,9 @@ adherents.post(
           date_debut_adhesion, date_fin_adhesion, rang, is_active,
           banque, rib_encrypted, regime_social, handicap,
           fonction, maladie_chronique, matricule_conjoint,
+          type_piece_identite, date_edition_piece, contre_visite_obligatoire, etat_fiche, credit,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         id, encryptedNationalId, nationalIdHash, data.firstName, data.lastName,
@@ -833,6 +837,7 @@ adherents.post(
         data.dateDebutAdhesion ?? null, data.dateFinAdhesion ?? null, data.rang ?? 0, data.isActive !== false ? 1 : 0,
         data.banque ?? null, encryptedRib, data.regimeSocial ?? null, data.handicap ? 1 : 0,
         data.fonction ?? null, data.maladiChronique ? 1 : 0, data.matriculeConjoint ?? null,
+        data.typePieceIdentite ?? 'CIN', data.dateEditionPiece ?? null, data.contreVisiteObligatoire ? 1 : 0, data.etatFiche ?? 'NON_TEMPORAIRE', data.credit ?? 0,
         now, now
       )
       .run();
@@ -930,6 +935,10 @@ adherents.put(
       regime_social: data.regimeSocial,
       fonction: data.fonction,
       matricule_conjoint: data.matriculeConjoint,
+      type_piece_identite: data.typePieceIdentite,
+      date_edition_piece: data.dateEditionPiece,
+      etat_fiche: data.etatFiche,
+      credit: data.credit,
     };
 
     for (const [col, val] of Object.entries(simpleFields)) {
@@ -943,6 +952,7 @@ adherents.put(
     if (data.isActive !== undefined) { updates.push('is_active = ?'); params.push(data.isActive ? 1 : 0); }
     if (data.handicap !== undefined) { updates.push('handicap = ?'); params.push(data.handicap ? 1 : 0); }
     if (data.maladiChronique !== undefined) { updates.push('maladie_chronique = ?'); params.push(data.maladiChronique ? 1 : 0); }
+    if (data.contreVisiteObligatoire !== undefined) { updates.push('contre_visite_obligatoire = ?'); params.push(data.contreVisiteObligatoire ? 1 : 0); }
 
     // Encrypted fields
     if (data.phone !== undefined) {

@@ -755,7 +755,11 @@ function BulletinsArchivePage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-                              window.open(`/api/v1/bulletins-soins/archive/${bulletin.id}/scan`, '_blank');
+                              apiClient.get<Blob>(`/bulletins-soins/archive/${bulletin.id}/scan`, { responseType: 'blob' }).then((res) => {
+                                if (res.success && res.data) {
+                                  window.open(URL.createObjectURL(res.data), '_blank');
+                                }
+                              });
                             }}
                           >
                             <Eye className="h-4 w-4" />

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -46,6 +46,7 @@ import {
 } from '@/hooks/use-bulletin-history';
 import type { HistoryBulletin, HistoryFilters } from '@/hooks/use-bulletin-history';
 import { getAccessToken } from '@/lib/auth';
+import { apiClient } from '@/lib/api-client';
 
 const careTypeLabels: Record<string, string> = {
   consultation: 'Consultation',
@@ -95,6 +96,25 @@ export default function BulletinsHistoryPage() {
   const { data: detail, isLoading: detailLoading } = useHistoryDetail(
     showDetailDialog ? selectedBulletinId : null
   );
+
+  const [scanBlobUrl, setScanBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!detail?.scanUrl || !selectedBulletinId) {
+      setScanBlobUrl(null);
+      return;
+    }
+    let revoked = false;
+    apiClient.get<Blob>(`/bulletins-soins/manage/${selectedBulletinId}/scan`, { responseType: 'blob' }).then((res) => {
+      if (!revoked && res.success && res.data) {
+        setScanBlobUrl(URL.createObjectURL(res.data));
+      }
+    });
+    return () => {
+      revoked = true;
+      setScanBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+    };
+  }, [detail?.scanUrl, selectedBulletinId]);
 
   const updateFilter = useCallback((key: keyof HistoryFilters, value: string | number | undefined) => {
     setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
@@ -588,20 +608,22 @@ export default function BulletinsHistoryPage() {
                         <p className="text-sm text-muted-foreground">Fichier attache au bulletin</p>
                       </div>
                     </div>
-                    {detail.scanFilename?.match(/\.(jpg|jpeg|png)$/i) && (
+                    {detail.scanFilename?.match(/\.(jpg|jpeg|png)$/i) && scanBlobUrl && (
                       <div className="rounded-md border p-2">
                         <img
-                          src={detail.scanUrl}
+                          src={scanBlobUrl}
                           alt="Scan bulletin"
                           className="max-w-full max-h-96 mx-auto rounded"
                         />
                       </div>
                     )}
-                    <Button variant="outline" asChild>
-                      <a href={detail.scanUrl} target="_blank" rel="noopener noreferrer">
-                        <Download className="mr-2 h-4 w-4" />
-                        Telecharger le scan
-                      </a>
+                    <Button
+                      variant="outline"
+                      disabled={!scanBlobUrl}
+                      onClick={() => scanBlobUrl && window.open(scanBlobUrl, '_blank')}
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Telecharger le scan
                     </Button>
                   </div>
                 ) : (
