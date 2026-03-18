@@ -58,6 +58,12 @@ export interface CreateAdherentData {
   fonction?: string;
   maladiChronique?: boolean;
   matriculeConjoint?: string;
+  // Nouveaux champs Acorad
+  typePieceIdentite?: string;
+  dateEditionPiece?: string;
+  contreVisiteObligatoire?: boolean;
+  etatFiche?: string;
+  credit?: number;
 }
 
 export type UpdateAdherentData = Partial<Omit<CreateAdherentData, 'nationalId' | 'companyId'>>;
@@ -132,6 +138,7 @@ export interface AdherentSearchResult {
   companyName: string | null;
   plafondGlobal: number | null;
   plafondConsomme: number | null;
+  contractType: 'individual' | 'family' | 'corporate' | null;
 }
 
 export function useSearchAdherents(query: string) {

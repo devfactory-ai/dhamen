@@ -56,20 +56,14 @@ export function createCorsMiddleware(environment: string) {
       // Allow Cloudflare Pages deployments only for the dhamen project
       // and only in non-production environments
       if (environment !== 'production') {
-        // Main pages domain (production)
-        if (origin === 'https://dhamen-web.pages.dev') {
+        // Cloudflare Pages domains (main, dev, staging)
+        if (origin === 'https://dhamen-web.pages.dev' ||
+            origin === 'https://dhamen-web-dev.pages.dev' ||
+            origin === 'https://dhamen-web-staging.pages.dev') {
           return origin;
         }
-        // Staging pages domain
-        if (origin === 'https://dhamen-web-staging.pages.dev') {
-          return origin;
-        }
-        // Preview deployments for production (with hash prefix)
-        if (origin.match(/^https:\/\/[a-z0-9-]+\.dhamen-web\.pages\.dev$/)) {
-          return origin;
-        }
-        // Preview deployments for staging (with hash prefix)
-        if (origin.match(/^https:\/\/[a-z0-9-]+\.dhamen-web-staging\.pages\.dev$/)) {
+        // Preview deployments (with hash prefix, e.g. abc123.dhamen-web-dev.pages.dev)
+        if (origin.match(/^https:\/\/[a-z0-9-]+\.dhamen-web(-dev|-staging)?\.pages\.dev$/)) {
           return origin;
         }
       }

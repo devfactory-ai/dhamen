@@ -840,7 +840,7 @@ bulletinsAgent.post('/create', async (c) => {
   const adherentMatricule = formData['adherent_matricule'] as string;
   const adherentFirstName = formData['adherent_first_name'] as string;
   const adherentLastName = formData['adherent_last_name'] as string;
-  const adherentNationalId = formData['adherent_national_id'] as string;
+  const adherentNationalId = (formData['adherent_national_id'] as string) || null;
   const adherentEmail = (formData['adherent_email'] as string) || null;
   const beneficiaryName = (formData['beneficiary_name'] as string) || null;
   const beneficiaryRelationship = (formData['beneficiary_relationship'] as string) || null;
@@ -896,7 +896,6 @@ bulletinsAgent.post('/create', async (c) => {
     !adherentMatricule ||
     !adherentFirstName ||
     !adherentLastName ||
-    !adherentNationalId ||
     !careType ||
     isNaN(totalAmount)
   ) {
@@ -1895,12 +1894,10 @@ bulletinsAgent.get('/:id/scan', async (c) => {
   const storage = c.env.STORAGE;
 
   try {
-    const bulletin = await db
-      .prepare(
-        'SELECT scan_url, scan_filename FROM bulletins_soins WHERE id = ? AND created_by = ?'
-      )
-      .bind(bulletinId, user.id)
-      .first<{ scan_url: string | null; scan_filename: string | null }>();
+    const query = user.role === 'INSURER_ADMIN' || user.role === 'ADMIN'
+      ? db.prepare('SELECT scan_url, scan_filename FROM bulletins_soins WHERE id = ?').bind(bulletinId)
+      : db.prepare('SELECT scan_url, scan_filename FROM bulletins_soins WHERE id = ? AND created_by = ?').bind(bulletinId, user.id);
+    const bulletin = await query.first<{ scan_url: string | null; scan_filename: string | null }>();
 
     if (!bulletin) {
       return c.json(

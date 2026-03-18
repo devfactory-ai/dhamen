@@ -1,8 +1,9 @@
 import { useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { useBulletinScanUpload, getBulletinScanUrl } from '@/hooks/use-bulletin-scan';
-import { Upload, FileImage, FileText, Download, Loader2, X, Replace } from 'lucide-react';
+import { useBulletinScanUpload } from '@/hooks/use-bulletin-scan';
+import { Upload, FileImage, FileText, Download, Loader2, Replace } from 'lucide-react';
+import { apiClient } from '@/lib/api-client';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -52,8 +53,14 @@ export function ScanUpload({ bulletinId, existingScanUrl, existingScanFilename, 
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, [validateAndUpload]);
 
-  const handleDownload = () => {
-    window.open(getBulletinScanUrl(bulletinId), '_blank');
+  const handleDownload = async () => {
+    const response = await apiClient.get<Blob>(`/bulletins-soins/agent/${bulletinId}/scan`, {
+      responseType: 'blob',
+    });
+    if (response.success && response.data) {
+      const url = URL.createObjectURL(response.data);
+      window.open(url, '_blank');
+    }
   };
 
   const isPdf = existingScanFilename?.toLowerCase().endsWith('.pdf');
