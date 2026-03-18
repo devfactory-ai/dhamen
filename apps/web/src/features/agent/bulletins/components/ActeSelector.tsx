@@ -61,20 +61,6 @@ export function ActeSelector({ value, onChange, disabled }: ActeSelectorProps) {
     }
   };
 
-  const formatActeInfo = (acte: {
-    type_calcul: string;
-    valeur_base: number | null;
-    taux_remboursement: number;
-  }): string => {
-    if (acte.type_calcul === 'forfait' && acte.valeur_base) {
-      return `${(acte.valeur_base / 1000).toFixed(0)} DT`;
-    }
-    if (acte.taux_remboursement > 0) {
-      return `${(acte.taux_remboursement * 100).toFixed(0)}%`;
-    }
-    return '';
-  };
-
   return (
     <Select value={value || undefined} onValueChange={handleValueChange} disabled={disabled}>
       <SelectTrigger>
@@ -86,16 +72,12 @@ export function ActeSelector({ value, onChange, disabled }: ActeSelectorProps) {
             <SelectLabel className="bg-muted/50 py-1.5 font-semibold text-primary/80 text-xs">
               {groupe.famille.code} - {groupe.famille.label}
             </SelectLabel>
-            {groupe.actes.map((acte) => {
-              const info = formatActeInfo(acte);
-              return (
-                <SelectItem key={acte.code} value={acte.code}>
-                  <span className="mr-2 font-mono text-xs">{acte.code}</span>
-                  {acte.label}
-                  {info && <span className="ml-2 text-muted-foreground">({info})</span>}
-                </SelectItem>
-              );
-            })}
+            {groupe.actes.map((acte) => (
+              <SelectItem key={acte.code} value={acte.code}>
+                <span className="mr-2 font-mono text-xs">{acte.code}</span>
+                {acte.label}
+              </SelectItem>
+            ))}
           </SelectGroup>
         ))}
       </SelectContent>

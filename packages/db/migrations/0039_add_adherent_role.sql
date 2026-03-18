@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS users_new (
   provider_id TEXT REFERENCES providers(id),
   insurer_id TEXT REFERENCES insurers(id),
   company_id TEXT,
-  company_id TEXT,
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
   phone TEXT,

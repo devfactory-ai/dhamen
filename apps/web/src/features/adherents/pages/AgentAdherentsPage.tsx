@@ -108,7 +108,9 @@ function formatDate(date: string | null): string {
 
 interface AdherentFormState {
   // Onglet Adhérent (identité)
+  typePieceIdentite: string;
   nationalId: string;
+  dateEditionPiece: string;
   firstName: string;
   lastName: string;
   dateOfBirth: string;
@@ -123,6 +125,8 @@ interface AdherentFormState {
   dateFinAdhesion: string;
   rang: string;
   isActive: boolean;
+  contreVisiteObligatoire: boolean;
+  etatFiche: string;
   // Onglet Renseignement (contact)
   phone: string;
   mobile: string;
@@ -140,15 +144,19 @@ interface AdherentFormState {
   fonction: string;
   maladiChronique: boolean;
   matriculeConjoint: string;
+  credit: string;
 }
 
 const emptyForm: AdherentFormState = {
-  nationalId: '', firstName: '', lastName: '', dateOfBirth: '',
+  typePieceIdentite: 'CIN', nationalId: '', dateEditionPiece: '',
+  firstName: '', lastName: '', dateOfBirth: '',
   gender: '', lieuNaissance: '', etatCivil: '', dateMarriage: '',
   matricule: '', plafondGlobal: '', dateDebutAdhesion: '', dateFinAdhesion: '', rang: '0', isActive: true,
+  contreVisiteObligatoire: false, etatFiche: 'NON_TEMPORAIRE',
   phone: '', mobile: '', email: '',
   rue: '', address: '', city: '', postalCode: '',
   banque: '', rib: '', regimeSocial: '', handicap: false, fonction: '', maladiChronique: false, matriculeConjoint: '',
+  credit: '',
 };
 
 // --- Sub-components ---
@@ -232,19 +240,37 @@ function AdherentFormTabs({
 
       {/* === Onglet Adhérent === */}
       <TabsContent value="adherent" className="space-y-4 mt-4">
-        {/* CIN */}
-        <div>
-          <Label htmlFor="nationalId">CIN (Carte d'Identité Nationale) *</Label>
-          <Input
-            id="nationalId"
-            placeholder="12345678"
-            maxLength={8}
-            disabled={isEdit}
-            value={form.nationalId}
-            onChange={(e) => setForm({ ...form, nationalId: e.target.value.replace(/\D/g, '') })}
+        {/* Type piece identite / N° piece / Date edition */}
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <Label>Type de piece</Label>
+            <Select value={form.typePieceIdentite} onValueChange={(v) => setForm({ ...form, typePieceIdentite: v })}>
+              <SelectTrigger><SelectValue placeholder="CIN" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="CIN">Carte d'Identite Nationale</SelectItem>
+                <SelectItem value="PASSEPORT">Passeport</SelectItem>
+                <SelectItem value="CARTE_SEJOUR">Carte de sejour</SelectItem>
+                <SelectItem value="AUTRE">Autre</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="nationalId">N° piece</Label>
+            <Input
+              id="nationalId"
+              placeholder="12345678"
+              maxLength={form.typePieceIdentite === 'CIN' ? 8 : 20}
+              disabled={isEdit}
+              value={form.nationalId}
+              onChange={(e) => setForm({ ...form, nationalId: form.typePieceIdentite === 'CIN' ? e.target.value.replace(/\D/g, '') : e.target.value })}
             className={formErrors.nationalId ? 'border-red-500' : ''}
           />
           {formErrors.nationalId && <p className="text-xs text-red-500 mt-1">{formErrors.nationalId}</p>}
+          </div>
+          <div>
+            <Label htmlFor="dateEditionPiece">Date d'edition</Label>
+            <Input id="dateEditionPiece" type="date" value={form.dateEditionPiece} onChange={(e) => setForm({ ...form, dateEditionPiece: e.target.value })} />
+          </div>
         </div>
 
         {/* Nom / Prénom */}
@@ -337,6 +363,30 @@ function AdherentFormTabs({
               <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="rounded" />
               <span className="text-sm font-medium">Actif</span>
             </label>
+          </div>
+        </div>
+
+        {/* Contre-visite / Etat fiche */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="flex items-end pb-1">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={form.contreVisiteObligatoire} onChange={(e) => setForm({ ...form, contreVisiteObligatoire: e.target.checked })} className="rounded" />
+              <span className="text-sm">Contre-visite obligatoire</span>
+            </label>
+          </div>
+          <div>
+            <Label>Etat de fiche</Label>
+            <Select value={form.etatFiche} onValueChange={(v) => setForm({ ...form, etatFiche: v })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="NON_TEMPORAIRE">Non temporaire</SelectItem>
+                <SelectItem value="TEMPORAIRE">Temporaire</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="credit">Credit (DT)</Label>
+            <Input id="credit" type="number" min={0} step="0.001" placeholder="0" value={form.credit} onChange={(e) => setForm({ ...form, credit: e.target.value })} />
           </div>
         </div>
       </TabsContent>
@@ -507,8 +557,10 @@ export function AgentAdherentsPage() {
 
   function validateForm(): boolean {
     const errors: Record<string, string> = {};
-    if (!editAdherent && (!form.nationalId || !/^\d{8}$/.test(form.nationalId))) {
-      errors.nationalId = 'CIN invalide (8 chiffres requis)';
+    if (!editAdherent && form.nationalId) {
+      if (form.typePieceIdentite === 'CIN' && !/^\d{8}$/.test(form.nationalId)) {
+        errors.nationalId = 'CIN invalide (8 chiffres requis)';
+      }
     }
     if (!form.lastName.trim()) errors.lastName = 'Nom requis';
     if (!form.firstName.trim()) errors.firstName = 'Prénom requis';
@@ -569,6 +621,11 @@ export function AgentAdherentsPage() {
       fonction: form.fonction || undefined,
       maladiChronique: form.maladiChronique || undefined,
       matriculeConjoint: form.matriculeConjoint || undefined,
+      typePieceIdentite: form.typePieceIdentite || undefined,
+      dateEditionPiece: form.dateEditionPiece || undefined,
+      contreVisiteObligatoire: form.contreVisiteObligatoire || undefined,
+      etatFiche: form.etatFiche || undefined,
+      credit: form.credit ? Number(form.credit) : undefined,
     };
     try {
       await createMutation.mutateAsync(payload);
@@ -608,6 +665,11 @@ export function AgentAdherentsPage() {
       fonction: form.fonction || undefined,
       maladiChronique: form.maladiChronique || undefined,
       matriculeConjoint: form.matriculeConjoint || undefined,
+      typePieceIdentite: form.typePieceIdentite || undefined,
+      dateEditionPiece: form.dateEditionPiece || undefined,
+      contreVisiteObligatoire: form.contreVisiteObligatoire || undefined,
+      etatFiche: form.etatFiche || undefined,
+      credit: form.credit ? Number(form.credit) : undefined,
     };
     try {
       await updateMutation.mutateAsync({ id: editAdherent.id, data: payload });
@@ -648,7 +710,7 @@ export function AgentAdherentsPage() {
 
       {/* Search + Create */}
       <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-md">
+        <div className="relative flex-1 max-w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <Input placeholder="Rechercher par nom ou matricule..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="pl-10" />
         </div>

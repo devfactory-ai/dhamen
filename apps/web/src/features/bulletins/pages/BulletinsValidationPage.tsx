@@ -348,9 +348,15 @@ export function BulletinsValidationPage() {
     });
   };
 
-  const handleViewScan = (bulletin: BulletinSoins) => {
+  const handleViewScan = async (bulletin: BulletinSoins) => {
     if (bulletin.scan_url) {
-      window.open(`/api/v1/bulletins-soins/manage/${bulletin.id}/scan`, '_blank');
+      const response = await apiClient.get<Blob>(`/bulletins-soins/manage/${bulletin.id}/scan`, {
+        responseType: 'blob',
+      });
+      if (response.success && response.data) {
+        const url = URL.createObjectURL(response.data);
+        window.open(url, '_blank');
+      }
     }
   };
 

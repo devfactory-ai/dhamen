@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { cn } from '@/lib/utils';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -154,23 +155,23 @@ const acteFormSchema = z.object({
   code: z.string().optional(),
   label: z.string().min(1, 'Libelle requis'),
   amount: z.number().positive('Montant > 0'),
-  ref_prof_sant: z.string().optional(),
+  ref_prof_sant: z.string().min(1, 'Matricule fiscale requis'),
   nom_prof_sant: z.string().min(2, 'Nom du praticien requis'),
+  care_description: z.string().optional(),
   cod_msgr: z.string().optional(),
   lib_msgr: z.string().optional(),
 });
 
 const bulletinFormSchema = z.object({
+  bulletin_number: z.string().min(1, 'Numero de bulletin requis'),
   bulletin_date: z.string().min(1, 'Date requise'),
   adherent_matricule: z.string().min(1, 'Matricule requis'),
   adherent_first_name: z.string().min(2, 'Prenom requis'),
   adherent_last_name: z.string().min(2, 'Nom requis'),
-  adherent_national_id: z.string().min(8, 'CIN requis'),
+  adherent_national_id: z.string().optional().or(z.literal('')),
   adherent_email: z.string().email('Email invalide').optional().or(z.literal('')),
   beneficiary_name: z.string().optional(),
-  beneficiary_relationship: z.string().optional(),
   care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']),
-  care_description: z.string().optional(),
   actes: z.array(acteFormSchema).min(1, 'Au moins un acte requis'),
 });
 
@@ -203,6 +204,18 @@ export function BulletinsSaisiePage() {
   const { data: familleData } = useAdherentFamille(selectedAdherentInfo?.id);
   const { data: plafondsData } = useAdherentPlafonds(selectedAdherentInfo?.id);
 
+  // Extract pharmacy plafond (FA0003 = Frais pharmaceutiques) from adherent plafonds
+  const plafondPharma = plafondsData?.parFamille?.find(
+    (p) => p.familleCode === 'FA0003'
+  );
+  const plafondPharmaChronique = plafondsData?.parFamille?.find(
+    (p) => p.familleCode === 'FA0003' && p.typeMaladie === 'chronique'
+  );
+  const plafondPharmaOrdinaire = plafondsData?.parFamille?.find(
+    (p) => p.familleCode === 'FA0003' && p.typeMaladie === 'ordinaire'
+  );
+  const [selectedMedicationFamily, setSelectedMedicationFamily] = useState<string>('');
+
   const {
     register,
     handleSubmit,
@@ -216,7 +229,7 @@ export function BulletinsSaisiePage() {
     defaultValues: {
       care_type: 'consultation',
       bulletin_date: new Date().toISOString().split('T')[0],
-      actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', cod_msgr: '', lib_msgr: '' }],
+      actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_description: '', cod_msgr: '', lib_msgr: '' }],
     },
   });
 
@@ -228,6 +241,46 @@ export function BulletinsSaisiePage() {
   const selectedCareType = watch('care_type');
   const watchedActes = watch('actes');
   const actesTotal = (watchedActes || []).reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+
+  // Fetch medication families for pharmacy care type
+  const { data: medicationFamilies } = useQuery({
+    queryKey: ['medication-families'],
+    queryFn: async () => {
+      const response = await apiClient.get<{ families: { id: string; code: string; name: string }[] }>('/medications/families');
+      if (!response.success) return [];
+      return response.data?.families || [];
+    },
+    enabled: selectedCareType === 'pharmacy',
+  });
+
+  // Fetch medications filtered by family
+  const { data: medications } = useQuery({
+    queryKey: ['medications', selectedMedicationFamily],
+    queryFn: async () => {
+      const params: Record<string, string> = { limit: '200' };
+      if (selectedMedicationFamily && selectedMedicationFamily !== 'all') {
+        params.familyId = selectedMedicationFamily;
+      }
+      const response = await apiClient.get<{
+        id: string;
+        code_pct: string;
+        dci: string;
+        brand_name: string;
+        dosage: string;
+        form: string;
+        family_name: string;
+        price_public: number;
+        is_generic: number;
+        is_reimbursable: number;
+        reimbursement_rate: number;
+      }[]>('/medications', { params });
+      if (!response.success) return [];
+      // apiClient may return data directly as array or wrapped
+      const raw = response as unknown as { data: unknown };
+      return Array.isArray(raw.data) ? raw.data : [];
+    },
+    enabled: selectedCareType === 'pharmacy',
+  });
 
   // Fetch bulletins (drafts and in_batch) for current batch
   const { data: bulletinsData, isLoading: loadingBulletins } = useQuery({
@@ -305,6 +358,11 @@ export function BulletinsSaisiePage() {
       toast.success('Bulletin saisi avec succes!');
       reset();
       setSelectedFiles([]);
+      setSelectedAdherentInfo(null);
+      setAdherentSearch('');
+      setShowAdherentDropdown(false);
+      setSelectedMedicationFamily('');
+      setActiveTab('liste');
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Erreur lors de la saisie');
@@ -497,7 +555,9 @@ export function BulletinsSaisiePage() {
         formData.append('files', file);
       }
 
-      const res = await fetch('https://grady-semistiff-willia.ngrok-free.dev/analyse-bulletin', {
+      // OCR API: use local Python server, fallback to ngrok if configured
+      const ocrApiUrl = import.meta.env.VITE_OCR_API_URL || 'http://localhost:8000/analyse-bulletin';
+      const res = await fetch(ocrApiUrl, {
         method: 'POST',
         headers: { 'accept': 'application/json' },
         body: formData,
@@ -585,11 +645,6 @@ export function BulletinsSaisiePage() {
   };
 
   const onSubmitForm = async (data: BulletinFormData) => {
-    if (selectedFiles.length === 0) {
-      toast.error('Veuillez ajouter au moins un scan du bulletin');
-      return;
-    }
-
     setIsSubmitting(true);
     try {
       await submitMutation.mutateAsync({ formData: data, files: selectedFiles });
@@ -929,7 +984,7 @@ export function BulletinsSaisiePage() {
 
         {/* Tab: Saisie */}
         <TabsContent value="saisie">
-          {!selectedBatch ? (
+          {!selectedBatch || selectedBatch.status === 'exported' ? (
             <Card className="border-amber-200 bg-amber-50">
               <CardContent className="pt-6">
                 <div className="flex flex-col items-center gap-4 py-8 text-center">
@@ -937,17 +992,18 @@ export function BulletinsSaisiePage() {
                     <AlertTriangle className="h-7 w-7 text-amber-600" />
                   </div>
                   <div className="space-y-2">
-                    <h3 className="text-lg font-semibold text-amber-900">Aucun lot selectionne</h3>
+                    <h3 className="text-lg font-semibold text-amber-900">
+                      {selectedBatch?.status === 'exported' ? 'Lot deja exporte' : 'Aucun lot selectionne'}
+                    </h3>
                     <p className="text-sm text-amber-700 max-w-md">
-                      Vous devez selectionner une entreprise et un lot avant de pouvoir saisir un bulletin.
-                      Rendez-vous sur la page de selection de contexte pour choisir ou creer un lot.
+                      {selectedBatch?.status === 'exported'
+                        ? 'Le lot actuel a ete exporte. Veuillez creer un nouveau lot pour continuer la saisie.'
+                        : 'Vous devez selectionner une entreprise et creer un lot avant de pouvoir saisir un bulletin.'}
                     </p>
                   </div>
-                  <Button asChild className="mt-2">
-                    <a href="/select-context">
-                      <FolderPlus className="mr-2 h-4 w-4" />
-                      Selectionner un lot
-                    </a>
+                  <Button className="mt-2" onClick={() => { setActiveTab('lots'); setShowBatchDialog(true); }}>
+                    <FolderPlus className="mr-2 h-4 w-4" />
+                    Creer un nouveau lot
                   </Button>
                 </div>
               </CardContent>
@@ -969,7 +1025,7 @@ export function BulletinsSaisiePage() {
                   <form onSubmit={handleSubmit(onSubmitForm)} className="space-y-6">
                     {/* Scan upload */}
                     <div className="space-y-2">
-                      <Label>Scan du bulletin *</Label>
+                      <Label>Scan du bulletin</Label>
                       {selectedFiles.length > 0 ? (
                         <div className="space-y-3">
                           <FilePreviewList
@@ -1026,8 +1082,15 @@ export function BulletinsSaisiePage() {
                       />
                     </div>
 
-                    {/* Date */}
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    {/* Numero + Date */}
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label>N° bulletin *</Label>
+                        <Input {...register('bulletin_number')} placeholder="Ex: BS-2026-001" />
+                        {errors.bulletin_number && (
+                          <p className="text-sm text-destructive">{errors.bulletin_number.message}</p>
+                        )}
+                      </div>
                       <div className="space-y-2">
                         <Label>Date du bulletin *</Label>
                         <Input type="date" {...register('bulletin_date')} />
@@ -1052,6 +1115,60 @@ export function BulletinsSaisiePage() {
                           </SelectContent>
                         </Select>
                       </div>
+                      {selectedCareType === 'pharmacy' && (
+                        <div className="space-y-2">
+                          <Label>Famille therapeutique</Label>
+                          <Select
+                            value={selectedMedicationFamily || undefined}
+                            onValueChange={setSelectedMedicationFamily}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Toutes les familles" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Toutes les familles</SelectItem>
+                              {(medicationFamilies || []).map((f) => (
+                                <SelectItem key={f.id} value={f.id}>
+                                  {f.code} - {f.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                      {selectedCareType === 'pharmacy' && selectedAdherentInfo && (
+                        <div className="rounded-md border px-3 py-2 text-xs space-y-1 bg-blue-50/50">
+                          <p className="font-medium text-blue-800 flex items-center gap-1">
+                            <Pill className="h-3.5 w-3.5" />
+                            Remboursement Frais Pharmaceutiques
+                          </p>
+                          {plafondPharmaOrdinaire ? (
+                            <div className="flex justify-between text-blue-700">
+                              <span>Maladie ordinaire : {Math.round((plafondPharmaOrdinaire.montantConsomme / 1000) * 1000) / 1000} / {(plafondPharmaOrdinaire.montantPlafond / 1000).toFixed(3)} DT</span>
+                              <span className={plafondPharmaOrdinaire.pourcentageConsomme >= 80 ? 'text-red-600 font-semibold' : ''}>
+                                Restant : {(plafondPharmaOrdinaire.montantRestant / 1000).toFixed(3)} DT
+                              </span>
+                            </div>
+                          ) : plafondPharma ? (
+                            <div className="flex justify-between text-blue-700">
+                              <span>Consomme : {(plafondPharma.montantConsomme / 1000).toFixed(3)} / {(plafondPharma.montantPlafond / 1000).toFixed(3)} DT</span>
+                              <span className={plafondPharma.pourcentageConsomme >= 80 ? 'text-red-600 font-semibold' : ''}>
+                                Restant : {(plafondPharma.montantRestant / 1000).toFixed(3)} DT
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="text-gray-500">Aucun plafond pharma configure</p>
+                          )}
+                          {plafondPharmaChronique && (
+                            <div className="flex justify-between text-orange-700">
+                              <span>Maladie chronique : {(plafondPharmaChronique.montantConsomme / 1000).toFixed(3)} / {(plafondPharmaChronique.montantPlafond / 1000).toFixed(3)} DT</span>
+                              <span className={plafondPharmaChronique.pourcentageConsomme >= 80 ? 'text-red-600 font-semibold' : ''}>
+                                Restant : {(plafondPharmaChronique.montantRestant / 1000).toFixed(3)} DT
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Adherent info */}
@@ -1079,6 +1196,14 @@ export function BulletinsSaisiePage() {
                               onBlur={() => setTimeout(() => setShowAdherentDropdown(false), 200)}
                             />
                           </div>
+                          {showAdherentDropdown && adherentSearch.length >= 2 && adherentResults && adherentResults.length === 0 && !selectedAdherentInfo && (
+                            <div className="absolute z-50 w-full mt-1 bg-white border border-red-200 rounded-lg shadow-lg px-3 py-2">
+                              <p className="text-sm text-red-600 flex items-center gap-1.5">
+                                <Ban className="w-3.5 h-3.5" />
+                                Aucun adherent trouve avec cette matricule
+                              </p>
+                            </div>
+                          )}
                           {showAdherentDropdown && adherentResults && adherentResults.length > 0 && (
                             <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
                               {adherentResults.map((a) => (
@@ -1100,6 +1225,11 @@ export function BulletinsSaisiePage() {
                                   <span className="font-medium">{a.firstName} {a.lastName}</span>
                                   <span className="text-gray-400 ml-2 font-mono text-xs">{a.matricule}</span>
                                   {a.companyName && <span className="text-gray-400 ml-2 text-xs">— {a.companyName}</span>}
+                                  {a.contractType && (
+                                    <span className="ml-2 text-xs text-blue-500">
+                                      [{a.contractType === 'individual' ? 'Individuel' : a.contractType === 'family' ? 'Famille' : 'Groupe'}]
+                                    </span>
+                                  )}
                                 </button>
                               ))}
                             </div>
@@ -1108,6 +1238,12 @@ export function BulletinsSaisiePage() {
                             <div className="text-xs text-green-600 flex items-center gap-1 mt-1">
                               <Check className="w-3 h-3" />
                               {selectedAdherentInfo.firstName} {selectedAdherentInfo.lastName}
+                              {selectedAdherentInfo.contractType && (
+                                <Badge variant="outline" className="ml-1 text-[10px] px-1.5 py-0">
+                                  {selectedAdherentInfo.contractType === 'individual' ? 'Individuel' :
+                                   selectedAdherentInfo.contractType === 'family' ? 'Famille' : 'Groupe'}
+                                </Badge>
+                              )}
                               {selectedAdherentInfo.plafondGlobal != null && (
                                 <span className="text-gray-400 ml-1">
                                   — Plafond restant : {new Intl.NumberFormat('fr-TN', { maximumFractionDigits: 0 }).format(
@@ -1122,11 +1258,8 @@ export function BulletinsSaisiePage() {
                           )}
                         </div>
                         <div className="space-y-2">
-                          <Label>CIN *</Label>
+                          <Label>CIN</Label>
                           <Input {...register('adherent_national_id')} placeholder="12345678" />
-                          {errors.adherent_national_id && (
-                            <p className="text-sm text-destructive">{errors.adherent_national_id.message}</p>
-                          )}
                         </div>
                         <div className="space-y-2">
                           <Label>Nom *</Label>
@@ -1151,22 +1284,64 @@ export function BulletinsSaisiePage() {
                             <p className="text-sm text-destructive">{errors.adherent_email.message}</p>
                           )}
                         </div>
-                        <div className="space-y-2">
-                          <Label>Nom du beneficiaire (si different)</Label>
-                          <Input {...register('beneficiary_name')} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Lien de parente</Label>
-                          <Select onValueChange={(v) => setValue('beneficiary_relationship', v)}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Choisir..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="spouse">Conjoint(e)</SelectItem>
-                              <SelectItem value="child">Enfant</SelectItem>
-                              <SelectItem value="parent">Parent</SelectItem>
-                            </SelectContent>
-                          </Select>
+                        <div className="space-y-2 sm:col-span-2">
+                          {selectedAdherentInfo && familleData && (familleData.conjoint || familleData.enfants.length > 0) && (
+                            <>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  id="is_ayant_droit"
+                                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                  checked={!!watch('beneficiary_name')}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      // Set a placeholder to show the family members list
+                                      const first = familleData?.conjoint || familleData?.enfants?.[0];
+                                      if (first) setValue('beneficiary_name', `${first.firstName} ${first.lastName}`);
+                                    } else {
+                                      setValue('beneficiary_name', '');
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor="is_ayant_droit" className="cursor-pointer">Soins pour un ayant droit</Label>
+                              </div>
+                              {watch('beneficiary_name') !== '' && watch('beneficiary_name') !== undefined && (
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                  {familleData.conjoint && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setValue('beneficiary_name', `${familleData.conjoint!.firstName} ${familleData.conjoint!.lastName}`)}
+                                      className={cn(
+                                        'px-3 py-1.5 rounded-lg border text-sm transition-colors',
+                                        watch('beneficiary_name') === `${familleData.conjoint.firstName} ${familleData.conjoint.lastName}`
+                                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                          : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                                      )}
+                                    >
+                                      {familleData.conjoint.firstName} {familleData.conjoint.lastName}
+                                      <span className="ml-1 text-xs text-gray-400">Conjoint(e)</span>
+                                    </button>
+                                  )}
+                                  {familleData.enfants.map((enfant) => (
+                                    <button
+                                      key={enfant.id}
+                                      type="button"
+                                      onClick={() => setValue('beneficiary_name', `${enfant.firstName} ${enfant.lastName}`)}
+                                      className={cn(
+                                        'px-3 py-1.5 rounded-lg border text-sm transition-colors',
+                                        watch('beneficiary_name') === `${enfant.firstName} ${enfant.lastName}`
+                                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                          : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                                      )}
+                                    >
+                                      {enfant.firstName} {enfant.lastName}
+                                      <span className="ml-1 text-xs text-gray-400">Enfant</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1175,14 +1350,20 @@ export function BulletinsSaisiePage() {
                     <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
                       <div className="flex items-center justify-between">
                         <h4 className="font-medium flex items-center gap-2">
-                          <FileText className="h-4 w-4" />
-                          Actes medicaux *
+                          {selectedCareType === 'pharmacy' ? <Pill className="h-4 w-4" /> :
+                           selectedCareType === 'consultation' ? <Stethoscope className="h-4 w-4" /> :
+                           selectedCareType === 'lab' ? <FlaskConical className="h-4 w-4" /> :
+                           <Building2 className="h-4 w-4" />}
+                          {selectedCareType === 'pharmacy' ? 'Medicaments *' :
+                           selectedCareType === 'consultation' ? 'Consultations / Visites *' :
+                           selectedCareType === 'lab' ? 'Analyses *' :
+                           'Frais d\'hospitalisation *'}
                         </h4>
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => appendActe({ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', cod_msgr: '', lib_msgr: '' })}
+                          onClick={() => appendActe({ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_description: '', cod_msgr: '', lib_msgr: '' })}
                         >
                           <Plus className="h-4 w-4 mr-1" />
                           Ajouter un acte
@@ -1197,16 +1378,86 @@ export function BulletinsSaisiePage() {
                         <div key={field.id} className="space-y-2 rounded-md border bg-background p-3">
                           <div className="flex items-start gap-2">
                             <div className="flex-1">
-                              <ActeSelector
-                                value={watch(`actes.${index}.code`) || ''}
-                                onChange={(code, acte) => {
-                                  setValue(`actes.${index}.code`, code);
-                                  setValue(`actes.${index}.label`, acte.label);
-                                }}
-                              />
+                              {selectedCareType === 'pharmacy' ? (
+                                <Select
+                                  value={watch(`actes.${index}.code`) || undefined}
+                                  onValueChange={(codePct) => {
+                                    const med = (medications || []).find((m) => m.code_pct === codePct);
+                                    if (med) {
+                                      setValue(`actes.${index}.code`, med.code_pct);
+                                      const reimbLabel = med.is_reimbursable ? `[R ${Math.round((med.reimbursement_rate || 0.7) * 100)}%]` : '[NR]';
+                                      setValue(`actes.${index}.label`, `${med.brand_name} - ${med.dci} ${med.dosage || ''} ${med.form || ''} ${reimbLabel}`.trim());
+                                      if (med.price_public) {
+                                        setValue(`actes.${index}.amount`, med.price_public / 1000);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Selectionner un medicament" />
+                                  </SelectTrigger>
+                                  <SelectContent className="max-h-80 overflow-y-auto" position="popper" sideOffset={4}>
+                                    {(medications || []).map((med) => (
+                                      <SelectItem key={med.id} value={med.code_pct}>
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-medium">{med.brand_name}</span>
+                                          <span className="text-xs text-muted-foreground">{med.dci}</span>
+                                          {med.dosage && <span className="text-xs text-muted-foreground">- {med.dosage}</span>}
+                                          {med.is_generic ? <span className="text-[10px] px-1 bg-blue-100 text-blue-700 rounded">GEN</span> : null}
+                                          {med.is_reimbursable ? (
+                                            <span className="text-[10px] px-1 bg-green-100 text-green-700 rounded">
+                                              R {Math.round((med.reimbursement_rate || 0.7) * 100)}%
+                                            </span>
+                                          ) : (
+                                            <span className="text-[10px] px-1 bg-red-100 text-red-600 rounded">Non remb.</span>
+                                          )}
+                                        </div>
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              ) : (
+                                <ActeSelector
+                                  value={watch(`actes.${index}.code`) || ''}
+                                  onChange={(code, acte) => {
+                                    setValue(`actes.${index}.code`, code);
+                                    setValue(`actes.${index}.label`, acte.label);
+                                  }}
+                                />
+                              )}
                               {errors.actes?.[index]?.label && (
                                 <p className="text-xs text-destructive mt-1">{errors.actes[index].label?.message}</p>
                               )}
+                              {selectedCareType === 'pharmacy' && watch(`actes.${index}.code`) && (() => {
+                                const selectedMed = (medications || []).find((m) => m.code_pct === watch(`actes.${index}.code`));
+                                if (!selectedMed) return null;
+                                const amount = watch(`actes.${index}.amount`) || 0;
+                                if (selectedMed.is_reimbursable) {
+                                  const taux = selectedMed.reimbursement_rate || 0.7;
+                                  const montantRembourse = amount * taux;
+                                  const ticketModerateur = amount - montantRembourse;
+                                  return (
+                                    <div className="mt-1 flex items-center gap-3 text-[11px]">
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-50 text-green-700 rounded border border-green-200">
+                                        <CheckCircle2 className="h-3 w-3" />
+                                        Remboursable {Math.round(taux * 100)}%
+                                      </span>
+                                      {amount > 0 && (
+                                        <>
+                                          <span className="text-gray-500">PEC : {montantRembourse.toFixed(3)} DT</span>
+                                          <span className="text-gray-500">TM : {ticketModerateur.toFixed(3)} DT</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <div className="mt-1 flex items-center gap-1 text-[11px] px-1.5 py-0.5 bg-red-50 text-red-600 rounded border border-red-200 w-fit">
+                                    <Ban className="h-3 w-3" />
+                                    Non remboursable — a la charge de l'adherent
+                                  </div>
+                                );
+                              })()}
                             </div>
                             <div className="w-32">
                               <Input
@@ -1231,47 +1482,162 @@ export function BulletinsSaisiePage() {
                               </Button>
                             )}
                           </div>
-                          {/* Professionnel de sante */}
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <div>
-                              <Label className="text-xs font-medium">Nom du praticien *</Label>
-                              <Input
-                                {...register(`actes.${index}.nom_prof_sant`)}
-                                placeholder="Dr. Mohamed Ali"
-                                className="h-8 text-sm"
-                              />
-                              {errors.actes?.[index]?.nom_prof_sant && (
-                                <p className="text-xs text-destructive mt-1">{errors.actes[index].nom_prof_sant?.message}</p>
-                              )}
-                            </div>
-                            <div>
-                              <Label className="text-xs text-muted-foreground">Ref. praticien</Label>
-                              <Input
-                                {...register(`actes.${index}.ref_prof_sant`)}
-                                placeholder="Code praticien"
-                                className="h-8 text-xs"
-                              />
-                            </div>
-                          </div>
-                          {/* Observations */}
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <div>
-                              <Label className="text-xs text-muted-foreground">Code observation</Label>
-                              <Input
-                                {...register(`actes.${index}.cod_msgr`)}
-                                placeholder="Code obs."
-                                className="h-8 text-xs"
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-xs text-muted-foreground">Libelle observation</Label>
-                              <Input
-                                {...register(`actes.${index}.lib_msgr`)}
-                                placeholder="Observation"
-                                className="h-8 text-xs"
-                              />
-                            </div>
-                          </div>
+                          {/* Champs specifiques par type de soin */}
+                          {selectedCareType === 'pharmacy' ? (
+                            <>
+                              {/* Pharmacie: pharmacien + quantite */}
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <div>
+                                  <Label className="text-xs font-medium">Pharmacien *</Label>
+                                  <Input
+                                    {...register(`actes.${index}.nom_prof_sant`)}
+                                    placeholder="Nom de la pharmacie"
+                                    className="h-8 text-sm"
+                                  />
+                                  {errors.actes?.[index]?.nom_prof_sant && (
+                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].nom_prof_sant?.message}</p>
+                                  )}
+                                </div>
+                                <div>
+                                  <Label className="text-xs font-medium">Matricule fiscale *</Label>
+                                  <Input
+                                    {...register(`actes.${index}.ref_prof_sant`)}
+                                    placeholder="Matricule fiscale pharmacie"
+                                    className="h-8 text-sm"
+                                  />
+                                  {errors.actes?.[index]?.ref_prof_sant && (
+                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].ref_prof_sant?.message}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Observation</Label>
+                                <Input
+                                  {...register(`actes.${index}.lib_msgr`)}
+                                  placeholder="Observation (ex: ordonnance n°...)"
+                                  className="h-8 text-sm"
+                                />
+                              </div>
+                            </>
+                          ) : selectedCareType === 'consultation' ? (
+                            <>
+                              {/* Consultation: medecin */}
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <div>
+                                  <Label className="text-xs font-medium">Medecin *</Label>
+                                  <Input
+                                    {...register(`actes.${index}.nom_prof_sant`)}
+                                    placeholder="Dr. Mohamed Ali"
+                                    className="h-8 text-sm"
+                                  />
+                                  {errors.actes?.[index]?.nom_prof_sant && (
+                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].nom_prof_sant?.message}</p>
+                                  )}
+                                </div>
+                                <div>
+                                  <Label className="text-xs font-medium">Matricule fiscale *</Label>
+                                  <Input
+                                    {...register(`actes.${index}.ref_prof_sant`)}
+                                    placeholder="Matricule fiscale du medecin"
+                                    className="h-8 text-sm"
+                                  />
+                                  {errors.actes?.[index]?.ref_prof_sant && (
+                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].ref_prof_sant?.message}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Description de soins</Label>
+                                <Input
+                                  {...register(`actes.${index}.care_description`)}
+                                  placeholder="Motif de consultation"
+                                  className="h-8 text-sm"
+                                />
+                              </div>
+                            </>
+                          ) : selectedCareType === 'lab' ? (
+                            <>
+                              {/* Analyses: laboratoire */}
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <div>
+                                  <Label className="text-xs font-medium">Laboratoire *</Label>
+                                  <Input
+                                    {...register(`actes.${index}.nom_prof_sant`)}
+                                    placeholder="Nom du laboratoire"
+                                    className="h-8 text-sm"
+                                  />
+                                  {errors.actes?.[index]?.nom_prof_sant && (
+                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].nom_prof_sant?.message}</p>
+                                  )}
+                                </div>
+                                <div>
+                                  <Label className="text-xs font-medium">Matricule fiscale *</Label>
+                                  <Input
+                                    {...register(`actes.${index}.ref_prof_sant`)}
+                                    placeholder="Matricule fiscale du labo"
+                                    className="h-8 text-sm"
+                                  />
+                                  {errors.actes?.[index]?.ref_prof_sant && (
+                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].ref_prof_sant?.message}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <Label className="text-xs text-muted-foreground">Prescription medicale</Label>
+                                <Input
+                                  {...register(`actes.${index}.care_description`)}
+                                  placeholder="Ref. ordonnance ou prescription"
+                                  className="h-8 text-sm"
+                                />
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              {/* Hospitalisation: clinique/hopital */}
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <div>
+                                  <Label className="text-xs font-medium">Etablissement *</Label>
+                                  <Input
+                                    {...register(`actes.${index}.nom_prof_sant`)}
+                                    placeholder="Clinique / Hopital"
+                                    className="h-8 text-sm"
+                                  />
+                                  {errors.actes?.[index]?.nom_prof_sant && (
+                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].nom_prof_sant?.message}</p>
+                                  )}
+                                </div>
+                                <div>
+                                  <Label className="text-xs font-medium">Matricule fiscale *</Label>
+                                  <Input
+                                    {...register(`actes.${index}.ref_prof_sant`)}
+                                    placeholder="Matricule fiscale etablissement"
+                                    className="h-8 text-sm"
+                                  />
+                                  {errors.actes?.[index]?.ref_prof_sant && (
+                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].ref_prof_sant?.message}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">Description du sejour</Label>
+                                  <Input
+                                    {...register(`actes.${index}.care_description`)}
+                                    placeholder="Motif d'hospitalisation"
+                                    className="h-8 text-sm"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">Observation</Label>
+                                  <Input
+                                    {...register(`actes.${index}.lib_msgr`)}
+                                    placeholder="Observation"
+                                    className="h-8 text-sm"
+                                  />
+                                </div>
+                              </div>
+                            </>
+                          )}
                         </div>
                       ))}
 
@@ -1282,17 +1648,7 @@ export function BulletinsSaisiePage() {
                       </div>
                     </div>
 
-                    {/* Description */}
-                    <div className="space-y-2">
-                      <Label>Description des soins</Label>
-                      <Textarea
-                        {...register('care_description')}
-                        placeholder="Ex: Consultation + analyses sanguines"
-                        rows={2}
-                      />
-                    </div>
-
-                    <Button type="submit" className="w-full" disabled={isSubmitting || selectedFiles.length === 0}>
+                    <Button type="submit" className="w-full" disabled={isSubmitting}>
                       {isSubmitting ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />

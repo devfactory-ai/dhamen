@@ -29,8 +29,9 @@ export interface ActeFormFields {
   code?: string;
   label: string;
   amount: number;
-  ref_prof_sant?: string;
-  nom_prof_sant?: string;
+  ref_prof_sant: string;
+  nom_prof_sant: string;
+  care_description?: string;
   cod_msgr?: string;
   lib_msgr?: string;
 }
