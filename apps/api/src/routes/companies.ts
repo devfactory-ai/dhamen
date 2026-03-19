@@ -13,7 +13,10 @@ const SECTORS = ['IT', 'BANKING', 'HEALTHCARE', 'MANUFACTURING', 'RETAIL', 'SERV
 // Schemas
 const companyCreateSchema = z.object({
   name: z.string().min(1, 'Nom requis'),
+  code: z.string().optional(),
   matriculeFiscal: z.string().optional(),
+  contractNumber: z.string().optional(),
+  dateOuverture: z.string().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
   phone: z.string().optional(),
@@ -138,13 +141,16 @@ companies.post(
     const id = generateId();
 
     await getDb(c).prepare(
-      `INSERT INTO companies (id, name, matricule_fiscal, address, city, phone, email, sector, employee_count, insurer_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO companies (id, name, code, matricule_fiscal, contract_number, date_ouverture, address, city, phone, email, sector, employee_count, insurer_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
       .bind(
         id,
         data.name,
+        data.code || null,
         data.matriculeFiscal || null,
+        data.contractNumber || null,
+        data.dateOuverture || null,
         data.address || null,
         data.city || null,
         data.phone || null,
@@ -201,9 +207,21 @@ companies.put(
       updates.push('name = ?');
       params.push(data.name);
     }
+    if (data.code !== undefined) {
+      updates.push('code = ?');
+      params.push(data.code);
+    }
     if (data.matriculeFiscal !== undefined) {
       updates.push('matricule_fiscal = ?');
       params.push(data.matriculeFiscal);
+    }
+    if (data.contractNumber !== undefined) {
+      updates.push('contract_number = ?');
+      params.push(data.contractNumber);
+    }
+    if (data.dateOuverture !== undefined) {
+      updates.push('date_ouverture = ?');
+      params.push(data.dateOuverture);
     }
     if (data.address !== undefined) {
       updates.push('address = ?');

@@ -108,7 +108,8 @@ INSERT INTO claim_items (id, claim_id, code, label, quantity, unit_price, line_t
 
 -- Items for consultation CO001
 INSERT INTO claim_items (id, claim_id, code, label, quantity, unit_price, line_total, covered_amount, copay_amount, reimbursement_rate, is_generic) VALUES
-('01DEMO_ITM_CO001A', '01DEMO_CLM_CO001', 'ACT-001', 'Consultation médecine générale', 1, 35000, 35000, 24500, 10500, 0.70, 0);
+('01DEMO_ITM_CO001A', '01DEMO_CLM_CO001', 'ACT-001', '
+édecine générale', 1, 35000, 35000, 24500, 10500, 0.70, 0);
 
 -- Items for consultation CO002 (Cardiology)
 INSERT INTO claim_items (id, claim_id, code, label, quantity, unit_price, line_total, covered_amount, copay_amount, reimbursement_rate, is_generic) VALUES
