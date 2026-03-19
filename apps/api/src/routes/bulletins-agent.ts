@@ -91,7 +91,7 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
     }
 
     const ocrUrl =
-      c.env.OCR_URL || 'https://grady-semistiff-willia.ngrok-free.dev/analyse-bulletin';
+      c.env.OCR_URL || 'https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev/analyse-bulletin';
     const ocrRes = await fetch(ocrUrl, {
       method: 'POST',
       headers: { accept: 'application/json' },

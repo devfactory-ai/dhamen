@@ -168,6 +168,7 @@ const bulletinFormSchema = z.object({
   adherent_matricule: z.string().min(1, 'Matricule requis'),
   adherent_first_name: z.string().min(2, 'Prenom requis'),
   adherent_last_name: z.string().min(2, 'Nom requis'),
+  adherent_contract_number: z.string().optional(),
   adherent_national_id: z.string().optional().or(z.literal('')),
   adherent_email: z.string().email('Email invalide').optional().or(z.literal('')),
   adherent_address: z.string().optional(),
@@ -177,6 +178,36 @@ const bulletinFormSchema = z.object({
 });
 
 type BulletinFormData = z.infer<typeof bulletinFormSchema>;
+
+// Map OCR nature_acte to referentiel codes (C1, C2, PH1, etc.)
+const NATURE_ACTE_MAPPINGS: { keywords: string[]; code: string; label: string }[] = [
+  { keywords: ['generaliste', 'medecin general', 'medecin de famille'], code: 'C1', label: 'Consultation généraliste' },
+  { keywords: ['specialiste', 'psychiatr', 'cardiologue', 'dermatologue', 'gynecologue', 'gyneco', 'orl', 'pneumologue', 'gastro', 'neurologue', 'urologue', 'endocrinologue', 'ophtalmologue', 'rhumatologue', 'nephrologue', 'oncologue', 'allergologue'], code: 'C2', label: 'Consultation spécialiste' },
+  { keywords: ['professeur', 'prof '], code: 'C3', label: 'Consultation professeur' },
+  { keywords: ['pharmacie', 'medicament', 'pharmaceut'], code: 'PH1', label: 'Frais pharmaceutiques' },
+  { keywords: ['analyse', 'biolog', 'sang', 'labo', 'bilan'], code: 'AN', label: 'Analyses biologiques' },
+  { keywords: ['radio', 'radiograph', 'radiologie'], code: 'R', label: 'Radiologie' },
+  { keywords: ['echograph', 'echo'], code: 'E', label: 'Échographie' },
+  { keywords: ['scanner', 'irm', 'imagerie'], code: 'TS', label: 'Traitements spéciaux (scanner/IRM)' },
+  { keywords: ['dentaire', 'dent', 'dentist'], code: 'SD', label: 'Soins et prothèses dentaires' },
+  { keywords: ['kine', 'physiother', 'reeducation'], code: 'PC', label: 'Pratiques courantes' },
+  { keywords: ['clinique', 'hospitalisation'], code: 'CL', label: 'Hospitalisation clinique' },
+  { keywords: ['hopital'], code: 'HP', label: 'Hospitalisation hôpital' },
+  { keywords: ['chirurg', 'operation', 'bloc'], code: 'FCH', label: 'Frais chirurgicaux' },
+  { keywords: ['optique', 'lunettes', 'verres'], code: 'OPT', label: 'Optique (monture + verres)' },
+  { keywords: ['accouchement', 'maternite'], code: 'ACC', label: 'Accouchement' },
+  { keywords: ['orthodont'], code: 'ODF', label: 'Soins orthodontiques' },
+];
+
+function mapNatureActeToCode(natureActe: string): { code: string; label: string } | null {
+  const text = natureActe.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  for (const mapping of NATURE_ACTE_MAPPINGS) {
+    if (mapping.keywords.some((kw) => text.includes(kw))) {
+      return { code: mapping.code, label: mapping.label };
+    }
+  }
+  return null;
+}
 
 export function BulletinsSaisiePage() {
   const queryClient = useQueryClient();
@@ -556,8 +587,9 @@ export function BulletinsSaisiePage() {
         formData.append('files', file);
       }
 
-      // OCR API: use local Python server, fallback to ngrok if configured
-      const ocrApiUrl = import.meta.env.VITE_OCR_API_URL || 'http://localhost:8000/analyse-bulletin';
+      // OCR API: Cloudflare Worker endpoint
+      const ocrBase = (import.meta.env.VITE_OCR_API_URL || 'https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev').replace(/\/+$/, '');
+      const ocrApiUrl = `${ocrBase}/analyse-bulletin`;
       const res = await fetch(ocrApiUrl, {
         method: 'POST',
         headers: { 'accept': 'application/json' },
@@ -567,17 +599,29 @@ export function BulletinsSaisiePage() {
       if (!res.ok) throw new Error(`Erreur OCR: ${res.status}`);
 
       const result = await res.json();
-      let parsed = result;
+      console.log('[OCR] Raw API response:', JSON.stringify(result, null, 2));
 
-      // Handle raw_response wrapping (markdown json block)
+      // Handle multiple response formats:
+      // New API: { success, resultat: { infos_adherent, volet_medical } }
+      // Old API: { raw_response: "```json\n{...}\n```" }
+      // Backend proxy: { success, data: { infos_adherent, volet_medical } }
+      let parsed = result.resultat || result.data || result;
+
       if (typeof result.raw_response === 'string') {
         const jsonMatch = result.raw_response.match(/```json\s*([\s\S]*?)\s*```/);
         if (jsonMatch?.[1]) {
           parsed = JSON.parse(jsonMatch[1]);
         }
       }
+
       const info = parsed?.infos_adherent;
       const actes = parsed?.volet_medical;
+
+      // Auto-fill bulletin number (can be at top level or in infos_adherent)
+      const numeroBulletin = parsed?.numero_bulletin || info?.numero_bulletin;
+      if (numeroBulletin) {
+        setValue('bulletin_number', numeroBulletin);
+      }
 
       // Auto-fill adherent fields
       if (info) {
@@ -588,14 +632,21 @@ export function BulletinsSaisiePage() {
             setValue('adherent_first_name', parts.slice(1).join(' '));
           }
         }
-        if (info.numero_contrat) {
-          setValue('adherent_matricule', info.numero_contrat.replace(/\s+/g, ''));
-          setAdherentSearch(info.numero_contrat.replace(/\s+/g, ''));
+        const matriculeRaw = [info.numero_adherent, info.numero_contrat]
+          .find((v) => v && v !== 'illisible');
+        if (matriculeRaw) {
+          const matricule = matriculeRaw.replace(/\s+/g, '');
+          setValue('adherent_matricule', matricule);
+          setAdherentSearch(matricule);
+        }
+        if (info.numero_contrat && info.numero_contrat !== 'illisible') {
+          setValue('adherent_contract_number', info.numero_contrat.replace(/\s+/g, ''));
         }
         if (info.date_signature) {
-          const dateParts = info.date_signature.split('/');
+          const dateParts = info.date_signature.split(/[.\/]/);
           if (dateParts.length === 3) {
-            setValue('bulletin_date', `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`);
+            const year = dateParts[2]!.length === 2 ? `20${dateParts[2]}` : dateParts[2];
+            setValue('bulletin_date', `${year}-${dateParts[1]}-${dateParts[0]}`);
           }
         }
         if (info.adresse) {
@@ -614,6 +665,20 @@ export function BulletinsSaisiePage() {
         }
       }
 
+      // Auto-fill care type from first acte's type_soin
+      if (Array.isArray(actes) && actes.length > 0 && actes[0]?.type_soin) {
+        const typeSoin = actes[0].type_soin.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        if (typeSoin.includes('pharmac') || typeSoin.includes('medicament')) {
+          setValue('care_type', 'pharmacy');
+        } else if (typeSoin.includes('labo') || typeSoin.includes('analyse') || typeSoin.includes('biolog')) {
+          setValue('care_type', 'lab');
+        } else if (typeSoin.includes('hosp') || typeSoin.includes('clinique')) {
+          setValue('care_type', 'hospital');
+        } else {
+          setValue('care_type', 'consultation');
+        }
+      }
+
       // Auto-fill actes with enriched codes from backend (TASK-003)
       if (Array.isArray(actes) && actes.length > 0) {
         const currentActes = watch('actes');
@@ -622,12 +687,14 @@ export function BulletinsSaisiePage() {
         }
 
         actes.forEach((acte: Record<string, string | null>, i: number) => {
-          const montantStr = (acte.montant_honoraires || acte.montant_facture || '0')
+          const rawMontant = (acte.montant_facture || acte.montant_honoraires || '0')
             .replace(/[^\d.,]/g, '')
             .replace(',', '.');
-          const montant = parseFloat(montantStr) || 0;
-          const code = acte.matched_code || '';
-          const label = acte.matched_label || acte.nature_acte || '';
+          const montant = parseFloat(rawMontant) || 0;
+          // Use backend-enriched codes if available, otherwise map locally
+          const mapped = acte.nature_acte ? mapNatureActeToCode(acte.nature_acte) : null;
+          const code = acte.matched_code || mapped?.code || '';
+          const label = acte.matched_label || mapped?.label || acte.nature_acte || '';
 
           if (i === 0) {
             setValue('actes.0.code', code);
@@ -1270,6 +1337,10 @@ export function BulletinsSaisiePage() {
                           {errors.adherent_matricule && (
                             <p className="text-sm text-destructive">{errors.adherent_matricule.message}</p>
                           )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label>N° Contrat</Label>
+                          <Input {...register('adherent_contract_number')} placeholder="N° contrat assurance" />
                         </div>
                         <div className="space-y-2">
                           <Label>CIN</Label>
