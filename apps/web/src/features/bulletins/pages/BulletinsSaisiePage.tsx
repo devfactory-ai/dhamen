@@ -686,15 +686,21 @@ export function BulletinsSaisiePage() {
           removeActe(currentActes.length - 1);
         }
 
+        // Detect if care type is pharmacy (from the OCR type_soin we just set)
+        const detectedCareType = watch('care_type');
+        const isPharmacy = detectedCareType === 'pharmacy';
+
         actes.forEach((acte: Record<string, string | null>, i: number) => {
           const rawMontant = (acte.montant_facture || acte.montant_honoraires || '0')
             .replace(/[^\d.,]/g, '')
             .replace(',', '.');
           const montant = parseFloat(rawMontant) || 0;
-          // Use backend-enriched codes if available, otherwise map locally
+
+          // For pharmacy: don't set code (user must select medication from list)
+          // For other types: use backend-enriched codes or local mapping
           const mapped = acte.nature_acte ? mapNatureActeToCode(acte.nature_acte) : null;
-          const code = acte.matched_code || mapped?.code || '';
-          const label = acte.matched_label || mapped?.label || acte.nature_acte || '';
+          const code = isPharmacy ? '' : (acte.matched_code || mapped?.code || '');
+          const label = isPharmacy ? (acte.nature_acte || '') : (acte.matched_label || mapped?.label || acte.nature_acte || '');
 
           if (i === 0) {
             setValue('actes.0.code', code);
