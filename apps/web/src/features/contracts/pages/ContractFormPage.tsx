@@ -10,7 +10,7 @@ import { ArrowLeft } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, API_BASE_URL } from '@/lib/api-client';
 import { ContractForm, type ContractFormDataWithFile } from '../components/ContractForm';
 import { toast } from 'sonner';
 
@@ -50,7 +50,7 @@ async function uploadDocument(file: File, contractId: string): Promise<DocumentU
   formData.append('entityId', contractId);
 
   const response = await fetch(
-    `${import.meta.env.VITE_API_URL || '/api/v1'}/documents/upload`,
+    `${API_BASE_URL}/documents/upload`,
     {
       method: 'POST',
       body: formData,

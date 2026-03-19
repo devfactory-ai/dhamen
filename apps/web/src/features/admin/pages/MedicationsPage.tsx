@@ -28,7 +28,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, API_BASE_URL } from '@/lib/api-client';
 import { useToastStore } from '@/stores/toast';
 import {
   Pill,
@@ -142,7 +142,7 @@ export function MedicationsPage() {
       formData.append('notes', importNotes);
 
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || '/api/v1'}/medications/import`,
+        `${API_BASE_URL}/medications/import`,
         {
           method: 'POST',
           headers: {

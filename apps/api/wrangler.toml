@@ -13,7 +13,7 @@ API_VERSION = "v1"
 JWT_ISSUER = "dhamen"
 JWT_EXPIRES_IN = "900"
 REFRESH_EXPIRES_IN = "86400"
-GEMINI_API_KEY = "AIzaSyDFU7Y8PiAbo3CjjDJ_-vePl9FZj5Us6r0"
+GEMINI_API_KEY = "AIzaSyBH88cb0FFWUJoKVYUu-LFP0d04eb9dt3w"
 
 # Legacy single DB (kept for backward compatibility during migration)
 [[d1_databases]]
@@ -114,6 +114,7 @@ API_VERSION = "v1"
 JWT_ISSUER = "dhamen"
 JWT_EXPIRES_IN = "900"
 REFRESH_EXPIRES_IN = "86400"
+GEMINI_API_KEY = "AIzaSyBH88cb0FFWUJoKVYUu-LFP0d04eb9dt3w"
 
 # Legacy DB
 [[env.dev.d1_databases]]
@@ -195,6 +196,7 @@ API_VERSION = "v1"
 JWT_ISSUER = "dhamen"
 JWT_EXPIRES_IN = "900"
 REFRESH_EXPIRES_IN = "86400"
+GEMINI_API_KEY = "AIzaSyBH88cb0FFWUJoKVYUu-LFP0d04eb9dt3w"
 
 # Legacy DB
 [[env.staging.d1_databases]]

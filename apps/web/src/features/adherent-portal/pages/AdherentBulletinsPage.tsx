@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FilePreviewList } from '@/components/ui/file-preview';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, API_BASE_URL } from '@/lib/api-client';
 import { toast } from 'sonner';
 import {
   FileText,
@@ -519,7 +519,7 @@ export function AdhérentBulletinsPage() {
 
       const token = localStorage.getItem('accessToken');
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || '/api/v1'}/bulletins-soins/submit`,
+        `${API_BASE_URL}/bulletins-soins/submit`,
         {
           method: 'POST',
           body: form,
@@ -588,7 +588,7 @@ export function AdhérentBulletinsPage() {
       setIsDownloading(true);
 
       // Build URL with optional pre-fill parameters
-      let pdfUrl = `${import.meta.env.VITE_API_URL || '/api/v1'}/bulletins-soins/templates/${selectedTemplate.filename}`;
+      let pdfUrl = `${API_BASE_URL}/bulletins-soins/templates/${selectedTemplate.filename}`;
 
       if (mode === 'prefilled' && adherentProfile) {
         const params = new URLSearchParams({

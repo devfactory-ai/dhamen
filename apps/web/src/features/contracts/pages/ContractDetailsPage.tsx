@@ -10,7 +10,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, API_BASE_URL } from '@/lib/api-client';
 
 interface Contract {
   id: string;
@@ -290,7 +290,7 @@ export function ContractDetailsPage() {
                 <Button
                   variant="outline"
                   onClick={() => {
-                    const apiUrl = import.meta.env.VITE_API_URL || '/api/v1';
+                    const apiUrl = API_BASE_URL;
                     window.open(`${apiUrl}/documents/${contract.documentId}/download`, '_blank');
                   }}
                 >
@@ -300,7 +300,7 @@ export function ContractDetailsPage() {
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    const apiUrl = import.meta.env.VITE_API_URL || '/api/v1';
+                    const apiUrl = API_BASE_URL;
                     window.open(`${apiUrl}/documents/${contract.documentId}/download?disposition=inline`, '_blank');
                   }}
                 >

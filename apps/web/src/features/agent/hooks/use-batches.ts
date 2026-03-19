@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, API_BASE_URL } from '@/lib/api-client';
 
 export interface Batch {
   id: string;
@@ -57,7 +57,7 @@ export function useExportBatchCSV() {
 
   return useMutation({
     mutationFn: async ({ batchId, force = false, token }: { batchId: string; force?: boolean; token: string | null }) => {
-      const baseUrl = import.meta.env.VITE_API_URL || '/api/v1';
+      const baseUrl = API_BASE_URL;
       const qs = force ? '?force=true' : '';
       const response = await fetch(`${baseUrl}/bulletins-soins/agent/batches/${batchId}/export${qs}`, {
         headers: {
@@ -112,7 +112,7 @@ export function useExportBatchCSV() {
 export function useExportBatchDetailCSV() {
   return useMutation({
     mutationFn: async ({ batchId, token }: { batchId: string; token: string | null }) => {
-      const baseUrl = import.meta.env.VITE_API_URL || '/api/v1';
+      const baseUrl = API_BASE_URL;
       const response = await fetch(`${baseUrl}/bulletins-soins/agent/batches/${batchId}/export-detail`, {
         headers: {
           Authorization: `Bearer ${token}`,

@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { useToast } from '@/stores/toast';
+import { API_BASE_URL } from '@/lib/api-client';
 
 export type RealtimeEventType =
   | 'notification'
@@ -55,7 +56,7 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     if (!isAuthenticated || !token) return;
     if (eventSourceRef.current) return;
 
-    const apiUrl = import.meta.env.VITE_API_URL || '';
+    const apiUrl = API_BASE_URL;
     const url = `${apiUrl}/realtime/events`;
 
     try {

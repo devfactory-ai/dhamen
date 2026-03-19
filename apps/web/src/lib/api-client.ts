@@ -12,7 +12,7 @@ function resolveApiUrl(): string {
   return urls[env] || urls.local;
 }
 
-const API_BASE_URL = resolveApiUrl();
+export const API_BASE_URL = resolveApiUrl();
 const REQUEST_TIMEOUT_MS = 30000;
 
 interface RequestOptions extends RequestInit {

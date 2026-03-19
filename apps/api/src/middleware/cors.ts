@@ -43,8 +43,8 @@ export function createCorsMiddleware(environment: string) {
         return origin;
       }
 
-      // Check development origins (only in development)
-      if (environment === 'development' && developmentOrigins.includes(origin)) {
+      // Check development origins (in development and staging)
+      if ((environment === 'development' || environment === 'staging') && developmentOrigins.includes(origin)) {
         return origin;
       }
 

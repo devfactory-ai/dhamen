@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FilePreview } from '@/components/ui/file-preview';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, API_BASE_URL } from '@/lib/api-client';
 
 const contractFormSchema = z.object({
   insurerId: z.string().min(1, 'Assureur requis'),
@@ -242,7 +242,7 @@ export function ContractForm({ contract, onSubmit, onCancel, isLoading }: Contra
           {/* Existing document info */}
           {contract?.documentId && !selectedFile && (
             <FilePreview
-              url={`${import.meta.env.VITE_API_URL || '/api/v1'}/documents/${contract.documentId}/download`}
+              url={`${API_BASE_URL}/documents/${contract.documentId}/download`}
               fileName={`Contrat_${contract.contractNumber}.pdf`}
               showRemove={false}
             />

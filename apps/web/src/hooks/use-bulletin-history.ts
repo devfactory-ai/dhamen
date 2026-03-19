@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, API_BASE_URL } from '@/lib/api-client';
 
 export interface HistoryBulletin {
   id: string;
@@ -172,7 +172,7 @@ export async function exportHistoryCSV(filters: Omit<HistoryFilters, 'page' | 'l
   if (filters.search) params.set('search', filters.search);
   const qs = params.toString();
 
-  const baseUrl = import.meta.env.VITE_API_URL || '/api/v1';
+  const baseUrl = API_BASE_URL;
   const response = await fetch(`${baseUrl}/bulletins-soins/history/export${qs ? `?${qs}` : ''}`, {
     headers: {
       Authorization: `Bearer ${token}`,

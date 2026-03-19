@@ -38,7 +38,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FilePreviewList } from '@/components/ui/file-preview';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, API_BASE_URL } from '@/lib/api-client';
+import { getTenantHeader } from '@/lib/tenant';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { useSearchAdherents, type AdherentSearchResult } from '@/features/adherents/hooks/useAdherents';
 import { toast } from 'sonner';
@@ -383,12 +384,13 @@ export function BulletinsSaisiePage() {
 
       const token = localStorage.getItem('accessToken');
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || '/api/v1'}/bulletins-soins/agent/create`,
+        `${API_BASE_URL}/bulletins-soins/agent/create`,
         {
           method: 'POST',
           body: form,
           credentials: 'include',
           headers: {
+            ...getTenantHeader(),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
         }
@@ -446,11 +448,12 @@ export function BulletinsSaisiePage() {
       const token = localStorage.getItem('accessToken');
       const qs = force ? '?force=true' : '';
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || '/api/v1'}/bulletins-soins/agent/batches/${batchId}/export${qs}`,
+        `${API_BASE_URL}/bulletins-soins/agent/batches/${batchId}/export${qs}`,
         {
           method: 'GET',
           credentials: 'include',
           headers: {
+            ...getTenantHeader(),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
         }
@@ -502,11 +505,12 @@ export function BulletinsSaisiePage() {
     mutationFn: async ({ batchId }: { batchId: string }) => {
       const token = localStorage.getItem('accessToken');
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || '/api/v1'}/bulletins-soins/agent/batches/${batchId}/export-detail`,
+        `${API_BASE_URL}/bulletins-soins/agent/batches/${batchId}/export-detail`,
         {
           method: 'GET',
           credentials: 'include',
           headers: {
+            ...getTenantHeader(),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
         }
