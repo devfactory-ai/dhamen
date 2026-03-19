@@ -410,6 +410,9 @@ export function BulletinsSaisiePage() {
       setAdherentSearch('');
       setShowAdherentDropdown(false);
       setSelectedMedicationFamily('');
+      setOcrFeedback(null);
+      setFeedbackErrors([]);
+      setFeedbackComment('');
       setActiveTab('liste');
     },
     onError: (error: Error) => {
