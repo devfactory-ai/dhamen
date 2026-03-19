@@ -87,6 +87,12 @@ const MFVerificationPage = lazy(() => import('@/features/admin/pages/MFVerificat
 const MedicationsPage = lazy(() => import('@/features/admin/pages/MedicationsPage').then(m => ({ default: m.default })));
 // Companies pages
 const CompaniesPage = lazy(() => import('@/features/companies/pages/CompaniesPage').then(m => ({ default: m.default })));
+const CompanyDetailPage = lazy(() => import('@/features/companies/pages/CompanyDetailPage').then(m => ({ default: m.default })));
+const CompanyFormPage = lazy(() => import('@/features/companies/pages/CompanyFormPage').then(m => ({ default: m.default })));
+// Group Contracts pages
+const GroupContractsPage = lazy(() => import('@/features/group-contracts/pages/GroupContractsPage').then(m => ({ default: m.default })));
+const GroupContractDetailPage = lazy(() => import('@/features/group-contracts/pages/GroupContractDetailPage').then(m => ({ default: m.default })));
+const GroupContractFormPage = lazy(() => import('@/features/group-contracts/pages/GroupContractFormPage').then(m => ({ default: m.default })));
 // HR Portal pages
 const HRDashboardPage = lazy(() => import('@/features/hr-portal/pages/HRDashboardPage').then(m => ({ default: m.default })));
 const HRAdherentsPage = lazy(() => import('@/features/hr-portal/pages/HRAdherentsPage').then(m => ({ default: m.default })));
@@ -198,6 +204,14 @@ function App() {
                     <Route path="/admin/medications" element={<MedicationsPage />} />
                     {/* Companies routes */}
                     <Route path="/companies" element={<CompaniesPage />} />
+                    <Route path="/companies/new" element={<CompanyFormPage />} />
+                    <Route path="/companies/:id" element={<CompanyDetailPage />} />
+                    <Route path="/companies/:id/edit" element={<CompanyFormPage />} />
+                    {/* Group Contracts routes */}
+                    <Route path="/group-contracts" element={<GroupContractsPage />} />
+                    <Route path="/group-contracts/new" element={<GroupContractFormPage />} />
+                    <Route path="/group-contracts/:id" element={<GroupContractDetailPage />} />
+                    <Route path="/group-contracts/:id/edit" element={<GroupContractFormPage />} />
                     {/* HR Portal routes */}
                     <Route path="/hr" element={<HRDashboardPage />} />
                     <Route path="/hr/dashboard" element={<HRDashboardPage />} />

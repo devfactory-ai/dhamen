@@ -13,6 +13,7 @@ API_VERSION = "v1"
 JWT_ISSUER = "dhamen"
 JWT_EXPIRES_IN = "900"
 REFRESH_EXPIRES_IN = "86400"
+GEMINI_API_KEY = "AIzaSyDFU7Y8PiAbo3CjjDJ_-vePl9FZj5Us6r0"
 
 # Legacy single DB (kept for backward compatibility during migration)
 [[d1_databases]]

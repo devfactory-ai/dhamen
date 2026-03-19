@@ -105,3 +105,6 @@ export { appeals } from './appeals';
 
 // Pre-Authorizations (accord préalable)
 export { preAuthorizations } from './pre-authorizations';
+
+// Group Contracts (contrats d'assurance groupe)
+export { groupContracts } from './group-contracts';

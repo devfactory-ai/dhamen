@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Building2, Users, FileText } from 'lucide-react';
+import { Plus, Building2, Users, FileText, Eye, Pencil } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +12,10 @@ import { apiClient } from '@/lib/api-client';
 interface Company {
   id: string;
   name: string;
+  code: string | null;
   matricule_fiscal: string | null;
+  contract_number: string | null;
+  date_ouverture: string | null;
   address: string | null;
   city: string | null;
   phone: string | null;
@@ -41,11 +44,12 @@ export function CompaniesPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['companies', page],
     queryFn: async () => {
-      const response = await apiClient.get<{ data: Company[]; meta: { total: number } }>(
+      const response = await apiClient.get<Company[]>(
         `/companies?page=${page}&limit=20`
       );
       if (!response.success) throw new Error(response.error?.message);
-      return { companies: response.data?.data || [], total: response.data?.meta?.total || 0 };
+      const raw = response as unknown as { data: Company[]; meta?: { total: number } };
+      return { companies: Array.isArray(raw.data) ? raw.data : [], total: raw.meta?.total || 0 };
     },
   });
 
@@ -60,9 +64,9 @@ export function CompaniesPage() {
           </div>
           <div>
             <p className="font-medium">{company.name}</p>
-            {company.matricule_fiscal && (
-              <p className="text-sm text-muted-foreground">MF: {company.matricule_fiscal}</p>
-            )}
+            <p className="text-sm text-muted-foreground">
+              {[company.code, company.matricule_fiscal ? `MF: ${company.matricule_fiscal}` : null].filter(Boolean).join(' - ') || '-'}
+            </p>
           </div>
         </div>
       ),
@@ -102,15 +106,15 @@ export function CompaniesPage() {
     },
     {
       key: 'actions',
-      header: '',
+      header: 'Actions',
       className: 'text-right',
       render: (company: Company) => (
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => navigate(`/companies/${company.id}`)}>
-            Voir
+        <div className="flex justify-end gap-1">
+          <Button variant="ghost" size="icon" title="Voir" onClick={() => navigate(`/companies/${company.id}`)}>
+            <Eye className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => navigate(`/companies/${company.id}/edit`)}>
-            Modifier
+          <Button variant="ghost" size="icon" title="Modifier" onClick={() => navigate(`/companies/${company.id}/edit`)}>
+            <Pencil className="h-4 w-4" />
           </Button>
         </div>
       ),

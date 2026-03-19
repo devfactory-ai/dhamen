@@ -63,6 +63,7 @@ export interface Bindings {
   // Optional configuration
   API_BASE_URL?: string;
   OCR_URL?: string;
+  GEMINI_API_KEY?: string;
 
   // Notification providers (optional)
   SENDGRID_API_KEY?: string;

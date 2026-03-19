@@ -66,16 +66,6 @@ function StatCard({
   );
 }
 
-const statusConfig: Record<string, { label: string; bgColor: string; textColor: string; dotColor: string }> = {
-  approved: { label: 'Approuvé', bgColor: 'bg-emerald-50', textColor: 'text-emerald-700', dotColor: 'bg-emerald-500' },
-  approuvee: { label: 'Approuvé', bgColor: 'bg-emerald-50', textColor: 'text-emerald-700', dotColor: 'bg-emerald-500' },
-  pending: { label: 'En attente', bgColor: 'bg-amber-50', textColor: 'text-amber-700', dotColor: 'bg-amber-500' },
-  soumise: { label: 'En attente', bgColor: 'bg-amber-50', textColor: 'text-amber-700', dotColor: 'bg-amber-500' },
-  en_cours: { label: 'En cours', bgColor: 'bg-blue-50', textColor: 'text-blue-700', dotColor: 'bg-blue-500' },
-  rejected: { label: 'Rejeté', bgColor: 'bg-red-50', textColor: 'text-red-700', dotColor: 'bg-red-500' },
-  rejetee: { label: 'Rejeté', bgColor: 'bg-red-50', textColor: 'text-red-700', dotColor: 'bg-red-500' },
-};
-
 // Stats configuration par rôle avec couleurs
 const roleStats: Record<string, { title: string; stats: Array<{ title: string; key: string; description: string; icon: React.ComponentType<IconProps>; color: string; trend?: { value: string; positive: boolean } }> }> = {
   ADMIN: {
@@ -147,21 +137,21 @@ const roleStats: Record<string, { title: string; stats: Array<{ title: string; k
 const quickActionsByRoleType = {
   admin: [
     { title: 'Gérer utilisateurs', desc: 'Administration', icon: UsersIcon, href: '/users', gradient: 'from-blue-500 to-blue-600' },
-    { title: 'Voir statistiques', desc: 'Tableau de bord global', icon: CheckCircleIcon, href: '/reports', gradient: 'from-emerald-500 to-emerald-600' },
+    { title: 'Voir statistiques', desc: 'Tableau de bord global', icon: CheckCircleIcon, href: '/reports', gradient: 'from-emerald-500 to-emerald-600', disabled: true },
     { title: 'Configuration', desc: 'Paramètres système', icon: CurrencyIcon, href: '/settings', gradient: 'from-purple-500 to-purple-600' },
     { title: 'Audit', desc: "Journal d'activité", icon: ClipboardIcon, href: '/audit', gradient: 'from-orange-500 to-orange-600' },
   ],
   insurer: [
-    { title: 'Valider PEC', desc: 'Dossiers en attente', icon: ClipboardIcon, href: '/claims/manage', gradient: 'from-blue-500 to-blue-600' },
-    { title: 'Adhérents', desc: 'Gestion portefeuille', icon: UsersIcon, href: '/adherents', gradient: 'from-emerald-500 to-emerald-600' },
-    { title: 'Réconciliation', desc: 'Rapprochement paiements', icon: CurrencyIcon, href: '/reconciliation', gradient: 'from-purple-500 to-purple-600' },
-    { title: 'Rapports', desc: 'Statistiques', icon: CheckCircleIcon, href: '/reports', gradient: 'from-orange-500 to-orange-600' },
+    { title: 'Valider PEC', desc: 'Dossiers en attente', icon: ClipboardIcon, href: '/claims/manage', gradient: 'from-blue-500 to-blue-600', disabled: true },
+    { title: 'Adhérents', desc: 'Gestion portefeuille', icon: UsersIcon, href: '/adherents/agent', gradient: 'from-emerald-500 to-emerald-600' },
+    { title: 'Réconciliation', desc: 'Rapprochement paiements', icon: CurrencyIcon, href: '/reconciliation', gradient: 'from-purple-500 to-purple-600', disabled: true },
+    { title: 'Rapports', desc: 'Statistiques', icon: CheckCircleIcon, href: '/reports', gradient: 'from-orange-500 to-orange-600', disabled: true },
   ],
   provider: [
     { title: 'Nouvelle PEC', desc: 'Créer prise en charge', icon: ClipboardIcon, href: '/claims', gradient: 'from-blue-500 to-blue-600' },
     { title: 'Vérifier éligibilité', desc: 'Consulter les droits', icon: UsersIcon, href: '/eligibility', gradient: 'from-emerald-500 to-emerald-600' },
     { title: 'Mes bordereaux', desc: 'Consulter paiements', icon: CurrencyIcon, href: '/bordereaux', gradient: 'from-purple-500 to-purple-600' },
-    { title: 'Rapports', desc: 'Mon activité', icon: CheckCircleIcon, href: '/reports', gradient: 'from-orange-500 to-orange-600' },
+    { title: 'Rapports', desc: 'Mon activité', icon: CheckCircleIcon, href: '/reports', gradient: 'from-orange-500 to-orange-600', disabled: true },
   ],
 };
 
@@ -189,17 +179,6 @@ interface DashboardStats {
   dischargeToday?: number;
 }
 
-interface RecentClaim {
-  id: string;
-  numeroDemande: string;
-  typeSoin: string;
-  adherent?: { firstName: string; lastName: string };
-  praticien?: { nom: string } | null;
-  montantDemande: number;
-  statut: string;
-  createdAt: string;
-}
-
 function formatAmount(amount: number): string {
   if (amount >= 1000000) {
     return `${(amount / 1000000).toFixed(1)}M`;
@@ -208,20 +187,6 @@ function formatAmount(amount: number): string {
     return `${(amount / 1000).toFixed(0)}K`;
   }
   return amount.toLocaleString('fr-TN');
-}
-
-function formatTimeAgo(date: string): string {
-  const now = new Date();
-  const past = new Date(date);
-  const diffMs = now.getTime() - past.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "À l'instant";
-  if (diffMins < 60) return `Il y a ${diffMins} min`;
-  if (diffHours < 24) return `Il y a ${diffHours}h`;
-  return `Il y a ${diffDays}j`;
 }
 
 export function DashboardPage() {
@@ -242,19 +207,7 @@ export function DashboardPage() {
     staleTime: 30000, // Cache for 30 seconds
   });
 
-  // Fetch recent claims
-  const { data: claimsData, isLoading: claimsLoading } = useQuery({
-    queryKey: ['recent-claims'],
-    queryFn: async () => {
-      const response = await apiClient.get<RecentClaim[]>('/sante/demandes?limit=5');
-      if (!response.success) return [];
-      return response.data;
-    },
-    staleTime: 30000,
-  });
-
   const stats = statsData ?? {};
-  const recentClaims = claimsData ?? [];
 
   // Format stat value
   const formatStatValue = (key: string, value: unknown): string => {
@@ -305,79 +258,19 @@ export function DashboardPage() {
 
       {/* Main content grid */}
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Recent claims - wider */}
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        {/* Recent claims - wider (disabled) */}
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden opacity-50">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Dernières PEC</h2>
               <p className="text-sm text-gray-500">Les 5 dernières prises en charge</p>
             </div>
-            <Link to="/claims" className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors">
-              Voir tout
-            </Link>
+            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Bientôt</span>
           </div>
-          <div className="divide-y divide-gray-100">
-            {claimsLoading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="px-6 py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-gray-200 animate-pulse" />
-                      <div className="space-y-2">
-                        <div className="h-4 w-32 bg-gray-200 rounded animate-pulse" />
-                        <div className="h-3 w-48 bg-gray-200 rounded animate-pulse" />
-                      </div>
-                    </div>
-                    <div className="h-6 w-16 bg-gray-200 rounded animate-pulse" />
-                  </div>
-                </div>
-              ))
-            ) : recentClaims.length === 0 ? (
-              <div className="px-6 py-12 text-center text-gray-500">
-                Aucune PEC récente
-              </div>
-            ) : (
-              recentClaims.map((claim) => {
-                const patientName = claim.adherent
-                  ? `${claim.adherent.firstName} ${claim.adherent.lastName}`
-                  : 'Patient inconnu';
-                const providerName = claim.praticien?.nom ?? 'Prestataire inconnu';
-                const initials = patientName.split(' ').map(n => n[0]).join('').slice(0, 2);
-                const status = statusConfig[claim.statut] ?? { label: claim.statut, bgColor: 'bg-gray-50', textColor: 'text-gray-700', dotColor: 'bg-gray-500' };
-
-                return (
-                  <div key={claim.id} className="px-6 py-4 hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-                          <span className="text-gray-600 font-semibold text-sm">
-                            {initials}
-                          </span>
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900">{patientName}</p>
-                          <p className="text-xs text-gray-500">
-                            {claim.numeroDemande} • {providerName}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="font-semibold text-gray-900">{(claim.montantDemande / 1000).toFixed(3)} TND</p>
-                          <p className="text-xs text-gray-500">{formatTimeAgo(claim.createdAt)}</p>
-                        </div>
-                        <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${status.bgColor}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${status.dotColor}`} />
-                          <span className={`text-xs font-medium ${status.textColor}`}>
-                            {status.label}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
+          <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+            <ClipboardIcon className="w-12 h-12 mb-3" />
+            <p className="font-medium">Module PEC bientôt disponible</p>
+            <p className="text-sm mt-1">La validation des prises en charge sera activée prochainement</p>
           </div>
         </div>
 
@@ -388,22 +281,39 @@ export function DashboardPage() {
             <p className="text-sm text-gray-500">Accès aux fonctions principales</p>
           </div>
           <div className="p-4 space-y-3">
-            {quickActions.map((action) => (
-              <Link
-                key={action.title}
-                to={action.href}
-                className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 hover:border-gray-200 hover:shadow-md transition-all group"
-              >
-                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${action.gradient} flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform`}>
-                  <action.icon className="w-6 h-6 text-white" />
+            {quickActions.map((action) =>
+              action.disabled ? (
+                <div
+                  key={action.title}
+                  className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 opacity-50 cursor-not-allowed"
+                  title="Bientôt disponible"
+                >
+                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${action.gradient} flex items-center justify-center shadow-lg grayscale`}>
+                    <action.icon className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-gray-400">{action.title}</p>
+                    <p className="text-xs text-gray-400">{action.desc}</p>
+                  </div>
+                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Bientôt</span>
                 </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">{action.title}</p>
-                  <p className="text-xs text-gray-500">{action.desc}</p>
-                </div>
-                <ChevronRightIcon className="w-5 h-5 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
-              </Link>
-            ))}
+              ) : (
+                <Link
+                  key={action.title}
+                  to={action.href}
+                  className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 hover:border-gray-200 hover:shadow-md transition-all group"
+                >
+                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${action.gradient} flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform`}>
+                    <action.icon className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">{action.title}</p>
+                    <p className="text-xs text-gray-500">{action.desc}</p>
+                  </div>
+                  <ChevronRightIcon className="w-5 h-5 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
+                </Link>
+              )
+            )}
           </div>
         </div>
       </div>

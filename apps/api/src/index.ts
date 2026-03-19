@@ -53,6 +53,7 @@ import {
   companies,
   appeals,
   preAuthorizations,
+  groupContracts,
 } from './routes';
 import type { Bindings, Variables } from './types';
 
@@ -206,6 +207,9 @@ api.route('/appeals', appeals);
 
 // Pre-Authorizations (accord préalable)
 api.route('/pre-authorizations', preAuthorizations);
+
+// Group Contracts (contrats d'assurance groupe)
+api.route('/group-contracts', groupContracts);
 
 // Root redirect
 app.get('/', (c) => {
