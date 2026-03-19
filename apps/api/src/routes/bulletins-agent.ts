@@ -26,6 +26,120 @@ const bulletinsAgent = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 // Apply auth middleware to all routes
 bulletinsAgent.use('*', authMiddleware());
 
+// ---------------------------------------------------------------------------
+// Nature acte -> code referentiel mapping (REQ-010 / TASK-003)
+// ---------------------------------------------------------------------------
+
+const NATURE_ACTE_MAPPINGS: Array<{ keywords: string[]; code: string; label: string }> = [
+  { keywords: ['generaliste', 'medecin general', 'medecin de famille'], code: 'C1', label: 'Consultation généraliste' },
+  { keywords: ['specialiste', 'psychiatre', 'cardiologue', 'dermatologue', 'gynecologue', 'gyneco', 'orl', 'pneumologue', 'gastro', 'neurologue', 'urologue', 'endocrinologue', 'ophtalmologue', 'rhumatologue', 'nephrologue', 'oncologue', 'allergologue'], code: 'C2', label: 'Consultation spécialiste' },
+  { keywords: ['professeur', 'prof '], code: 'C3', label: 'Consultation professeur' },
+  { keywords: ['pharmacie', 'medicament', 'pharmaceut'], code: 'PH1', label: 'Frais pharmaceutiques' },
+  { keywords: ['analyse', 'biolog', 'sang', 'labo', 'bilan'], code: 'AN', label: 'Analyses biologiques' },
+  { keywords: ['radio', 'radiograph', 'radiologie'], code: 'R', label: 'Radiologie' },
+  { keywords: ['echograph', 'echo'], code: 'E', label: 'Échographie' },
+  { keywords: ['scanner', 'irm', 'imagerie'], code: 'TS', label: 'Traitements spéciaux (scanner/IRM)' },
+  { keywords: ['dentaire', 'dent', 'dentist'], code: 'SD', label: 'Soins et prothèses dentaires' },
+  { keywords: ['kine', 'physiother', 'reeducation'], code: 'PC', label: 'Pratiques courantes' },
+  { keywords: ['clinique', 'hospitalisation'], code: 'CL', label: 'Hospitalisation clinique' },
+  { keywords: ['hopital'], code: 'HP', label: 'Hospitalisation hôpital' },
+  { keywords: ['chirurg', 'operation', 'bloc'], code: 'FCH', label: 'Frais chirurgicaux' },
+  { keywords: ['optique', 'lunettes', 'verres'], code: 'OPT', label: 'Optique (monture + verres)' },
+  { keywords: ['accouchement', 'maternite'], code: 'ACC', label: 'Accouchement' },
+  { keywords: ['orthodont'], code: 'ODF', label: 'Soins orthodontiques' },
+];
+
+function mapNatureActeToCode(natureActe: string): { code: string; label: string } | null {
+  const text = natureActe.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  for (const mapping of NATURE_ACTE_MAPPINGS) {
+    if (mapping.keywords.some((kw) => text.includes(kw))) {
+      return { code: mapping.code, label: mapping.label };
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// OCR proxy endpoint (REQ-010 / TASK-001)
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /bulletins-soins/agent/analyse-bulletin - Proxy OCR analysis to external service
+ * Forwards uploaded scan files, cleans the response, and enriches actes with referentiel codes.
+ */
+bulletinsAgent.post('/analyse-bulletin', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json(
+      { success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } },
+      403
+    );
+  }
+
+  try {
+    const body = await c.req.parseBody({ all: true });
+    const files = body['files'];
+
+    const proxyForm = new FormData();
+    if (Array.isArray(files)) {
+      for (const file of files) {
+        if (file instanceof File) proxyForm.append('files', file);
+      }
+    } else if (files instanceof File) {
+      proxyForm.append('files', files);
+    }
+
+    const ocrUrl =
+      c.env.OCR_URL || 'https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev/analyse-bulletin';
+    const ocrRes = await fetch(ocrUrl, {
+      method: 'POST',
+      headers: { accept: 'application/json' },
+      body: proxyForm,
+    });
+
+    if (!ocrRes.ok) {
+      return c.json(
+        {
+          success: false,
+          error: { code: 'OCR_ERROR', message: `OCR service returned ${ocrRes.status}` },
+        },
+        502
+      );
+    }
+
+    const ocrData: Record<string, unknown> = await ocrRes.json();
+
+    // Clean response: extract JSON from markdown block
+    const raw =
+      typeof ocrData.raw_response === 'string'
+        ? ocrData.raw_response
+        : JSON.stringify(ocrData);
+    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+
+    // Enrich volet_medical with matched acte codes (TASK-003)
+    if (parsed && Array.isArray(parsed.volet_medical)) {
+      for (const acte of parsed.volet_medical) {
+        const match = mapNatureActeToCode(acte.nature_acte || '');
+        acte.matched_code = match?.code || null;
+        acte.matched_label = match?.label || acte.nature_acte || null;
+      }
+    }
+
+    return c.json({ success: true, data: parsed });
+  } catch (error) {
+    console.error('OCR proxy error:', error);
+    return c.json(
+      {
+        success: false,
+        error: { code: 'OCR_ERROR', message: "Erreur lors de l'analyse OCR" },
+      },
+      500
+    );
+  }
+});
+
 /**
  * GET /bulletins-soins/agent/actes-referentiel - List available medical acts
  */
@@ -734,6 +848,7 @@ bulletinsAgent.post('/create', async (c) => {
   const providerSpecialty = (formData['provider_specialty'] as string) || null;
   const careType = formData['care_type'] as string;
   const careDescription = (formData['care_description'] as string) || null;
+  const adherentAddress = (formData['adherent_address'] as string) || null;
   const batchId = (formData['batch_id'] as string) || null;
 
   // Parse actes array (JSON string from form)
@@ -987,12 +1102,12 @@ bulletinsAgent.post('/create', async (c) => {
       .prepare(`
       INSERT INTO bulletins_soins (
         id, bulletin_number, bulletin_date, adherent_id, adherent_matricule,
-        adherent_first_name, adherent_last_name, adherent_national_id,
+        adherent_first_name, adherent_last_name, adherent_national_id, adherent_address,
         beneficiary_name, beneficiary_relationship,
         provider_name, provider_specialty, care_type, care_description,
         total_amount, scan_url, batch_id, status, created_by,
         submission_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
     `)
       .bind(
         bulletinId,
@@ -1003,6 +1118,7 @@ bulletinsAgent.post('/create', async (c) => {
         adherentFirstName,
         adherentLastName,
         adherentNationalId,
+        adherentAddress,
         beneficiaryName,
         beneficiaryRelationship,
         effectiveProviderName,
