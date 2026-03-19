@@ -77,7 +77,19 @@ import {
   Info,
   CheckCircle2,
   ScanSearch,
+  ThumbsUp,
+  ThumbsDown,
+  MessageSquare,
+  X,
 } from 'lucide-react';
+
+// --- OCR Feedback types ---
+interface OcrFeedbackState {
+  /** Raw donnees_ia from OCR API — sent back as-is for feedback */
+  donneesIa: Record<string, unknown>;
+  /** Whether the feedback panel is visible */
+  visible: boolean;
+}
 
 // Types
 interface BulletinSaisie {
@@ -231,6 +243,10 @@ export function BulletinsSaisiePage() {
   const [validateNotes, setValidateNotes] = useState('');
   const validateMutation = useBulletinValidation();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [ocrFeedback, setOcrFeedback] = useState<OcrFeedbackState | null>(null);
+  const [isSendingFeedback, setIsSendingFeedback] = useState(false);
+  const [feedbackErrors, setFeedbackErrors] = useState<string[]>([]);
+  const [feedbackComment, setFeedbackComment] = useState('');
 
   const { data: adherentResults } = useSearchAdherents(adherentSearch);
   const { data: familleData } = useAdherentFamille(selectedAdherentInfo?.id);
@@ -602,10 +618,11 @@ export function BulletinsSaisiePage() {
       console.log('[OCR] Raw API response:', JSON.stringify(result, null, 2));
 
       // Handle multiple response formats:
-      // New API: { success, resultat: { infos_adherent, volet_medical } }
+      // New API: { success, donnees_ia: { infos_adherent, volet_medical } }
+      // Alt API: { success, resultat: { infos_adherent, volet_medical } }
       // Old API: { raw_response: "```json\n{...}\n```" }
       // Backend proxy: { success, data: { infos_adherent, volet_medical } }
-      let parsed = result.resultat || result.data || result;
+      let parsed = result.donnees_ia || result.resultat || result.data || result;
 
       if (typeof result.raw_response === 'string') {
         const jsonMatch = result.raw_response.match(/```json\s*([\s\S]*?)\s*```/);
@@ -616,6 +633,14 @@ export function BulletinsSaisiePage() {
 
       const info = parsed?.infos_adherent;
       const actes = parsed?.volet_medical;
+
+      // Store raw OCR result for feedback panel
+      setOcrFeedback({
+        donneesIa: { infos_adherent: info || {}, volet_medical: actes || [] },
+        visible: true,
+      });
+      setFeedbackErrors([]);
+      setFeedbackComment('');
 
       // Auto-fill bulletin number (can be at top level or in infos_adherent)
       const numeroBulletin = parsed?.numero_bulletin || info?.numero_bulletin;
@@ -656,11 +681,11 @@ export function BulletinsSaisiePage() {
         if (info.beneficiaire_coche) {
           const benef = info.beneficiaire_coche.toLowerCase().trim();
           if (benef.includes('conjoint')) {
-            setValue('beneficiary_relationship', 'spouse');
+            setValue('beneficiary_relationship' as keyof BulletinFormData, 'spouse');
           } else if (benef.includes('enfant')) {
-            setValue('beneficiary_relationship', 'child');
+            setValue('beneficiary_relationship' as keyof BulletinFormData, 'child');
           } else if (benef.includes('parent') || benef.includes('ascendant')) {
-            setValue('beneficiary_relationship', 'parent');
+            setValue('beneficiary_relationship' as keyof BulletinFormData, 'parent');
           }
         }
       }
@@ -702,12 +727,18 @@ export function BulletinsSaisiePage() {
           const code = isPharmacy ? '' : (acte.matched_code || mapped?.code || '');
           const label = isPharmacy ? (acte.nature_acte || '') : (acte.matched_label || mapped?.label || acte.nature_acte || '');
 
+          // Keep nature_acte from OCR as care_description (e.g. "Psychiatrie")
+          const natureActeOriginal = acte.nature_acte || '';
+
           if (i === 0) {
             setValue('actes.0.code', code);
             setValue('actes.0.label', label);
             setValue('actes.0.amount', montant);
             setValue('actes.0.nom_prof_sant', acte.nom_praticien || '');
             setValue('actes.0.ref_prof_sant', acte.matricule_fiscale || '');
+            if (natureActeOriginal && !isPharmacy) {
+              setValue('actes.0.care_description', natureActeOriginal);
+            }
           } else {
             appendActe({
               code,
@@ -716,19 +747,59 @@ export function BulletinsSaisiePage() {
               nom_prof_sant: acte.nom_praticien || '',
               ref_prof_sant: acte.matricule_fiscale || '',
               cod_msgr: '',
-              lib_msgr: '',
+              lib_msgr: natureActeOriginal && !isPharmacy ? '' : '',
+              care_description: !isPharmacy ? natureActeOriginal : '',
             });
           }
         });
       }
 
-      toast.success('Analyse terminee — champs remplis automatiquement');
+      toast.success('Analyse terminee — champs remplis automatiquement. Verifiez puis envoyez votre feedback.');
     } catch (error) {
       console.error('OCR analysis error:', error);
       toast.error('Erreur lors de l\'analyse du bulletin');
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  // --- OCR Feedback handlers ---
+  const sendOcrFeedback = async (statut: 'valide' | 'invalide' | 'partiellement_valide') => {
+    if (!ocrFeedback) return;
+    setIsSendingFeedback(true);
+    const ocrBase = (import.meta.env.VITE_OCR_API_URL || 'https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev').replace(/\/+$/, '');
+    try {
+      const res = await fetch(`${ocrBase}/valider-bulletin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'accept': 'application/json' },
+        body: JSON.stringify({
+          donnees_ia: ocrFeedback.donneesIa,
+          metadata_validation: {
+            statut_validation: statut,
+            erreurs_signalees: feedbackErrors,
+            commentaires_correction: feedbackComment,
+          },
+        }),
+      });
+      if (res.ok) {
+        toast.success('Feedback OCR envoye avec succes');
+      } else {
+        toast.error('Erreur lors de l\'envoi du feedback');
+      }
+    } catch {
+      toast.error('Erreur reseau lors de l\'envoi du feedback');
+    } finally {
+      setIsSendingFeedback(false);
+      setOcrFeedback(null);
+      setFeedbackErrors([]);
+      setFeedbackComment('');
+    }
+  };
+
+  const toggleFeedbackError = (fieldLabel: string) => {
+    setFeedbackErrors((prev) =>
+      prev.includes(fieldLabel) ? prev.filter((e) => e !== fieldLabel) : [...prev, fieldLabel]
+    );
   };
 
   const onSubmitForm = async (data: BulletinFormData) => {
@@ -1168,6 +1239,165 @@ export function BulletinsSaisiePage() {
                         className="hidden"
                       />
                     </div>
+
+                    {/* OCR Feedback Panel — shown after IA analysis, form is already filled */}
+                    {ocrFeedback?.visible && (() => {
+                      const adh = (ocrFeedback.donneesIa.infos_adherent || {}) as Record<string, string>;
+                      const actes = (ocrFeedback.donneesIa.volet_medical || []) as Record<string, string>[];
+                      const adhFields: [string, string][] = [
+                        ['Nom/prenom', adh.nom_prenom],
+                        ['N° adherent', adh.numero_adherent],
+                        ['N° contrat', adh.numero_contrat],
+                        ['N° bulletin', adh.numero_bulletin],
+                        ['Adresse', adh.adresse],
+                        ['Beneficiaire', adh.beneficiaire_coche],
+                        ['Nom beneficiaire', adh.nom_beneficiaire],
+                        ['Date signature', adh.date_signature],
+                      ].filter(([, v]) => v && v.trim() !== '') as [string, string][];
+
+                      const acteFieldLabels: Record<string, string> = {
+                        type_soin: 'Type de soin',
+                        date_acte: 'Date acte',
+                        nature_acte: 'Nature acte',
+                        montant_honoraires: 'Montant honoraires',
+                        montant_facture: 'Montant facture',
+                        nom_praticien: 'Praticien',
+                        matricule_fiscale: 'Matricule fiscale',
+                      };
+
+                      return (
+                      <div className="rounded-lg border-2 border-amber-300 bg-amber-50/50 p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold text-amber-900 flex items-center gap-2">
+                            <MessageSquare className="h-5 w-5" />
+                            Feedback extraction IA
+                          </h4>
+                          <button
+                            type="button"
+                            onClick={() => setOcrFeedback(null)}
+                            className="text-amber-400 hover:text-amber-600"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <p className="text-sm text-amber-700">
+                          Voici les donnees extraites. Cliquez sur un champ pour le signaler comme incorrect.
+                        </p>
+
+                        {/* Adherent extracted fields */}
+                        <div className="space-y-1.5">
+                          <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
+                            <User className="h-3.5 w-3.5" />
+                            Informations adherent
+                          </p>
+                          <div className="grid gap-1.5">
+                            {adhFields.map(([label, value]) => (
+                              <button
+                                key={label}
+                                type="button"
+                                onClick={() => toggleFeedbackError(label)}
+                                className={cn(
+                                  'flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm text-left transition-colors w-full',
+                                  feedbackErrors.includes(label)
+                                    ? 'bg-red-50 border-red-300'
+                                    : 'bg-white border-gray-200 hover:border-amber-300'
+                                )}
+                              >
+                                <span className="w-28 shrink-0 text-xs text-muted-foreground">{label}</span>
+                                <span className={cn('flex-1 font-medium', feedbackErrors.includes(label) && 'line-through text-red-400')}>
+                                  {value}
+                                </span>
+                                {feedbackErrors.includes(label)
+                                  ? <ThumbsDown className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                                  : <ThumbsUp className="h-3.5 w-3.5 text-green-500 shrink-0" />}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Actes extracted fields */}
+                        {actes.length > 0 && (
+                          <div className="space-y-1.5">
+                            <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
+                              <Stethoscope className="h-3.5 w-3.5" />
+                              Volet medical
+                            </p>
+                            {actes.map((acte, acteIdx) => (
+                              <div key={acteIdx} className="rounded-md border border-gray-200 bg-white p-2 space-y-1.5">
+                                {acteIdx > 0 && <p className="text-[10px] text-muted-foreground">Acte {acteIdx + 1}</p>}
+                                <div className="grid gap-1">
+                                  {Object.entries(acteFieldLabels).map(([key, fieldLabel]) => {
+                                    const val = acte[key];
+                                    if (!val || val.trim() === '') return null;
+                                    const errorKey = `acte${acteIdx}_${fieldLabel}`;
+                                    return (
+                                      <button
+                                        key={key}
+                                        type="button"
+                                        onClick={() => toggleFeedbackError(errorKey)}
+                                        className={cn(
+                                          'flex items-center gap-2 rounded border px-2.5 py-1 text-sm text-left transition-colors w-full',
+                                          feedbackErrors.includes(errorKey)
+                                            ? 'bg-red-50 border-red-300'
+                                            : 'bg-gray-50 border-gray-100 hover:border-amber-300'
+                                        )}
+                                      >
+                                        <span className="w-28 shrink-0 text-xs text-muted-foreground">{fieldLabel}</span>
+                                        <span className={cn('flex-1 font-medium', feedbackErrors.includes(errorKey) && 'line-through text-red-400')}>
+                                          {val}
+                                        </span>
+                                        {feedbackErrors.includes(errorKey)
+                                          ? <ThumbsDown className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                                          : <ThumbsUp className="h-3.5 w-3.5 text-green-500 shrink-0" />}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Comment */}
+                        <Textarea
+                          placeholder="Commentaire de correction (optionnel) — ex: le nom est inverse, le montant est 50 et non 500..."
+                          value={feedbackComment}
+                          onChange={(e) => setFeedbackComment(e.target.value)}
+                          rows={2}
+                          className="text-sm"
+                        />
+
+                        {/* Actions */}
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => sendOcrFeedback(feedbackErrors.length === 0 ? 'valide' : 'partiellement_valide')}
+                            disabled={isSendingFeedback}
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            {isSendingFeedback ? (
+                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <ThumbsUp className="mr-1.5 h-3.5 w-3.5" />
+                            )}
+                            {feedbackErrors.length === 0 ? 'Tout est correct' : `Valider avec ${feedbackErrors.length} erreur(s)`}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => sendOcrFeedback('invalide')}
+                            disabled={isSendingFeedback}
+                            className="border-red-300 text-red-600 hover:bg-red-50"
+                          >
+                            <ThumbsDown className="mr-1.5 h-3.5 w-3.5" />
+                            Tout est faux
+                          </Button>
+                        </div>
+                      </div>
+                      );
+                    })()}
 
                     {/* Numero + Date */}
                     <div className="grid gap-4 sm:grid-cols-3">
