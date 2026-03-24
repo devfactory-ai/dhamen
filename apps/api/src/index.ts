@@ -54,6 +54,7 @@ import {
   appeals,
   preAuthorizations,
   groupContracts,
+  medicationFamilyBaremes,
 } from './routes';
 import type { Bindings, Variables } from './types';
 
@@ -184,6 +185,7 @@ api.route('/mf-verification', mfVerification);
 
 // Medications (Pharmacie Centrale Tunisie)
 api.route('/medications', medications);
+api.route('/medication-family-baremes', medicationFamilyBaremes);
 
 // Bulletin templates (public - no auth required for downloading blank forms)
 // Must be mounted BEFORE /bulletins-soins to prevent route conflict

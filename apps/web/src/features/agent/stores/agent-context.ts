@@ -104,7 +104,7 @@ export const useAgentContext = create<AgentContextState>()(
       },
       isContextReady: () => {
         const state = get();
-        return state.selectedCompany !== null && state.selectedBatch !== null;
+        return state.selectedCompany !== null;
       },
     }),
     {

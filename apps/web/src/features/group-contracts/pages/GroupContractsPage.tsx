@@ -1,13 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Plus, FileText, Building2, Shield, Eye, Pencil } from 'lucide-react';
-import { PageHeader } from '@/components/ui/page-header';
-import { DataTable } from '@/components/ui/data-table';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
+import { DataTable } from '@/components/ui/data-table';
+import { Button } from '@/components/ui/button';
 
 interface GroupContract {
   id: string;
@@ -35,14 +33,17 @@ const STATUS_LABELS: Record<string, { label: string; variant: 'success' | 'secon
 
 export function GroupContractsPage() {
   const navigate = useNavigate();
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'draft' | 'expired' | 'suspended'>('all');
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const pageSize = 10;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['group-contracts', page, statusFilter],
+    queryKey: ['group-contracts', statusFilter],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), limit: '20' });
-      if (statusFilter) params.set('status', statusFilter);
+      const params = new URLSearchParams({ page: '1', limit: '500' });
+      if (statusFilter !== 'all') params.set('status', statusFilter);
       const response = await apiClient.get<GroupContract[]>(
         `/group-contracts?${params.toString()}`
       );
@@ -52,161 +53,264 @@ export function GroupContractsPage() {
     },
   });
 
-  const activeCount = data?.contracts?.filter((c) => c.status === 'active').length || 0;
-  const companiesCount = new Set(data?.contracts?.map((c) => c.company_id)).size || 0;
+  const allContracts = data?.contracts || [];
+  const activeCount = allContracts.filter((c) => c.status === 'active').length;
+  const companiesCount = new Set(allContracts.map((c) => c.company_id)).size;
 
-  const columns = [
+  // Client-side search filter
+  const filtered = useMemo(() => {
+    if (!search.trim()) return allContracts;
+    const q = search.toLowerCase();
+    return allContracts.filter(c =>
+      c.contract_number.toLowerCase().includes(q) ||
+      c.company_name.toLowerCase().includes(q) ||
+      (c.insurer_name || '').toLowerCase().includes(q) ||
+      (c.category || '').toLowerCase().includes(q)
+    );
+  }, [allContracts, search]);
+
+  // Pagination
+  const paginatedContracts = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  const contractColumns = [
     {
       key: 'contract_number',
-      header: 'Numero contrat',
+      header: 'Contrat',
       render: (contract: GroupContract) => (
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-            <FileText className="h-5 w-5 text-primary" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50">
+            <FileText className="h-5 w-5 text-blue-600" />
           </div>
           <div>
-            <p className="font-medium">{contract.contract_number}</p>
-            <p className="text-sm text-muted-foreground">
-              {contract.category || '-'}
-            </p>
+            <p className="text-sm font-semibold text-gray-900">{contract.contract_number}</p>
+            <p className="text-[11px] text-gray-400">{contract.category || '—'}</p>
           </div>
         </div>
       ),
     },
     {
-      key: 'company',
-      header: 'Societe',
+      key: 'company_name',
+      header: 'Société',
       render: (contract: GroupContract) => (
         <div className="flex items-center gap-2">
-          <Building2 className="h-4 w-4 text-muted-foreground" />
-          <span>{contract.company_name}</span>
+          <Building2 className="h-4 w-4 text-gray-400" />
+          <span className="text-sm text-gray-700">{contract.company_name}</span>
         </div>
       ),
     },
     {
-      key: 'insurer',
+      key: 'insurer_name',
       header: 'Assureur',
       render: (contract: GroupContract) => (
         <div className="flex items-center gap-2">
-          <Shield className="h-4 w-4 text-muted-foreground" />
-          <span>{contract.insurer_name || '-'}</span>
+          <Shield className="h-4 w-4 text-gray-400" />
+          <span className="text-sm text-gray-700">{contract.insurer_name || '—'}</span>
         </div>
       ),
     },
     {
       key: 'effective_date',
       header: 'Date effet',
-      render: (contract: GroupContract) =>
-        contract.effective_date
-          ? new Date(contract.effective_date).toLocaleDateString('fr-TN')
-          : '-',
+      render: (contract: GroupContract) => (
+        <span className="text-sm text-gray-700">
+          {contract.effective_date ? new Date(contract.effective_date).toLocaleDateString('fr-TN') : '—'}
+        </span>
+      ),
     },
     {
       key: 'status',
       header: 'Statut',
+      className: 'text-center',
       render: (contract: GroupContract) => {
         const s = STATUS_LABELS[contract.status] || { label: contract.status, variant: 'secondary' as const };
-        return <Badge variant={s.variant}>{s.label}</Badge>;
+        return (
+          <span className={cn(
+            'inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide',
+            contract.status === 'active' ? 'bg-green-50 text-green-700' :
+            contract.status === 'draft' ? 'bg-gray-100 text-gray-600' :
+            contract.status === 'expired' ? 'bg-red-50 text-red-700' :
+            contract.status === 'suspended' ? 'bg-amber-50 text-amber-700' :
+            'bg-gray-100 text-gray-600'
+          )}>
+            {s.label}
+          </span>
+        );
       },
     },
     {
       key: 'actions',
-      header: 'Actions',
+      header: '',
       className: 'text-right',
       render: (contract: GroupContract) => (
-        <div className="flex justify-end gap-1">
-          <Button variant="ghost" size="icon" title="Voir" onClick={() => navigate(`/group-contracts/${contract.id}`)}>
+        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => navigate(`/group-contracts/${contract.id}`)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            title="Voir"
+          >
             <Eye className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" title="Modifier" onClick={() => navigate(`/group-contracts/${contract.id}/edit`)}>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/group-contracts/${contract.id}/edit`)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            title="Modifier"
+          >
             <Pencil className="h-4 w-4" />
-          </Button>
+          </button>
         </div>
       ),
     },
   ];
 
+  const statusFilterLabel = statusFilter === 'all' ? 'Tous' :
+    statusFilter === 'active' ? 'Actifs' :
+    statusFilter === 'draft' ? 'Brouillons' :
+    statusFilter === 'expired' ? 'Expirés' : 'Suspendus';
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <PageHeader
-          title="Contrats groupe"
-          description="Gerer les contrats d'assurance groupe et leurs garanties"
-        />
-        <Button onClick={() => navigate('/group-contracts/new')}>
-          <Plus className="mr-2 h-4 w-4" />
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Contrats Groupe</h1>
+          <p className="mt-1 text-sm text-gray-500">Gérer les contrats d'assurance groupe et leurs garanties</p>
+        </div>
+        <Button
+          className="gap-2 bg-slate-900 hover:bg-blue-700"
+          onClick={() => navigate('/group-contracts/new')}
+        >
+          <Plus className="h-4 w-4" />
           Nouveau contrat
         </Button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-100">
-              <FileText className="h-6 w-6 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{data?.total || 0}</p>
-              <p className="text-sm text-muted-foreground">Total contrats</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-green-100">
-              <Shield className="h-6 w-6 text-green-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{activeCount}</p>
-              <p className="text-sm text-muted-foreground">Contrats actifs</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-purple-100">
-              <Building2 className="h-6 w-6 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold">{companiesCount}</p>
-              <p className="text-sm text-muted-foreground">Societes couvertes</p>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-4">
+        <div className="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50">
+            <FileText className="h-5 w-5 text-blue-600" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-gray-900">{data?.total || 0}</p>
+            <p className="text-xs text-gray-500">Total contrats</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-green-50">
+            <Shield className="h-5 w-5 text-green-600" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-gray-900">{activeCount}</p>
+            <p className="text-xs text-gray-500">Contrats actifs</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-50">
+            <Building2 className="h-5 w-5 text-purple-600" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-gray-900">{companiesCount}</p>
+            <p className="text-xs text-gray-500">Sociétés couvertes</p>
+          </div>
+        </div>
+        <div className="rounded-2xl bg-gradient-to-br from-gray-900 to-blue-950 px-5 py-4 text-white">
+          <p className="text-2xl font-bold">{filtered.length}</p>
+          <p className="text-xs text-blue-200">Résultats affichés</p>
+        </div>
       </div>
 
-      {/* Filter */}
-      <div className="flex items-center gap-3">
-        <label className="text-sm font-medium text-muted-foreground">Statut :</label>
-        <select
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-        >
-          <option value="">Tous</option>
-          <option value="active">Actif</option>
-          <option value="draft">Brouillon</option>
-          <option value="expired">Expire</option>
-          <option value="suspended">Suspendu</option>
-        </select>
+      {/* Filters bar — same style as AgentAdherentsPage */}
+      <div className="flex items-stretch gap-4">
+        <div className="flex flex-1 items-center gap-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+          {/* Search */}
+          <div className="relative flex-1 min-w-[280px]">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <svg className="w-[18px] h-[18px] text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              placeholder="Rechercher par numéro, société, assureur..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              className="w-full h-11 pl-11 pr-10 rounded-xl bg-[#f3f4f5] text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          {/* Statut dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+              onBlur={() => setTimeout(() => setStatusDropdownOpen(false), 150)}
+              className="flex items-center gap-2 px-5 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
+            >
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Statut</span>
+              <span className="text-sm font-medium text-gray-900">{statusFilterLabel}</span>
+              <svg className={`w-3.5 h-3.5 text-gray-400 ml-1 transition-transform ${statusDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+              </svg>
+            </button>
+            {statusDropdownOpen && (
+              <div className="absolute top-full left-0 mt-1 w-48 py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50 animate-in fade-in slide-in-from-top-1">
+                {([
+                  { value: 'all' as const, label: 'Tous', color: null },
+                  { value: 'active' as const, label: 'Actifs', color: 'bg-emerald-500' },
+                  { value: 'draft' as const, label: 'Brouillons', color: 'bg-gray-400' },
+                  { value: 'expired' as const, label: 'Expirés', color: 'bg-red-400' },
+                  { value: 'suspended' as const, label: 'Suspendus', color: 'bg-amber-400' },
+                ]).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { setStatusFilter(opt.value); setStatusDropdownOpen(false); setPage(1); }}
+                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${statusFilter === opt.value ? 'text-blue-600 font-semibold bg-blue-50/50' : 'text-gray-700'}`}
+                  >
+                    {opt.color && <span className={`w-2 h-2 rounded-full ${opt.color}`} />}
+                    {opt.label}
+                    {statusFilter === opt.value && (
+                      <svg className="w-4 h-4 ml-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
+      {/* Table */}
       <DataTable
-        columns={columns}
-        data={data?.contracts || []}
+        columns={contractColumns}
+        data={paginatedContracts}
         isLoading={isLoading}
-        emptyMessage="Aucun contrat groupe trouve"
-        pagination={
-          data
-            ? {
-                page,
-                limit: 20,
-                total: data.total,
-                onPageChange: setPage,
-              }
-            : undefined
-        }
+        onRowClick={(contract) => navigate(`/group-contracts/${contract.id}`)}
+        emptyMessage={search ? 'Aucun contrat trouvé pour cette recherche' : 'Aucun contrat groupe trouvé'}
+        searchTerm={search || undefined}
+        onClearSearch={() => setSearch('')}
+        emptyStateType="contracts"
+        pagination={{
+          page,
+          limit: pageSize,
+          total: filtered.length,
+          onPageChange: setPage,
+        }}
       />
     </div>
   );

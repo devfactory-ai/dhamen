@@ -13,7 +13,8 @@ API_VERSION = "v1"
 JWT_ISSUER = "dhamen"
 JWT_EXPIRES_IN = "900"
 REFRESH_EXPIRES_IN = "86400"
-GEMINI_API_KEY = "AIzaSyBH88cb0FFWUJoKVYUu-LFP0d04eb9dt3w"
+# GEMINI_API_KEY — stored as Cloudflare secret (wrangler secret put GEMINI_API_KEY)
+# ENCRYPTION_KEY — stored as Cloudflare secret (wrangler secret put ENCRYPTION_KEY)
 
 # Legacy single DB (kept for backward compatibility during migration)
 [[d1_databases]]

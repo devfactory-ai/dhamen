@@ -4,8 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { PageHeader } from '@/components/ui/page-header';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/ui/data-table';
@@ -36,7 +35,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { FilePreviewList } from '@/components/ui/file-preview';
 import { apiClient, API_BASE_URL } from '@/lib/api-client';
 import { getTenantHeader } from '@/lib/tenant';
@@ -54,8 +53,6 @@ import {
   FileText,
   Upload,
   Download,
-  Clock,
-  CheckCircle,
   Loader2,
   Eye,
   FileImage,
@@ -66,9 +63,7 @@ import {
   Plus,
   Trash2,
   FileSpreadsheet,
-  Send,
   Package,
-  Calendar,
   User,
   Search,
   FolderPlus,
@@ -82,6 +77,8 @@ import {
   ThumbsDown,
   MessageSquare,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 
 // --- OCR Feedback types ---
@@ -113,7 +110,7 @@ interface BulletinSaisie {
   batch_id: string | null;
   batch_name: string | null;
   created_at: string;
-  status: 'draft' | 'in_batch' | 'exported' | 'soumis' | 'en_examen' | 'approuve' | 'rejete' | 'paye';
+  status: 'draft' | 'in_batch' | 'exported' | 'soumis' | 'en_examen' | 'approuve' | 'rejete' | 'paye' | 'approved' | 'rejected';
 }
 
 interface BulletinActeDetail {
@@ -138,11 +135,12 @@ const bulletinStatusConfig: Record<string, { label: string; variant: 'secondary'
   draft: { label: 'Brouillon', variant: 'secondary' },
   in_batch: { label: 'Dans un lot', variant: 'default' },
   exported: { label: 'Exporte', variant: 'outline' },
-  approved: { label: 'Valide', variant: 'default', className: 'bg-green-600 hover:bg-green-700' },
+  approved: { label: 'Validé', variant: 'default', className: 'bg-green-600 hover:bg-green-700' },
+  rejected: { label: 'Rejeté', variant: 'destructive' },
   soumis: { label: 'Soumis', variant: 'default' },
   en_examen: { label: 'En examen', variant: 'default', className: 'bg-yellow-500 hover:bg-yellow-600' },
-  approuve: { label: 'Approuve', variant: 'default', className: 'bg-green-600 hover:bg-green-700' },
-  rejete: { label: 'Rejete', variant: 'destructive' },
+  approuve: { label: 'Approuvé', variant: 'default', className: 'bg-green-600 hover:bg-green-700' },
+  rejete: { label: 'Rejeté', variant: 'destructive' },
   paye: { label: 'Paye', variant: 'default', className: 'bg-emerald-700 hover:bg-emerald-800' },
 };
 
@@ -176,7 +174,7 @@ const acteFormSchema = z.object({
 });
 
 const bulletinFormSchema = z.object({
-  bulletin_number: z.string().min(1, 'Numero de bulletin requis'),
+  bulletin_number: z.string().optional().or(z.literal('')),
   bulletin_date: z.string().min(1, 'Date requise'),
   adherent_matricule: z.string().min(1, 'Matricule requis'),
   adherent_first_name: z.string().min(2, 'Prenom requis'),
@@ -224,7 +222,7 @@ function mapNatureActeToCode(natureActe: string): { code: string; label: string 
 
 export function BulletinsSaisiePage() {
   const queryClient = useQueryClient();
-  const { selectedCompany, selectedBatch } = useAgentContext();
+  const { selectedCompany, selectedBatch, setBatch } = useAgentContext();
   const [activeTab, setActiveTab] = useState('saisie');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -235,6 +233,10 @@ export function BulletinsSaisiePage() {
   const [exportBatch, setExportBatch] = useState<Batch | null>(null);
   const [newBatchName, setNewBatchName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [batchSearch, setBatchSearch] = useState('');
+  const [batchStatusFilter, setBatchStatusFilter] = useState('all');
+  const [batchPage, setBatchPage] = useState(1);
+  const BATCH_PAGE_SIZE = 10;
   const [adherentSearch, setAdherentSearch] = useState('');
   const [showAdherentDropdown, setShowAdherentDropdown] = useState(false);
   const [selectedAdherentInfo, setSelectedAdherentInfo] = useState<AdherentSearchResult | null>(null);
@@ -244,6 +246,7 @@ export function BulletinsSaisiePage() {
   const [validateNotes, setValidateNotes] = useState('');
   const validateMutation = useBulletinValidation();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showScanPreview, setShowScanPreview] = useState(false);
   const [ocrFeedback, setOcrFeedback] = useState<OcrFeedbackState | null>(null);
   const [isSendingFeedback, setIsSendingFeedback] = useState(false);
   const [feedbackErrors, setFeedbackErrors] = useState<string[]>([]);
@@ -336,7 +339,7 @@ export function BulletinsSaisiePage() {
     queryKey: ['agent-bulletins', selectedBatch?.id, searchQuery],
     queryFn: async () => {
       const params = new URLSearchParams();
-      params.append('status', 'draft,in_batch');
+      params.append('status', 'draft,in_batch,approved,rejected');
       if (selectedBatch) params.append('batchId', selectedBatch.id);
       if (searchQuery) params.append('search', searchQuery);
 
@@ -346,17 +349,21 @@ export function BulletinsSaisiePage() {
     },
   });
 
-  // Fetch batches for the selected company
-  const { data: batchesData, isLoading: loadingBatches } = useQuery({
-    queryKey: ['agent-batches', selectedCompany?.id],
+  // Fetch batches for the selected company (paginated)
+  const { data: batchesResponse, isLoading: loadingBatches } = useQuery({
+    queryKey: ['agent-batches', selectedCompany?.id, batchStatusFilter, batchSearch, batchPage],
     queryFn: async () => {
-      if (!selectedCompany) return [];
-      const response = await apiClient.get<Batch[]>(`/bulletins-soins/agent/batches?companyId=${selectedCompany.id}`);
+      if (!selectedCompany) return { data: [] as Batch[], meta: { page: 1, limit: BATCH_PAGE_SIZE, total: 0, totalPages: 1 } };
+      const params = new URLSearchParams({ companyId: selectedCompany.id, status: batchStatusFilter, page: String(batchPage), limit: String(BATCH_PAGE_SIZE) });
+      if (batchSearch) params.append('search', batchSearch);
+      const response = await apiClient.get<Batch[]>(`/bulletins-soins/agent/batches?${params.toString()}`);
       if (!response.success) throw new Error(response.error?.message);
-      return response.data || [];
+      return { data: (response.data || []) as Batch[], meta: (response as unknown as { meta?: { page: number; limit: number; total: number; totalPages: number } }).meta || { page: 1, limit: BATCH_PAGE_SIZE, total: 0, totalPages: 1 } };
     },
     enabled: !!selectedCompany,
   });
+  const batchesData = batchesResponse?.data || [];
+  const batchesMeta = batchesResponse?.meta || { page: 1, limit: BATCH_PAGE_SIZE, total: 0, totalPages: 1 };
 
   // Submit bulletin mutation
   const submitMutation = useMutation({
@@ -424,18 +431,21 @@ export function BulletinsSaisiePage() {
 
   // Create batch mutation
   const createBatchMutation = useMutation({
-    mutationFn: async (data: { name: string; bulletinIds: string[] }) => {
-      const response = await apiClient.post('/bulletins-soins/batches', data);
+    mutationFn: async (data: { name: string; bulletinIds: string[]; companyId: string }): Promise<{ id: string; name: string; companyId: string; status: string }> => {
+      const response = await apiClient.post('/bulletins-soins/agent/batches', data);
       if (!response.success) throw new Error(response.error?.message);
-      return response.data;
+      return response.data as { id: string; name: string; companyId: string; status: string };
     },
-    onSuccess: () => {
+    onSuccess: (data: { id: string; name: string; companyId: string; status: string }) => {
       queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
       queryClient.invalidateQueries({ queryKey: ['agent-batches'] });
-      toast.success('Lot cree avec succes!');
+      // Set the newly created batch as active and switch to saisie tab
+      setBatch({ id: data.id, name: data.name, companyId: data.companyId, status: data.status });
+      toast.success('Lot créé avec succès ! Vous pouvez maintenant saisir des bulletins.');
       setShowBatchDialog(false);
       setSelectedBulletins([]);
       setNewBatchName('');
+      setActiveTab('saisie');
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Erreur lors de la creation du lot');
@@ -594,11 +604,51 @@ export function BulletinsSaisiePage() {
       toast.error('Certains fichiers ont ete ignores (format ou taille invalide)');
     }
 
-    setSelectedFiles(prev => [...prev, ...validFiles]);
+    // Reset form fields when uploading new files
+    reset({
+      care_type: watch('care_type'),
+      bulletin_date: new Date().toISOString().split('T')[0],
+      bulletin_number: '',
+      adherent_matricule: '',
+      adherent_first_name: '',
+      adherent_last_name: '',
+      adherent_national_id: '',
+      adherent_contract_number: '',
+      adherent_email: '',
+      adherent_address: '',
+      beneficiary_name: '',
+      actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_description: '', cod_msgr: '', lib_msgr: '' }],
+    });
+    setSelectedAdherentInfo(null);
+    setOcrFeedback(null);
+    setSelectedFiles(validFiles);
+    // Reset input value so re-selecting the same files triggers onChange
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleRemoveFile = (index: number) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    const remaining = selectedFiles.filter((_, i) => i !== index);
+    setSelectedFiles(remaining);
+    // Reset form fields when all files are removed
+    if (remaining.length === 0) {
+      reset({
+        care_type: watch('care_type'),
+        bulletin_date: new Date().toISOString().split('T')[0],
+        bulletin_number: '',
+        adherent_matricule: '',
+        adherent_first_name: '',
+        adherent_last_name: '',
+        adherent_national_id: '',
+        adherent_contract_number: '',
+        adherent_email: '',
+        adherent_address: '',
+        beneficiary_name: '',
+        actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_description: '', cod_msgr: '', lib_msgr: '' }],
+      });
+      setSelectedAdherentInfo(null);
+      setOcrFeedback(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const analyzeWithOCR = async () => {
@@ -611,7 +661,9 @@ export function BulletinsSaisiePage() {
       }
 
       // OCR API: Cloudflare Worker endpoint
-      const ocrBase = (import.meta.env.VITE_OCR_API_URL || 'https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev').replace(/\/+$/, '');
+      const ocrBase = (
+        import.meta.env.VITE_OCR_API_URL || "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev"
+      ).replace(/\/+$/, "");
       const ocrApiUrl = `${ocrBase}/analyse-bulletin`;
       const res = await fetch(ocrApiUrl, {
         method: 'POST',
@@ -774,7 +826,7 @@ export function BulletinsSaisiePage() {
   const sendOcrFeedback = async (statut: 'valide' | 'invalide' | 'partiellement_valide') => {
     if (!ocrFeedback) return;
     setIsSendingFeedback(true);
-    const ocrBase = (import.meta.env.VITE_OCR_API_URL || 'https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev').replace(/\/+$/, '');
+    const ocrBase = (import.meta.env.VITE_OCR_API_URL || "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev").replace(/\/+$/, "");
     try {
       const res = await fetch(`${ocrBase}/valider-bulletin`, {
         method: 'POST',
@@ -824,14 +876,6 @@ export function BulletinsSaisiePage() {
     );
   };
 
-  const handleSelectAll = () => {
-    const draftBulletins = (bulletinsData || []).filter(b => b.status === 'draft');
-    if (selectedBulletins.length === draftBulletins.length) {
-      setSelectedBulletins([]);
-    } else {
-      setSelectedBulletins(draftBulletins.map(b => b.id));
-    }
-  };
 
   const handleCreateBatch = () => {
     if (!newBatchName.trim()) {
@@ -841,6 +885,7 @@ export function BulletinsSaisiePage() {
     createBatchMutation.mutate({
       name: newBatchName.trim(),
       bulletinIds: selectedBulletins,
+      companyId: selectedCompany!.id,
     });
   };
 
@@ -869,283 +914,100 @@ export function BulletinsSaisiePage() {
     });
   };
 
-  const bulletinColumns = [
-    {
-      key: 'select',
-      header: '',
-      render: (row: BulletinSaisie) => (
-        row.status === 'draft' ? (
-          <input
-            type="checkbox"
-            checked={selectedBulletins.includes(row.id)}
-            onChange={() => handleToggleBulletin(row.id)}
-            className="h-4 w-4 rounded border-gray-300"
-          />
-        ) : null
-      ),
-    },
-    {
-      key: 'bulletin',
-      header: 'Bulletin',
-      render: (row: BulletinSaisie) => (
-        <div className="flex items-center gap-3">
-          <FileText className="h-5 w-5 text-gray-400" />
-          <div>
-            <p className="font-mono text-sm font-medium">{row.bulletin_number || 'Brouillon'}</p>
-            <p className="text-xs text-muted-foreground">{formatDate(row.bulletin_date)}</p>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: 'adherent',
-      header: 'Adherent',
-      render: (row: BulletinSaisie) => (
-        <div>
-          <p className="font-medium">{row.adherent_first_name} {row.adherent_last_name}</p>
-          <p className="text-xs text-muted-foreground font-mono">{row.adherent_matricule}</p>
-        </div>
-      ),
-    },
-    {
-      key: 'care_type',
-      header: 'Type',
-      render: (row: BulletinSaisie) => {
-        const config = careTypeConfig[row.care_type as keyof typeof careTypeConfig] || careTypeConfig.consultation;
-        const Icon = config.icon;
-        return (
-          <div className="flex items-center gap-2">
-            <Icon className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm">{config.label}</span>
-          </div>
-        );
-      },
-    },
-    {
-      key: 'amount',
-      header: 'Montant',
-      render: (row: BulletinSaisie) => (
-        <p className="font-medium text-right">{formatAmount(row.total_amount)}</p>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Statut',
-      render: (row: BulletinSaisie) => (
-        <Badge variant={row.status === 'draft' ? 'secondary' : row.status === 'in_batch' ? 'default' : 'outline'}>
-          {row.status === 'draft' ? 'Brouillon' : row.status === 'in_batch' ? `Lot: ${row.batch_name}` : 'Exporte'}
-        </Badge>
-      ),
-    },
-    {
-      key: 'actions',
-      header: 'Actions',
-      render: (row: BulletinSaisie) => (
-        <div className="flex gap-1">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => fetchBulletinDetail(row.id)}
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
-          {['draft', 'in_batch'].includes(row.status) && (
-            <Button
-              size="sm"
-              variant="default"
-              className="bg-green-600 hover:bg-green-700"
-              title="Valider le bulletin"
-              onClick={async () => {
-                const response = await apiClient.get<BulletinDetail>(`/bulletins-soins/agent/${row.id}`);
-                if (response.success && response.data) {
-                  setValidateBulletinTarget(response.data);
-                  setShowValidateDialog(true);
-                }
-              }}
-            >
-              <CheckCircle2 className="h-4 w-4" />
-            </Button>
-          )}
-          {row.status !== 'exported' && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setDeleteBulletinId(row.id)}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
-      ),
-    },
-  ];
-
-  const batchColumns = [
-    {
-      key: 'name',
-      header: 'Nom du lot',
-      render: (row: Batch) => (
-        <div className="flex items-center gap-3">
-          <Package className="h-5 w-5 text-blue-500" />
-          <div>
-            <p className="font-medium">{row.name}</p>
-            <p className="text-xs text-muted-foreground">{formatDate(row.created_at)}</p>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: 'count',
-      header: 'Bulletins',
-      render: (row: Batch) => (
-        <p className="font-medium">{row.bulletins_count}</p>
-      ),
-    },
-    {
-      key: 'total',
-      header: 'Montant total',
-      render: (row: Batch) => (
-        <p className="font-medium">{formatAmount(row.total_amount)}</p>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Statut',
-      render: (row: Batch) => (
-        <Badge variant={row.status === 'open' ? 'default' : row.status === 'exported' ? 'outline' : 'secondary'}>
-          {row.status === 'open' ? 'Ouvert' : row.status === 'exported' ? 'Exporte' : 'Ferme'}
-        </Badge>
-      ),
-    },
-    {
-      key: 'actions',
-      header: 'Actions',
-      render: (row: Batch) => (
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => handleExportBatch(row)}
-            disabled={!row.bulletins_count}
-            className="gap-1"
-          >
-            <FileSpreadsheet className="h-4 w-4" />
-            {row.status === 'exported' ? 'Re-exporter' : 'Export recap'}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => handleExportDetailBatch(row)}
-            disabled={!row.bulletins_count}
-            className="gap-1"
-          >
-            <FileSpreadsheet className="h-4 w-4" />
-            Export detaille
-          </Button>
-        </div>
-      ),
-    },
-  ];
-
   const draftCount = (bulletinsData || []).filter(b => b.status === 'draft').length;
   const totalAmount = (bulletinsData || []).reduce((sum, b) => sum + b.total_amount, 0);
 
+  // Pagination (liste tab)
+  const [listePage, setListePage] = useState(1);
+  const listePageSize = 10;
+  const filteredBulletins = bulletinsData || [];
+  const paginatedBulletins = filteredBulletins.slice((listePage - 1) * listePageSize, listePage * listePageSize);
+
   return (
     <div className="space-y-6">
-      {/* Agent context banner */}
-      {selectedCompany && selectedBatch && (
-        <div className="flex items-center justify-between rounded-lg border bg-blue-50 border-blue-200 px-4 py-3">
-          <div className="flex items-center gap-4 text-sm">
-            <span className="font-medium text-blue-900">
-              Entreprise : <span className="text-blue-700">{selectedCompany.name}</span>
-            </span>
-            <span className="text-blue-300">|</span>
-            <span className="font-medium text-blue-900">
-              Lot : <span className="text-blue-700">{selectedBatch.name}</span>
-            </span>
-          </div>
-          <a
-            href="/select-context"
-            className="text-sm font-medium text-blue-600 underline hover:text-blue-800"
-          >
-            Changer
-          </a>
+      {/* Page header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Saisie des Bulletins de Soins
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Numérisez et enregistrez les actes médicaux pour le remboursement. Suivez les étapes pour une validation rapide.
+          </p>
         </div>
-      )}
+        <div className="flex items-center gap-3">
+          <a
+            href="/bulletins/import-lot"
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 text-sm font-medium text-white hover:from-amber-600 hover:to-orange-600 shadow-lg shadow-orange-500/25 transition-colors"
+          >
+            <Upload className="h-4 w-4" />
+            Importer un lot
+          </a>
+          {selectedBulletins.length > 0 && (
+            <Button onClick={() => setShowBatchDialog(true)} className="rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 shadow-lg shadow-blue-600/25">
+              <FolderPlus className="mr-2 h-4 w-4" />
+              Créer un lot ({selectedBulletins.length})
+            </Button>
+          )}
+          {selectedCompany && (
+            <div className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-[10px] font-bold text-white">
+                {selectedCompany.name?.slice(0, 3).toUpperCase()}
+              </div>
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">Entreprise active</p>
+                <p className="text-sm font-semibold text-gray-900">{selectedCompany.name}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
-      <PageHeader
-        title="Saisie des Bulletins de Soins"
-        description="Scannez et saisissez les bulletins recus, puis exportez par lot"
-        action={
-          <div className="flex gap-2">
-            {selectedBulletins.length > 0 && (
-              <Button onClick={() => setShowBatchDialog(true)}>
-                <FolderPlus className="mr-2 h-4 w-4" />
-                Creer un lot ({selectedBulletins.length})
-              </Button>
-            )}
-          </div>
-        }
-      />
-
-      {/* Stats */}
+      {/* Stats row */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
-                <FileText className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{draftCount}</p>
-                <p className="text-sm text-muted-foreground">Brouillons</p>
-              </div>
+        {[
+          { label: 'Brouillons', value: draftCount, icon: FileText, color: 'blue' },
+          { label: 'Lots ouverts', value: (batchesData || []).filter(b => b.status === 'open').length, icon: Package, color: 'green' },
+          { label: 'Lots exportés', value: (batchesData || []).filter(b => b.status === 'exported').length, icon: FileSpreadsheet, color: 'purple' },
+        ].map((stat) => (
+          <div key={stat.label} className="rounded-2xl border border-gray-200 bg-white px-5 py-4 flex items-center gap-3">
+            <div className={`flex h-10 w-10 items-center justify-center rounded-xl bg-${stat.color}-50`}>
+              <stat.icon className={`h-5 w-5 text-${stat.color}-600`} />
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
-                <Package className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{(batchesData || []).filter(b => b.status === 'open').length}</p>
-                <p className="text-sm text-muted-foreground">Lots ouverts</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100">
-                <FileSpreadsheet className="h-5 w-5 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{(batchesData || []).filter(b => b.status === 'exported').length}</p>
-                <p className="text-sm text-muted-foreground">Lots exportes</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
-          <CardContent className="pt-6">
             <div>
-              <p className="text-2xl font-bold text-blue-700">{formatAmount(totalAmount)}</p>
-              <p className="text-sm text-blue-600">Montant total saisi</p>
+              <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+              <p className="text-xs text-gray-500">{stat.label}</p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        ))}
+        <div className="rounded-2xl bg-gradient-to-br from-gray-900 to-blue-950 px-5 py-4 text-white">
+          <p className="text-2xl font-bold">{formatAmount(totalAmount)}</p>
+          <p className="text-xs text-blue-200">Montant total saisi</p>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="saisie">Nouveau bulletin</TabsTrigger>
-          <TabsTrigger value="liste">Liste des bulletins ({(bulletinsData || []).length})</TabsTrigger>
-          <TabsTrigger value="lots">Gestion des lots ({(batchesData || []).length})</TabsTrigger>
-        </TabsList>
+        <div className="flex items-center gap-1 rounded-2xl bg-gray-100 p-1 w-fit">
+          {[
+            { value: 'saisie', label: 'Nouveau bulletin' },
+            { value: 'liste', label: `Liste des bulletins (${(bulletinsData || []).length})` },
+            { value: 'lots', label: `Gestion des lots (${(batchesData || []).length})` },
+          ].map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setActiveTab(tab.value)}
+              className={cn(
+                'rounded-xl px-5 py-2.5 text-sm font-medium transition-all',
+                activeTab === tab.value
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
         {/* Tab: Saisie */}
         <TabsContent value="saisie">
@@ -1174,23 +1036,18 @@ export function BulletinsSaisiePage() {
               </CardContent>
             </Card>
           ) : (
-          <div className="grid gap-6 lg:grid-cols-3">
-            <div className="lg:col-span-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Plus className="h-5 w-5" />
-                    Saisir un nouveau bulletin
-                  </CardTitle>
-                  <CardDescription>
-                    Scannez le bulletin puis renseignez les informations
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleSubmit(onSubmitForm)} className="space-y-6">
-                    {/* Scan upload */}
-                    <div className="space-y-2">
-                      <Label>Scan du bulletin</Label>
+            <form onSubmit={handleSubmit(onSubmitForm)}>
+              <div className="grid gap-6 lg:grid-cols-3">
+                {/* ===== LEFT 2 COLUMNS ===== */}
+                <div className="lg:col-span-2 space-y-6">
+
+                  {/* Section 01: Numérisation du Bulletin */}
+                  <div className="rounded-2xl border border-gray-200 bg-white p-6">
+                    <div className="flex items-center gap-3 mb-5">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">01</span>
+                      <h2 className="text-lg font-semibold text-gray-900">Numérisation du Bulletin</h2>
+                    </div>
+                    <div className="space-y-4">
                       {selectedFiles.length > 0 ? (
                         <div className="space-y-3">
                           <FilePreviewList
@@ -1203,6 +1060,7 @@ export function BulletinsSaisiePage() {
                               variant="outline"
                               size="sm"
                               onClick={() => fileInputRef.current?.click()}
+                              className="rounded-xl"
                             >
                               <Upload className="h-4 w-4 mr-2" />
                               Ajouter un fichier
@@ -1212,6 +1070,7 @@ export function BulletinsSaisiePage() {
                               size="sm"
                               onClick={analyzeWithOCR}
                               disabled={isAnalyzing}
+                              className="rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
                             >
                               {isAnalyzing ? (
                                 <>
@@ -1229,12 +1088,15 @@ export function BulletinsSaisiePage() {
                         </div>
                       ) : (
                         <div
-                          className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 transition-colors"
+                          className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50/50 px-6 py-10 cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-colors"
                           onClick={() => fileInputRef.current?.click()}
                         >
-                          <FileImage className="h-10 w-10 text-muted-foreground/50 mb-2" />
-                          <p className="font-medium text-sm">Scanner ou deposer le bulletin</p>
-                          <p className="text-xs text-muted-foreground">PDF, JPG, PNG (max 10 Mo)</p>
+                          <Upload className="h-10 w-10 text-gray-400 mb-3" />
+                          <p className="font-semibold text-sm text-gray-700">Glissez-déposez le scan ici</p>
+                          <p className="text-xs text-gray-500 mt-1">Ou parcourez vos fichiers (PDF, JPG, PNG)</p>
+                          <button type="button" className="mt-3 rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2 text-xs font-semibold text-white hover:from-blue-700 hover:to-blue-800 transition-all">
+                            Sélectionner un fichier
+                          </button>
                         </div>
                       )}
                       <input
@@ -1245,271 +1107,281 @@ export function BulletinsSaisiePage() {
                         onChange={handleFileChange}
                         className="hidden"
                       />
-                    </div>
 
-                    {/* OCR Feedback Panel — shown after IA analysis, form is already filled */}
-                    {ocrFeedback?.visible && (() => {
-                      const adh = (ocrFeedback.donneesIa.infos_adherent || {}) as Record<string, string>;
-                      const actes = (ocrFeedback.donneesIa.volet_medical || []) as Record<string, string>[];
-                      const adhFields: [string, string][] = [
-                        ['Nom/prenom', adh.nom_prenom],
-                        ['N° adherent', adh.numero_adherent],
-                        ['N° contrat', adh.numero_contrat],
-                        ['N° bulletin', adh.numero_bulletin],
-                        ['Adresse', adh.adresse],
-                        ['Beneficiaire', adh.beneficiaire_coche],
-                        ['Nom beneficiaire', adh.nom_beneficiaire],
-                        ['Date signature', adh.date_signature],
-                      ].filter(([, v]) => v && v.trim() !== '') as [string, string][];
+                      {/* OCR Feedback Panel */}
+                      {ocrFeedback?.visible && (() => {
+                        const adh = (ocrFeedback.donneesIa.infos_adherent || {}) as Record<string, string>;
+                        const actes = (ocrFeedback.donneesIa.volet_medical || []) as Record<string, string>[];
+                        const adhFields: [string, string][] = [
+                          ['Nom/prenom', adh.nom_prenom],
+                          ['N° adherent', adh.numero_adherent],
+                          ['N° contrat', adh.numero_contrat],
+                          ['N° bulletin', adh.numero_bulletin],
+                          ['Adresse', adh.adresse],
+                          ['Beneficiaire', adh.beneficiaire_coche],
+                          ['Nom beneficiaire', adh.nom_beneficiaire],
+                          ['Date signature', adh.date_signature],
+                        ].filter(([, v]) => v && v.trim() !== '') as [string, string][];
 
-                      const acteFieldLabels: Record<string, string> = {
-                        type_soin: 'Type de soin',
-                        date_acte: 'Date acte',
-                        nature_acte: 'Nature acte',
-                        montant_honoraires: 'Montant honoraires',
-                        montant_facture: 'Montant facture',
-                        nom_praticien: 'Praticien',
-                        matricule_fiscale: 'Matricule fiscale',
-                      };
+                        const acteFieldLabels: Record<string, string> = {
+                          type_soin: 'Type de soin',
+                          date_acte: 'Date acte',
+                          nature_acte: 'Nature acte',
+                          montant_honoraires: 'Montant honoraires',
+                          montant_facture: 'Montant facture',
+                          nom_praticien: 'Praticien',
+                          matricule_fiscale: 'Matricule fiscale',
+                        };
 
-                      return (
-                      <div className="rounded-lg border-2 border-amber-300 bg-amber-50/50 p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="font-semibold text-amber-900 flex items-center gap-2">
-                            <MessageSquare className="h-5 w-5" />
-                            Feedback extraction IA
-                          </h4>
-                          <button
-                            type="button"
-                            onClick={() => setOcrFeedback(null)}
-                            className="text-amber-400 hover:text-amber-600"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        </div>
-                        <p className="text-sm text-amber-700">
-                          Voici les donnees extraites. Cliquez sur un champ pour le signaler comme incorrect.
-                        </p>
-
-                        {/* Adherent extracted fields */}
-                        <div className="space-y-1.5">
-                          <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
-                            <User className="h-3.5 w-3.5" />
-                            Informations adherent
-                          </p>
-                          <div className="grid gap-1.5">
-                            {adhFields.map(([label, value]) => (
+                        return (
+                          <div className="rounded-xl border-2 border-amber-300 bg-amber-50/50 p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h4 className="font-semibold text-amber-900 flex items-center gap-2">
+                                <MessageSquare className="h-5 w-5" />
+                                Feedback extraction IA
+                              </h4>
                               <button
-                                key={label}
                                 type="button"
-                                onClick={() => toggleFeedbackError(label)}
-                                className={cn(
-                                  'flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm text-left transition-colors w-full',
-                                  feedbackErrors.includes(label)
-                                    ? 'bg-red-50 border-red-300'
-                                    : 'bg-white border-gray-200 hover:border-amber-300'
-                                )}
+                                onClick={() => setOcrFeedback(null)}
+                                className="text-amber-400 hover:text-amber-600"
                               >
-                                <span className="w-28 shrink-0 text-xs text-muted-foreground">{label}</span>
-                                <span className={cn('flex-1 font-medium', feedbackErrors.includes(label) && 'line-through text-red-400')}>
-                                  {value}
-                                </span>
-                                {feedbackErrors.includes(label)
-                                  ? <ThumbsDown className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                                  : <ThumbsUp className="h-3.5 w-3.5 text-green-500 shrink-0" />}
+                                <X className="h-4 w-4" />
                               </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Actes extracted fields */}
-                        {actes.length > 0 && (
-                          <div className="space-y-1.5">
-                            <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
-                              <Stethoscope className="h-3.5 w-3.5" />
-                              Volet medical
+                            </div>
+                            <p className="text-sm text-amber-700">
+                              Voici les donnees extraites. Cliquez sur un champ pour le signaler comme incorrect.
                             </p>
-                            {actes.map((acte, acteIdx) => (
-                              <div key={acteIdx} className="rounded-md border border-gray-200 bg-white p-2 space-y-1.5">
-                                {acteIdx > 0 && <p className="text-[10px] text-muted-foreground">Acte {acteIdx + 1}</p>}
-                                <div className="grid gap-1">
-                                  {Object.entries(acteFieldLabels).map(([key, fieldLabel]) => {
-                                    const val = acte[key];
-                                    if (!val || val.trim() === '') return null;
-                                    const errorKey = `acte${acteIdx}_${fieldLabel}`;
-                                    return (
-                                      <button
-                                        key={key}
-                                        type="button"
-                                        onClick={() => toggleFeedbackError(errorKey)}
-                                        className={cn(
-                                          'flex items-center gap-2 rounded border px-2.5 py-1 text-sm text-left transition-colors w-full',
-                                          feedbackErrors.includes(errorKey)
-                                            ? 'bg-red-50 border-red-300'
-                                            : 'bg-gray-50 border-gray-100 hover:border-amber-300'
-                                        )}
-                                      >
-                                        <span className="w-28 shrink-0 text-xs text-muted-foreground">{fieldLabel}</span>
-                                        <span className={cn('flex-1 font-medium', feedbackErrors.includes(errorKey) && 'line-through text-red-400')}>
-                                          {val}
-                                        </span>
-                                        {feedbackErrors.includes(errorKey)
-                                          ? <ThumbsDown className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                                          : <ThumbsUp className="h-3.5 w-3.5 text-green-500 shrink-0" />}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
+
+                            {/* Adherent extracted fields */}
+                            <div className="space-y-1.5">
+                              <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
+                                <User className="h-3.5 w-3.5" />
+                                Informations adherent
+                              </p>
+                              <div className="grid gap-1.5">
+                                {adhFields.map(([label, value]) => (
+                                  <button
+                                    key={label}
+                                    type="button"
+                                    onClick={() => toggleFeedbackError(label)}
+                                    className={cn(
+                                      'flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm text-left transition-colors w-full',
+                                      feedbackErrors.includes(label)
+                                        ? 'bg-red-50 border-red-300'
+                                        : 'bg-white border-gray-200 hover:border-amber-300'
+                                    )}
+                                  >
+                                    <span className="w-28 shrink-0 text-xs text-gray-500">{label}</span>
+                                    <span className={cn('flex-1 font-medium', feedbackErrors.includes(label) && 'line-through text-red-400')}>
+                                      {value}
+                                    </span>
+                                    {feedbackErrors.includes(label)
+                                      ? <ThumbsDown className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                                      : <ThumbsUp className="h-3.5 w-3.5 text-green-500 shrink-0" />}
+                                  </button>
+                                ))}
                               </div>
-                            ))}
-                          </div>
-                        )}
+                            </div>
 
-                        {/* Comment */}
-                        <Textarea
-                          placeholder="Commentaire de correction (optionnel) — ex: le nom est inverse, le montant est 50 et non 500..."
-                          value={feedbackComment}
-                          onChange={(e) => setFeedbackComment(e.target.value)}
-                          rows={2}
-                          className="text-sm"
-                        />
-
-                        {/* Actions */}
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => sendOcrFeedback(feedbackErrors.length === 0 ? 'valide' : 'partiellement_valide')}
-                            disabled={isSendingFeedback}
-                            className="bg-green-600 hover:bg-green-700"
-                          >
-                            {isSendingFeedback ? (
-                              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <ThumbsUp className="mr-1.5 h-3.5 w-3.5" />
+                            {/* Actes extracted fields */}
+                            {actes.length > 0 && (
+                              <div className="space-y-1.5">
+                                <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
+                                  <Stethoscope className="h-3.5 w-3.5" />
+                                  Volet medical
+                                </p>
+                                {actes.map((acte, acteIdx) => (
+                                  <div key={acteIdx} className="rounded-md border border-gray-200 bg-white p-2 space-y-1.5">
+                                    {acteIdx > 0 && <p className="text-[10px] text-gray-500">Acte {acteIdx + 1}</p>}
+                                    <div className="grid gap-1">
+                                      {Object.entries(acteFieldLabels).map(([key, fieldLabel]) => {
+                                        const val = acte[key];
+                                        if (!val || val.trim() === '') return null;
+                                        const errorKey = `acte${acteIdx}_${fieldLabel}`;
+                                        return (
+                                          <button
+                                            key={key}
+                                            type="button"
+                                            onClick={() => toggleFeedbackError(errorKey)}
+                                            className={cn(
+                                              'flex items-center gap-2 rounded border px-2.5 py-1 text-sm text-left transition-colors w-full',
+                                              feedbackErrors.includes(errorKey)
+                                                ? 'bg-red-50 border-red-300'
+                                                : 'bg-gray-50 border-gray-100 hover:border-amber-300'
+                                            )}
+                                          >
+                                            <span className="w-28 shrink-0 text-xs text-gray-500">{fieldLabel}</span>
+                                            <span className={cn('flex-1 font-medium', feedbackErrors.includes(errorKey) && 'line-through text-red-400')}>
+                                              {val}
+                                            </span>
+                                            {feedbackErrors.includes(errorKey)
+                                              ? <ThumbsDown className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                                              : <ThumbsUp className="h-3.5 w-3.5 text-green-500 shrink-0" />}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
                             )}
-                            {feedbackErrors.length === 0 ? 'Tout est correct' : `Valider avec ${feedbackErrors.length} erreur(s)`}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => sendOcrFeedback('invalide')}
-                            disabled={isSendingFeedback}
-                            className="border-red-300 text-red-600 hover:bg-red-50"
-                          >
-                            <ThumbsDown className="mr-1.5 h-3.5 w-3.5" />
-                            Tout est faux
-                          </Button>
-                        </div>
-                      </div>
-                      );
-                    })()}
 
-                    {/* Numero + Date */}
-                    <div className="grid gap-4 sm:grid-cols-3">
-                      <div className="space-y-2">
-                        <Label>N° bulletin *</Label>
-                        <Input {...register('bulletin_number')} placeholder="Ex: BS-2026-001" />
-                        {errors.bulletin_number && (
-                          <p className="text-sm text-destructive">{errors.bulletin_number.message}</p>
-                        )}
+                            {/* Comment */}
+                            <Textarea
+                              placeholder="Commentaire de correction (optionnel) — ex: le nom est inverse, le montant est 50 et non 500..."
+                              value={feedbackComment}
+                              onChange={(e) => setFeedbackComment(e.target.value)}
+                              rows={2}
+                              className="text-sm rounded-xl"
+                            />
+
+                            {/* Actions */}
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => sendOcrFeedback(feedbackErrors.length === 0 ? 'valide' : 'partiellement_valide')}
+                                disabled={isSendingFeedback}
+                                className="bg-green-600 hover:bg-green-700 rounded-xl"
+                              >
+                                {isSendingFeedback ? (
+                                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <ThumbsUp className="mr-1.5 h-3.5 w-3.5" />
+                                )}
+                                {feedbackErrors.length === 0 ? 'Tout est correct' : `Valider avec ${feedbackErrors.length} erreur(s)`}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => sendOcrFeedback('invalide')}
+                                disabled={isSendingFeedback}
+                                className="border-red-300 text-red-600 hover:bg-red-50 rounded-xl"
+                              >
+                                <ThumbsDown className="mr-1.5 h-3.5 w-3.5" />
+                                Tout est faux
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Section 02 + 03 side by side */}
+                  <div className="grid gap-6 lg:grid-cols-2">
+                    {/* Section 02: Infos Générales */}
+                    <div className="rounded-2xl border border-gray-200 bg-white p-6">
+                      <div className="flex items-center gap-3 mb-5">
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">02</span>
+                        <h2 className="text-lg font-semibold text-gray-900">Infos Générales</h2>
                       </div>
-                      <div className="space-y-2">
-                        <Label>Date du bulletin *</Label>
-                        <Input type="date" {...register('bulletin_date')} />
-                        {errors.bulletin_date && (
-                          <p className="text-sm text-destructive">{errors.bulletin_date.message}</p>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Type de soin *</Label>
-                        <Select
-                          value={selectedCareType}
-                          onValueChange={(v) => setValue('care_type', v as 'consultation' | 'pharmacy' | 'lab' | 'hospital')}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="consultation">Consultation</SelectItem>
-                            <SelectItem value="pharmacy">Pharmacie</SelectItem>
-                            <SelectItem value="lab">Analyses</SelectItem>
-                            <SelectItem value="hospital">Hospitalisation</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {selectedCareType === 'pharmacy' && (
+                      <div className="space-y-4">
                         <div className="space-y-2">
-                          <Label>Famille therapeutique</Label>
+                          <Label className="text-sm text-gray-700">Numéro du bulletin *</Label>
+                          <Input {...register('bulletin_number')} placeholder="Ex: 847291-B" className="rounded-xl" />
+                          {errors.bulletin_number && (
+                            <p className="text-sm text-destructive">{errors.bulletin_number.message}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm text-gray-700">Date du bulletin *</Label>
+                          <Input type="date" {...register('bulletin_date')} className="rounded-xl" />
+                          {errors.bulletin_date && (
+                            <p className="text-sm text-destructive">{errors.bulletin_date.message}</p>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm text-gray-700">Type de soin *</Label>
                           <Select
-                            value={selectedMedicationFamily || undefined}
-                            onValueChange={setSelectedMedicationFamily}
+                            value={selectedCareType}
+                            onValueChange={(v) => setValue('care_type', v as 'consultation' | 'pharmacy' | 'lab' | 'hospital')}
                           >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Toutes les familles" />
+                            <SelectTrigger className="rounded-xl">
+                              <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="all">Toutes les familles</SelectItem>
-                              {(medicationFamilies || []).map((f) => (
-                                <SelectItem key={f.id} value={f.id}>
-                                  {f.code} - {f.name}
-                                </SelectItem>
-                              ))}
+                              <SelectItem value="consultation">Consultation</SelectItem>
+                              <SelectItem value="pharmacy">Pharmacie</SelectItem>
+                              <SelectItem value="lab">Analyses</SelectItem>
+                              <SelectItem value="hospital">Hospitalisation</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
-                      )}
-                      {selectedCareType === 'pharmacy' && selectedAdherentInfo && (
-                        <div className="rounded-md border px-3 py-2 text-xs space-y-1 bg-blue-50/50">
-                          <p className="font-medium text-blue-800 flex items-center gap-1">
-                            <Pill className="h-3.5 w-3.5" />
-                            Remboursement Frais Pharmaceutiques
-                          </p>
-                          {plafondPharmaOrdinaire ? (
-                            <div className="flex justify-between text-blue-700">
-                              <span>Maladie ordinaire : {Math.round((plafondPharmaOrdinaire.montantConsomme / 1000) * 1000) / 1000} / {(plafondPharmaOrdinaire.montantPlafond / 1000).toFixed(3)} DT</span>
-                              <span className={plafondPharmaOrdinaire.pourcentageConsomme >= 80 ? 'text-red-600 font-semibold' : ''}>
-                                Restant : {(plafondPharmaOrdinaire.montantRestant / 1000).toFixed(3)} DT
-                              </span>
-                            </div>
-                          ) : plafondPharma ? (
-                            <div className="flex justify-between text-blue-700">
-                              <span>Consomme : {(plafondPharma.montantConsomme / 1000).toFixed(3)} / {(plafondPharma.montantPlafond / 1000).toFixed(3)} DT</span>
-                              <span className={plafondPharma.pourcentageConsomme >= 80 ? 'text-red-600 font-semibold' : ''}>
-                                Restant : {(plafondPharma.montantRestant / 1000).toFixed(3)} DT
-                              </span>
-                            </div>
-                          ) : (
-                            <p className="text-gray-500">Aucun plafond pharma configure</p>
-                          )}
-                          {plafondPharmaChronique && (
-                            <div className="flex justify-between text-orange-700">
-                              <span>Maladie chronique : {(plafondPharmaChronique.montantConsomme / 1000).toFixed(3)} / {(plafondPharmaChronique.montantPlafond / 1000).toFixed(3)} DT</span>
-                              <span className={plafondPharmaChronique.pourcentageConsomme >= 80 ? 'text-red-600 font-semibold' : ''}>
-                                Restant : {(plafondPharmaChronique.montantRestant / 1000).toFixed(3)} DT
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                        {selectedCareType === 'pharmacy' && (
+                          <div className="space-y-2">
+                            <Label className="text-sm text-gray-700">Famille therapeutique</Label>
+                            <Select
+                              value={selectedMedicationFamily || undefined}
+                              onValueChange={setSelectedMedicationFamily}
+                            >
+                              <SelectTrigger className="rounded-xl">
+                                <SelectValue placeholder="Toutes les familles" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">Toutes les familles</SelectItem>
+                                {(medicationFamilies || []).map((f) => (
+                                  <SelectItem key={f.id} value={f.id}>
+                                    {f.code} - {f.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                        {selectedCareType === 'pharmacy' && selectedAdherentInfo && (
+                          <div className="rounded-xl border px-3 py-2 text-xs space-y-1 bg-blue-50/50">
+                            <p className="font-medium text-blue-800 flex items-center gap-1">
+                              <Pill className="h-3.5 w-3.5" />
+                              Remboursement Frais Pharmaceutiques
+                            </p>
+                            {plafondPharmaOrdinaire ? (
+                              <div className="flex justify-between text-blue-700">
+                                <span>Maladie ordinaire : {Math.round((plafondPharmaOrdinaire.montantConsomme / 1000) * 1000) / 1000} / {(plafondPharmaOrdinaire.montantPlafond / 1000).toFixed(3)} DT</span>
+                                <span className={plafondPharmaOrdinaire.pourcentageConsomme >= 80 ? 'text-red-600 font-semibold' : ''}>
+                                  Restant : {(plafondPharmaOrdinaire.montantRestant / 1000).toFixed(3)} DT
+                                </span>
+                              </div>
+                            ) : plafondPharma ? (
+                              <div className="flex justify-between text-blue-700">
+                                <span>Consomme : {(plafondPharma.montantConsomme / 1000).toFixed(3)} / {(plafondPharma.montantPlafond / 1000).toFixed(3)} DT</span>
+                                <span className={plafondPharma.pourcentageConsomme >= 80 ? 'text-red-600 font-semibold' : ''}>
+                                  Restant : {(plafondPharma.montantRestant / 1000).toFixed(3)} DT
+                                </span>
+                              </div>
+                            ) : (
+                              <p className="text-gray-500">Aucun plafond pharma configure</p>
+                            )}
+                            {plafondPharmaChronique && (
+                              <div className="flex justify-between text-orange-700">
+                                <span>Maladie chronique : {(plafondPharmaChronique.montantConsomme / 1000).toFixed(3)} / {(plafondPharmaChronique.montantPlafond / 1000).toFixed(3)} DT</span>
+                                <span className={plafondPharmaChronique.pourcentageConsomme >= 80 ? 'text-red-600 font-semibold' : ''}>
+                                  Restant : {(plafondPharmaChronique.montantRestant / 1000).toFixed(3)} DT
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Adherent info */}
-                    <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
-                      <h4 className="font-medium flex items-center gap-2">
-                        <User className="h-4 w-4" />
-                        Informations Adherent
-                      </h4>
-                      <div className="grid gap-4 sm:grid-cols-2">
+                    {/* Section 03: Recherche Adhérent */}
+                    <div className="rounded-2xl border border-gray-200 bg-white p-6">
+                      <div className="flex items-center gap-3 mb-5">
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">03</span>
+                        <h2 className="text-lg font-semibold text-gray-900">Recherche Adhérent</h2>
+                      </div>
+                      <div className="space-y-4">
+                        {/* Matricule search */}
                         <div className="space-y-2 relative">
-                          <Label>Matricule *</Label>
+                          <Label className="text-sm text-gray-700">Matricule *</Label>
                           <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                             <Input
                               {...register('adherent_matricule')}
                               placeholder="Rechercher par nom ou matricule..."
-                              className="pl-9"
+                              className="pl-9 rounded-xl"
                               onChange={(e) => {
                                 register('adherent_matricule').onChange(e);
                                 setAdherentSearch(e.target.value);
@@ -1548,7 +1420,7 @@ export function BulletinsSaisiePage() {
                                 >
                                   <span className="font-medium">{a.firstName} {a.lastName}</span>
                                   <span className="text-gray-400 ml-2 font-mono text-xs">{a.matricule}</span>
-                                  {a.companyName && <span className="text-gray-400 ml-2 text-xs">— {a.companyName}</span>}
+                                  {a.companyName && <span className="text-gray-400 ml-2 text-xs">-- {a.companyName}</span>}
                                   {a.contractType && (
                                     <span className="ml-2 text-xs text-blue-500">
                                       [{a.contractType === 'individual' ? 'Individuel' : a.contractType === 'family' ? 'Famille' : 'Groupe'}]
@@ -1558,158 +1430,216 @@ export function BulletinsSaisiePage() {
                               ))}
                             </div>
                           )}
-                          {selectedAdherentInfo && (
-                            <div className="text-xs text-green-600 flex items-center gap-1 mt-1">
-                              <Check className="w-3 h-3" />
-                              {selectedAdherentInfo.firstName} {selectedAdherentInfo.lastName}
-                              {selectedAdherentInfo.contractType && (
-                                <Badge variant="outline" className="ml-1 text-[10px] px-1.5 py-0">
-                                  {selectedAdherentInfo.contractType === 'individual' ? 'Individuel' :
-                                   selectedAdherentInfo.contractType === 'family' ? 'Famille' : 'Groupe'}
-                                </Badge>
-                              )}
-                              {selectedAdherentInfo.plafondGlobal != null && (
-                                <span className="text-gray-400 ml-1">
-                                  — Plafond restant : {new Intl.NumberFormat('fr-TN', { maximumFractionDigits: 0 }).format(
-                                    ((selectedAdherentInfo.plafondGlobal || 0) - (selectedAdherentInfo.plafondConsomme || 0)) / 1000
-                                  )} DT
-                                </span>
-                              )}
-                            </div>
-                          )}
                           {errors.adherent_matricule && (
                             <p className="text-sm text-destructive">{errors.adherent_matricule.message}</p>
                           )}
                         </div>
-                        <div className="space-y-2">
-                          <Label>N° Contrat</Label>
-                          <Input {...register('adherent_contract_number')} placeholder="N° contrat assurance" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>CIN</Label>
-                          <Input {...register('adherent_national_id')} placeholder="12345678" />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Nom *</Label>
-                          <Input {...register('adherent_last_name')} />
-                          {errors.adherent_last_name && (
-                            <p className="text-sm text-destructive">{errors.adherent_last_name.message}</p>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Prenom *</Label>
-                          <Input {...register('adherent_first_name')} />
-                          {errors.adherent_first_name && (
-                            <p className="text-sm text-destructive">{errors.adherent_first_name.message}</p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Adresse</Label>
-                        <Input {...register('adherent_address')} placeholder="Adresse de l'adherent" />
-                      </div>
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label>Email adherent</Label>
-                          <Input {...register('adherent_email')} type="email" placeholder="adherent@email.tn" />
-                          {errors.adherent_email && (
-                            <p className="text-sm text-destructive">{errors.adherent_email.message}</p>
-                          )}
-                        </div>
-                        <div className="space-y-2 sm:col-span-2">
-                          {selectedAdherentInfo && familleData && (familleData.conjoint || familleData.enfants.length > 0) && (
-                            <>
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  id="is_ayant_droit"
-                                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                  checked={!!watch('beneficiary_name')}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      // Set a placeholder to show the family members list
-                                      const first = familleData?.conjoint || familleData?.enfants?.[0];
-                                      if (first) setValue('beneficiary_name', `${first.firstName} ${first.lastName}`);
-                                    } else {
-                                      setValue('beneficiary_name', '');
-                                    }
-                                  }}
-                                />
-                                <Label htmlFor="is_ayant_droit" className="cursor-pointer">Soins pour un ayant droit</Label>
+
+                        {/* Selected adherent card */}
+                        {selectedAdherentInfo && (
+                          <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+                                {(selectedAdherentInfo.firstName?.[0] || '').toUpperCase()}{(selectedAdherentInfo.lastName?.[0] || '').toUpperCase()}
                               </div>
-                              {watch('beneficiary_name') !== '' && watch('beneficiary_name') !== undefined && (
-                                <div className="flex flex-wrap gap-2 mt-1">
-                                  {familleData.conjoint && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setValue('beneficiary_name', `${familleData.conjoint!.firstName} ${familleData.conjoint!.lastName}`)}
-                                      className={cn(
-                                        'px-3 py-1.5 rounded-lg border text-sm transition-colors',
-                                        watch('beneficiary_name') === `${familleData.conjoint.firstName} ${familleData.conjoint.lastName}`
-                                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                          : 'border-gray-200 hover:bg-gray-50 text-gray-700'
-                                      )}
-                                    >
-                                      {familleData.conjoint.firstName} {familleData.conjoint.lastName}
-                                      <span className="ml-1 text-xs text-gray-400">Conjoint(e)</span>
-                                    </button>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-sm text-gray-900">{selectedAdherentInfo.firstName} {selectedAdherentInfo.lastName}</p>
+                                <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                  {selectedAdherentInfo.contractType && (
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                      {selectedAdherentInfo.contractType === 'individual' ? 'Individuel' :
+                                       selectedAdherentInfo.contractType === 'family' ? 'Famille' : 'Groupe'}
+                                    </Badge>
                                   )}
-                                  {familleData.enfants.map((enfant) => (
-                                    <button
-                                      key={enfant.id}
-                                      type="button"
-                                      onClick={() => setValue('beneficiary_name', `${enfant.firstName} ${enfant.lastName}`)}
-                                      className={cn(
-                                        'px-3 py-1.5 rounded-lg border text-sm transition-colors',
-                                        watch('beneficiary_name') === `${enfant.firstName} ${enfant.lastName}`
-                                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                          : 'border-gray-200 hover:bg-gray-50 text-gray-700'
-                                      )}
-                                    >
-                                      {enfant.firstName} {enfant.lastName}
-                                      <span className="ml-1 text-xs text-gray-400">Enfant</span>
-                                    </button>
-                                  ))}
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 border-green-200 text-green-700">
+                                    <Check className="w-2.5 h-2.5 mr-0.5" />
+                                    Actif
+                                  </Badge>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                              <div>
+                                <p className="text-gray-500">Matricule</p>
+                                <p className="font-mono font-medium text-gray-700">{selectedAdherentInfo.matricule}</p>
+                              </div>
+                              {selectedAdherentInfo.plafondGlobal != null && (
+                                <div>
+                                  <p className="text-gray-500">Plafond restant</p>
+                                  <p className="font-medium text-gray-700">
+                                    {new Intl.NumberFormat('fr-TN', { maximumFractionDigits: 0 }).format(
+                                      ((selectedAdherentInfo.plafondGlobal || 0) - (selectedAdherentInfo.plafondConsomme || 0)) / 1000
+                                    )} DT
+                                  </p>
                                 </div>
                               )}
-                            </>
-                          )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Hidden fields for adherent data */}
+                        <div className="space-y-3">
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <Label className="text-sm text-gray-700">Nom *</Label>
+                              <Input {...register('adherent_last_name')} className="rounded-xl" />
+                              {errors.adherent_last_name && (
+                                <p className="text-sm text-destructive">{errors.adherent_last_name.message}</p>
+                              )}
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-sm text-gray-700">Prenom *</Label>
+                              <Input {...register('adherent_first_name')} className="rounded-xl" />
+                              {errors.adherent_first_name && (
+                                <p className="text-sm text-destructive">{errors.adherent_first_name.message}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <Label className="text-sm text-gray-700">CIN</Label>
+                              <Input {...register('adherent_national_id')} placeholder="12345678" className="rounded-xl" />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label className="text-sm text-gray-700">N° Contrat</Label>
+                              <Input {...register('adherent_contract_number')} placeholder="N° contrat assurance" className="rounded-xl" />
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-sm text-gray-700">Email</Label>
+                            <Input {...register('adherent_email')} type="email" placeholder="adherent@email.tn" className="rounded-xl" />
+                            {errors.adherent_email && (
+                              <p className="text-sm text-destructive">{errors.adherent_email.message}</p>
+                            )}
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-sm text-gray-700">Adresse</Label>
+                            <Input {...register('adherent_address')} placeholder="Adresse de l'adherent" className="rounded-xl" />
+                          </div>
                         </div>
+
+                        {/* Ayant droit selection */}
+                        {selectedAdherentInfo && familleData && (familleData.conjoint || familleData.enfants.length > 0) && (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                id="is_ayant_droit"
+                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                checked={!!watch('beneficiary_name')}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    const first = familleData?.conjoint || familleData?.enfants?.[0];
+                                    if (first) setValue('beneficiary_name', `${first.firstName} ${first.lastName}`);
+                                  } else {
+                                    setValue('beneficiary_name', '');
+                                  }
+                                }}
+                              />
+                              <Label htmlFor="is_ayant_droit" className="cursor-pointer text-sm text-gray-700">Soins pour un ayant droit</Label>
+                            </div>
+                            {watch('beneficiary_name') !== '' && watch('beneficiary_name') !== undefined && (
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                {familleData.conjoint && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setValue('beneficiary_name', `${familleData.conjoint!.firstName} ${familleData.conjoint!.lastName}`)}
+                                    className={cn(
+                                      'px-3 py-1.5 rounded-lg border text-sm transition-colors',
+                                      watch('beneficiary_name') === `${familleData.conjoint.firstName} ${familleData.conjoint.lastName}`
+                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                        : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                                    )}
+                                  >
+                                    {familleData.conjoint.firstName} {familleData.conjoint.lastName}
+                                    <span className="ml-1 text-xs text-gray-400">Conjoint(e)</span>
+                                  </button>
+                                )}
+                                {familleData.enfants.map((enfant) => (
+                                  <button
+                                    key={enfant.id}
+                                    type="button"
+                                    onClick={() => setValue('beneficiary_name', `${enfant.firstName} ${enfant.lastName}`)}
+                                    className={cn(
+                                      'px-3 py-1.5 rounded-lg border text-sm transition-colors',
+                                      watch('beneficiary_name') === `${enfant.firstName} ${enfant.lastName}`
+                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                        : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                                    )}
+                                  >
+                                    {enfant.firstName} {enfant.lastName}
+                                    <span className="ml-1 text-xs text-gray-400">Enfant</span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
+                  </div>
 
-                    {/* Actes medicaux */}
-                    <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-medium flex items-center gap-2">
-                          {selectedCareType === 'pharmacy' ? <Pill className="h-4 w-4" /> :
-                           selectedCareType === 'consultation' ? <Stethoscope className="h-4 w-4" /> :
-                           selectedCareType === 'lab' ? <FlaskConical className="h-4 w-4" /> :
-                           <Building2 className="h-4 w-4" />}
-                          {selectedCareType === 'pharmacy' ? 'Medicaments *' :
-                           selectedCareType === 'consultation' ? 'Consultations / Visites *' :
-                           selectedCareType === 'lab' ? 'Analyses *' :
-                           'Frais d\'hospitalisation *'}
-                        </h4>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => appendActe({ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_description: '', cod_msgr: '', lib_msgr: '' })}
-                        >
-                          <Plus className="h-4 w-4 mr-1" />
-                          Ajouter un acte
-                        </Button>
+                  {/* Section 04: Détails des Actes */}
+                  <div className="rounded-2xl border border-gray-200 bg-white p-6">
+                    <div className="flex items-center justify-between mb-5">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-white">04</span>
+                        <h2 className="text-lg font-semibold text-gray-900">Détails des Actes</h2>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => appendActe({ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_description: '', cod_msgr: '', lib_msgr: '' })}
+                        className="text-sm font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Ajouter un acte
+                      </button>
+                    </div>
 
-                      {errors.actes?.root && (
-                        <p className="text-sm text-destructive">{errors.actes.root.message}</p>
-                      )}
+                    {errors.actes?.root && (
+                      <p className="text-sm text-destructive mb-3">{errors.actes.root.message}</p>
+                    )}
 
+                    {/* Separator */}
+                    <div className="border-b border-gray-100" />
+
+                    <div className="divide-y divide-gray-100">
                       {actesFields.map((field, index) => (
-                        <div key={field.id} className="space-y-2 rounded-md border bg-background p-3">
-                          <div className="flex items-start gap-2">
-                            <div className="flex-1">
+                        <div key={field.id} className="py-4 space-y-3">
+                          <div className="grid gap-3 sm:grid-cols-12 items-start">
+                            {/* Practitioner / identifier */}
+                            <div className="sm:col-span-3 space-y-2">
+                              <div>
+                                <Label className="text-sm text-gray-700">
+                                  {selectedCareType === 'pharmacy' ? 'Pharmacien *' : selectedCareType === 'consultation' ? 'Médecin *' : selectedCareType === 'lab' ? 'Laboratoire *' : 'Établissement *'}
+                                </Label>
+                                <Input
+                                  {...register(`actes.${index}.nom_prof_sant`)}
+                                  placeholder={selectedCareType === 'pharmacy' ? 'Nom pharmacie' : selectedCareType === 'consultation' ? 'Dr. Mohamed Ali' : selectedCareType === 'lab' ? 'Nom du labo' : 'Clinique / Hôpital'}
+                                  className="rounded-xl text-sm"
+                                />
+                                {errors.actes?.[index]?.nom_prof_sant && (
+                                  <p className="text-xs text-destructive mt-1">{errors.actes[index].nom_prof_sant?.message}</p>
+                                )}
+                              </div>
+                              <div>
+                                <Label className="text-sm text-gray-700">Matricule fiscale *</Label>
+                                <Input
+                                  {...register(`actes.${index}.ref_prof_sant`)}
+                                  placeholder="Matricule fiscale"
+                                  className="rounded-xl text-sm"
+                                />
+                                {errors.actes?.[index]?.ref_prof_sant && (
+                                  <p className="text-xs text-destructive mt-1">{errors.actes[index].ref_prof_sant?.message}</p>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Acte description / selector */}
+                            <div className="sm:col-span-6">
+                              <Label className="text-sm text-gray-700">
+                                {selectedCareType === 'pharmacy' ? 'Médicament *' : 'Acte médical *'}
+                              </Label>
                               {selectedCareType === 'pharmacy' ? (
                                 <Select
                                   value={watch(`actes.${index}.code`) || undefined}
@@ -1725,7 +1655,7 @@ export function BulletinsSaisiePage() {
                                     }
                                   }}
                                 >
-                                  <SelectTrigger>
+                                  <SelectTrigger className="rounded-xl">
                                     <SelectValue placeholder="Selectionner un medicament" />
                                   </SelectTrigger>
                                   <SelectContent className="max-h-80 overflow-y-auto" position="popper" sideOffset={4}>
@@ -1733,8 +1663,8 @@ export function BulletinsSaisiePage() {
                                       <SelectItem key={med.id} value={med.code_pct}>
                                         <div className="flex items-center gap-2">
                                           <span className="font-medium">{med.brand_name}</span>
-                                          <span className="text-xs text-muted-foreground">{med.dci}</span>
-                                          {med.dosage && <span className="text-xs text-muted-foreground">- {med.dosage}</span>}
+                                          <span className="text-xs text-gray-500">{med.dci}</span>
+                                          {med.dosage && <span className="text-xs text-gray-500">- {med.dosage}</span>}
                                           {med.is_generic ? <span className="text-[10px] px-1 bg-blue-100 text-blue-700 rounded">GEN</span> : null}
                                           {med.is_reimbursable ? (
                                             <span className="text-[10px] px-1 bg-green-100 text-green-700 rounded">
@@ -1760,6 +1690,7 @@ export function BulletinsSaisiePage() {
                               {errors.actes?.[index]?.label && (
                                 <p className="text-xs text-destructive mt-1">{errors.actes[index].label?.message}</p>
                               )}
+                              {/* Reimbursement info for pharmacy */}
                               {selectedCareType === 'pharmacy' && watch(`actes.${index}.code`) && (() => {
                                 const selectedMed = (medications || []).find((m) => m.code_pct === watch(`actes.${index}.code`));
                                 if (!selectedMed) return null;
@@ -1790,326 +1721,507 @@ export function BulletinsSaisiePage() {
                                   </div>
                                 );
                               })()}
+                              {/* Care description / observation */}
+                              {selectedCareType !== 'pharmacy' && (
+                                <div className="mt-2">
+                                  <Label className="text-sm text-gray-700">Description de soin</Label>
+                                  <Input
+                                    {...register(`actes.${index}.care_description`)}
+                                    placeholder={selectedCareType === 'consultation' ? 'Motif de consultation' : selectedCareType === 'lab' ? 'Ref. ordonnance ou prescription' : "Motif d'hospitalisation"}
+                                    className="rounded-xl text-sm"
+                                  />
+                                </div>
+                              )}
+                              {selectedCareType === 'pharmacy' && (
+                                <div className="mt-2">
+                                  <Label className="text-sm text-gray-700">Observation</Label>
+                                  <Input
+                                    {...register(`actes.${index}.lib_msgr`)}
+                                    placeholder="Observation (ex: ordonnance n°...)"
+                                    className="rounded-xl text-sm"
+                                  />
+                                </div>
+                              )}
+                              {selectedCareType === 'hospital' && (
+                                <div className="mt-2">
+                                  <Label className="text-sm text-gray-700">Observation</Label>
+                                  <Input
+                                    {...register(`actes.${index}.lib_msgr`)}
+                                    placeholder="Observation"
+                                    className="rounded-xl text-sm"
+                                  />
+                                </div>
+                              )}
                             </div>
-                            <div className="w-32">
-                              <Input
-                                type="number"
-                                step="0.001"
-                                {...register(`actes.${index}.amount`, { valueAsNumber: true })}
-                                placeholder="Montant"
-                              />
+
+                            {/* Amount + delete */}
+                            <div className="sm:col-span-3">
+                              <Label className="text-sm text-gray-700">Montant (TND)</Label>
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  type="number"
+                                  step="0.001"
+                                  {...register(`actes.${index}.amount`, { valueAsNumber: true })}
+                                  placeholder="0.000"
+                                  className="rounded-xl text-right"
+                                />
+                                {actesFields.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeActe(index)}
+                                    className="shrink-0 p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                )}
+                              </div>
                               {errors.actes?.[index]?.amount && (
                                 <p className="text-xs text-destructive mt-1">{errors.actes[index].amount?.message}</p>
                               )}
                             </div>
-                            {actesFields.length > 1 && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeActe(index)}
-                                className="text-destructive hover:text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            )}
                           </div>
-                          {/* Champs specifiques par type de soin */}
-                          {selectedCareType === 'pharmacy' ? (
-                            <>
-                              {/* Pharmacie: pharmacien + quantite */}
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                <div>
-                                  <Label className="text-xs font-medium">Pharmacien *</Label>
-                                  <Input
-                                    {...register(`actes.${index}.nom_prof_sant`)}
-                                    placeholder="Nom de la pharmacie"
-                                    className="h-8 text-sm"
-                                  />
-                                  {errors.actes?.[index]?.nom_prof_sant && (
-                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].nom_prof_sant?.message}</p>
-                                  )}
-                                </div>
-                                <div>
-                                  <Label className="text-xs font-medium">Matricule fiscale *</Label>
-                                  <Input
-                                    {...register(`actes.${index}.ref_prof_sant`)}
-                                    placeholder="Matricule fiscale pharmacie"
-                                    className="h-8 text-sm"
-                                  />
-                                  {errors.actes?.[index]?.ref_prof_sant && (
-                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].ref_prof_sant?.message}</p>
-                                  )}
-                                </div>
-                              </div>
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Observation</Label>
-                                <Input
-                                  {...register(`actes.${index}.lib_msgr`)}
-                                  placeholder="Observation (ex: ordonnance n°...)"
-                                  className="h-8 text-sm"
-                                />
-                              </div>
-                            </>
-                          ) : selectedCareType === 'consultation' ? (
-                            <>
-                              {/* Consultation: medecin */}
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                <div>
-                                  <Label className="text-xs font-medium">Medecin *</Label>
-                                  <Input
-                                    {...register(`actes.${index}.nom_prof_sant`)}
-                                    placeholder="Dr. Mohamed Ali"
-                                    className="h-8 text-sm"
-                                  />
-                                  {errors.actes?.[index]?.nom_prof_sant && (
-                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].nom_prof_sant?.message}</p>
-                                  )}
-                                </div>
-                                <div>
-                                  <Label className="text-xs font-medium">Matricule fiscale *</Label>
-                                  <Input
-                                    {...register(`actes.${index}.ref_prof_sant`)}
-                                    placeholder="Matricule fiscale du medecin"
-                                    className="h-8 text-sm"
-                                  />
-                                  {errors.actes?.[index]?.ref_prof_sant && (
-                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].ref_prof_sant?.message}</p>
-                                  )}
-                                </div>
-                              </div>
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Description de soins</Label>
-                                <Input
-                                  {...register(`actes.${index}.care_description`)}
-                                  placeholder="Motif de consultation"
-                                  className="h-8 text-sm"
-                                />
-                              </div>
-                            </>
-                          ) : selectedCareType === 'lab' ? (
-                            <>
-                              {/* Analyses: laboratoire */}
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                <div>
-                                  <Label className="text-xs font-medium">Laboratoire *</Label>
-                                  <Input
-                                    {...register(`actes.${index}.nom_prof_sant`)}
-                                    placeholder="Nom du laboratoire"
-                                    className="h-8 text-sm"
-                                  />
-                                  {errors.actes?.[index]?.nom_prof_sant && (
-                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].nom_prof_sant?.message}</p>
-                                  )}
-                                </div>
-                                <div>
-                                  <Label className="text-xs font-medium">Matricule fiscale *</Label>
-                                  <Input
-                                    {...register(`actes.${index}.ref_prof_sant`)}
-                                    placeholder="Matricule fiscale du labo"
-                                    className="h-8 text-sm"
-                                  />
-                                  {errors.actes?.[index]?.ref_prof_sant && (
-                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].ref_prof_sant?.message}</p>
-                                  )}
-                                </div>
-                              </div>
-                              <div>
-                                <Label className="text-xs text-muted-foreground">Prescription medicale</Label>
-                                <Input
-                                  {...register(`actes.${index}.care_description`)}
-                                  placeholder="Ref. ordonnance ou prescription"
-                                  className="h-8 text-sm"
-                                />
-                              </div>
-                            </>
-                          ) : (
-                            <>
-                              {/* Hospitalisation: clinique/hopital */}
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                <div>
-                                  <Label className="text-xs font-medium">Etablissement *</Label>
-                                  <Input
-                                    {...register(`actes.${index}.nom_prof_sant`)}
-                                    placeholder="Clinique / Hopital"
-                                    className="h-8 text-sm"
-                                  />
-                                  {errors.actes?.[index]?.nom_prof_sant && (
-                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].nom_prof_sant?.message}</p>
-                                  )}
-                                </div>
-                                <div>
-                                  <Label className="text-xs font-medium">Matricule fiscale *</Label>
-                                  <Input
-                                    {...register(`actes.${index}.ref_prof_sant`)}
-                                    placeholder="Matricule fiscale etablissement"
-                                    className="h-8 text-sm"
-                                  />
-                                  {errors.actes?.[index]?.ref_prof_sant && (
-                                    <p className="text-xs text-destructive mt-1">{errors.actes[index].ref_prof_sant?.message}</p>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                <div>
-                                  <Label className="text-xs text-muted-foreground">Description du sejour</Label>
-                                  <Input
-                                    {...register(`actes.${index}.care_description`)}
-                                    placeholder="Motif d'hospitalisation"
-                                    className="h-8 text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <Label className="text-xs text-muted-foreground">Observation</Label>
-                                  <Input
-                                    {...register(`actes.${index}.lib_msgr`)}
-                                    placeholder="Observation"
-                                    className="h-8 text-sm"
-                                  />
-                                </div>
-                              </div>
-                            </>
-                          )}
                         </div>
                       ))}
-
-                      <div className="flex justify-end border-t pt-3">
-                        <p className="text-lg font-bold">
-                          Total : {formatAmount(actesTotal)}
-                        </p>
-                      </div>
                     </div>
 
-                    <Button type="submit" className="w-full" disabled={isSubmitting}>
-                      {isSubmitting ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Enregistrement...
-                        </>
-                      ) : (
-                        <>
-                          <Check className="mr-2 h-4 w-4" />
-                          Enregistrer le bulletin
-                        </>
+                    <div className="flex justify-end border-t border-gray-100 pt-4 mt-2">
+                      <p className="text-lg font-bold text-gray-900">
+                        Total : {formatAmount(actesTotal)}
+                      </p>
+                    </div>
+                  </div>
+
+                </div>
+
+                {/* ===== RIGHT SIDEBAR ===== */}
+                <div className="space-y-5">
+                  {/* Workflow stepper */}
+                  <div className="rounded-2xl bg-gradient-to-br from-gray-900 to-blue-950 p-5 text-white">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-300 mb-4">Workflow de saisie</p>
+                    <div className="space-y-0">
+                      {[
+                        { label: 'Numérisation réalisée', done: selectedFiles.length > 0 },
+                        { label: 'Données générales', done: !!(watch('bulletin_number') && watch('bulletin_date') && watch('care_type')) },
+                        { label: 'Adhérent identifié', done: !!selectedAdherentInfo || !!(watch('adherent_matricule') && watch('adherent_last_name')) },
+                        { label: 'Détails des actes', done: (watchedActes || []).some(a => a.label && a.amount > 0) },
+                      ].map((step, i, arr) => (
+                        <div key={step.label} className="flex items-start gap-3">
+                          <div className="flex flex-col items-center">
+                            {step.done ? (
+                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-500">
+                                <Check className="h-3.5 w-3.5 text-white" />
+                              </div>
+                            ) : (
+                              <div className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-gray-500" />
+                            )}
+                            {i < arr.length - 1 && <div className={`w-0.5 h-6 ${step.done ? 'bg-blue-500' : 'bg-gray-600'}`} />}
+                          </div>
+                          <p className={`text-sm pt-0.5 ${step.done ? 'text-white font-medium' : 'text-gray-400'}`}>{step.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Scan preview */}
+                  <div className="rounded-2xl border border-gray-200 bg-white p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Aperçu du scan</p>
+                      {selectedFiles.length > 0 && (
+                        <button type="button" onClick={() => setShowScanPreview(true)} className="text-xs font-semibold text-blue-600 hover:text-blue-700">Agrandir</button>
                       )}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Info panel */}
-            <div className="space-y-4">
-              <Card className="bg-blue-50 border-blue-200">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base text-blue-900">Workflow</CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm text-blue-800 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs font-bold">1</div>
-                    <span>Scanner le bulletin papier</span>
+                    </div>
+                    {selectedFiles.length > 0 ? (
+                      <div className="max-h-72 overflow-y-auto space-y-2 rounded-xl">
+                        {selectedFiles.map((file, idx) => (
+                          <div key={idx} className="rounded-xl bg-gray-100 overflow-hidden">
+                            {file.type.startsWith('image/') ? (
+                              <img src={URL.createObjectURL(file)} alt={`Scan ${idx + 1}`} className="w-full h-auto max-h-56 object-contain" />
+                            ) : (
+                              <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+                                <FileText className="h-8 w-8 mb-2" />
+                                <p className="text-xs">{file.name}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center rounded-xl bg-gray-50 py-10 text-gray-400">
+                        <FileImage className="h-8 w-8 mb-2" />
+                        <p className="text-xs">Aucun scan importé</p>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs font-bold">2</div>
-                    <span>Saisir les informations</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs font-bold">3</div>
-                    <span>Regrouper en lot</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs font-bold">4</div>
-                    <span>Exporter en CSV</span>
-                  </div>
-                </CardContent>
-              </Card>
 
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base">Raccourcis clavier</CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm space-y-1">
-                  <p><kbd className="px-1 bg-gray-100 rounded">Tab</kbd> Champ suivant</p>
-                  <p><kbd className="px-1 bg-gray-100 rounded">Ctrl+S</kbd> Enregistrer</p>
-                </CardContent>
-              </Card>
+                  {/* Scan preview fullscreen dialog */}
+                  <Dialog open={showScanPreview} onOpenChange={setShowScanPreview}>
+                    <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+                      <DialogHeader>
+                        <DialogTitle>Aperçu des scans</DialogTitle>
+                      </DialogHeader>
+                      <div className="flex-1 overflow-auto space-y-4">
+                        {selectedFiles.map((file, idx) => (
+                          <div key={idx} className="rounded-xl overflow-hidden bg-gray-50">
+                            {file.type.startsWith('image/') ? (
+                              <img src={URL.createObjectURL(file)} alt={`Scan ${idx + 1}`} className="w-full h-auto object-contain" />
+                            ) : (
+                              <iframe
+                                src={`${URL.createObjectURL(file)}#toolbar=0`}
+                                className="w-full h-[600px] border-0"
+                                title={file.name}
+                              />
+                            )}
+                            <p className="text-xs text-center text-gray-500 py-2">{file.name}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </DialogContent>
+                  </Dialog>
 
-              {selectedAdherentInfo && plafondsData && (
-                <PlafondsCard
-                  global={plafondsData.global}
-                  parFamille={plafondsData.parFamille}
-                  totalConsomme={plafondsData.totalConsomme}
-                  totalPlafond={plafondsData.totalPlafond}
-                />
-              )}
+                  {/* Total amount */}
+                  <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">Total à rembourser</p>
+                    <p className="text-3xl font-bold text-gray-900">{formatAmount(actesTotal)} <span className="text-base font-medium text-gray-500">TND</span></p>
+                    <p className="text-xs text-gray-400 mt-1">Calculé sur la base de {(watchedActes || []).filter(a => a.amount > 0).length} acte(s) médical(aux)</p>
+                  </div>
 
-              {selectedAdherentInfo && familleData && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base">Famille</CardTitle>
-                    <CardDescription className="text-xs">
-                      Adherent principal et ayants droit
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <FamilleTable
-                      principal={familleData.principal}
-                      conjoint={familleData.conjoint}
-                      enfants={familleData.enfants}
+                  {/* Action buttons */}
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="w-full rounded-xl bg-gradient-to-r from-gray-900 to-blue-950 px-6 py-3.5 text-sm font-semibold text-white hover:from-gray-800 hover:to-blue-900 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isSubmitting ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" /> Enregistrement...</>
+                    ) : (
+                      <>Enregistrer le bulletin</>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { reset(); setSelectedFiles([]); setSelectedAdherentInfo(null); setOcrFeedback(null); }}
+                    className="w-full text-center text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors py-2"
+                  >
+                    Annuler la saisie
+                  </button>
+
+                  {/* Plafonds */}
+                  {selectedAdherentInfo && plafondsData && (
+                    <PlafondsCard
+                      global={plafondsData.global}
+                      parFamille={plafondsData.parFamille}
+                      totalConsomme={plafondsData.totalConsomme}
+                      totalPlafond={plafondsData.totalPlafond}
                     />
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </div>
+                  )}
+
+                  {/* Famille */}
+                  {selectedAdherentInfo && familleData && (
+                    <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+                      <div className="px-5 py-3 border-b border-gray-100">
+                        <p className="text-sm font-semibold text-gray-900">Famille</p>
+                        <p className="text-xs text-gray-500">Adhérent principal et ayants droit</p>
+                      </div>
+                      <div className="p-0">
+                        <FamilleTable
+                          principal={familleData.principal}
+                          conjoint={familleData.conjoint}
+                          enfants={familleData.enfants}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </form>
           )}
         </TabsContent>
 
         {/* Tab: Liste */}
         <TabsContent value="liste" className="space-y-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex gap-4 mb-4">
-                <div className="flex-1">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Rechercher par nom, matricule..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9"
-                    />
-                  </div>
+          <div className="rounded-2xl border border-gray-200 bg-white">
+            {/* Header: title + search + actions */}
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-900">Bulletins récents</h3>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="Rechercher un dossier..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9 w-64 rounded-xl border-gray-200 bg-gray-50 focus:bg-white"
+                  />
                 </div>
                 {selectedBulletins.length > 0 && (
-                  <Button onClick={() => setShowBatchDialog(true)}>
-                    <FolderPlus className="mr-2 h-4 w-4" />
-                    Creer un lot ({selectedBulletins.length})
-                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setShowBatchDialog(true)}
+                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2.5 text-sm font-medium text-white hover:from-blue-700 hover:to-blue-800 shadow-lg shadow-blue-600/25"
+                  >
+                    <FolderPlus className="h-4 w-4" />
+                    Créer un lot ({selectedBulletins.length})
+                  </button>
                 )}
               </div>
-              <DataTable
-                columns={bulletinColumns}
-                data={bulletinsData || []}
-                isLoading={loadingBulletins}
-                emptyMessage="Aucun bulletin saisi"
-              />
-            </CardContent>
-          </Card>
+            </div>
+
+            <DataTable
+              columns={[
+                {
+                  key: 'checkbox',
+                  header: '',
+                  className: 'w-10',
+                  render: (row: BulletinSaisie) => row.status === 'draft' ? (
+                    <input
+                      type="checkbox"
+                      checked={selectedBulletins.includes(row.id)}
+                      onChange={() => handleToggleBulletin(row.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  ) : <div className="w-4" />,
+                },
+                {
+                  key: 'bulletin_number',
+                  header: 'Bulletin',
+                  render: (row: BulletinSaisie) => (
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{row.bulletin_number || 'Brouillon'}</p>
+                      <p className="text-xs text-gray-400">{formatDate(row.bulletin_date)}</p>
+                    </div>
+                  ),
+                },
+                {
+                  key: 'adherent',
+                  header: 'Adhérent',
+                  render: (row: BulletinSaisie) => {
+                    const initials = `${(row.adherent_first_name || '')[0] || ''}${(row.adherent_last_name || '')[0] || ''}`.toUpperCase();
+                    return (
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700">
+                          {initials}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900">{row.adherent_first_name} {row.adherent_last_name}</p>
+                          <p className="text-xs text-gray-400 font-mono">ID: {row.adherent_matricule}</p>
+                        </div>
+                      </div>
+                    );
+                  },
+                },
+                {
+                  key: 'care_type',
+                  header: 'Type de soins',
+                  render: (row: BulletinSaisie) => {
+                    const config = careTypeConfig[row.care_type as keyof typeof careTypeConfig] || careTypeConfig.consultation;
+                    const Icon = config.icon;
+                    return (
+                      <div className="flex items-center gap-2">
+                        <Icon className="h-4 w-4 text-gray-400" />
+                        <span className="text-sm text-gray-700">{config.label}</span>
+                      </div>
+                    );
+                  },
+                },
+                {
+                  key: 'total_amount',
+                  header: 'Montant',
+                  className: 'text-right',
+                  render: (row: BulletinSaisie) => (
+                    <p className="text-sm font-semibold text-gray-900">{formatAmount(row.total_amount)}</p>
+                  ),
+                },
+                {
+                  key: 'status',
+                  header: 'Statut',
+                  className: 'text-center',
+                  render: (row: BulletinSaisie) => {
+                    const statusConf = bulletinStatusConfig[row.status] ?? { label: row.status, variant: 'secondary' as const };
+                    return (
+                      <span className={cn(
+                        'inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide',
+                        row.status === 'draft' ? 'bg-gray-100 text-gray-600' :
+                        row.status === 'in_batch' ? 'bg-blue-50 text-blue-700' :
+                        row.status === 'approved' || row.status === 'approuve' ? 'bg-green-50 text-green-700' :
+                        row.status === 'rejected' || row.status === 'rejete' ? 'bg-red-50 text-red-700' :
+                        row.status === 'paye' ? 'bg-emerald-50 text-emerald-700' :
+                        'bg-gray-100 text-gray-600'
+                      )}>
+                        {statusConf.label}
+                      </span>
+                    );
+                  },
+                },
+                {
+                  key: 'actions',
+                  header: 'Actions',
+                  className: 'text-center',
+                  render: (row: BulletinSaisie) => (
+                    <div className="flex justify-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => fetchBulletinDetail(row.id)}
+                        className="rounded-lg p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                        title="Voir le détail"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </button>
+                      {['draft', 'in_batch'].includes(row.status) && (
+                        <button
+                          type="button"
+                          className="rounded-lg p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                          title="Valider"
+                          onClick={async () => {
+                            const response = await apiClient.get<BulletinDetail>(`/bulletins-soins/agent/${row.id}`);
+                            if (response.success && response.data) {
+                              setValidateBulletinTarget(response.data);
+                              setShowValidateDialog(true);
+                            }
+                          }}
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                        </button>
+                      )}
+                      {row.status !== 'exported' && (
+                        <button
+                          type="button"
+                          onClick={() => setDeleteBulletinId(row.id)}
+                          className="rounded-lg p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                          title="Supprimer"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  ),
+                },
+              ]}
+              data={paginatedBulletins}
+              isLoading={loadingBulletins}
+              emptyMessage="Aucun bulletin saisi"
+              pagination={{
+                page: listePage,
+                limit: listePageSize,
+                total: filteredBulletins.length,
+                onPageChange: setListePage,
+              }}
+            />
+          </div>
         </TabsContent>
 
         {/* Tab: Lots */}
         <TabsContent value="lots" className="space-y-4">
-          <Card>
-            <CardContent className="pt-6">
-              <DataTable
-                columns={batchColumns}
-                data={batchesData || []}
-                isLoading={loadingBatches}
-                emptyMessage="Aucun lot cree"
+          {/* Search & Filter bar */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <div className="relative flex-1 w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Rechercher un lot..."
+                value={batchSearch}
+                onChange={(e) => { setBatchSearch(e.target.value); setBatchPage(1); }}
+                className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
-            </CardContent>
-          </Card>
+            </div>
+            <select
+              value={batchStatusFilter}
+              onChange={(e) => { setBatchStatusFilter(e.target.value); setBatchPage(1); }}
+              className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="all">Tous les statuts</option>
+              <option value="open">Ouvert</option>
+              <option value="closed">Fermé</option>
+              <option value="exported">Exporté</option>
+            </select>
+          </div>
+
+          <DataTable
+            columns={[
+              {
+                key: 'name',
+                header: 'Nom du lot',
+                render: (batch: Batch) => (
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50">
+                      <Package className="h-4 w-4 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{batch.name}</p>
+                      <p className="text-xs text-gray-400">{formatDate(batch.created_at)}</p>
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                key: 'bulletins_count',
+                header: 'Bulletins',
+                className: 'text-center',
+                render: (batch: Batch) => (
+                  <p className="text-sm font-medium text-gray-900">{batch.bulletins_count}</p>
+                ),
+              },
+              {
+                key: 'total_amount',
+                header: 'Montant total',
+                className: 'text-right',
+                render: (batch: Batch) => (
+                  <p className="text-sm font-semibold text-gray-900">{formatAmount(batch.total_amount)}</p>
+                ),
+              },
+              {
+                key: 'status',
+                header: 'Statut',
+                className: 'text-center',
+                render: (batch: Batch) => (
+                  <span className={cn(
+                    'inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide',
+                    batch.status === 'open' ? 'bg-blue-50 text-blue-700' :
+                    batch.status === 'exported' ? 'bg-green-50 text-green-700' :
+                    'bg-gray-100 text-gray-600'
+                  )}>
+                    {batch.status === 'open' ? 'Ouvert' : batch.status === 'exported' ? 'Exporté' : 'Fermé'}
+                  </span>
+                ),
+              },
+              {
+                key: 'actions',
+                header: 'Actions',
+                className: 'text-center',
+                render: (batch: Batch) => (
+                  <div className="flex justify-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => handleExportBatch(batch)}
+                      disabled={!batch.bulletins_count}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                      {batch.status === 'exported' ? 'Re-exporter' : 'Export recap'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleExportDetailBatch(batch)}
+                      disabled={!batch.bulletins_count}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <FileSpreadsheet className="h-3.5 w-3.5" />
+                      Export detaillé
+                    </button>
+                  </div>
+                ),
+              },
+            ]}
+            data={batchesData}
+            isLoading={loadingBatches}
+            emptyMessage={batchSearch || batchStatusFilter !== 'all' ? 'Aucun lot trouvé — modifiez vos filtres' : 'Aucun lot trouvé'}
+            pagination={{
+              page: batchPage,
+              limit: batchesMeta.limit ?? 10,
+              total: batchesMeta.total,
+              onPageChange: setBatchPage,
+            }}
+          />
         </TabsContent>
       </Tabs>
 

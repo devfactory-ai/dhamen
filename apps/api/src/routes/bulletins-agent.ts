@@ -3,7 +3,7 @@ import { findActeRefByCode, listActesGroupesParFamille, listActesReferentiel } f
  * Bulletins Agent Routes
  * Routes for insurance agents to create, manage batches, and export bulletins
  */
-import { actesArraySchema, createBatchSchema, validateBulletinSchema } from '@dhamen/shared';
+import { actesArraySchema, createBatchSchema, validateBulletinSchema, importLotSchema } from '@dhamen/shared';
 import type { ActeInput, ValidateBulletinResponse } from '@dhamen/shared';
 import { Hono } from 'hono';
 import { generateId } from '../lib/ulid';
@@ -90,8 +90,7 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
       proxyForm.append('files', files);
     }
 
-    const ocrUrl =
-      c.env.OCR_URL || 'https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev/analyse-bulletin';
+    const ocrUrl = c.env.OCR_URL || "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev/analyse-bulletin";
     const ocrRes = await fetch(ocrUrl, {
       method: 'POST',
       headers: { accept: 'application/json' },
@@ -274,7 +273,11 @@ bulletinsAgent.get('/batches', async (c) => {
   }
 
   const companyId = c.req.query('companyId');
-  const status = c.req.query('status') || 'open';
+  const status = c.req.query('status') || 'all';
+  const search = c.req.query('search') || '';
+  const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
+  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '20', 10)));
+  const offset = (page - 1) * limit;
 
   if (!companyId) {
     return c.json(
@@ -307,6 +310,35 @@ bulletinsAgent.get('/batches', async (c) => {
       }
     }
 
+    // Build WHERE clause
+    const conditions = ['bb.company_id = ?'];
+    const bindings: (string | number)[] = [companyId];
+
+    if (status && status !== 'all') {
+      conditions.push('bb.status = ?');
+      bindings.push(status);
+    }
+
+    if (search) {
+      conditions.push('bb.name LIKE ?');
+      bindings.push(`%${search}%`);
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    // Count total
+    const countResult = await db
+      .prepare(`
+        SELECT COUNT(*) as total
+        FROM bulletin_batches bb
+        WHERE ${whereClause}
+      `)
+      .bind(...bindings)
+      .first<{ total: number }>();
+
+    const total = countResult?.total || 0;
+
+    // Fetch paginated results
     const results = await db
       .prepare(`
       SELECT bb.*,
@@ -320,15 +352,17 @@ bulletinsAgent.get('/batches', async (c) => {
         FROM bulletins_soins
         GROUP BY batch_id
       ) agg ON agg.batch_id = bb.id
-      WHERE bb.company_id = ? AND bb.status = ?
+      WHERE ${whereClause}
       ORDER BY bb.created_at DESC
+      LIMIT ? OFFSET ?
     `)
-      .bind(companyId, status)
+      .bind(...bindings, limit, offset)
       .all();
 
     return c.json({
       success: true,
       data: results.results || [],
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
   } catch (error) {
     console.error('Error fetching batches:', error);
@@ -1499,6 +1533,210 @@ bulletinsAgent.post('/batches', async (c) => {
 });
 
 /**
+ * POST /bulletins-soins/agent/import-lot - Import a batch of bulletins from parsed CSV/XLSX data
+ */
+bulletinsAgent.post('/import-lot', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json(
+      { success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } },
+      403
+    );
+  }
+
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const body = await c.req.json();
+
+  const parsed = importLotSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: parsed.error.errors.map((e) => e.message).join(', '),
+        },
+      },
+      400
+    );
+  }
+
+  const { companyId, batchName, bulletins } = parsed.data;
+
+  try {
+    // Verify company belongs to agent's insurer
+    if (user.insurerId) {
+      const company = await db
+        .prepare('SELECT id FROM companies WHERE id = ? AND insurer_id = ?')
+        .bind(companyId, user.insurerId)
+        .first();
+
+      if (!company) {
+        return c.json(
+          { success: false, error: { code: 'FORBIDDEN', message: 'Entreprise non autorisee' } },
+          403
+        );
+      }
+    }
+
+    // Create batch
+    const batchId = generateId();
+    await db
+      .prepare(`
+        INSERT INTO bulletin_batches (id, name, status, company_id, created_by, created_at)
+        VALUES (?, ?, 'open', ?, ?, datetime('now'))
+      `)
+      .bind(batchId, batchName, companyId, user.id)
+      .run();
+
+    // Process each bulletin
+    const results: Array<{ id: string; bulletin_number: string; adherent_matricule: string; status: string; skipped?: boolean; reason?: string }> = [];
+    let totalImported = 0;
+    let skipped = 0;
+
+    for (const bulletin of bulletins) {
+      const bulletinId = generateId();
+      const bulletinNumber = `BS-${new Date().getFullYear()}-${bulletinId.slice(-8).toUpperCase()}`;
+      const totalAmount = bulletin.actes.reduce((sum, a) => sum + a.amount, 0);
+
+      // Find adherent by matricule — required (adherent_id is NOT NULL)
+      // 1. Try within the selected company first (most precise)
+      // 2. Fall back to any company of this insurer
+      // 3. Fall back to global search
+      let adherentId: string | null = null;
+      const adherentSelectCols = 'a.id, a.first_name, a.last_name';
+
+      // Try 1: find by matricule within the selected company
+      let adherentResult = await db
+        .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.matricule = ? AND a.company_id = ?`)
+        .bind(bulletin.adherent_matricule, companyId)
+        .first();
+
+      // Try 2: find by matricule within any company of this insurer
+      if (!adherentResult && user.insurerId) {
+        adherentResult = await db
+          .prepare(`SELECT ${adherentSelectCols} FROM adherents a JOIN companies co ON a.company_id = co.id WHERE a.matricule = ? AND co.insurer_id = ?`)
+          .bind(bulletin.adherent_matricule, user.insurerId)
+          .first();
+      }
+
+      // Try 3: find by matricule + name match globally
+      if (!adherentResult) {
+        adherentResult = await db
+          .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.matricule = ? AND LOWER(a.first_name) = LOWER(?) AND LOWER(a.last_name) = LOWER(?)`)
+          .bind(bulletin.adherent_matricule, bulletin.adherent_first_name, bulletin.adherent_last_name)
+          .first();
+      }
+
+      if (adherentResult) adherentId = adherentResult.id as string;
+
+      // Skip bulletin if adherent not found
+      if (!adherentId) {
+        skipped++;
+        results.push({
+          id: '',
+          bulletin_number: '',
+          adherent_matricule: bulletin.adherent_matricule,
+          status: 'skipped',
+          skipped: true,
+          reason: `Adhérent non trouvé: ${bulletin.adherent_matricule}`,
+        });
+        continue;
+      }
+
+      // Insert bulletin
+      await db
+        .prepare(`
+          INSERT INTO bulletins_soins (
+            id, bulletin_number, bulletin_date, adherent_id, adherent_matricule,
+            adherent_first_name, adherent_last_name, adherent_national_id, adherent_address,
+            beneficiary_name, beneficiary_relationship,
+            provider_name, provider_specialty, care_type, care_description,
+            total_amount, scan_url, batch_id, status, created_by,
+            submission_date, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?, NULL, ?, NULL, ?, 'in_batch', ?, datetime('now'), datetime('now'), datetime('now'))
+        `)
+        .bind(
+          bulletinId,
+          bulletinNumber,
+          bulletin.bulletin_date,
+          adherentId,
+          bulletin.adherent_matricule,
+          bulletin.adherent_first_name,
+          bulletin.adherent_last_name,
+          bulletin.actes[0]?.nom_prof_sant || null,
+          bulletin.care_type,
+          totalAmount,
+          batchId,
+          user.id
+        )
+        .run();
+
+      // Insert actes (simple insert — reimbursement deferred to validation)
+      const acteStmts = bulletin.actes.map((acte) => {
+        const acteId = generateId();
+        return db
+          .prepare(
+            `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, ref_prof_sant, nom_prof_sant, cod_msgr, lib_msgr, created_at)
+             VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), ?, ?, ?, ?, datetime('now'))`
+          )
+          .bind(
+            acteId,
+            bulletinId,
+            acte.code?.trim() || null,
+            acte.label,
+            acte.amount,
+            acte.code?.trim() || null,
+            acte.ref_prof_sant?.trim() || null,
+            acte.nom_prof_sant?.trim() || null,
+            acte.cod_msgr?.trim() || null,
+            acte.lib_msgr?.trim() || null
+          );
+      });
+
+      if (acteStmts.length > 0) {
+        await db.batch(acteStmts);
+      }
+
+      results.push({
+        id: bulletinId,
+        bulletin_number: bulletinNumber,
+        adherent_matricule: bulletin.adherent_matricule,
+        status: 'in_batch',
+      });
+      totalImported++;
+    }
+
+    return c.json(
+      {
+        success: true,
+        data: {
+          batch_id: batchId,
+          batch_name: batchName,
+          total_imported: totalImported,
+          skipped,
+          bulletins: results,
+        },
+      },
+      201
+    );
+  } catch (error) {
+    console.error('Error importing lot:', error);
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'DATABASE_ERROR',
+          message: error instanceof Error ? error.message : "Erreur lors de l'import du lot",
+        },
+      },
+      500
+    );
+  }
+});
+
+/**
  * POST /bulletins-soins/agent/:id/validate - Validate a bulletin and record reimbursement
  */
 bulletinsAgent.post('/:id/validate', async (c) => {
@@ -1739,6 +1977,81 @@ bulletinsAgent.post('/:id/validate', async (c) => {
         success: false,
         error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la validation' },
       },
+      500
+    );
+  }
+});
+
+/**
+ * POST /bulletins-soins/agent/:id/reject - Reject a bulletin
+ */
+bulletinsAgent.post('/:id/reject', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json(
+      { success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } },
+      403
+    );
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  let notes = '';
+  try {
+    const body = await c.req.json();
+    notes = body.notes || '';
+  } catch {
+    // no body is fine
+  }
+
+  try {
+    const bulletin = await db
+      .prepare('SELECT id, status FROM bulletins_soins WHERE id = ? AND created_by = ?')
+      .bind(bulletinId, user.id)
+      .first<{ id: string; status: string }>();
+
+    if (!bulletin) {
+      return c.json(
+        { success: false, error: { code: 'NOT_FOUND', message: 'Bulletin non trouve' } },
+        404
+      );
+    }
+
+    const validStatuses = ['draft', 'in_batch', 'processing'];
+    if (!validStatuses.includes(bulletin.status)) {
+      return c.json(
+        {
+          success: false,
+          error: { code: 'BULLETIN_ALREADY_PROCESSED', message: 'Ce bulletin a deja ete traite' },
+        },
+        409
+      );
+    }
+
+    const now = new Date().toISOString();
+    await db
+      .prepare(`
+        UPDATE bulletins_soins
+        SET status = 'rejected',
+            rejection_reason = ?,
+            validated_at = ?,
+            validated_by = ?,
+            updated_at = ?
+        WHERE id = ?
+      `)
+      .bind(notes, now, user.id, now, bulletinId)
+      .run();
+
+    return c.json({
+      success: true,
+      data: { id: bulletinId, status: 'rejected', notes },
+    });
+  } catch (error) {
+    console.error('Error rejecting bulletin:', error);
+    return c.json(
+      { success: false, error: { code: 'DATABASE_ERROR', message: 'Erreur lors du rejet' } },
       500
     );
   }

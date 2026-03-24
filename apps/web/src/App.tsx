@@ -21,7 +21,6 @@ const ProviderFormPage = lazy(() => import('@/features/providers/pages/ProviderF
 const ProvidersImportPage = lazy(() => import('@/features/providers/pages/ProvidersImportPage').then(m => ({ default: m.default })));
 const InsurersPage = lazy(() => import('@/features/insurers/pages/InsurersPage').then(m => ({ default: m.InsurersPage })));
 const InsurerFormPage = lazy(() => import('@/features/insurers/pages/InsurerFormPage').then(m => ({ default: m.default })));
-const AdherentsPage = lazy(() => import('@/features/adherents/pages/AdherentsPage').then(m => ({ default: m.AdherentsPage })));
 const AdherentFormPage = lazy(() => import('@/features/adherents/pages/AdherentFormPage').then(m => ({ default: m.default })));
 const AdherentsImportPage = lazy(() => import('@/features/adherents/pages/AdherentsImportPage').then(m => ({ default: m.default })));
 const ContractsPage = lazy(() => import('@/features/contracts/pages/ContractsPage').then(m => ({ default: m.ContractsPage })));
@@ -105,8 +104,10 @@ const BulletinsValidationPage = lazy(() => import('@/features/bulletins/pages/Bu
 const BulletinsPaymentPage = lazy(() => import('@/features/bulletins/pages/BulletinsPaymentPage').then(m => ({ default: m.default })));
 const BulletinsSaisiePage = lazy(() => import('@/features/bulletins/pages/BulletinsSaisiePage').then(m => ({ default: m.default })));
 const BulletinsArchivePage = lazy(() => import('@/features/bulletins/pages/BulletinsArchivePage').then(m => ({ default: m.default })));
+const BulletinsImportPage = lazy(() => import('@/features/bulletins/pages/BulletinsImportPage').then(m => ({ default: m.default })));
 const BulletinsHistoryPage = lazy(() => import('@/features/bulletins/pages/BulletinsHistoryPage').then(m => ({ default: m.default })));
 const AgentAdherentsPage = lazy(() => import('@/features/adherents/pages/AgentAdherentsPage').then(m => ({ default: m.AgentAdherentsPage })));
+const AgentAdherentFormPage = lazy(() => import('@/features/adherents/pages/AgentAdherentFormPage').then(m => ({ default: m.default })));
 // Appeals page
 const AppealsPage = lazy(() => import('@/features/appeals/pages/AppealsPage').then(m => ({ default: m.AppealsPage })));
 const AppealDetailsPage = lazy(() => import('@/features/appeals/pages/AppealDetailsPage').then(m => ({ default: m.default })));
@@ -220,7 +221,7 @@ function App() {
                     <Route path="/hr/claims" element={<HRClaimsPage />} />
                     {/* Insurer routes */}
                     <Route path="/insurer/dashboard" element={<InsurerDashboardPage />} />
-                    <Route path="/adherents" element={<AdherentsPage />} />
+                    <Route path="/adherents" element={<AgentAdherentsPage />} />
                     <Route path="/adherents/new" element={<AdherentFormPage />} />
                     <Route path="/adherents/import" element={<AdherentsImportPage />} />
                     <Route path="/adherents/:id/edit" element={<AdherentFormPage />} />
@@ -235,8 +236,11 @@ function App() {
                     <Route path="/bulletins/payments" element={<BulletinsPaymentPage />} />
                     <Route path="/bulletins/saisie" element={<AgentContextGuard><BulletinsSaisiePage /></AgentContextGuard>} />
                     <Route path="/adherents/agent" element={<AgentContextGuard><AgentAdherentsPage /></AgentContextGuard>} />
+                    <Route path="/adherents/agent/new" element={<AgentContextGuard><AgentAdherentFormPage /></AgentContextGuard>} />
+                    <Route path="/adherents/agent/:id/edit" element={<AgentContextGuard><AgentAdherentFormPage /></AgentContextGuard>} />
                     <Route path="/bulletins/history" element={<BulletinsHistoryPage />} />
                     <Route path="/bulletins/archive" element={<BulletinsArchivePage />} />
+                    <Route path="/bulletins/import-lot" element={<AgentContextGuard><BulletinsImportPage /></AgentContextGuard>} />
                     <Route path="/reconciliation" element={<ReconciliationPage />} />
                     <Route path="/reconciliation/:id" element={<ReconciliationDetailsPage />} />
                     {/* Appeals routes */}

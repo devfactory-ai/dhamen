@@ -22,13 +22,16 @@
     "db:seed": "turbo db:seed",
     "deploy:staging": "turbo deploy --filter=@dhamen/api -- --env staging",
     "deploy:prod": "turbo deploy --filter=@dhamen/api -- --env production",
-    "clean": "turbo clean && rm -rf node_modules"
+    "clean": "turbo clean && rm -rf node_modules",
+    "import:acorad": "tsx scripts/import-acorad.ts",
+    "init:tenant": "tsx scripts/init-tenant.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^22.10.0",
     "turbo": "^2.3.3",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "xlsx": "^0.18.5"
   },
   "packageManager": "pnpm@9.14.4",
   "engines": {

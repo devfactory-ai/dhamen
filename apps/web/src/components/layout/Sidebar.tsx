@@ -1,12 +1,11 @@
-import { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import type { Role } from '@dhamen/shared';
-import { ROLE_LABELS } from '@dhamen/shared';
 import {
-  HomeIcon,
+  DashboardIcon,
   UsersIcon,
   DocumentIcon,
   DocumentsIcon,
@@ -33,6 +32,11 @@ import {
   PillIcon,
   CloseIcon,
   ChevronRightIcon,
+  PenIcon,
+  ArchiveIcon,
+  ClockIcon,
+  UploadIcon,
+  ListIcon,
   type IconProps,
 } from '@/components/icons';
 
@@ -43,6 +47,7 @@ interface NavItem {
   roles: Role[] | 'all';
   badge?: string;
   disabled?: boolean;
+  children?: NavItem[];
 }
 
 interface NavSection {
@@ -54,7 +59,7 @@ const navigationSections: NavSection[] = [
   {
     title: 'Principal',
     items: [
-      { name: 'Tableau de bord', href: '/dashboard', icon: HomeIcon, roles: 'all' },
+      { name: 'Tableau de bord', href: '/dashboard', icon: DashboardIcon, roles: 'all' },
     ],
   },
   {
@@ -65,13 +70,13 @@ const navigationSections: NavSection[] = [
       { name: 'Assureurs', href: '/insurers', icon: ShieldIcon, roles: ['ADMIN'] },
       { name: 'Entreprises', href: '/companies', icon: CompanyIcon, roles: ['ADMIN', 'INSURER_ADMIN'] },
       { name: 'Vérification MF', href: '/admin/mf-verification', icon: DocumentCheckIcon, roles: ['ADMIN'] },
-      { name: 'Médicaments', href: '/admin/medications', icon: PillIcon, roles: ['ADMIN'] },
+      { name: 'Médicaments', href: '/admin/medications', icon: PillIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'] },
     ],
   },
   {
     title: 'Espace RH',
     items: [
-      { name: 'Tableau de bord', href: '/hr/dashboard', icon: HomeIcon, roles: ['HR'] },
+      { name: 'Tableau de bord', href: '/hr/dashboard', icon: DashboardIcon, roles: ['HR'] },
       { name: 'Adhérents', href: '/hr/adherents', icon: UsersIcon, roles: ['HR'] },
       { name: 'Contrats', href: '/hr/contracts', icon: DocumentIcon, roles: ['HR'] },
       { name: 'Remboursements', href: '/hr/claims', icon: CreditCardIcon, roles: ['HR'] },
@@ -80,15 +85,33 @@ const navigationSections: NavSection[] = [
   {
     title: 'Gestion Assurance',
     items: [
-      { name: 'Adhérents', href: '/adherents', icon: UsersIcon, roles: ['ADMIN'] },
-      { name: 'Adhérents', href: '/adherents/agent', icon: UsersIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
-      { name: 'Contrats groupe', href: '/group-contracts', icon: DocumentsIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'] },
-      { name: 'Gestion PEC', href: '/claims/manage', icon: ClipboardCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'], disabled: true },
-      { name: 'Gestion bulletins', href: '/bulletins/saisie', icon: DocumentsIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
-      { name: 'Validation bulletins', href: '/bulletins/validation', icon: ClipboardCheckIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
-      { name: 'Historique remboursements', href: '/bulletins/history', icon: DocumentsIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
-      { name: 'Paiements adhérents', href: '/bulletins/payments', icon: CurrencyIcon, roles: ['INSURER_ADMIN'] },
-      { name: 'Archives bulletins', href: '/bulletins/archive', icon: DocumentsIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'], disabled: true },
+      {
+        name: 'Adhérents', href: '/adherents', icon: UserGroupIcon, roles: ['ADMIN'],
+        children: [
+          { name: 'Liste adhérents', href: '/adherents', icon: ListIcon, roles: ['ADMIN'] },
+          { name: 'Import CSV', href: '/adherents/import', icon: UploadIcon, roles: ['ADMIN'] },
+        ],
+      },
+      {
+        name: 'Adhérents', href: '/adherents/agent', icon: UserGroupIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'],
+        children: [
+          { name: 'Liste adhérents', href: '/adherents/agent', icon: ListIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
+          { name: 'Import CSV', href: '/adherents/import', icon: UploadIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
+        ],
+      },
+      { name: 'Contrats groupe', href: '/group-contracts', icon: DocumentCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'] },
+      {
+        name: 'Gestion bulletins', href: '/bulletins', icon: ClipboardIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'],
+        children: [
+          { name: 'Saisie bulletin', href: '/bulletins/saisie', icon: PenIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
+          { name: 'Importer un lot', href: '/bulletins/import-lot', icon: UploadIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
+          { name: 'Validation', href: '/bulletins/validation', icon: ClipboardCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN'], disabled: true },
+          { name: 'Historique', href: '/bulletins/history', icon: ClockIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
+          { name: 'Paiements adhérents', href: '/bulletins/payments', icon: CurrencyIcon, roles: ['INSURER_ADMIN'] },
+          { name: 'Archives bulletins', href: '/bulletins/archive', icon: ArchiveIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
+        ],
+      },
+      { name: 'Gestion PEC', href: '/claims/manage', icon: ShieldIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'], disabled: true },
       { name: 'Réconciliation', href: '/reconciliation', icon: CalculatorIcon, roles: ['ADMIN', 'INSURER_ADMIN'], disabled: true },
       { name: 'Cartes virtuelles', href: '/cards', icon: CreditCardIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'], disabled: true },
       { name: 'Accords préalables', href: '/pre-authorizations', icon: DocumentCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'DOCTOR', 'CLINIC_ADMIN'], disabled: true },
@@ -140,7 +163,6 @@ const navigationSections: NavSection[] = [
     title: 'Autres',
     items: [
       { name: 'Rapports', href: '/reports', icon: ChartIcon, roles: 'all', disabled: true },
-      { name: 'A propos', href: '/about', icon: DocumentIcon, roles: 'all' },
     ],
   },
 ];
@@ -148,20 +170,50 @@ const navigationSections: NavSection[] = [
 export function Sidebar() {
   const { sidebarOpen, sidebarCollapsed, toggleSidebar, toggleSidebarCollapsed } = useUIStore();
   const { user } = useAuth();
+  const location = useLocation();
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
+
+  // Auto-expand parent menu when navigating to a child route
+  useEffect(() => {
+    for (const section of navigationSections) {
+      for (const item of section.items) {
+        if (item.children) {
+          const isChildActive = item.children.some(
+            (child) => location.pathname === child.href || location.pathname.startsWith(child.href + '/')
+          );
+          if (isChildActive) {
+            setExpandedMenus((prev) => {
+              if (prev[item.name]) return prev;
+              return { ...prev, [item.name]: true };
+            });
+          }
+        }
+      }
+    }
+  }, [location.pathname]);
+
+  const toggleMenu = (name: string) => {
+    setExpandedMenus((prev) => ({ ...prev, [name]: !prev[name] }));
+  };
 
   const toggleSection = (title: string) => {
     setCollapsedSections((prev) => ({ ...prev, [title]: !prev[title] }));
   };
 
+  const isAdmin = user?.role === 'ADMIN';
+
   // Filter navigation sections based on user role
+  // Disabled items are only visible for ADMIN, hidden for other roles
   const filteredSections = navigationSections
     .map((section) => ({
       ...section,
       items: section.items.filter((item) => {
-        if (item.roles === 'all') return true;
+        if (item.roles === 'all') return !item.disabled || isAdmin;
         if (!user?.role) return false;
-        return item.roles.includes(user.role);
+        if (!item.roles.includes(user.role)) return false;
+        if (item.disabled && !isAdmin) return false;
+        return true;
       }),
     }))
     .filter((section) => section.items.length > 0);
@@ -186,13 +238,15 @@ export function Sidebar() {
         {/* Logo + Collapse toggle */}
         <div className="flex h-16 items-center justify-between px-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 shadow-lg shadow-blue-600/30">
-              <span className="text-xl font-bold text-white">D</span>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900">
+              <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+              </svg>
             </div>
             {!sidebarCollapsed && (
-              <div>
-                <span className="font-bold text-xl text-gray-900">Dhamen</span>
-                <span className="text-gray-400 text-xs ml-1.5">ضامن</span>
+              <div className="flex flex-col">
+                <span className="font-bold text-lg text-gray-900 leading-tight">Dhamen</span>
+                <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-400">Insurance Management</span>
               </div>
             )}
           </div>
@@ -237,16 +291,93 @@ export function Sidebar() {
                   </span>
                   <ChevronRightIcon
                     className={cn(
-                      'w-3 h-3 text-gray-300 group-hover:text-gray-500 transition-transform duration-200',
+                      'w-3 h-3 text-gray-300 group-hover:text-gray-500 transition-transform duration-200 opacity-0',
                       collapsedSections[section.title] ? 'rotate-0' : 'rotate-90'
                     )}
+                  
                   />
                 </button>
               )}
               {!collapsedSections[section.title] && (
               <div className="space-y-1">
-                {section.items.map((item) =>
-                  item.disabled ? (
+                {section.items.map((item) => {
+                  // Item with submenu
+                  if (item.children && item.children.length > 0) {
+                    const isExpanded = expandedMenus[item.name] ?? false;
+                    const filteredChildren = item.children.filter((child) => {
+                      if (child.roles === 'all') return !child.disabled || isAdmin;
+                      if (!user?.role) return false;
+                      if (!child.roles.includes(user.role)) return false;
+                      if (child.disabled && !isAdmin) return false;
+                      return true;
+                    });
+                    if (filteredChildren.length === 0) return null;
+
+                    return (
+                      <div key={item.href}>
+                        <button
+                          type="button"
+                          onClick={() => toggleMenu(item.name)}
+                          title={sidebarCollapsed ? item.name : undefined}
+                          className={cn(
+                            'flex w-full items-center rounded-xl text-sm font-medium transition-all duration-200',
+                            sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
+                            isExpanded
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                          )}
+                        >
+                          <item.icon className="h-5 w-5 flex-shrink-0" />
+                          {!sidebarCollapsed && (
+                            <>
+                              <span className="truncate flex-1 text-left">{item.name}</span>
+                              <ChevronRightIcon
+                                className={cn(
+                                  'w-4 h-4 transition-transform duration-200',
+                                  isExpanded ? 'rotate-90' : 'rotate-0'
+                                )}
+                              />
+                            </>
+                          )}
+                        </button>
+                        {isExpanded && !sidebarCollapsed && (
+                          <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-100 pl-3">
+                            {filteredChildren.map((child) =>
+                              child.disabled ? (
+                                <span
+                                  key={child.href}
+                                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm cursor-not-allowed opacity-40 text-gray-400"
+                                >
+                                  <child.icon className="h-4 w-4 flex-shrink-0" />
+                                  <span className="truncate">{child.name}</span>
+                                </span>
+                              ) : (
+                                <NavLink
+                                  key={child.href}
+                                  to={child.href}
+                                  end={false}
+                                  className={() =>
+                                    cn(
+                                      'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200',
+                                      location.pathname === child.href || location.pathname.startsWith(child.href + '/')
+                                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
+                                        : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
+                                    )
+                                  }
+                                >
+                                  <child.icon className="h-4 w-4 flex-shrink-0" />
+                                  <span className="truncate">{child.name}</span>
+                                </NavLink>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // Regular item (no children)
+                  return item.disabled ? (
                     <span
                       key={item.href}
                       title={sidebarCollapsed ? `${item.name} (bientôt)` : 'Bientôt disponible'}
@@ -288,38 +419,55 @@ export function Sidebar() {
                         </>
                       )}
                     </NavLink>
-                  )
-                )}
+                  );
+                })}
               </div>
               )}
             </div>
           ))}
         </nav>
 
-        {/* User info */}
-        <div className="p-3 border-t border-gray-100 shrink-0">
+        {/* Bottom section: New Policy + Settings + Support */}
+        <div className="p-3 border-t border-gray-100 shrink-0 space-y-2">
+          {/* Settings */}
           <NavLink
             to="/settings"
-            className={cn(
-              'flex items-center rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors',
-              sidebarCollapsed ? 'justify-center p-2' : 'gap-3 p-3'
-            )}
-            title={sidebarCollapsed ? `${user?.firstName} ${user?.lastName}` : undefined}
+            className={({ isActive }) =>
+              cn(
+                'flex items-center rounded-xl text-sm font-medium transition-all duration-200',
+                sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
+                isActive
+                  ? 'bg-gray-100 text-gray-900'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              )
+            }
+            title={sidebarCollapsed ? 'Settings' : undefined}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white font-semibold text-sm shadow-lg shadow-blue-500/30">
-              {user?.firstName?.[0]}
-              {user?.lastName?.[0]}
-            </div>
-            {!sidebarCollapsed && (
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm text-gray-900 truncate">
-                  {user?.firstName} {user?.lastName}
-                </p>
-                <p className="text-xs text-gray-500 truncate">
-                  {user?.role ? ROLE_LABELS[user.role] : ''}
-                </p>
-              </div>
-            )}
+            <svg className="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+            </svg>
+            {!sidebarCollapsed && <span>Settings</span>}
+          </NavLink>
+
+          {/* Support */}
+          <NavLink
+            to="/about"
+            className={({ isActive }) =>
+              cn(
+                'flex items-center rounded-xl text-sm font-medium transition-all duration-200',
+                sidebarCollapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
+                isActive
+                  ? 'bg-gray-100 text-gray-900'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              )
+            }
+            title={sidebarCollapsed ? 'Support' : undefined}
+          >
+            <svg className="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
+            </svg>
+            {!sidebarCollapsed && <span>Support</span>}
           </NavLink>
         </div>
       </aside>
