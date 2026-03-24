@@ -674,127 +674,89 @@ function BulletinsArchivePage() {
                 <DataTable
                   columns={[
                     {
+                      key: 'bulletin_number',
                       header: 'N° Bulletin',
-                      accessorKey: 'bulletin_number',
-                      cell: (info) => (
-                        <span className="font-mono text-sm">{info.getValue() as string}</span>
+                      render: (b: ArchiveBulletin) => (
+                        <span className="font-mono text-sm">{b.bulletin_number}</span>
                       ),
                     },
                     {
+                      key: 'bulletin_date',
                       header: 'Date',
-                      accessorKey: 'bulletin_date',
-                      cell: (info) => {
-                        const date = info.getValue() as string;
-                        return date ? new Date(date).toLocaleDateString('fr-FR') : '-';
-                      },
-                    },
-                    {
-                      header: 'Adhérent',
-                      accessorKey: 'adherent_matricule',
-                      cell: ({ row }) => {
-                        const bulletin = row.original as ArchiveBulletin;
-                        return (
-                          <div>
-                            <p className="font-medium">
-                              {bulletin.adherent_first_name} {bulletin.adherent_last_name}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {bulletin.adherent_matricule}
-                            </p>
-                          </div>
-                        );
-                      },
-                    },
-                    {
-                      header: 'Praticien',
-                      accessorKey: 'provider_name',
-                      cell: ({ row }) => {
-                        const bulletin = row.original as ArchiveBulletin;
-                        return (
-                          <div>
-                            <p>{bulletin.provider_name}</p>
-                            <p className="text-sm text-muted-foreground">{bulletin.provider_specialty}</p>
-                          </div>
-                        );
-                      },
-                    },
-                    {
-                      header: 'Montant',
-                      accessorKey: 'total_amount',
-                      cell: (info) => (
-                        <span className="font-medium">
-                          {((info.getValue() as number) || 0).toFixed(3)} TND
-                        </span>
+                      render: (b: ArchiveBulletin) => (
+                        <span>{b.bulletin_date ? new Date(b.bulletin_date).toLocaleDateString('fr-FR') : '-'}</span>
                       ),
                     },
                     {
-                      header: 'Scan',
-                      accessorKey: 'scan_url',
-                      cell: (info) => {
-                        const url = info.getValue() as string | null;
-                        return url ? (
-                          <Badge variant="default" className="bg-green-100 text-green-800">
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            Oui
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-muted-foreground">
-                            <XCircle className="h-3 w-3 mr-1" />
-                            Non
-                          </Badge>
-                        );
-                      },
+                      key: 'adherent',
+                      header: 'Adhérent',
+                      render: (b: ArchiveBulletin) => (
+                        <div>
+                          <p className="font-medium">{b.adherent_first_name} {b.adherent_last_name}</p>
+                          <p className="text-sm text-muted-foreground">{b.adherent_matricule}</p>
+                        </div>
+                      ),
                     },
                     {
-                      header: 'Actions',
-                      id: 'actions',
-                      cell: ({ row }) => {
-                        const bulletin = row.original as ArchiveBulletin;
-                        return bulletin.scan_url ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              apiClient.get<Blob>(`/bulletins-soins/archive/${bulletin.id}/scan`, { responseType: 'blob' }).then((res) => {
-                                if (res.success && res.data) {
-                                  window.open(URL.createObjectURL(res.data), '_blank');
-                                }
-                              });
-                            }}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        ) : null;
-                      },
+                      key: 'provider_name',
+                      header: 'Praticien',
+                      render: (b: ArchiveBulletin) => (
+                        <div>
+                          <p>{b.provider_name}</p>
+                          <p className="text-sm text-muted-foreground">{b.provider_specialty}</p>
+                        </div>
+                      ),
+                    },
+                    {
+                      key: 'total_amount',
+                      header: 'Montant',
+                      render: (b: ArchiveBulletin) => (
+                        <span className="font-medium">{(b.total_amount || 0).toFixed(3)} TND</span>
+                      ),
+                    },
+                    {
+                      key: 'scan_url',
+                      header: 'Scan',
+                      render: (b: ArchiveBulletin) => b.scan_url ? (
+                        <Badge variant="default" className="bg-green-100 text-green-800">
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          Oui
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-muted-foreground">
+                          <XCircle className="h-3 w-3 mr-1" />
+                          Non
+                        </Badge>
+                      ),
+                    },
+                    {
+                      key: 'actions',
+                      header: '',
+                      render: (b: ArchiveBulletin) => b.scan_url ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            apiClient.get<Blob>(`/bulletins-soins/archive/${b.id}/scan`, { responseType: 'blob' }).then((res) => {
+                              if (res.success && res.data) {
+                                window.open(URL.createObjectURL(res.data), '_blank');
+                              }
+                            });
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      ) : null,
                     },
                   ]}
                   data={(searchResults.data as ArchiveBulletin[]) || []}
+                  pagination={searchResults.meta ? {
+                    page: currentPage,
+                    limit: searchResults.meta.limit ?? 20,
+                    total: searchResults.meta.total,
+                    onPageChange: setCurrentPage,
+                  } : undefined}
                 />
-
-                {/* Pagination */}
-                {searchResults.meta && searchResults.meta.totalPages > 1 && (
-                  <div className="flex justify-center gap-2 mt-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      disabled={currentPage === 1}
-                    >
-                      Précédent
-                    </Button>
-                    <span className="flex items-center px-3 text-sm">
-                      Page {currentPage} sur {searchResults.meta.totalPages}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCurrentPage((p) => Math.min(searchResults.meta.totalPages, p + 1))}
-                      disabled={currentPage === searchResults.meta.totalPages}
-                    >
-                      Suivant
-                    </Button>
-                  </div>
-                )}
               </CardContent>
             </Card>
           )}

@@ -43,6 +43,7 @@ export interface CalculRemboursementInput {
   fraisEngages: number; // in millimes
   dateSoin: string; // YYYY-MM-DD
   typeMaladie?: 'ordinaire' | 'chronique';
+  medicationFamilyId?: string; // Famille thérapeutique du médicament (pour taux spécifique)
 }
 
 export interface CalculRemboursementResult {
@@ -87,6 +88,7 @@ export async function calculerRemboursement(
     fraisEngages,
     dateSoin,
     typeMaladie = 'ordinaire',
+    medicationFamilyId,
   } = input;
   const annee = Number(dateSoin.split('-')[0]);
 
@@ -152,12 +154,40 @@ export async function calculerRemboursement(
       }>();
   }
 
-  // Fallback to acte defaults if no bareme in contract
-  const typeCalcul = (bareme?.type_calcul || acte.type_calcul) as 'taux' | 'forfait';
-  const valeur =
-    bareme?.valeur ?? (typeCalcul === 'forfait' ? acte.valeur_base : acte.taux_remboursement) ?? 0;
-  const plafondActe = bareme?.plafond_acte ?? acte.plafond_acte;
-  const plafondFamilleAnnuel = bareme?.plafond_famille_annuel ?? null;
+  // 3b. If this is a pharmacy act with a medication family, check for medication family bareme
+  //     This allows time-based rates per medication therapeutic family (ATB, CVS, etc.)
+  let medFamilyBareme: {
+    taux_remboursement: number;
+    plafond_acte: number | null;
+    plafond_famille_annuel: number | null;
+  } | null = null;
+
+  if (medicationFamilyId) {
+    medFamilyBareme = await db
+      .prepare(
+        `SELECT taux_remboursement, plafond_acte, plafond_famille_annuel
+         FROM medication_family_baremes
+         WHERE contract_id = ? AND medication_family_id = ? AND is_active = 1
+           AND date_effet <= ? AND (date_fin_effet IS NULL OR date_fin_effet >= ?)
+         ORDER BY date_effet DESC LIMIT 1`
+      )
+      .bind(contractId, medicationFamilyId, dateSoin, dateSoin)
+      .first<{
+        taux_remboursement: number;
+        plafond_acte: number | null;
+        plafond_famille_annuel: number | null;
+      }>();
+  }
+
+  // Resolution order: medication family bareme > contract bareme (acte/famille) > acte defaults
+  const typeCalcul = medFamilyBareme
+    ? 'taux' as const
+    : (bareme?.type_calcul || acte.type_calcul) as 'taux' | 'forfait';
+  const valeur = medFamilyBareme
+    ? medFamilyBareme.taux_remboursement
+    : bareme?.valeur ?? (typeCalcul === 'forfait' ? acte.valeur_base : acte.taux_remboursement) ?? 0;
+  const plafondActe = medFamilyBareme?.plafond_acte ?? bareme?.plafond_acte ?? acte.plafond_acte;
+  const plafondFamilleAnnuel = medFamilyBareme?.plafond_famille_annuel ?? bareme?.plafond_famille_annuel ?? null;
 
   // 4. Calculate base reimbursement
   let montantBrut: number;

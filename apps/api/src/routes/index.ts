@@ -108,3 +108,6 @@ export { preAuthorizations } from './pre-authorizations';
 
 // Group Contracts (contrats d'assurance groupe)
 export { groupContracts } from './group-contracts';
+
+// Medication Family Baremes (taux remboursement par famille médicament)
+export { medicationFamilyBaremes } from './medication-family-baremes';

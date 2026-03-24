@@ -537,6 +537,7 @@ adherents.get(
       plafondGlobal: r.plafond_global,
       plafondConsomme: r.plafond_consomme,
       ayantsDroitJson: r.ayants_droit_json,
+      isActive: r.is_active === 1 || r.is_active === true,
       createdAt: r.created_at,
     })), {
       page,
@@ -546,6 +547,111 @@ adherents.get(
     });
   }
 );
+
+/**
+ * GET /api/v1/adherents/export
+ * Export adherents as CSV
+ * Query params: ?companyId=xxx&search=xxx
+ */
+adherents.get('/export', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
+  const user = c.get('user');
+  const db = getDb(c);
+  const companyId = c.req.query('companyId');
+  const search = c.req.query('search');
+
+  let query = `
+    SELECT a.matricule, a.first_name, a.last_name, a.date_of_birth, a.gender,
+           a.email, a.phone_encrypted, a.national_id_encrypted, a.city,
+           a.is_active, a.plafond_global, a.plafond_consomme,
+           a.date_debut_adhesion, a.date_fin_adhesion,
+           c.name as company_name, c.matricule_fiscal
+    FROM adherents a
+    LEFT JOIN companies c ON a.company_id = c.id
+    WHERE a.deleted_at IS NULL
+  `;
+  const binds: unknown[] = [];
+
+  if (user.insurerId) {
+    query += ' AND c.insurer_id = ?';
+    binds.push(user.insurerId);
+  }
+
+  if (companyId) {
+    query += ' AND a.company_id = ?';
+    binds.push(companyId);
+  }
+
+  if (search) {
+    query += ' AND (a.first_name LIKE ? OR a.last_name LIKE ? OR a.matricule LIKE ?)';
+    const s = `%${search}%`;
+    binds.push(s, s, s);
+  }
+
+  query += ' ORDER BY a.last_name, a.first_name LIMIT 10000';
+
+  const { results } = await db.prepare(query).bind(...binds).all();
+
+  const headers = [
+    'Matricule', 'Nom', 'Prénom', 'Date Naissance', 'Genre',
+    'Email', 'Ville', 'Statut', 'Plafond Global', 'Plafond Consommé',
+    'Début Adhésion', 'Fin Adhésion', 'Entreprise', 'MF Entreprise',
+  ];
+
+  const escapeCSV = (val: unknown): string => {
+    const str = val == null ? '' : String(val);
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
+  const csvRows = [headers.map(escapeCSV).join(',')];
+
+  for (const row of results as Record<string, unknown>[]) {
+    const plafondGlobal = row.plafond_global != null ? Number(row.plafond_global) / 1000 : '';
+    const plafondConsomme = row.plafond_consomme != null ? Number(row.plafond_consomme) / 1000 : '';
+
+    csvRows.push([
+      escapeCSV(row.matricule),
+      escapeCSV(row.last_name),
+      escapeCSV(row.first_name),
+      escapeCSV(row.date_of_birth),
+      escapeCSV(row.gender),
+      escapeCSV(row.email),
+      escapeCSV(row.city),
+      escapeCSV(row.is_active ? 'Actif' : 'Inactif'),
+      escapeCSV(plafondGlobal),
+      escapeCSV(plafondConsomme),
+      escapeCSV(row.date_debut_adhesion),
+      escapeCSV(row.date_fin_adhesion),
+      escapeCSV(row.company_name),
+      escapeCSV(row.matricule_fiscal),
+    ].join(','));
+  }
+
+  const csvContent = '\uFEFF' + csvRows.join('\n');
+
+  await logAudit(db, {
+    userId: user?.sub,
+    action: 'adherent.export',
+    entityType: 'adherent',
+    entityId: 'bulk',
+    changes: {
+      format: 'csv',
+      count: results.length,
+      companyId: companyId ?? 'all',
+    },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return new Response(csvContent, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="adherents_export_${new Date().toISOString().slice(0, 10)}.csv"`,
+    },
+  });
+});
 
 /**
  * GET /api/v1/adherents/:id/bulletins
@@ -1017,12 +1123,20 @@ adherents.put(
  */
 adherents.post(
   '/import',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
-  zValidator('json', adherentImportSchema),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  zValidator('json', adherentImportSchema, (result, c) => {
+    if (!result.success) {
+      const errors = result.error.errors.map((e) => ({ path: e.path.join('.'), message: e.message }));
+      console.error('[adherent-import] Zod validation failed:', JSON.stringify(errors));
+      return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Données invalides', details: errors } }, 400);
+    }
+  }),
   async (c) => {
-    const { adherents: rows, skipDuplicates } = c.req.valid('json');
+    const { adherents: rows, skipDuplicates, companyId } = c.req.valid('json');
     const user = c.get('user');
     const encryptionKey = getEncryptionKey(c);
+
+    console.log(`[adherent-import] Starting import: ${rows.length} rows, skipDuplicates=${skipDuplicates}, companyId=${companyId}`);
 
     const results = {
       success: 0,
@@ -1034,6 +1148,7 @@ adherents.post(
       const row = rows[i];
       if (!row) continue;
       try {
+        console.log(`[adherent-import] Row ${i + 1}: nationalId=${maskCIN(row.nationalId)}, name=${row.firstName} ${row.lastName}`);
         // Check for existing adherent using hash index (allows lookup without decryption)
         const nationalIdHash = await hashForIndex(row.nationalId, encryptionKey);
         const existingCheck = await getDb(c).prepare(
@@ -1043,6 +1158,7 @@ adherents.post(
           .first();
 
         if (existingCheck) {
+          console.log(`[adherent-import] Row ${i + 1}: DUPLICATE found (id=${(existingCheck as { id: string }).id})`);
           if (skipDuplicates) {
             results.skipped++;
             continue;
@@ -1059,10 +1175,17 @@ adherents.post(
         const id = generateId();
         const encryptedNationalId = await encrypt(row.nationalId, encryptionKey);
         const encryptedPhone = row.phone ? await encrypt(row.phone, encryptionKey) : null;
+        const encryptedRib = row.rib ? await encrypt(row.rib, encryptionKey) : null;
 
         await getDb(c).prepare(
-          `INSERT INTO adherents (id, national_id_encrypted, national_id_hash, first_name, last_name, date_of_birth, gender, phone_encrypted, email, address, city, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+          `INSERT INTO adherents (
+            id, national_id_encrypted, national_id_hash, first_name, last_name,
+            date_of_birth, gender, phone_encrypted, email, address, city,
+            company_id, matricule, code_type, rang_pres, code_situation_fam,
+            date_debut_adhesion, date_fin_adhesion, date_mariage,
+            rib_encrypted, postal_code, handicap, maladie_chronique,
+            is_active, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`
         )
           .bind(
             id,
@@ -1075,16 +1198,31 @@ adherents.post(
             encryptedPhone,
             row.email || null,
             row.address || null,
-            row.city || null
+            row.city || null,
+            companyId || null,
+            row.matricule || null,
+            row.memberType || 'A',
+            row.rang ? Number(row.rang) : 0,
+            row.maritalStatus || null,
+            row.dateDebutAdhesion || null,
+            row.dateFinAdhesion || null,
+            row.dateMarriage || null,
+            encryptedRib,
+            row.postalCode || null,
+            row.handicap ? 1 : 0,
+            row.chronicDisease ? 1 : 0
           )
           .run();
 
         results.success++;
+        console.log(`[adherent-import] Row ${i + 1}: SUCCESS (id=${id})`);
       } catch (error) {
+        const errMsg = error instanceof Error ? error.message : 'Erreur inconnue';
+        console.error(`[adherent-import] Row ${i + 1}: ERROR - ${errMsg}`);
         results.errors.push({
           row: i + 1,
           nationalId: maskCIN(row.nationalId), // Mask in error messages
-          error: error instanceof Error ? error.message : 'Erreur inconnue',
+          error: errMsg,
         });
       }
     }

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/ui/data-table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
@@ -35,7 +36,6 @@ import {
   Image,
   AlertCircle,
   TrendingUp,
-  BarChart3,
   Calendar,
 } from 'lucide-react';
 import {
@@ -224,8 +224,8 @@ export default function BulletinsHistoryPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Historique des remboursements"
-        description="Consultez les bulletins traites et les remboursements effectues"
+        title="Historique des bulletins de soins"
+        description="Consultez l'historique des actions et le suivi des bulletins de soins"
       />
 
       {/* Stats cards */}
@@ -358,54 +358,18 @@ export default function BulletinsHistoryPage() {
       </Card>
 
       {/* Table */}
-      <Card>
-        <CardContent className="pt-6">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <>
-              <DataTable
-                data={historyData?.data || []}
-                columns={columns}
-              />
-              {historyData?.meta && historyData.meta.totalPages > 1 && (
-                <div className="flex items-center justify-between mt-4">
-                  <p className="text-sm text-muted-foreground">
-                    Page {historyData.meta.page} sur {historyData.meta.totalPages} ({historyData.meta.total} resultats)
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={filters.page <= 1}
-                      onClick={() => setFilters((prev) => ({ ...prev, page: prev.page - 1 }))}
-                    >
-                      Precedent
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={filters.page >= historyData.meta.totalPages}
-                      onClick={() => setFilters((prev) => ({ ...prev, page: prev.page + 1 }))}
-                    >
-                      Suivant
-                    </Button>
-                  </div>
-                </div>
-              )}
-              {historyData?.data?.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                  <BarChart3 className="h-12 w-12 mb-4 opacity-50" />
-                  <p>Aucun bulletin dans l'historique</p>
-                  <p className="text-sm">Modifiez les filtres ou attendez que des bulletins soient traites</p>
-                </div>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+      <DataTable
+        data={historyData?.data || []}
+        columns={columns}
+        isLoading={isLoading}
+        emptyMessage="Aucun bulletin dans l'historique"
+        pagination={historyData?.meta ? {
+          page: historyData.meta.page,
+          limit: historyData.meta.limit ?? filters.limit,
+          total: historyData.meta.total,
+          onPageChange: (p) => setFilters((prev) => ({ ...prev, page: p })),
+        } : undefined}
+      />
 
       {/* Detail Dialog */}
       <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
@@ -545,51 +509,49 @@ export default function BulletinsHistoryPage() {
 
               {/* Actes tab */}
               <TabsContent value="actes" className="mt-4">
-                <div className="rounded-md border">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="text-left p-3">Code</th>
-                        <th className="text-left p-3">Libelle</th>
-                        <th className="text-right p-3">Montant</th>
-                        <th className="text-right p-3">Taux</th>
-                        <th className="text-right p-3">Rembourse</th>
-                        <th className="text-center p-3">Plafond</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.actes.map((acte) => (
-                        <tr key={acte.id} className="border-b last:border-0">
-                          <td className="p-3 font-mono">{acte.code || '-'}</td>
-                          <td className="p-3">{acte.label}</td>
-                          <td className="p-3 text-right">{formatAmount(acte.amount)}</td>
-                          <td className="p-3 text-right">{acte.tauxRemboursement ? `${(acte.tauxRemboursement * 100).toFixed(0)}%` : '-'}</td>
-                          <td className="p-3 text-right font-medium text-green-600">{formatAmount(acte.montantRembourse)}</td>
-                          <td className="p-3 text-center">
+                <div className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-gray-50/80 hover:bg-gray-50/80">
+                        <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Code</TableHead>
+                        <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Libelle</TableHead>
+                        <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Montant</TableHead>
+                        <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Taux</TableHead>
+                        <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Rembourse</TableHead>
+                        <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-center">Plafond</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {detail.actes.map((acte, index) => (
+                        <TableRow key={acte.id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'} hover:bg-gray-50/50 transition-colors duration-150`}>
+                          <TableCell className="py-4 font-mono">{acte.code || '-'}</TableCell>
+                          <TableCell className="py-4">{acte.label}</TableCell>
+                          <TableCell className="py-4 text-right">{formatAmount(acte.amount)}</TableCell>
+                          <TableCell className="py-4 text-right">{acte.tauxRemboursement ? `${(acte.tauxRemboursement * 100).toFixed(0)}%` : '-'}</TableCell>
+                          <TableCell className="py-4 text-right font-medium text-green-600">{formatAmount(acte.montantRembourse)}</TableCell>
+                          <TableCell className="py-4 text-center">
                             {acte.plafondDepasse && (
                               <Badge variant="destructive" className="text-xs">
                                 <AlertCircle className="h-3 w-3 mr-1" />
                                 Depasse
                               </Badge>
                             )}
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-muted/50 font-medium">
-                        <td colSpan={2} className="p-3">Total ({detail.totaux.nbActes} actes)</td>
-                        <td className="p-3 text-right">{formatAmount(detail.totaux.totalDeclare)}</td>
-                        <td className="p-3"></td>
-                        <td className="p-3 text-right text-green-600">{formatAmount(detail.totaux.totalRembourse)}</td>
-                        <td className="p-3 text-center">
+                      <TableRow className="bg-gray-50/80 font-medium">
+                        <TableCell colSpan={2} className="py-4">Total ({detail.totaux.nbActes} actes)</TableCell>
+                        <TableCell className="py-4 text-right">{formatAmount(detail.totaux.totalDeclare)}</TableCell>
+                        <TableCell className="py-4" />
+                        <TableCell className="py-4 text-right text-green-600">{formatAmount(detail.totaux.totalRembourse)}</TableCell>
+                        <TableCell className="py-4 text-center">
                           {detail.totaux.nbPlafondDepasse > 0 && (
                             <span className="text-xs text-red-600">{detail.totaux.nbPlafondDepasse} depasse(s)</span>
                           )}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
                 </div>
               </TabsContent>
 

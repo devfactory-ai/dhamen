@@ -453,12 +453,45 @@ export class ImportExportService {
   }
 
   /**
-   * Parse XLSX content (simplified - in production use a proper library)
+   * Parse XLSX content (SpreadsheetML XML format)
+   * Handles both the simplified XML we generate and basic SpreadsheetML files.
+   * For complex .xlsx files (ZIP-based), callers should convert to CSV first
+   * or use the CSV import path which is more robust.
    */
-  private parseXLSX(_content: string): Record<string, unknown>[] {
-    // In production, use a library like xlsx or exceljs
-    // This is a placeholder that returns empty array
-    return [];
+  private parseXLSX(content: string): Record<string, unknown>[] {
+    try {
+      // Try to parse SpreadsheetML XML format (what our toXLSX generates)
+      const rows: Record<string, unknown>[] = [];
+
+      // Extract all Row elements
+      const rowMatches = content.match(/<Row[^>]*>([\s\S]*?)<\/Row>/gi);
+      if (!rowMatches || rowMatches.length < 2) return [];
+
+      // First row is headers
+      const headerCells = rowMatches[0].match(/<Data[^>]*>([\s\S]*?)<\/Data>/gi) ?? [];
+      const headers = headerCells.map((cell) => {
+        const match = cell.match(/<Data[^>]*>([\s\S]*?)<\/Data>/i);
+        return match ? match[1].trim() : '';
+      });
+
+      // Data rows
+      for (let i = 1; i < rowMatches.length; i++) {
+        const dataCells = rowMatches[i].match(/<Data[^>]*>([\s\S]*?)<\/Data>/gi) ?? [];
+        const row: Record<string, unknown> = {};
+        dataCells.forEach((cell, idx) => {
+          const match = cell.match(/<Data[^>]*>([\s\S]*?)<\/Data>/i);
+          const value = match ? match[1].trim() : '';
+          if (idx < headers.length) {
+            row[this.headerToKey(headers[idx])] = value || null;
+          }
+        });
+        rows.push(row);
+      }
+
+      return rows;
+    } catch {
+      return [];
+    }
   }
 
   /**

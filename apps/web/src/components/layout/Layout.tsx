@@ -19,7 +19,7 @@ export function Layout({ children }: LayoutProps) {
         <div
           className="fixed inset-0 z-40 bg-black/50 lg:hidden"
           onClick={() => setSidebarOpen(false)}
-          onKeyDown={(e) => e.key === 'Escape' && setSidebarOpen(false)}
+          onKeyDown={(e) => e.key === "Escape" && setSidebarOpen(false)}
           role="button"
           tabIndex={0}
           aria-label="Fermer le menu"
@@ -32,13 +32,15 @@ export function Layout({ children }: LayoutProps) {
         style={{ marginLeft: `var(--sidebar-width)` }}
       >
         <Header />
-        <main className="flex-1 p-4 lg:p-6 overflow-y-auto">{children}</main>
+        <main className="flex-1 p-4 lg:p-6 overflow-y-auto bg-[#f8f9fa]">
+          {children}
+        </main>
       </div>
 
       {/* CSS variable for sidebar width */}
       <style>{`
         :root {
-          --sidebar-width: ${sidebarCollapsed ? '68px' : '288px'};
+          --sidebar-width: ${sidebarCollapsed ? "68px" : "288px"};
         }
         @media (max-width: 1023px) {
           :root {

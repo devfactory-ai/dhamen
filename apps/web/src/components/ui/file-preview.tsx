@@ -338,6 +338,7 @@ export function FilePreview({
         </div>
         <div className="flex items-center gap-1">
           <Button
+            type="button"
             variant="outline"
             size="sm"
             onClick={() => setShowPreview(true)}
@@ -347,7 +348,7 @@ export function FilePreview({
             Voir
           </Button>
           {showRemove && onRemove && (
-            <Button variant="ghost" size="icon" onClick={onRemove}>
+            <Button type="button" variant="ghost" size="icon" onClick={onRemove}>
               <X className="h-4 w-4" />
             </Button>
           )}

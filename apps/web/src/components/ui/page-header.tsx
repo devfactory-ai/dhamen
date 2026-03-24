@@ -82,7 +82,7 @@ export function PageHeader({
           {/* Title & Description */}
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{title}</h1>
+              <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
               {badge && (
                 <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${badgeVariants[badge.variant || 'default']}`}>
                   {badge.label}

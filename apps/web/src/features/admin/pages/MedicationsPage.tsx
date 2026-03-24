@@ -41,6 +41,11 @@ import {
   Clock,
   Package,
   AlertCircle,
+  TrendingUp,
+  Plus,
+  Pencil,
+  Trash2,
+  CalendarDays,
 } from 'lucide-react';
 import { FilePreview } from '@/components/ui/file-preview';
 
@@ -83,6 +88,38 @@ interface ImportBatch {
   completed_at: string;
 }
 
+interface MedicationFamilyBareme {
+  id: string;
+  contract_id: string;
+  medication_family_id: string;
+  family_code: string;
+  family_name: string;
+  taux_remboursement: number;
+  plafond_acte: number | null;
+  plafond_famille_annuel: number | null;
+  date_effet: string;
+  date_fin_effet: string | null;
+  is_active: number;
+  motif: string | null;
+  created_by_name: string | null;
+  created_at: string;
+}
+
+interface BaremeHistoryEntry {
+  id: string;
+  bareme_id: string;
+  action: 'create' | 'update' | 'deactivate';
+  old_taux: number | null;
+  new_taux: number | null;
+  old_date_effet: string | null;
+  new_date_effet: string | null;
+  motif: string | null;
+  changed_by_name: string | null;
+  created_at: string;
+  family_code?: string;
+  family_name?: string;
+}
+
 export function MedicationsPage() {
   const queryClient = useQueryClient();
   const { addToast } = useToastStore();
@@ -96,6 +133,20 @@ export function MedicationsPage() {
   const [importNotes, setImportNotes] = useState('');
   const [newFamily, setNewFamily] = useState({ code: '', name: '', nameAr: '', description: '' });
   const [activeTab, setActiveTab] = useState('medications');
+  const [showBaremeDialog, setShowBaremeDialog] = useState(false);
+  const [editingBareme, setEditingBareme] = useState<MedicationFamilyBareme | null>(null);
+  const [showBaremeHistoryDialog, setShowBaremeHistoryDialog] = useState(false);
+  const [selectedBaremeForHistory, setSelectedBaremeForHistory] = useState<string | null>(null);
+  const [baremeForm, setBaremeForm] = useState({
+    medicationFamilyId: '',
+    tauxRemboursement: '',
+    plafondActe: '',
+    plafondFamilleAnnuel: '',
+    dateEffet: new Date().toISOString().split('T')[0],
+    dateFinEffet: '',
+    motif: '',
+  });
+  const [baremePage, setBaremePage] = useState(1);
 
   // Fetch medications
   const { data: medicationsData, isLoading: loadingMeds } = useQuery({
@@ -189,6 +240,224 @@ export function MedicationsPage() {
       addToast({ type: 'error', message: error.message });
     },
   });
+
+  // Fetch medication family baremes
+  const { data: baremesData, isLoading: loadingBaremes } = useQuery({
+    queryKey: ['medication-family-baremes', baremePage],
+    queryFn: async () => {
+      const response = await apiClient.get<{ data: MedicationFamilyBareme[]; meta: { total: number } }>(
+        `/medication-family-baremes?page=${baremePage}&limit=20`
+      );
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    enabled: activeTab === 'baremes',
+  });
+
+  // Fetch bareme history for a specific bareme
+  const { data: baremeHistoryData } = useQuery({
+    queryKey: ['bareme-history', selectedBaremeForHistory],
+    queryFn: async () => {
+      const response = await apiClient.get<{ data: BaremeHistoryEntry[]; meta: { total: number } }>(
+        `/medication-family-baremes/${selectedBaremeForHistory}/history`
+      );
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    enabled: !!selectedBaremeForHistory,
+  });
+
+  // Create/update bareme mutation
+  interface BaremeFormData {
+    medicationFamilyId: string;
+    tauxRemboursement: number;
+    plafondActe?: number;
+    plafondFamilleAnnuel?: number;
+    dateEffet: string;
+    dateFinEffet?: string;
+    motif?: string;
+  }
+  const saveBaremeMutation = useMutation({
+    mutationFn: async (data: BaremeFormData) => {
+      if (editingBareme) {
+        const response = await apiClient.put(`/medication-family-baremes/${editingBareme.id}`, data);
+        if (!response.success) throw new Error(response.error?.message);
+        return response.data;
+      }
+      // For create, we need a contractId - use first available contract
+      const response = await apiClient.post('/medication-family-baremes', {
+        ...data,
+        contractId: 'default', // Will be replaced by actual contract selection
+      });
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['medication-family-baremes'] });
+      setShowBaremeDialog(false);
+      setEditingBareme(null);
+      resetBaremeForm();
+      addToast({
+        type: 'success',
+        message: editingBareme ? 'Barème mis à jour' : 'Barème créé avec succès',
+      });
+    },
+    onError: (error: Error) => {
+      addToast({ type: 'error', message: error.message });
+    },
+  });
+
+  // Deactivate bareme mutation
+  const deactivateBaremeMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiClient.delete(`/medication-family-baremes/${id}`);
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['medication-family-baremes'] });
+      addToast({ type: 'success', message: 'Barème désactivé' });
+    },
+    onError: (error: Error) => {
+      addToast({ type: 'error', message: error.message });
+    },
+  });
+
+  function resetBaremeForm() {
+    setBaremeForm({
+      medicationFamilyId: '',
+      tauxRemboursement: '',
+      plafondActe: '',
+      plafondFamilleAnnuel: '',
+      dateEffet: new Date().toISOString().split('T')[0],
+      dateFinEffet: '',
+      motif: '',
+    });
+  }
+
+  function openEditBareme(bareme: MedicationFamilyBareme) {
+    setEditingBareme(bareme);
+    setBaremeForm({
+      medicationFamilyId: bareme.medication_family_id,
+      tauxRemboursement: String(bareme.taux_remboursement * 100),
+      plafondActe: bareme.plafond_acte ? String(bareme.plafond_acte) : '',
+      plafondFamilleAnnuel: bareme.plafond_famille_annuel ? String(bareme.plafond_famille_annuel) : '',
+      dateEffet: bareme.date_effet,
+      dateFinEffet: bareme.date_fin_effet || '',
+      motif: '',
+    });
+    setShowBaremeDialog(true);
+  }
+
+  function handleSaveBareme() {
+    const taux = parseFloat(baremeForm.tauxRemboursement) / 100;
+    if (isNaN(taux) || taux < 0 || taux > 1) {
+      addToast({ type: 'error', message: 'Taux invalide (0-100%)' });
+      return;
+    }
+    const formData: BaremeFormData = {
+      medicationFamilyId: baremeForm.medicationFamilyId,
+      tauxRemboursement: taux,
+      dateEffet: baremeForm.dateEffet || new Date().toISOString().split('T')[0]!,
+    };
+    if (baremeForm.plafondActe) formData.plafondActe = parseFloat(baremeForm.plafondActe);
+    if (baremeForm.plafondFamilleAnnuel) formData.plafondFamilleAnnuel = parseFloat(baremeForm.plafondFamilleAnnuel);
+    if (baremeForm.dateFinEffet) formData.dateFinEffet = baremeForm.dateFinEffet;
+    if (baremeForm.motif) formData.motif = baremeForm.motif;
+    saveBaremeMutation.mutate(formData);
+  }
+
+  const baremeColumns = [
+    {
+      key: 'family_name',
+      header: 'Famille',
+      render: (row: MedicationFamilyBareme) => (
+        <div>
+          <p className="font-medium">{row.family_name}</p>
+          <code className="text-xs text-muted-foreground">{row.family_code}</code>
+        </div>
+      ),
+    },
+    {
+      key: 'taux_remboursement',
+      header: 'Taux',
+      render: (row: MedicationFamilyBareme) => (
+        <Badge variant="default">{Math.round(row.taux_remboursement * 100)}%</Badge>
+      ),
+    },
+    {
+      key: 'plafond_acte',
+      header: 'Plafond acte',
+      render: (row: MedicationFamilyBareme) =>
+        row.plafond_acte ? `${row.plafond_acte.toFixed(3)} TND` : '-',
+    },
+    {
+      key: 'date_effet',
+      header: 'Date effet',
+      render: (row: MedicationFamilyBareme) => (
+        <div className="text-sm">
+          <p>{new Date(row.date_effet).toLocaleDateString('fr-TN')}</p>
+          {row.date_fin_effet && (
+            <p className="text-muted-foreground">
+              → {new Date(row.date_fin_effet).toLocaleDateString('fr-TN')}
+            </p>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'is_active',
+      header: 'Statut',
+      render: (row: MedicationFamilyBareme) => (
+        <Badge variant={row.is_active ? 'success' : 'secondary'}>
+          {row.is_active ? 'Actif' : 'Inactif'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (row: MedicationFamilyBareme) => (
+        <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedBaremeForHistory(row.id);
+              setShowBaremeHistoryDialog(true);
+            }}
+          >
+            <History className="h-4 w-4" />
+          </Button>
+          {row.is_active ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openEditBareme(row);
+                }}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deactivateBaremeMutation.mutate(row.id);
+                }}
+              >
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </>
+          ) : null}
+        </div>
+      ),
+    },
+  ];
 
   const medicationColumns = [
     {
@@ -336,6 +605,10 @@ export function MedicationsPage() {
             <Pill className="h-4 w-4" />
             Medicaments
           </TabsTrigger>
+          <TabsTrigger value="baremes" className="gap-2">
+            <TrendingUp className="h-4 w-4" />
+            Barèmes familles
+          </TabsTrigger>
           <TabsTrigger value="history" className="gap-2">
             <History className="h-4 w-4" />
             Historique imports
@@ -404,12 +677,12 @@ export function MedicationsPage() {
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </div>
-                <Select value={familyFilter} onValueChange={setFamilyFilter}>
+                <Select value={familyFilter || 'all'} onValueChange={(v) => setFamilyFilter(v === 'all' ? '' : v)}>
                   <SelectTrigger className="w-48">
                     <SelectValue placeholder="Toutes familles" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Toutes familles</SelectItem>
+                    <SelectItem value="all">Toutes familles</SelectItem>
                     {familiesData?.map((f) => (
                       <SelectItem key={f.id} value={f.id}>
                         {f.name}
@@ -417,12 +690,12 @@ export function MedicationsPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={genericFilter} onValueChange={setGenericFilter}>
+                <Select value={genericFilter || 'all'} onValueChange={(v) => setGenericFilter(v === 'all' ? '' : v)}>
                   <SelectTrigger className="w-40">
                     <SelectValue placeholder="Tous types" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Tous types</SelectItem>
+                    <SelectItem value="all">Tous types</SelectItem>
                     <SelectItem value="true">Generiques</SelectItem>
                     <SelectItem value="false">Princeps</SelectItem>
                   </SelectContent>
@@ -438,6 +711,41 @@ export function MedicationsPage() {
                 columns={medicationColumns}
                 data={medicationsData?.data || []}
                 isLoading={loadingMeds}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="baremes" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Taux de remboursement par famille
+              </CardTitle>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEditingBareme(null);
+                  resetBaremeForm();
+                  setShowBaremeDialog(true);
+                }}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Nouveau barème
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                columns={baremeColumns}
+                data={baremesData?.data || []}
+                isLoading={loadingBaremes}
+                pagination={{
+                  page: baremePage,
+                  limit: 20,
+                  total: baremesData?.meta?.total || 0,
+                  onPageChange: setBaremePage,
+                }}
               />
             </CardContent>
           </Card>
@@ -520,6 +828,177 @@ export function MedicationsPage() {
               {importMutation.isPending ? 'Import en cours...' : 'Importer'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bareme Dialog */}
+      <Dialog open={showBaremeDialog} onOpenChange={setShowBaremeDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editingBareme ? 'Modifier le barème' : 'Nouveau barème de remboursement'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Famille de médicaments</Label>
+              <Select
+                value={baremeForm.medicationFamilyId}
+                onValueChange={(v) => setBaremeForm({ ...baremeForm, medicationFamilyId: v })}
+                disabled={!!editingBareme}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner une famille" />
+                </SelectTrigger>
+                <SelectContent>
+                  {familiesData?.map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.name} ({f.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Taux de remboursement (%)</Label>
+              <Input
+                type="number"
+                min="0"
+                max="100"
+                placeholder="Ex: 80"
+                value={baremeForm.tauxRemboursement}
+                onChange={(e) => setBaremeForm({ ...baremeForm, tauxRemboursement: e.target.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Plafond par acte (TND, optionnel)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  placeholder="Ex: 50.000"
+                  value={baremeForm.plafondActe}
+                  onChange={(e) => setBaremeForm({ ...baremeForm, plafondActe: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>Plafond famille/an (TND, optionnel)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  placeholder="Ex: 500.000"
+                  value={baremeForm.plafondFamilleAnnuel}
+                  onChange={(e) => setBaremeForm({ ...baremeForm, plafondFamilleAnnuel: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Date d'effet</Label>
+                <Input
+                  type="date"
+                  value={baremeForm.dateEffet}
+                  onChange={(e) => setBaremeForm({ ...baremeForm, dateEffet: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>Date fin d'effet (optionnel)</Label>
+                <Input
+                  type="date"
+                  value={baremeForm.dateFinEffet}
+                  onChange={(e) => setBaremeForm({ ...baremeForm, dateFinEffet: e.target.value })}
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Motif du changement</Label>
+              <Textarea
+                placeholder="Ex: Révision annuelle des taux, décision CA..."
+                value={baremeForm.motif}
+                onChange={(e) => setBaremeForm({ ...baremeForm, motif: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBaremeDialog(false)}>
+              Annuler
+            </Button>
+            <Button
+              onClick={handleSaveBareme}
+              disabled={
+                saveBaremeMutation.isPending ||
+                !baremeForm.medicationFamilyId ||
+                !baremeForm.tauxRemboursement ||
+                !baremeForm.dateEffet
+              }
+            >
+              {saveBaremeMutation.isPending
+                ? 'Enregistrement...'
+                : editingBareme
+                  ? 'Mettre à jour'
+                  : 'Créer'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bareme History Dialog */}
+      <Dialog open={showBaremeHistoryDialog} onOpenChange={(open) => {
+        setShowBaremeHistoryDialog(open);
+        if (!open) setSelectedBaremeForHistory(null);
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarDays className="h-5 w-5" />
+              Historique des modifications
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-96 space-y-3 overflow-y-auto">
+            {baremeHistoryData?.data?.length === 0 && (
+              <p className="py-8 text-center text-muted-foreground">Aucun historique</p>
+            )}
+            {baremeHistoryData?.data?.map((entry) => (
+              <div key={entry.id} className="rounded-lg border p-3">
+                <div className="flex items-center justify-between">
+                  <Badge
+                    variant={
+                      entry.action === 'create'
+                        ? 'success'
+                        : entry.action === 'update'
+                          ? 'secondary'
+                          : 'destructive'
+                    }
+                  >
+                    {entry.action === 'create'
+                      ? 'Création'
+                      : entry.action === 'update'
+                        ? 'Modification'
+                        : 'Désactivation'}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(entry.created_at).toLocaleString('fr-TN')}
+                  </span>
+                </div>
+                {entry.action === 'update' && entry.old_taux !== null && entry.new_taux !== null && (
+                  <p className="mt-2 text-sm">
+                    Taux: {Math.round(entry.old_taux * 100)}% → {Math.round(entry.new_taux * 100)}%
+                  </p>
+                )}
+                {entry.action === 'create' && entry.new_taux !== null && (
+                  <p className="mt-2 text-sm">Taux: {Math.round(entry.new_taux * 100)}%</p>
+                )}
+                {entry.motif && (
+                  <p className="mt-1 text-xs text-muted-foreground">Motif: {entry.motif}</p>
+                )}
+                {entry.changed_by_name && (
+                  <p className="mt-1 text-xs text-muted-foreground">Par: {entry.changed_by_name}</p>
+                )}
+              </div>
+            ))}
+          </div>
         </DialogContent>
       </Dialog>
 

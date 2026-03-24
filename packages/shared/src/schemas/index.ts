@@ -22,3 +22,5 @@ export * from './acte-referentiel';
 export * from './contrat-periode';
 export * from './bulletin-soins';
 export * from './plafond';
+export * from './bulletin-import';
+export * from './medication-family-bareme';
