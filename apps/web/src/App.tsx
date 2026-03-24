@@ -42,6 +42,11 @@ const MfaSetupPage = lazy(() => import('@/features/settings/pages/MfaSetupPage')
 const NotificationsSettingsPage = lazy(() => import('@/features/settings/pages/NotificationsSettingsPage').then(m => ({ default: m.default })));
 const AboutPage = lazy(() => import('@/features/about/pages/AboutPage'));
 const MfaVerifyPage = lazy(() => import('@/features/auth/pages/MfaVerifyPage').then(m => ({ default: m.MfaVerifyPage })));
+const AuthSuccessPage = lazy(() => import('@/features/auth/pages/AuthSuccessPage').then(m => ({ default: m.AuthSuccessPage })));
+const PasswordResetPage = lazy(() => import('@/features/auth/pages/PasswordResetPage').then(m => ({ default: m.PasswordResetPage })));
+const PasswordResetConfirmPage = lazy(() => import('@/features/auth/pages/PasswordResetConfirmPage').then(m => ({ default: m.PasswordResetConfirmPage })));
+const MagicLinkPage = lazy(() => import('@/features/auth/pages/MagicLinkPage').then(m => ({ default: m.MagicLinkPage })));
+const MagicLinkVerifyPage = lazy(() => import('@/features/auth/pages/MagicLinkVerifyPage').then(m => ({ default: m.MagicLinkVerifyPage })));
 const SanteDemandesPage = lazy(() => import('@/features/sante/pages/SanteDemandesPage').then(m => ({ default: m.SanteDemandesPage })));
 const SanteDemandeDetailsPage = lazy(() => import('@/features/sante/pages/SanteDemandeDetailsPage').then(m => ({ default: m.default })));
 const SanteDemandeProcessPage = lazy(() => import('@/features/sante/pages/SanteDemandeProcessPage').then(m => ({ default: m.default })));
@@ -176,6 +181,46 @@ function App() {
           element={
             <Suspense fallback={<PageLoader />}>
               <MfaVerifyPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/auth/success"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <AuthSuccessPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/auth/reset-password"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <PasswordResetPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/auth/reset-password/confirm"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <PasswordResetConfirmPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/auth/magic-link"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <MagicLinkPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/auth/magic-link/verify"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <MagicLinkVerifyPage />
             </Suspense>
           }
         />

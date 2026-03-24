@@ -9,11 +9,13 @@ interface LoginResponse {
   requiresMfaSetup?: boolean;
   mfaToken?: string;
   mfaSetupToken?: string;
+  mfaMethods?: string[];
   expiresIn?: number;
   user?: UserPublic;
   tokens?: {
     accessToken: string;
     refreshToken: string;
+    expiresIn: number;
   };
 }
 
@@ -58,7 +60,7 @@ export function useAuth() {
 
         // Handle MFA verification required
         if (data.requiresMfa) {
-          return { success: true, requiresMfa: true, mfaToken: data.mfaToken };
+          return { success: true, requiresMfa: true, mfaToken: data.mfaToken, mfaMethods: data.mfaMethods };
         }
 
         // Login successful - store tokens and user

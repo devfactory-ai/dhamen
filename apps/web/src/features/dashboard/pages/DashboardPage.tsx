@@ -392,7 +392,7 @@ export function DashboardPage() {
     <div className="space-y-6">
       {/* Welcome header — simple, white background */}
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
           Bienvenue, {user?.firstName} !
         </h1>
         <p className="mt-1 text-sm text-gray-500">
@@ -424,7 +424,7 @@ export function DashboardPage() {
         {/* Right — Actions rapides + Statut Systeme */}
         <div className="flex flex-col gap-5">
           {/* Actions rapides — dark navy */}
-          <div className="flex-1 rounded-2xl bg-slate-900 p-6 text-white">
+          <div className="flex-1 rounded-2xl bg-slate-900 p-4 sm:p-6 text-white">
             <h2 className="text-lg font-semibold">Actions rapides</h2>
             <div className="mt-4 space-y-2.5">
               {quickActions?.map((action) =>

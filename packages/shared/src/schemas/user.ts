@@ -25,6 +25,8 @@ export const passwordSchema = z
 export const loginRequestSchema = z.object({
   email: z.string().email('Email invalide'),
   password: z.string().min(1, 'Mot de passe requis'),
+  turnstileToken: z.string().optional(),
+  persistSession: z.boolean().optional(),
 });
 
 export const mfaVerifyRequestSchema = z.object({
@@ -68,6 +70,35 @@ export const passwordChangeSchema = z.object({
 }).refine((data) => data.newPassword === data.confirmPassword, {
   message: 'Les mots de passe ne correspondent pas',
   path: ['confirmPassword'],
+});
+
+export const mfaEmailSendSchema = z.object({
+  mfaToken: z.string().min(1, 'Token MFA requis'),
+});
+
+export const mfaEmailVerifySchema = z.object({
+  mfaToken: z.string().min(1, 'Token MFA requis'),
+  otpCode: z.string().length(6, 'Code doit contenir 6 chiffres'),
+  method: z.enum(['email', 'totp']).default('email'),
+});
+
+export const passwordResetRequestSchema = z.object({
+  email: z.string().email('Email invalide'),
+  turnstileToken: z.string().optional(),
+});
+
+export const passwordResetConfirmSchema = z.object({
+  token: z.string().min(1, 'Token requis'),
+  newPassword: passwordSchema,
+});
+
+export const magicLinkSendSchema = z.object({
+  email: z.string().email('Email invalide'),
+  turnstileToken: z.string().optional(),
+});
+
+export const magicLinkVerifySchema = z.object({
+  token: z.string().min(1, 'Token requis'),
 });
 
 export type LoginRequestInput = z.infer<typeof loginRequestSchema>;

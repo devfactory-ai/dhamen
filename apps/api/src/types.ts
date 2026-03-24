@@ -62,6 +62,7 @@ export interface Bindings {
 
   // Optional configuration
   API_BASE_URL?: string;
+  WEB_BASE_URL?: string;
   OCR_URL?: string;
   GEMINI_API_KEY?: string;
 
@@ -71,6 +72,9 @@ export interface Bindings {
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_FROM_NUMBER?: string;
   RESEND_API_KEY?: string;
+
+  // Cloudflare Turnstile
+  TURNSTILE_SECRET_KEY?: string;
 
   // Webhooks
   WEBHOOK_SECRET?: string;

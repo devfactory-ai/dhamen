@@ -213,7 +213,7 @@ export function SettingsPage() {
               </div>
 
               {/* Role + Phone row */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Rôle</p>
                   <p className="mt-1 text-sm font-semibold text-gray-900">{roleLabel}</p>

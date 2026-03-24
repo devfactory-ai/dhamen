@@ -75,7 +75,7 @@ export interface JWTPayload {
   /** Company ID for HR users */
   companyId?: string;
   /** Purpose for limited-scope tokens (e.g., 'mfa_setup', 'mfa_verify') */
-  purpose?: 'mfa_setup' | 'mfa_verify';
+  purpose?: 'mfa_setup' | 'mfa_verify' | 'password_reset' | 'magic_link';
   iat: number;
   exp: number;
   iss: 'dhamen';

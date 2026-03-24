@@ -260,7 +260,7 @@ export class NotificationService {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'Dhamen <noreply@dhamen.tn>',
+        from: 'Dhamen <onboarding@resend.dev>',
         to: [params.to],
         subject: params.subject,
         text: params.body,
@@ -327,6 +327,48 @@ export class NotificationService {
       const error = await response.text();
       throw new Error(`Twilio error: ${error}`);
     }
+  }
+
+  /**
+   * Send MFA code email directly (bypasses notification preferences — security emails always sent)
+   */
+  async sendMfaCode(to: string, code: string, userName: string): Promise<void> {
+    const { renderMfaCodeEmail } = await import('../lib/email-templates');
+    const html = renderMfaCodeEmail(code, userName);
+    await this.sendEmail({
+      to,
+      subject: 'Dhamen — Code de vérification',
+      body: `Votre code de vérification Dhamen : ${code}. Ce code expire dans 5 minutes.`,
+      html,
+    });
+  }
+
+  /**
+   * Send magic link email directly (bypasses notification preferences — security emails always sent)
+   */
+  async sendMagicLinkEmail(to: string, loginUrl: string, userName: string): Promise<void> {
+    const { renderMagicLinkEmail } = await import('../lib/email-templates');
+    const html = renderMagicLinkEmail(loginUrl, userName);
+    await this.sendEmail({
+      to,
+      subject: 'Dhamen — Connexion par lien magique',
+      body: `Connectez-vous à Dhamen : ${loginUrl}. Ce lien expire dans 15 minutes.`,
+      html,
+    });
+  }
+
+  /**
+   * Send password reset email directly (bypasses notification preferences)
+   */
+  async sendPasswordResetEmail(to: string, resetUrl: string, userName: string): Promise<void> {
+    const { renderPasswordResetEmail } = await import('../lib/email-templates');
+    const html = renderPasswordResetEmail(resetUrl, userName);
+    await this.sendEmail({
+      to,
+      subject: 'Dhamen — Réinitialisation du mot de passe',
+      body: `Réinitialisez votre mot de passe : ${resetUrl}. Ce lien expire dans 30 minutes.`,
+      html,
+    });
   }
 
   /**

@@ -247,7 +247,7 @@ export async function verifyBackupCode(
  * Note: Disabled for demo environment - in production, all staff roles should require MFA
  * Original roles: ADMIN, INSURER_ADMIN, INSURER_AGENT, PHARMACIST, DOCTOR, LAB_MANAGER, CLINIC_ADMIN
  */
-export const MFA_REQUIRED_ROLES = [] as const;
+export const MFA_REQUIRED_ROLES = ['INSURER_ADMIN', 'INSURER_AGENT'] as const;
 
 /**
  * Check if a role requires MFA

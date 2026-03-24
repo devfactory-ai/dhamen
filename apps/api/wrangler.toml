@@ -115,6 +115,7 @@ API_VERSION = "v1"
 JWT_ISSUER = "dhamen"
 JWT_EXPIRES_IN = "900"
 REFRESH_EXPIRES_IN = "86400"
+WEB_BASE_URL = "https://dhamen-web-dev.pages.dev"
 # GEMINI_API_KEY — stored as Cloudflare secret
 
 # Legacy DB
@@ -197,6 +198,7 @@ API_VERSION = "v1"
 JWT_ISSUER = "dhamen"
 JWT_EXPIRES_IN = "900"
 REFRESH_EXPIRES_IN = "86400"
+WEB_BASE_URL = "https://dhamen-web-staging.pages.dev"
 # GEMINI_API_KEY — stored as Cloudflare secret
 
 # Legacy DB
