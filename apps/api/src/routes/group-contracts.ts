@@ -223,7 +223,7 @@ groupContracts.get(
 // ---------------------------------------------------------------------------
 groupContracts.post(
   '/',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', groupContractCreateSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -377,7 +377,7 @@ groupContracts.post(
 // ---------------------------------------------------------------------------
 groupContracts.put(
   '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', groupContractUpdateSchema),
   async (c) => {
     const id = c.req.param('id');
@@ -1411,7 +1411,7 @@ groupContracts.post(
 
 groupContracts.post(
   '/analyse-pdf',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const user = c.get('user');
 
