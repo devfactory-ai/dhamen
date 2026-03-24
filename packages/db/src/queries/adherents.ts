@@ -27,6 +27,34 @@ interface AdherentRow {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  // Extended fields
+  matricule: string | null;
+  plafond_global: number | null;
+  plafond_consomme: number | null;
+  company_id: string | null;
+  company_name: string | null;
+  is_active: number | null;
+  lieu_naissance: string | null;
+  etat_civil: string | null;
+  date_mariage: string | null;
+  date_debut_adhesion: string | null;
+  date_fin_adhesion: string | null;
+  rang: number | null;
+  postal_code: string | null;
+  rue: string | null;
+  mobile_encrypted: string | null;
+  banque: string | null;
+  rib_encrypted: string | null;
+  regime_social: string | null;
+  handicap: number | null;
+  fonction: string | null;
+  maladie_chronique: number | null;
+  matricule_conjoint: string | null;
+  type_piece_identite: string | null;
+  date_edition_piece: string | null;
+  contre_visite_obligatoire: number | null;
+  etat_fiche: string | null;
+  credit: number | null;
 }
 
 function rowToAdherent(row: AdherentRow): Adherent {
@@ -46,6 +74,34 @@ function rowToAdherent(row: AdherentRow): Adherent {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
+    // Extended fields
+    matricule: row.matricule,
+    plafondGlobal: row.plafond_global,
+    plafondConsomme: row.plafond_consomme,
+    companyId: row.company_id,
+    companyName: row.company_name,
+    isActive: row.is_active !== 0,
+    lieuNaissance: row.lieu_naissance,
+    etatCivil: row.etat_civil,
+    dateMarriage: row.date_mariage,
+    dateDebutAdhesion: row.date_debut_adhesion,
+    dateFinAdhesion: row.date_fin_adhesion,
+    rang: row.rang,
+    postalCode: row.postal_code,
+    rue: row.rue,
+    mobile: row.mobile_encrypted,
+    banque: row.banque,
+    rib: row.rib_encrypted,
+    regimeSocial: row.regime_social,
+    handicap: !!row.handicap,
+    fonction: row.fonction,
+    maladiChronique: !!row.maladie_chronique,
+    matriculeConjoint: row.matricule_conjoint,
+    typePieceIdentite: row.type_piece_identite,
+    dateEditionPiece: row.date_edition_piece,
+    contreVisiteObligatoire: !!row.contre_visite_obligatoire,
+    etatFiche: row.etat_fiche,
+    credit: row.credit,
   };
 }
 

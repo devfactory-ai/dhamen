@@ -20,6 +20,34 @@ export interface Adherent {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+  // Extended fields
+  matricule?: string | null;
+  plafondGlobal?: number | null;
+  plafondConsomme?: number | null;
+  companyId?: string | null;
+  companyName?: string | null;
+  isActive?: boolean;
+  lieuNaissance?: string | null;
+  etatCivil?: string | null;
+  dateMarriage?: string | null;
+  dateDebutAdhesion?: string | null;
+  dateFinAdhesion?: string | null;
+  rang?: number | null;
+  postalCode?: string | null;
+  rue?: string | null;
+  mobile?: string | null;
+  banque?: string | null;
+  rib?: string | null;
+  regimeSocial?: string | null;
+  handicap?: boolean;
+  fonction?: string | null;
+  maladiChronique?: boolean;
+  matriculeConjoint?: string | null;
+  typePieceIdentite?: string | null;
+  dateEditionPiece?: string | null;
+  contreVisiteObligatoire?: boolean;
+  etatFiche?: string | null;
+  credit?: number | null;
 }
 
 export interface AdherentPublic {

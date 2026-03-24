@@ -19,14 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -402,71 +395,67 @@ export function BaremesManager({
       </div>
 
       {/* Baremes Table */}
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Code</TableHead>
-                <TableHead>Libellé</TableHead>
-                <TableHead>Catégorie</TableHead>
-                <TableHead className="text-right">Conventionné</TableHead>
-                <TableHead className="text-right">Plafond</TableHead>
-                <TableHead className="text-right">Coef.</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredBaremes.map((bareme) => (
-                <TableRow key={bareme.id}>
-                  <TableCell className="font-mono text-sm">
-                    {bareme.codeActe}
-                  </TableCell>
-                  <TableCell>{bareme.libellé}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">
-                      {CATEGORIES[bareme.catégorie as keyof typeof CATEGORIES]}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatAmount(bareme.tarifConventionne)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatAmount(bareme.tarifPlafond)}
-                  </TableCell>
-                  <TableCell className="text-right">{bareme.coefficient}</TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEdit(bareme)}
-                    >
-                      Modifier
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive"
-                      onClick={() => onDelete(bareme.id)}
-                    >
-                      Supprimer
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {filteredBaremes.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                    {baremes.length === 0
-                      ? 'Aucun barème configuré'
-                      : 'Aucun résultat pour cette recherche'}
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <DataTable
+        columns={[
+          {
+            key: 'codeActe',
+            header: 'Code',
+            render: (b: Bareme) => <span className="font-mono text-sm">{b.codeActe}</span>,
+          },
+          {
+            key: 'libellé',
+            header: 'Libellé',
+            render: (b: Bareme) => <span>{b.libellé}</span>,
+          },
+          {
+            key: 'catégorie',
+            header: 'Catégorie',
+            render: (b: Bareme) => (
+              <Badge variant="outline">
+                {CATEGORIES[b.catégorie as keyof typeof CATEGORIES]}
+              </Badge>
+            ),
+          },
+          {
+            key: 'tarifConventionne',
+            header: 'Conventionné',
+            className: 'text-right',
+            render: (b: Bareme) => <span className="text-right">{formatAmount(b.tarifConventionne)}</span>,
+          },
+          {
+            key: 'tarifPlafond',
+            header: 'Plafond',
+            className: 'text-right',
+            render: (b: Bareme) => <span className="text-right">{formatAmount(b.tarifPlafond)}</span>,
+          },
+          {
+            key: 'coefficient',
+            header: 'Coef.',
+            className: 'text-right',
+            render: (b: Bareme) => <span className="text-right">{b.coefficient}</span>,
+          },
+          {
+            key: 'actions',
+            header: '',
+            className: 'text-right',
+            render: (b: Bareme) => (
+              <div className="flex justify-end gap-1">
+                <Button variant="ghost" size="sm" onClick={() => handleEdit(b)}>
+                  Modifier
+                </Button>
+                <Button variant="ghost" size="sm" className="text-destructive" onClick={() => onDelete(b.id)}>
+                  Supprimer
+                </Button>
+              </div>
+            ),
+          },
+        ]}
+        data={filteredBaremes}
+        isLoading={isLoading}
+        emptyMessage={baremes.length === 0 ? 'Aucun barème configuré' : 'Aucun résultat pour cette recherche'}
+        searchTerm={searchTerm || undefined}
+        onClearSearch={() => setSearchTerm('')}
+      />
 
       {/* Import Confirmation Dialog */}
       <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>

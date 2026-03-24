@@ -1,159 +1,247 @@
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { ROLE_LABELS, INSURER_ROLES, ADMIN_ROLES } from '@dhamen/shared';
+import { INSURER_ROLES, ADMIN_ROLES } from '@dhamen/shared';
 import type { Role } from '@dhamen/shared';
 import { apiClient } from '@/lib/api-client';
+import { DataTable } from '@/components/ui/data-table';
 import {
   ClipboardIcon,
-  CurrencyIcon,
   UsersIcon,
   CheckCircleIcon,
   ChevronRightIcon,
   ArrowUpIcon,
   ArrowDownIcon,
+  ClockIcon,
+  UploadIcon,
   type IconProps,
 } from '@/components/icons';
+
+/* ------------------------------------------------------------------ */
+/*  Stat Card                                                         */
+/* ------------------------------------------------------------------ */
 
 interface StatCardProps {
   title: string;
   value: string;
-  description: string;
+  unit?: string;
   icon: React.ComponentType<IconProps>;
+  iconBg: string;
+  iconColor: string;
   trend?: { value: string; positive: boolean };
-  color: string;
+  badge?: string;
+  alert?: string;
   isLoading?: boolean;
 }
 
 function StatCard({
   title,
   value,
-  description,
+  unit,
   icon: Icon,
+  iconBg,
+  iconColor,
   trend,
-  color,
+  badge,
+  alert,
   isLoading,
 }: StatCardProps) {
   return (
-    <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
+    <div className="flex flex-col justify-between rounded-2xl border border-gray-200 bg-white p-6 transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
-          {isLoading ? (
-            <div className="h-9 w-24 animate-pulse bg-gray-200 rounded" />
-          ) : (
-            <p className="text-3xl font-bold text-gray-900">{value}</p>
-          )}
-          <p className="text-xs text-gray-400 mt-1">{description}</p>
-          {trend && (
-            <div className={`inline-flex items-center gap-1 mt-2 px-2 py-0.5 rounded-full text-xs font-medium ${
-              trend.positive ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-            }`}>
-              {trend.positive ? (
-                <ArrowUpIcon className="w-3 h-3" />
-              ) : (
-                <ArrowDownIcon className="w-3 h-3" />
-              )}
-              {trend.value}
-            </div>
-          )}
+        <p className="text-sm font-medium text-gray-500">{title}</p>
+        <div className={`flex h-10 w-10 items-center justify-center rounded-full ${iconBg}`}>
+          <Icon className={`h-5 w-5 ${iconColor}`} />
         </div>
-        <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center`}>
-          <Icon className="w-6 h-6" />
-        </div>
+      </div>
+
+      <div className="mt-4">
+        {isLoading ? (
+          <div className="h-10 w-24 animate-pulse rounded bg-gray-200" />
+        ) : (
+          <p className="text-4xl font-bold text-gray-900">
+            {value}
+            {unit && <span className="ml-1 text-lg font-medium text-gray-400">{unit}</span>}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-3">
+        {trend && (
+          <span className={`inline-flex items-center gap-1 text-xs font-medium ${
+            trend.positive ? 'text-emerald-600' : 'text-red-500'
+          }`}>
+            {trend.positive ? (
+              <ArrowUpIcon className="h-3 w-3" />
+            ) : (
+              <ArrowDownIcon className="h-3 w-3" />
+            )}
+            {trend.value}
+          </span>
+        )}
+        {badge && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
+            <ClockIcon className="h-3 w-3" />
+            {badge}
+          </span>
+        )}
+        {alert && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-red-500">
+            <span className="font-bold">!</span> {alert}
+          </span>
+        )}
       </div>
     </div>
   );
 }
 
-// Stats configuration par rôle avec couleurs
-const roleStats: Record<string, { title: string; stats: Array<{ title: string; key: string; description: string; icon: React.ComponentType<IconProps>; color: string; trend?: { value: string; positive: boolean } }> }> = {
+/* ------------------------------------------------------------------ */
+/*  XCircleIcon (for Rejets)                                          */
+/* ------------------------------------------------------------------ */
+
+function XCircleIcon({ className }: IconProps) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+    </svg>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  ChatBubbleIcon (for En attente)                                   */
+/* ------------------------------------------------------------------ */
+
+function ChatBubbleIcon({ className }: IconProps) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
+    </svg>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Stats config per role                                             */
+/* ------------------------------------------------------------------ */
+
+const roleStats: Record<string, { title: string; stats: Array<{ title: string; key: string; unit?: string; icon: React.ComponentType<IconProps>; iconBg: string; iconColor: string; trend?: { value: string; positive: boolean }; badge?: string; alert?: string }> }> = {
   ADMIN: {
     title: 'Administration Plateforme',
     stats: [
-      { title: 'Utilisateurs actifs', key: 'totalUsers', description: 'Total utilisateurs', icon: UsersIcon, color: 'bg-blue-100 text-blue-600', trend: { value: '5%', positive: true } },
-      { title: 'PEC traitées', key: 'totalClaims', description: 'Ce mois', icon: ClipboardIcon, color: 'bg-emerald-100 text-emerald-600', trend: { value: '18%', positive: true } },
-      { title: 'Volume total', key: 'totalAmount', description: 'TND ce mois', icon: CurrencyIcon, color: 'bg-purple-100 text-purple-600', trend: { value: '12%', positive: true } },
-      { title: 'Taux approbation', key: 'approvalRate', description: 'PEC approuvées', icon: CheckCircleIcon, color: 'bg-orange-100 text-orange-600', trend: { value: '0.1%', positive: true } },
+      { title: 'PEC traitees', key: 'totalClaims', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', trend: { value: '+12.5%', positive: true } },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
+      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500', alert: '8 critiques' },
+      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500', trend: { value: '-2% ce mois', positive: false } },
     ],
   },
   INSURER_ADMIN: {
     title: 'Administration Assureur',
     stats: [
-      { title: 'Adhérents', key: 'totalAdherents', description: 'Portefeuille actif', icon: UsersIcon, color: 'bg-blue-100 text-blue-600', trend: { value: '3%', positive: true } },
-      { title: 'PEC en attente', key: 'pendingClaims', description: 'À traiter', icon: ClipboardIcon, color: 'bg-amber-100 text-amber-600' },
-      { title: 'Montant engagé', key: 'totalAmount', description: 'TND ce mois', icon: CurrencyIcon, color: 'bg-emerald-100 text-emerald-600', trend: { value: '7%', positive: true } },
-      { title: 'Taux approbation', key: 'approvalRate', description: 'Taux approuvées', icon: CheckCircleIcon, color: 'bg-purple-100 text-purple-600' },
+      { title: 'PEC traitees', key: 'totalClaims', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', trend: { value: '+12.5%', positive: true } },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
+      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500', alert: '8 critiques' },
+      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500', trend: { value: '-2% ce mois', positive: false } },
     ],
   },
   INSURER_AGENT: {
     title: 'Agent Assureur',
     stats: [
-      { title: 'PEC traitées', key: 'processedToday', description: "Aujourd'hui", icon: ClipboardIcon, color: 'bg-blue-100 text-blue-600', trend: { value: '15%', positive: true } },
-      { title: 'Temps moyen', key: 'avgProcessingTime', description: 'Par dossier', icon: CheckCircleIcon, color: 'bg-emerald-100 text-emerald-600', trend: { value: '12%', positive: true } },
-      { title: 'En attente', key: 'pendingClaims', description: 'À valider', icon: UsersIcon, color: 'bg-amber-100 text-amber-600' },
-      { title: 'Rejets', key: 'rejectedToday', description: "Aujourd'hui", icon: CurrencyIcon, color: 'bg-red-100 text-red-600' },
+      { title: 'PEC traitees', key: 'processedToday', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', trend: { value: '+12.5%', positive: true } },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
+      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500', alert: '8 critiques' },
+      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500', trend: { value: '-2% ce mois', positive: false } },
     ],
   },
   PHARMACIST: {
     title: 'Pharmacie',
     stats: [
-      { title: 'Dispensations', key: 'totalClaims', description: "Aujourd'hui", icon: ClipboardIcon, color: 'bg-blue-100 text-blue-600', trend: { value: '12%', positive: true } },
-      { title: 'Montant PEC', key: 'totalAmount', description: "TND aujourd'hui", icon: CurrencyIcon, color: 'bg-emerald-100 text-emerald-600', trend: { value: '8%', positive: true } },
-      { title: 'Patients servis', key: 'uniquePatients', description: 'Patients uniques', icon: UsersIcon, color: 'bg-purple-100 text-purple-600' },
-      { title: 'Taux acceptation', key: 'approvalRate', description: 'PEC approuvées', icon: CheckCircleIcon, color: 'bg-teal-100 text-teal-600', trend: { value: '2%', positive: true } },
+      { title: 'Dispensations', key: 'totalClaims', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', trend: { value: '+12%', positive: true } },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'min', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
+      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
+      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500', trend: { value: '-3%', positive: false } },
     ],
   },
   DOCTOR: {
-    title: 'Cabinet Médical',
+    title: 'Cabinet Medical',
     stats: [
-      { title: 'Consultations', key: 'totalClaims', description: "Aujourd'hui", icon: ClipboardIcon, color: 'bg-blue-100 text-blue-600', trend: { value: '8%', positive: true } },
-      { title: 'PEC validées', key: 'approvedClaims', description: "Aujourd'hui", icon: CheckCircleIcon, color: 'bg-emerald-100 text-emerald-600' },
-      { title: 'Montant total', key: 'totalAmount', description: "TND aujourd'hui", icon: CurrencyIcon, color: 'bg-purple-100 text-purple-600' },
-      { title: 'Patients', key: 'uniquePatients', description: 'Patients uniques', icon: UsersIcon, color: 'bg-teal-100 text-teal-600' },
+      { title: 'Consultations', key: 'totalClaims', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', trend: { value: '+8%', positive: true } },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'min', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
+      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
+      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
     ],
   },
   LAB_MANAGER: {
     title: "Laboratoire d'Analyses",
     stats: [
-      { title: 'Analyses', key: 'totalClaims', description: "Aujourd'hui", icon: ClipboardIcon, color: 'bg-blue-100 text-blue-600', trend: { value: '15%', positive: true } },
-      { title: 'En attente', key: 'pendingClaims', description: 'Résultats à saisir', icon: CheckCircleIcon, color: 'bg-amber-100 text-amber-600' },
-      { title: 'Montant PEC', key: 'totalAmount', description: "TND aujourd'hui", icon: CurrencyIcon, color: 'bg-emerald-100 text-emerald-600' },
-      { title: 'Patients', key: 'uniquePatients', description: 'Patients uniques', icon: UsersIcon, color: 'bg-purple-100 text-purple-600' },
+      { title: 'Analyses', key: 'totalClaims', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', trend: { value: '+15%', positive: true } },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
+      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
+      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
     ],
   },
   CLINIC_ADMIN: {
     title: 'Clinique',
     stats: [
-      { title: 'Admissions', key: 'admissionsToday', description: "Aujourd'hui", icon: ClipboardIcon, color: 'bg-blue-100 text-blue-600' },
-      { title: 'Hospitalisés', key: 'currentPatients', description: 'Actuellement', icon: UsersIcon, color: 'bg-purple-100 text-purple-600' },
-      { title: 'PEC en cours', key: 'totalAmount', description: 'TND engagements', icon: CurrencyIcon, color: 'bg-emerald-100 text-emerald-600' },
-      { title: 'Sorties prévues', key: 'dischargeToday', description: "Aujourd'hui", icon: CheckCircleIcon, color: 'bg-teal-100 text-teal-600' },
+      { title: 'Admissions', key: 'admissionsToday', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
+      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
+      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
     ],
   },
 };
 
-// Actions rapides par type de rôle
-const quickActionsByRoleType = {
+/* ------------------------------------------------------------------ */
+/*  Quick actions per role type                                       */
+/* ------------------------------------------------------------------ */
+
+const quickActionsByRoleType: Record<
+  string,
+  Array<{
+    title: string;
+    icon: React.ComponentType<IconProps>;
+    href: string;
+    disabled?: boolean;
+  }>
+> = {
   admin: [
-    { title: 'Gérer utilisateurs', desc: 'Administration', icon: UsersIcon, href: '/users', gradient: 'from-blue-500 to-blue-600' },
-    { title: 'Voir statistiques', desc: 'Tableau de bord global', icon: CheckCircleIcon, href: '/reports', gradient: 'from-emerald-500 to-emerald-600', disabled: true },
-    { title: 'Configuration', desc: 'Paramètres système', icon: CurrencyIcon, href: '/settings', gradient: 'from-purple-500 to-purple-600' },
-    { title: 'Audit', desc: "Journal d'activité", icon: ClipboardIcon, href: '/audit', gradient: 'from-orange-500 to-orange-600' },
+    { title: "Gerer utilisateurs", icon: UsersIcon, href: "/users" },
+    { title: "Configuration", icon: ClipboardIcon, href: "/settings" },
+    {
+      title: "Exporter Rapports",
+      icon: UploadIcon,
+      href: "/reports",
+      disabled: true,
+    },
   ],
   insurer: [
-    { title: 'Valider PEC', desc: 'Dossiers en attente', icon: ClipboardIcon, href: '/claims/manage', gradient: 'from-blue-500 to-blue-600', disabled: true },
-    { title: 'Adhérents', desc: 'Gestion portefeuille', icon: UsersIcon, href: '/adherents/agent', gradient: 'from-emerald-500 to-emerald-600' },
-    { title: 'Réconciliation', desc: 'Rapprochement paiements', icon: CurrencyIcon, href: '/reconciliation', gradient: 'from-purple-500 to-purple-600', disabled: true },
-    { title: 'Rapports', desc: 'Statistiques', icon: CheckCircleIcon, href: '/reports', gradient: 'from-orange-500 to-orange-600', disabled: true },
+    {
+      title: "Saisir une PEC",
+      icon: ClipboardIcon,
+      href: "/claims/manage",
+      disabled: true,
+    },
+    { title: "Liste des Adhérents", icon: UsersIcon, href: "/adherents/agent" },
+    {
+      title: "Exporter Rapports",
+      icon: UploadIcon,
+      href: "/reports",
+      disabled: true,
+    },
   ],
   provider: [
-    { title: 'Nouvelle PEC', desc: 'Créer prise en charge', icon: ClipboardIcon, href: '/claims', gradient: 'from-blue-500 to-blue-600' },
-    { title: 'Vérifier éligibilité', desc: 'Consulter les droits', icon: UsersIcon, href: '/eligibility', gradient: 'from-emerald-500 to-emerald-600' },
-    { title: 'Mes bordereaux', desc: 'Consulter paiements', icon: CurrencyIcon, href: '/bordereaux', gradient: 'from-purple-500 to-purple-600' },
-    { title: 'Rapports', desc: 'Mon activité', icon: CheckCircleIcon, href: '/reports', gradient: 'from-orange-500 to-orange-600', disabled: true },
+    { title: "Nouvelle PEC", icon: ClipboardIcon, href: "/claims" },
+    { title: "Nouvel Adherent", icon: UsersIcon, href: "/adherents/agent/new" },
+    {
+      title: "Exporter Rapports",
+      icon: UploadIcon,
+      href: "/reports",
+      disabled: true,
+    },
   ],
 };
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
 
 function getRoleType(role: Role | undefined): 'admin' | 'insurer' | 'provider' {
   if (!role) return 'provider';
@@ -179,24 +267,107 @@ interface DashboardStats {
   dischargeToday?: number;
 }
 
+// Sample recent PEC data (placeholder until API is ready)
+interface RecentPEC {
+  id: string;
+  ref: string;
+  adherent: string;
+  contract: string;
+  type: string;
+  date: string;
+  montant: string;
+  statut: string;
+  statutColor: string;
+}
+
+const recentPEC: RecentPEC[] = [
+  { id: '1', ref: 'PEC-2026-001', adherent: 'Mohamed Ben Ali', contract: 'CT-4521', type: 'Pharmacie', date: '23/03/2026', montant: '245.500', statut: 'Approuvee', statutColor: 'bg-emerald-50 text-emerald-700' },
+  { id: '2', ref: 'PEC-2026-002', adherent: 'Fatma Trabelsi', contract: 'CT-3892', type: 'Consultation', date: '23/03/2026', montant: '120.000', statut: 'En attente', statutColor: 'bg-amber-50 text-amber-700' },
+  { id: '3', ref: 'PEC-2026-003', adherent: 'Ahmed Gharbi', contract: 'CT-5104', type: 'Laboratoire', date: '22/03/2026', montant: '380.000', statut: 'Approuvee', statutColor: 'bg-emerald-50 text-emerald-700' },
+  { id: '4', ref: 'PEC-2026-004', adherent: 'Sana Mejri', contract: 'CT-2847', type: 'Pharmacie', date: '22/03/2026', montant: '95.750', statut: 'Rejetee', statutColor: 'bg-red-50 text-red-700' },
+  { id: '5', ref: 'PEC-2026-005', adherent: 'Karim Bouazizi', contract: 'CT-6230', type: 'Hospitalisation', date: '21/03/2026', montant: '1,250.000', statut: 'En attente', statutColor: 'bg-amber-50 text-amber-700' },
+];
+
+const recentPECColumns = [
+  {
+    key: 'ref',
+    header: 'Reference',
+    render: (pec: RecentPEC) => (
+      <span className="text-sm font-medium text-blue-600">{pec.ref}</span>
+    ),
+  },
+  {
+    key: 'adherent',
+    header: 'Adherent',
+    render: (pec: RecentPEC) => {
+      const initials = pec.adherent.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+      const colors = ['bg-blue-500', 'bg-emerald-500', 'bg-purple-500', 'bg-amber-500', 'bg-rose-500'];
+      const colorIdx = pec.id.charCodeAt(0) % colors.length;
+      return (
+        <div className="flex items-center gap-3">
+          <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium text-white ${colors[colorIdx]}`}>
+            {initials}
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-900">{pec.adherent}</p>
+            <p className="text-xs text-gray-400">{pec.contract}</p>
+          </div>
+        </div>
+      );
+    },
+  },
+  {
+    key: 'type',
+    header: 'Type',
+    render: (pec: RecentPEC) => (
+      <span className="text-sm text-gray-600">{pec.type}</span>
+    ),
+  },
+  {
+    key: 'date',
+    header: 'Date',
+    render: (pec: RecentPEC) => (
+      <span className="text-sm text-gray-500">{pec.date}</span>
+    ),
+  },
+  {
+    key: 'montant',
+    header: 'Montant',
+    className: 'text-right',
+    render: (pec: RecentPEC) => (
+      <span className="text-sm font-medium text-gray-900">{pec.montant} TND</span>
+    ),
+  },
+  {
+    key: 'statut',
+    header: 'Statut',
+    render: (pec: RecentPEC) => (
+      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${pec.statutColor}`}>
+        {pec.statut}
+      </span>
+    ),
+  },
+];
+
 function formatAmount(amount: number): string {
-  if (amount >= 1000000) {
-    return `${(amount / 1000000).toFixed(1)}M`;
-  }
-  if (amount >= 1000) {
-    return `${(amount / 1000).toFixed(0)}K`;
-  }
+  if (amount >= 1000000) return `${(amount / 1000000).toFixed(1)}M`;
+  if (amount >= 1000) return `${(amount / 1000).toFixed(0)}K`;
   return amount.toLocaleString('fr-TN');
 }
 
+
+/* ------------------------------------------------------------------ */
+/*  Dashboard Page                                                    */
+/* ------------------------------------------------------------------ */
+
 export function DashboardPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const role = user?.role;
   const roleType = getRoleType(role);
-  const roleConfig = role && roleStats[role] ? roleStats[role] : roleStats.PHARMACIST;
-  const quickActions = quickActionsByRoleType[roleType];
+  const roleConfig = role && roleStats[role] ? roleStats[role] : roleStats.INSURER_AGENT;
+  const quickActions = quickActionsByRoleType[roleType] ?? quickActionsByRoleType.insurer;
 
-  // Fetch dashboard stats from API
   const { data: statsData, isLoading: statsLoading } = useQuery({
     queryKey: ['dashboard-stats', role],
     queryFn: async () => {
@@ -204,12 +375,11 @@ export function DashboardPage() {
       if (!response.success) return {} as DashboardStats;
       return response.data;
     },
-    staleTime: 30000, // Cache for 30 seconds
+    staleTime: 30000,
   });
 
   const stats = statsData ?? {};
 
-  // Format stat value
   const formatStatValue = (key: string, value: unknown): string => {
     if (value === undefined || value === null) return '-';
     if (key.includes('Amount')) return formatAmount(Number(value));
@@ -219,103 +389,105 @@ export function DashboardPage() {
   };
 
   return (
-    <div className="space-y-8">
-      {/* Welcome header */}
-      <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-emerald-600 rounded-2xl p-8 text-white relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2" />
-          <div className="absolute bottom-0 left-0 w-48 h-48 bg-emerald-300 rounded-full blur-3xl transform -translate-x-1/2 translate-y-1/2" />
-        </div>
-        <div className="relative z-10">
-          <div className="flex items-center gap-2 text-blue-100 text-sm mb-2">
-            <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-            {new Date().toLocaleDateString('fr-TN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-          </div>
-          <h1 className="text-3xl font-bold mb-1">
-            Bienvenue, {user?.firstName}!
-          </h1>
-          <p className="text-blue-100">
-            {role ? ROLE_LABELS[role] : ''} — {roleConfig?.title ?? ''}
-          </p>
-        </div>
+    <div className="space-y-6">
+      {/* Welcome header — simple, white background */}
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">
+          Bienvenue, {user?.firstName} !
+        </h1>
+        <p className="mt-1 text-sm text-gray-500">
+          Voici l'etat actuel de votre portefeuille d'assurance aujourd'hui.
+        </p>
       </div>
 
-      {/* Stats grid */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {(roleConfig?.stats ?? []).map((stat) => (
-          <StatCard
-            key={stat.title}
-            title={stat.title}
-            value={formatStatValue(stat.key, stats[stat.key as keyof DashboardStats])}
-            description={stat.description}
-            icon={stat.icon}
-            color={stat.color}
-            trend={stat.trend}
-            isLoading={statsLoading}
-          />
-        ))}
-      </div>
+      {/* Main grid: Stats 2x2 (left) + Actions rapides & Statut (right) */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        {/* Left — 2x2 stat cards */}
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:col-span-2">
+          {(roleConfig?.stats ?? []).map((stat) => (
+            <StatCard
+              key={stat.title}
+              title={stat.title}
+              value={formatStatValue(stat.key, stats[stat.key as keyof DashboardStats])}
+              unit={stat.unit}
+              icon={stat.icon}
+              iconBg={stat.iconBg}
+              iconColor={stat.iconColor}
+              trend={stat.trend}
+              badge={stat.badge}
+              alert={stat.alert}
+              isLoading={statsLoading}
+            />
+          ))}
+        </div>
 
-      {/* Main content grid */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Recent claims - wider (disabled) */}
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden opacity-50">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Dernières PEC</h2>
-              <p className="text-sm text-gray-500">Les 5 dernières prises en charge</p>
+        {/* Right — Actions rapides + Statut Systeme */}
+        <div className="flex flex-col gap-5">
+          {/* Actions rapides — dark navy */}
+          <div className="flex-1 rounded-2xl bg-slate-900 p-6 text-white">
+            <h2 className="text-lg font-semibold">Actions rapides</h2>
+            <div className="mt-4 space-y-2.5">
+              {quickActions?.map((action) =>
+                action.disabled ? (
+                  <div
+                    key={action.title}
+                    className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3.5 opacity-50"
+                    title="Bientot disponible"
+                  >
+                    <action.icon className="h-5 w-5 text-slate-400" />
+                    <span className="flex-1 text-sm font-medium text-slate-300">{action.title}</span>
+                    <ChevronRightIcon className="h-4 w-4 text-slate-600" />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    key={action.title}
+                    onClick={() => navigate(action.href)}
+                    className="group flex w-full items-center gap-3 rounded-xl border border-slate-700 bg-slate-800 px-4 py-3.5 transition-all hover:border-blue-500 hover:bg-slate-700 text-left"
+                  >
+                    <action.icon className="h-5 w-5 text-slate-300 group-hover:text-blue-400" />
+                    <span className="flex-1 text-sm font-medium text-white group-hover:text-blue-400">{action.title}</span>
+                    <ChevronRightIcon className="h-4 w-4 text-slate-500 transition-transform group-hover:translate-x-1 group-hover:text-blue-400" />
+                  </button>
+                )
+              )}
             </div>
-            <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Bientôt</span>
           </div>
-          <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-            <ClipboardIcon className="w-12 h-12 mb-3" />
-            <p className="font-medium">Module PEC bientôt disponible</p>
-            <p className="text-sm mt-1">La validation des prises en charge sera activée prochainement</p>
-          </div>
-        </div>
 
-        {/* Quick actions */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100">
-            <h2 className="text-lg font-semibold text-gray-900">Actions rapides</h2>
-            <p className="text-sm text-gray-500">Accès aux fonctions principales</p>
-          </div>
-          <div className="p-4 space-y-3">
-            {quickActions.map((action) =>
-              action.disabled ? (
-                <div
-                  key={action.title}
-                  className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 opacity-50 cursor-not-allowed"
-                  title="Bientôt disponible"
-                >
-                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${action.gradient} flex items-center justify-center shadow-lg grayscale`}>
-                    <action.icon className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-gray-400">{action.title}</p>
-                    <p className="text-xs text-gray-400">{action.desc}</p>
-                  </div>
-                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Bientôt</span>
-                </div>
-              ) : (
-                <Link
-                  key={action.title}
-                  to={action.href}
-                  className="flex items-center gap-4 p-4 rounded-xl border border-gray-100 hover:border-gray-200 hover:shadow-md transition-all group"
-                >
-                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${action.gradient} flex items-center justify-center shadow-lg group-hover:scale-105 transition-transform`}>
-                    <action.icon className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">{action.title}</p>
-                    <p className="text-xs text-gray-500">{action.desc}</p>
-                  </div>
-                  <ChevronRightIcon className="w-5 h-5 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
-                </Link>
-              )
-            )}
+          {/* STATUT SYSTEME */}
+          <div className="px-1">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Statut Systeme</h3>
+            <div className="mt-3 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="text-sm text-gray-700">Base de donnees synchronisee</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="text-sm text-gray-700">API Connectivite stable</span>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-gray-400">
+              Derniere mise a jour effectuee il y a 12 minutes. Aucune interruption prevue.
+            </p>
           </div>
         </div>
+      </div>
+
+      {/* Dernieres PEC */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Dernieres PEC</h2>
+          <span className="text-sm font-medium text-blue-600 hover:text-blue-700 cursor-pointer">
+            Voir tout le registre &rarr;
+          </span>
+        </div>
+        <DataTable
+          columns={recentPECColumns}
+          data={recentPEC}
+          emptyMessage="Aucune PEC recente"
+          emptyStateType="claims"
+        />
       </div>
     </div>
   );
