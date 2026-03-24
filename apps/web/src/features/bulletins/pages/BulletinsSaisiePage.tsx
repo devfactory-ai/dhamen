@@ -173,7 +173,7 @@ const acteFormSchema = z.object({
 });
 
 const bulletinFormSchema = z.object({
-  bulletin_number: z.string().min(1, 'Numero de bulletin requis'),
+  bulletin_number: z.string().optional().or(z.literal('')),
   bulletin_date: z.string().min(1, 'Date requise'),
   adherent_matricule: z.string().min(1, 'Matricule requis'),
   adherent_first_name: z.string().min(2, 'Prenom requis'),
@@ -245,6 +245,7 @@ export function BulletinsSaisiePage() {
   const [validateNotes, setValidateNotes] = useState('');
   const validateMutation = useBulletinValidation();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [showScanPreview, setShowScanPreview] = useState(false);
   const [ocrFeedback, setOcrFeedback] = useState<OcrFeedbackState | null>(null);
   const [isSendingFeedback, setIsSendingFeedback] = useState(false);
   const [feedbackErrors, setFeedbackErrors] = useState<string[]>([]);
@@ -599,11 +600,51 @@ export function BulletinsSaisiePage() {
       toast.error('Certains fichiers ont ete ignores (format ou taille invalide)');
     }
 
-    setSelectedFiles(prev => [...prev, ...validFiles]);
+    // Reset form fields when uploading new files
+    reset({
+      care_type: watch('care_type'),
+      bulletin_date: new Date().toISOString().split('T')[0],
+      bulletin_number: '',
+      adherent_matricule: '',
+      adherent_first_name: '',
+      adherent_last_name: '',
+      adherent_national_id: '',
+      adherent_contract_number: '',
+      adherent_email: '',
+      adherent_address: '',
+      beneficiary_name: '',
+      actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_description: '', cod_msgr: '', lib_msgr: '' }],
+    });
+    setSelectedAdherentInfo(null);
+    setOcrFeedback(null);
+    setSelectedFiles(validFiles);
+    // Reset input value so re-selecting the same files triggers onChange
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleRemoveFile = (index: number) => {
-    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    const remaining = selectedFiles.filter((_, i) => i !== index);
+    setSelectedFiles(remaining);
+    // Reset form fields when all files are removed
+    if (remaining.length === 0) {
+      reset({
+        care_type: watch('care_type'),
+        bulletin_date: new Date().toISOString().split('T')[0],
+        bulletin_number: '',
+        adherent_matricule: '',
+        adherent_first_name: '',
+        adherent_last_name: '',
+        adherent_national_id: '',
+        adherent_contract_number: '',
+        adherent_email: '',
+        adherent_address: '',
+        beneficiary_name: '',
+        actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_description: '', cod_msgr: '', lib_msgr: '' }],
+      });
+      setSelectedAdherentInfo(null);
+      setOcrFeedback(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const analyzeWithOCR = async () => {
@@ -1782,7 +1823,7 @@ export function BulletinsSaisiePage() {
                     <div className="flex items-center justify-between mb-3">
                       <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Aperçu du scan</p>
                       {selectedFiles.length > 0 && (
-                        <button type="button" className="text-xs font-semibold text-blue-600 hover:text-blue-700">Agrandir</button>
+                        <button type="button" onClick={() => setShowScanPreview(true)} className="text-xs font-semibold text-blue-600 hover:text-blue-700">Agrandir</button>
                       )}
                     </div>
                     {selectedFiles.length > 0 ? (
@@ -1807,6 +1848,31 @@ export function BulletinsSaisiePage() {
                       </div>
                     )}
                   </div>
+
+                  {/* Scan preview fullscreen dialog */}
+                  <Dialog open={showScanPreview} onOpenChange={setShowScanPreview}>
+                    <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+                      <DialogHeader>
+                        <DialogTitle>Aperçu des scans</DialogTitle>
+                      </DialogHeader>
+                      <div className="flex-1 overflow-auto space-y-4">
+                        {selectedFiles.map((file, idx) => (
+                          <div key={idx} className="rounded-xl overflow-hidden bg-gray-50">
+                            {file.type.startsWith('image/') ? (
+                              <img src={URL.createObjectURL(file)} alt={`Scan ${idx + 1}`} className="w-full h-auto object-contain" />
+                            ) : (
+                              <iframe
+                                src={`${URL.createObjectURL(file)}#toolbar=0`}
+                                className="w-full h-[600px] border-0"
+                                title={file.name}
+                              />
+                            )}
+                            <p className="text-xs text-center text-gray-500 py-2">{file.name}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </DialogContent>
+                  </Dialog>
 
                   {/* Total amount */}
                   <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center">
