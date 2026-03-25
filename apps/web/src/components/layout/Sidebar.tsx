@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { useAgentContext } from '@/features/agent/stores/agent-context';
 import type { Role } from '@dhamen/shared';
 import {
   DashboardIcon,
@@ -171,6 +172,9 @@ export function Sidebar() {
   const { sidebarOpen, sidebarCollapsed, toggleSidebar, toggleSidebarCollapsed } = useUIStore();
   const { user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
+  const { selectedCompany, setCompany } = useAgentContext();
+  const isAgent = user?.role === 'INSURER_AGENT' || user?.role === 'INSURER_ADMIN';
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({});
 
@@ -275,6 +279,45 @@ export function Sidebar() {
             <CloseIcon className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Company context for agents */}
+        {isAgent && !sidebarCollapsed && (
+          <div className="mx-3 mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wider">Entreprise</p>
+                <p className="text-sm font-medium text-blue-900 truncate">
+                  {selectedCompany?.name || 'Non sélectionnée'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCompany(null);
+                  navigate('/select-context');
+                }}
+                className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 transition-colors"
+              >
+                Changer
+              </button>
+            </div>
+          </div>
+        )}
+        {isAgent && sidebarCollapsed && (
+          <div className="mx-auto mt-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setCompany(null);
+                navigate('/select-context');
+              }}
+              className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+              title={selectedCompany?.name || 'Changer d\'entreprise'}
+            >
+              <CompanyIcon className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-4">
