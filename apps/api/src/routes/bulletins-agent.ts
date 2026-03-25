@@ -803,14 +803,10 @@ bulletinsAgent.delete('/:id', async (c) => {
   const db = c.get('tenantDb') ?? c.env.DB;
 
   try {
-    // Admins can delete any bulletin, agents only their own
-    const isAdmin = ['INSURER_ADMIN', 'ADMIN'].includes(user.role);
-    const deleteQuery = isAdmin
-      ? 'SELECT id, status FROM bulletins_soins WHERE id = ?'
-      : 'SELECT id, status FROM bulletins_soins WHERE id = ? AND created_by = ?';
+    // All insurer roles and admins can delete any bulletin in their tenant
     const bulletin = await db
-      .prepare(deleteQuery)
-      .bind(...(isAdmin ? [bulletinId] : [bulletinId, user.id]))
+      .prepare('SELECT id, status FROM bulletins_soins WHERE id = ?')
+      .bind(bulletinId)
       .first();
 
     if (!bulletin) {
@@ -1778,14 +1774,10 @@ bulletinsAgent.post('/:id/validate', async (c) => {
   const { reimbursed_amount, notes } = parsed.data;
 
   try {
-    // Fetch bulletin (admins can validate any bulletin, agents only their own)
-    const isAdmin = ['INSURER_ADMIN', 'ADMIN'].includes(user.role);
-    const query = isAdmin
-      ? 'SELECT id, status, adherent_id, reimbursed_amount, bulletin_number, care_type, bulletin_date FROM bulletins_soins WHERE id = ?'
-      : 'SELECT id, status, adherent_id, reimbursed_amount, bulletin_number, care_type, bulletin_date FROM bulletins_soins WHERE id = ? AND created_by = ?';
+    // Fetch bulletin — all insurer roles and admins can validate any bulletin in their tenant
     const bulletin = await db
-      .prepare(query)
-      .bind(...(isAdmin ? [bulletinId] : [bulletinId, user.id]))
+      .prepare('SELECT id, status, adherent_id, reimbursed_amount, bulletin_number, care_type, bulletin_date FROM bulletins_soins WHERE id = ?')
+      .bind(bulletinId)
       .first<{
         id: string;
         status: string;
@@ -2014,14 +2006,10 @@ bulletinsAgent.post('/:id/reject', async (c) => {
   }
 
   try {
-    // Admins can reject any bulletin, agents only their own
-    const isAdmin = ['INSURER_ADMIN', 'ADMIN'].includes(user.role);
-    const rejectQuery = isAdmin
-      ? 'SELECT id, status FROM bulletins_soins WHERE id = ?'
-      : 'SELECT id, status FROM bulletins_soins WHERE id = ? AND created_by = ?';
+    // All insurer roles and admins can reject any bulletin in their tenant
     const bulletin = await db
-      .prepare(rejectQuery)
-      .bind(...(isAdmin ? [bulletinId] : [bulletinId, user.id]))
+      .prepare('SELECT id, status FROM bulletins_soins WHERE id = ?')
+      .bind(bulletinId)
       .first<{ id: string; status: string }>();
 
     if (!bulletin) {
