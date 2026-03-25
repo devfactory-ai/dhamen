@@ -21,6 +21,7 @@ interface UpdateUserData {
   phone?: string;
   role?: string;
   isActive?: boolean;
+  mfaEnabled?: boolean;
 }
 
 export function useUsers(page = 1, limit = 20) {

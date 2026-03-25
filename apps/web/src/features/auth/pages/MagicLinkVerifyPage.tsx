@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { apiClient } from '@/lib/api-client';
 import { setTokens, setUser } from '@/lib/auth';
+import { setTenant, type TenantCode } from '@/lib/tenant';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { Shield, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 
@@ -11,11 +12,17 @@ export function MagicLinkVerifyPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
+  const tenantParam = searchParams.get('tenant');
   const [state, setState] = useState<VerifyState>('loading');
   const [errorMessage, setErrorMessage] = useState('');
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
+    // Set tenant from URL param before verifying (so API client sends correct X-Tenant-Code)
+    if (tenantParam) {
+      setTenant(tenantParam.toUpperCase() as TenantCode);
+    }
+
     if (!token) {
       setState('error');
       setErrorMessage('Lien de connexion invalide. Aucun token fourni.');

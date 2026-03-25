@@ -1025,9 +1025,10 @@ auth.post('/magic-link/send', zValidator('json', magicLinkSendSchema, validation
     // Store token in KV to ensure single use
     await c.env.CACHE.put(`magic_link:${user.id}`, magicToken, { expirationTtl: 900 });
 
-    // Build magic link URL
+    // Build magic link URL (include tenant code so verify page can set it)
     const baseUrl = c.env.WEB_BASE_URL || c.req.header('Origin') || 'https://dhamen-web-dev.pages.dev';
-    const loginUrl = `${baseUrl}/auth/magic-link/verify?token=${magicToken}`;
+    const tenantCode = c.req.header('X-Tenant-Code') || '';
+    const loginUrl = `${baseUrl}/auth/magic-link/verify?token=${magicToken}${tenantCode ? `&tenant=${tenantCode}` : ''}`;
 
     const notifService = new NotificationService({
       DB: getDb(c),

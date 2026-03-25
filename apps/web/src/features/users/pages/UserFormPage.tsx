@@ -28,6 +28,7 @@ const userFormSchema = z.object({
   phone: z.string().optional(),
   role: z.string(),
   isActive: z.boolean().optional(),
+  mfaEnabled: z.boolean().optional(),
 });
 
 type UserFormData = z.infer<typeof userFormSchema>;
@@ -71,12 +72,14 @@ export function UserFormPage() {
         phone: user.phone || '',
         role: user.role,
         isActive: user.isActive,
+        mfaEnabled: user.mfaEnabled,
       });
     }
   }, [user, reset]);
 
   const selectedRole = watch('role');
   const isActive = watch('isActive');
+  const mfaEnabled = watch('mfaEnabled');
 
   const onSubmit = async (data: UserFormData) => {
     try {
@@ -215,6 +218,22 @@ export function UserFormPage() {
                 <Switch
                   checked={isActive}
                   onCheckedChange={(checked) => setValue('isActive', checked)}
+                />
+              </div>
+            )}
+
+            {/* MFA - only for editing */}
+            {isEditing && (
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div className="space-y-0.5">
+                  <Label>Double authentification (MFA)</Label>
+                  <p className="text-muted-foreground text-sm">
+                    Exiger un code de vérification par email à chaque connexion
+                  </p>
+                </div>
+                <Switch
+                  checked={mfaEnabled}
+                  onCheckedChange={(checked) => setValue('mfaEnabled', checked)}
                 />
               </div>
             )}

@@ -1773,12 +1773,14 @@ bulletinsAgent.post('/:id/validate', async (c) => {
   const { reimbursed_amount, notes } = parsed.data;
 
   try {
-    // Fetch bulletin and verify ownership
+    // Fetch bulletin (admins can validate any bulletin, agents only their own)
+    const isAdmin = ['INSURER_ADMIN', 'ADMIN'].includes(user.role);
+    const query = isAdmin
+      ? 'SELECT id, status, adherent_id, reimbursed_amount, bulletin_number, care_type, bulletin_date FROM bulletins_soins WHERE id = ?'
+      : 'SELECT id, status, adherent_id, reimbursed_amount, bulletin_number, care_type, bulletin_date FROM bulletins_soins WHERE id = ? AND created_by = ?';
     const bulletin = await db
-      .prepare(
-        'SELECT id, status, adherent_id, reimbursed_amount, bulletin_number, care_type, bulletin_date FROM bulletins_soins WHERE id = ? AND created_by = ?'
-      )
-      .bind(bulletinId, user.id)
+      .prepare(query)
+      .bind(...(isAdmin ? [bulletinId] : [bulletinId, user.id]))
       .first<{
         id: string;
         status: string;
