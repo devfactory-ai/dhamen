@@ -1971,10 +1971,11 @@ bulletinsAgent.post('/:id/validate', async (c) => {
     return c.json({ success: true, data: response });
   } catch (error) {
     console.error('Error validating bulletin:', error);
+    const errMsg = error instanceof Error ? error.message : String(error);
     return c.json(
       {
         success: false,
-        error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la validation' },
+        error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la validation', details: errMsg },
       },
       500
     );
@@ -2050,8 +2051,9 @@ bulletinsAgent.post('/:id/reject', async (c) => {
     });
   } catch (error) {
     console.error('Error rejecting bulletin:', error);
+    const errMsg = error instanceof Error ? error.message : String(error);
     return c.json(
-      { success: false, error: { code: 'DATABASE_ERROR', message: 'Erreur lors du rejet' } },
+      { success: false, error: { code: 'DATABASE_ERROR', message: 'Erreur lors du rejet', details: errMsg } },
       500
     );
   }
