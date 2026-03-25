@@ -5,7 +5,7 @@ export const roleSchema = z.enum(ROLES);
 
 /**
  * Password complexity requirements:
- * - Minimum 12 characters
+ * - Minimum 8 characters
  * - At least one uppercase letter
  * - At least one lowercase letter
  * - At least one number
@@ -13,7 +13,7 @@ export const roleSchema = z.enum(ROLES);
  */
 export const passwordSchema = z
   .string()
-  .min(12, 'Le mot de passe doit contenir au moins 12 caracteres')
+  .min(8, 'Le mot de passe doit contenir au moins 8 caracteres')
   .regex(/[A-Z]/, 'Le mot de passe doit contenir au moins une majuscule')
   .regex(/[a-z]/, 'Le mot de passe doit contenir au moins une minuscule')
   .regex(/[0-9]/, 'Le mot de passe doit contenir au moins un chiffre')

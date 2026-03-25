@@ -9,7 +9,7 @@ import {
   userUpdateSchema,
 } from './user';
 
-// Strong password that meets all requirements: 12+ chars, uppercase, lowercase, number, special char
+// Strong password that meets all requirements: 8+ chars, uppercase, lowercase, number, special char
 const VALID_PASSWORD = 'SecureP@ss123!';
 
 describe('User Schemas', () => {
@@ -19,7 +19,7 @@ describe('User Schemas', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should reject passwords shorter than 12 characters', () => {
+    it('should reject passwords shorter than 8 characters', () => {
       const result = passwordSchema.safeParse('Short1@');
       expect(result.success).toBe(false);
     });
