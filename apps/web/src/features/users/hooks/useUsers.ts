@@ -78,7 +78,7 @@ export function useUpdateUser() {
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: UpdateUserData }) => {
-      const response = await apiClient.put<UserPublic>(`/users/${id}`, data);
+      const response = await apiClient.patch<UserPublic>(`/users/${id}`, data);
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors de la mise à jour de l\'utilisateur');
       }

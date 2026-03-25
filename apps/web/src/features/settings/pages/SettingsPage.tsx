@@ -19,6 +19,8 @@ export function SettingsPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [mfaStep, setMfaStep] = useState<'idle' | 'code_sent' | 'verifying'>('idle');
+  const [mfaCode, setMfaCode] = useState('');
 
   const queryClient = useQueryClient();
 
@@ -93,9 +95,41 @@ export function SettingsPage() {
     },
   });
 
+  const mfaEnableSendMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.post('/auth/mfa/email/enable');
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: () => {
+      setMfaStep('code_sent');
+      toast.success('Code de vérification envoyé par email');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors de l\'envoi du code');
+    },
+  });
+
+  const mfaEnableVerifyMutation = useMutation({
+    mutationFn: async (code: string) => {
+      const response = await apiClient.post('/auth/mfa/email/enable/verify', { otpCode: code });
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: () => {
+      fetchCurrentUser();
+      setMfaStep('idle');
+      setMfaCode('');
+      toast.success('Authentification à deux facteurs activée');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Code invalide');
+    },
+  });
+
   const mfaDisableMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiClient.post('/auth/mfa/disable');
+      const response = await apiClient.post('/auth/mfa/email/disable');
       if (!response.success) throw new Error(response.error?.message);
       return response.data;
     },
@@ -112,7 +146,7 @@ export function SettingsPage() {
     if (user?.mfaEnabled) {
       mfaDisableMutation.mutate();
     } else {
-      navigate('/settings/mfa');
+      mfaEnableSendMutation.mutate();
     }
   };
 
@@ -291,26 +325,78 @@ export function SettingsPage() {
               </div>
 
               {/* MFA row */}
-              <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-4">
-                <ShieldCheck className="h-5 w-5 text-gray-400" />
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-gray-900">Authentification à deux facteurs</p>
-                  <p className="text-xs text-gray-500">Sécurisez davantage votre compte</p>
+              <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-4 space-y-3">
+                <div className="flex items-center gap-3">
+                  <ShieldCheck className="h-5 w-5 text-gray-400" />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-gray-900">Authentification à deux facteurs</p>
+                    <p className="text-xs text-gray-500">
+                      {user?.mfaEnabled
+                        ? 'Un code de vérification par email est exigé à chaque connexion'
+                        : 'Sécurisez davantage votre compte avec un code par email'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleMfaToggle}
+                    disabled={mfaDisableMutation.isPending || mfaEnableSendMutation.isPending || mfaStep === 'code_sent'}
+                    className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                      user?.mfaEnabled ? 'bg-blue-600' : 'bg-gray-300'
+                    } ${(mfaDisableMutation.isPending || mfaEnableSendMutation.isPending) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        user?.mfaEnabled ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleMfaToggle}
-                  disabled={mfaDisableMutation.isPending}
-                  className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                    user?.mfaEnabled ? 'bg-blue-600' : 'bg-gray-300'
-                  } ${mfaDisableMutation.isPending ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                      user?.mfaEnabled ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
+
+                {/* Inline MFA email verification */}
+                {mfaStep === 'code_sent' && (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-2">
+                    <p className="text-sm text-blue-800">
+                      Un code à 6 chiffres a été envoyé à <strong>{user?.email}</strong>
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={6}
+                        placeholder="000000"
+                        value={mfaCode}
+                        onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                        className="text-center text-lg tracking-widest max-w-[160px] bg-white"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => mfaEnableVerifyMutation.mutate(mfaCode)}
+                        disabled={mfaCode.length !== 6 || mfaEnableVerifyMutation.isPending}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {mfaEnableVerifyMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                        Vérifier
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setMfaStep('idle'); setMfaCode(''); }}
+                        className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => mfaEnableSendMutation.mutate()}
+                      disabled={mfaEnableSendMutation.isPending}
+                      className="text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                    >
+                      Renvoyer le code
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Sessions row */}

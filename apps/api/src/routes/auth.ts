@@ -91,9 +91,8 @@ auth.post('/login', zValidator('json', loginRequestSchema, validationHook), asyn
     return error(c, 'INVALID_CREDENTIALS', 'Email ou mot de passe incorrect', 401);
   }
 
-  // Check if MFA is required for this role or already enabled
-  const mfaRequired = roleRequiresMFA(user.role);
-  if (mfaRequired || (user.mfaEnabled && user.mfaSecret)) {
+  // Check if user has MFA enabled (activated by admin or by user in their profile)
+  if (user.mfaEnabled) {
     const mfaToken = await signJWT(
       { id: user.id, sub: user.id, email: user.email, role: user.role, purpose: 'mfa_verify' },
       c.env.JWT_SECRET,
@@ -102,7 +101,7 @@ auth.post('/login', zValidator('json', loginRequestSchema, validationHook), asyn
 
     // Determine available MFA methods
     const mfaMethods: string[] = ['email'];
-    if (user.mfaEnabled && user.mfaSecret) {
+    if (user.mfaSecret) {
       mfaMethods.push('totp');
     }
 
@@ -506,11 +505,6 @@ auth.post('/mfa/disable', authMiddleware(), zValidator('json', mfaSetupSchema), 
     return error(c, 'INVALID_OTP', 'Code OTP invalide', 401);
   }
 
-  // Check if MFA is required for this role
-  if (roleRequiresMFA(user.role)) {
-    return error(c, 'MFA_REQUIRED', 'MFA est obligatoire pour votre role', 403);
-  }
-
   // Disable MFA
   await updateUser(getDb(c), user.id, {
     mfaEnabled: false,
@@ -905,6 +899,140 @@ auth.post('/mfa/email/verify', zValidator('json', mfaEmailVerifySchema, validati
     tenantCode,
     tokens: { accessToken, refreshToken },
   });
+});
+
+/**
+ * POST /api/v1/auth/mfa/email/enable
+ * Send a verification code to enable email-based MFA from user settings
+ */
+auth.post('/mfa/email/enable', authMiddleware(), async (c) => {
+  const jwtPayload = c.get('user');
+  if (!jwtPayload) return unauthorized(c);
+
+  const user = await findUserById(getDb(c), jwtPayload.sub);
+  if (!user) return unauthorized(c, 'Utilisateur non trouve');
+
+  if (user.mfaEnabled) {
+    return error(c, 'MFA_ALREADY_ENABLED', 'MFA deja active sur ce compte', 400);
+  }
+
+  // Rate limit: max 3 sends per 5 min
+  const countKey = `mfa_enable_count:${user.id}`;
+  const currentCount = Number.parseInt(await c.env.CACHE.get(countKey) || '0', 10);
+  if (currentCount >= 3) {
+    return error(c, 'MFA_RATE_LIMIT', 'Trop de tentatives. Veuillez reessayer plus tard.', 429);
+  }
+
+  // Generate 6-digit code
+  const array = new Uint32Array(1);
+  crypto.getRandomValues(array);
+  const code = String((array[0] ?? 0) % 1000000).padStart(6, '0');
+
+  // Store code in KV with 5 min TTL
+  await c.env.CACHE.put(`mfa_enable:${user.id}`, code, { expirationTtl: 300 });
+  await c.env.CACHE.put(countKey, String(currentCount + 1), { expirationTtl: 300 });
+
+  // Send email
+  const notifService = new NotificationService({
+    DB: getDb(c),
+    CACHE: c.env.CACHE,
+    RESEND_API_KEY: c.env.RESEND_API_KEY,
+  });
+
+  await notifService.sendMfaCode(user.email, code, user.firstName || 'Utilisateur');
+
+  await logAudit(getDb(c), {
+    userId: user.id,
+    action: 'auth.mfa_email_enable_requested',
+    entityType: 'user',
+    entityId: user.id,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, { sent: true, expiresIn: 300 });
+});
+
+/**
+ * POST /api/v1/auth/mfa/email/enable/verify
+ * Verify code and enable email-based MFA on user account
+ */
+auth.post('/mfa/email/enable/verify', authMiddleware(), zValidator('json', mfaSetupSchema), async (c) => {
+  const jwtPayload = c.get('user');
+  const { otpCode } = c.req.valid('json');
+  if (!jwtPayload) return unauthorized(c);
+
+  const user = await findUserById(getDb(c), jwtPayload.sub);
+  if (!user) return unauthorized(c, 'Utilisateur non trouve');
+
+  // Get stored code
+  const storedCode = await c.env.CACHE.get(`mfa_enable:${user.id}`);
+  if (!storedCode) {
+    return error(c, 'MFA_CODE_EXPIRED', 'Code expire. Veuillez renvoyer un nouveau code.', 400);
+  }
+
+  // Constant-time comparison
+  const encoder = new TextEncoder();
+  const a = encoder.encode(otpCode);
+  const b = encoder.encode(storedCode);
+  let diff = 0;
+  if (a.length !== b.length) {
+    return error(c, 'INVALID_OTP', 'Code invalide', 401);
+  }
+  for (let i = 0; i < a.length; i++) {
+    diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  }
+  if (diff !== 0) {
+    return error(c, 'INVALID_OTP', 'Code invalide', 401);
+  }
+
+  // Enable MFA
+  await updateUser(getDb(c), user.id, { mfaEnabled: true });
+
+  // Cleanup
+  await c.env.CACHE.delete(`mfa_enable:${user.id}`);
+  await c.env.CACHE.delete(`mfa_enable_count:${user.id}`);
+
+  await logAudit(getDb(c), {
+    userId: user.id,
+    action: 'auth.mfa_email_enabled',
+    entityType: 'user',
+    entityId: user.id,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, { enabled: true, message: 'MFA par email active avec succes' });
+});
+
+/**
+ * POST /api/v1/auth/mfa/email/disable
+ * Disable email-based MFA (no OTP required, user is already authenticated)
+ */
+auth.post('/mfa/email/disable', authMiddleware(), async (c) => {
+  const jwtPayload = c.get('user');
+  if (!jwtPayload) return unauthorized(c);
+
+  const user = await findUserById(getDb(c), jwtPayload.sub);
+  if (!user) return unauthorized(c, 'Utilisateur non trouve');
+
+  if (!user.mfaEnabled) {
+    return error(c, 'MFA_NOT_ENABLED', 'MFA non active sur ce compte', 400);
+  }
+
+  await updateUser(getDb(c), user.id, { mfaEnabled: false, mfaSecret: undefined });
+  await c.env.CACHE.delete(`mfa_backup:${user.id}`);
+
+  await logAudit(getDb(c), {
+    userId: user.id,
+    action: 'auth.mfa_disabled',
+    entityType: 'user',
+    entityId: user.id,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, { disabled: true, message: 'MFA desactive' });
 });
 
 /**

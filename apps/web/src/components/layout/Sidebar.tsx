@@ -355,11 +355,11 @@ export function Sidebar() {
                                 <NavLink
                                   key={child.href}
                                   to={child.href}
-                                  end={false}
-                                  className={() =>
+                                  end
+                                  className={({ isActive }) =>
                                     cn(
                                       'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200',
-                                      location.pathname === child.href || location.pathname.startsWith(child.href + '/')
+                                      isActive
                                         ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
                                         : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
                                     )

@@ -260,7 +260,7 @@ export class NotificationService {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'Dhamen <onboarding@resend.dev>',
+        from: 'Dhamen <noreply@tnc.trading>',
         to: [params.to],
         subject: params.subject,
         text: params.body,

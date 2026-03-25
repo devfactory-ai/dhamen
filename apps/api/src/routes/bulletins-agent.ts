@@ -803,9 +803,14 @@ bulletinsAgent.delete('/:id', async (c) => {
   const db = c.get('tenantDb') ?? c.env.DB;
 
   try {
+    // Admins can delete any bulletin, agents only their own
+    const isAdmin = ['INSURER_ADMIN', 'ADMIN'].includes(user.role);
+    const deleteQuery = isAdmin
+      ? 'SELECT id, status FROM bulletins_soins WHERE id = ?'
+      : 'SELECT id, status FROM bulletins_soins WHERE id = ? AND created_by = ?';
     const bulletin = await db
-      .prepare('SELECT id, status FROM bulletins_soins WHERE id = ? AND created_by = ?')
-      .bind(bulletinId, user.id)
+      .prepare(deleteQuery)
+      .bind(...(isAdmin ? [bulletinId] : [bulletinId, user.id]))
       .first();
 
     if (!bulletin) {
@@ -2009,9 +2014,14 @@ bulletinsAgent.post('/:id/reject', async (c) => {
   }
 
   try {
+    // Admins can reject any bulletin, agents only their own
+    const isAdmin = ['INSURER_ADMIN', 'ADMIN'].includes(user.role);
+    const rejectQuery = isAdmin
+      ? 'SELECT id, status FROM bulletins_soins WHERE id = ?'
+      : 'SELECT id, status FROM bulletins_soins WHERE id = ? AND created_by = ?';
     const bulletin = await db
-      .prepare('SELECT id, status FROM bulletins_soins WHERE id = ? AND created_by = ?')
-      .bind(bulletinId, user.id)
+      .prepare(rejectQuery)
+      .bind(...(isAdmin ? [bulletinId] : [bulletinId, user.id]))
       .first<{ id: string; status: string }>();
 
     if (!bulletin) {
