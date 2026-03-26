@@ -426,7 +426,7 @@ function BulletinsArchivePage() {
                       <Upload className="h-10 w-10 mx-auto text-muted-foreground" />
                       <p>Cliquez ou glissez un fichier CSV</p>
                       <p className="text-sm text-muted-foreground">
-                        Format: Numero Bulletin; Date Bulletin; Matricule Adherent; ...
+                        Format: Numéro Bulletin; Date Bulletin; Matricule Adhérent; ...
                       </p>
                     </div>
                   )}
@@ -470,10 +470,10 @@ function BulletinsArchivePage() {
                   Colonnes séparées par point-virgule (;):
                 </p>
                 <ul className="text-sm text-blue-700 list-disc list-inside space-y-1">
-                  <li>Numero Bulletin</li>
+                  <li>Numéro Bulletin</li>
                   <li>Date Bulletin</li>
-                  <li>Matricule Adherent</li>
-                  <li>Nom Adherent, Prenom Adherent</li>
+                  <li>Matricule Adhérent</li>
+                  <li>Nom Adhérent, Prénom Adhérent</li>
                   <li>CIN</li>
                   <li>Beneficiaire, Lien Parente</li>
                   <li>Nom Praticien, Specialite</li>

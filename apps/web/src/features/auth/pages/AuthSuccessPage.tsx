@@ -53,7 +53,7 @@ export function AuthSuccessPage() {
           {/* Logo */}
           <div className="flex items-center justify-center gap-2 mb-6">
             <Shield className="h-5 w-5 text-blue-600" />
-            <span className="font-bold text-gray-900 tracking-wide">DHAMEN</span>
+            <span className="font-bold text-gray-900 tracking-wide">E-SANTE</span>
           </div>
 
           {/* Checkmark */}
@@ -88,9 +88,9 @@ export function AuthSuccessPage() {
       <footer className="border-t border-gray-200 bg-white py-4 px-6">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="text-xs text-gray-400">
-            <span className="font-semibold text-gray-600">Dhamen</span>
+            <span className="font-semibold text-gray-600">E-Santé</span>
             <span className="mx-2">|</span>
-            © {new Date().getFullYear()} Dhamen. All rights reserved. Registered Insurance Manager.
+            © {new Date().getFullYear()} E-Santé. All rights reserved. Registered Insurance Manager.
           </div>
           <div className="flex items-center gap-4 text-[10px] text-gray-400 uppercase tracking-wider">
             <span>Politique de confidentialité</span>

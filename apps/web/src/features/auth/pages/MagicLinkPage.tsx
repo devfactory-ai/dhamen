@@ -126,9 +126,9 @@ export function MagicLinkPage() {
       <footer className="border-t border-gray-200 bg-white py-4 px-6">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="text-xs text-gray-400">
-            <span className="font-semibold text-gray-600">Dhamen</span>
+            <span className="font-semibold text-gray-600">E-Santé</span>
             <span className="mx-2">|</span>
-            &copy; {new Date().getFullYear()} Dhamen. All rights reserved.
+            &copy; {new Date().getFullYear()} E-Santé. All rights reserved.
           </div>
           <div className="flex items-center gap-4 text-[10px] text-gray-400 uppercase tracking-wider">
             <span>Politique de confidentialité</span>

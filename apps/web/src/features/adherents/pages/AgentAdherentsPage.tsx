@@ -272,7 +272,7 @@ export function AgentAdherentsPage() {
   return (
     <div className="space-y-6">
       {/* Header: title + buttons */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
             Liste des Adhérents
@@ -324,11 +324,11 @@ export function AgentAdherentsPage() {
       </div>
 
       {/* Filters bar + Total card — same height via stretch */}
-      <div className="flex items-stretch gap-4">
+      <div className="flex flex-col md:flex-row items-stretch gap-4">
         {/* Filters */}
         <div className="flex flex-1 items-center gap-2 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
           {/* Search */}
-          <div className="relative flex-1 min-w-[280px]">
+          <div className="relative flex-1 min-w-0">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
               <svg
                 className="w-[18px] h-[18px] text-gray-400"
@@ -437,7 +437,7 @@ export function AgentAdherentsPage() {
         </div>
 
         {/* Total card — dark with red accent */}
-        <div className="flex items-center gap-4 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 px-6 text-white min-w-[210px] shadow-sm">
+        <div className="flex items-center gap-4 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 px-6 text-white shadow-sm">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-white">
               Total Adhérents

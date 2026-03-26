@@ -162,7 +162,7 @@ export function CompanyFormPage() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="code">Code societe</Label>
+                <Label htmlFor="code">Code société</Label>
                 <Input id="code" {...register('code')} placeholder="Ex: BIAT, TT" />
               </div>
               <div className="space-y-2 sm:col-span-2">
@@ -178,7 +178,7 @@ export function CompanyFormPage() {
                 <Input id="matriculeFiscal" {...register('matriculeFiscal')} placeholder="Ex: 123456ABC" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="contractNumber">Numero de contrat</Label>
+                <Label htmlFor="contractNumber">Numéro de contrat</Label>
                 <Input id="contractNumber" {...register('contractNumber')} placeholder="Ex: CTR-2024-001" />
               </div>
               <div className="space-y-2">
@@ -195,7 +195,7 @@ export function CompanyFormPage() {
                   onValueChange={(val) => setValue('sector', val)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selectionner un secteur" />
+                    <SelectValue placeholder="Sélectionner un secteur" />
                   </SelectTrigger>
                   <SelectContent>
                     {Object.entries(SECTORS).map(([key, label]) => (

@@ -9,7 +9,7 @@
 
 const TENANT_KEY = 'currentTenant';
 
-export type TenantCode = 'STAR' | 'GAT' | 'COMAR' | 'AMI' | 'PLATFORM';
+export type TenantCode = 'BH' | 'PLATFORM';
 
 export interface TenantConfig {
   code: TenantCode;
@@ -20,33 +20,15 @@ export interface TenantConfig {
 }
 
 export const TENANTS: Record<TenantCode, TenantConfig> = {
-  STAR: {
-    code: 'STAR',
-    name: 'STAR Assurances',
-    subdomain: 'star',
+  BH: {
+    code: 'BH',
+    name: 'BH Assurance',
+    subdomain: 'bh',
     primaryColor: '#0066CC',
-  },
-  GAT: {
-    code: 'GAT',
-    name: 'GAT Assurances',
-    subdomain: 'gat',
-    primaryColor: '#00A651',
-  },
-  COMAR: {
-    code: 'COMAR',
-    name: 'COMAR Assurances',
-    subdomain: 'comar',
-    primaryColor: '#E31837',
-  },
-  AMI: {
-    code: 'AMI',
-    name: 'AMI Assurances',
-    subdomain: 'ami',
-    primaryColor: '#FFA500',
   },
   PLATFORM: {
     code: 'PLATFORM',
-    name: 'Dhamen Platform',
+    name: 'E-Santé Platform',
     subdomain: 'admin',
     primaryColor: '#6366F1',
   },

@@ -15,12 +15,12 @@ const docs = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 const openApiSpec = {
   openapi: '3.0.3',
   info: {
-    title: 'Dhamen API',
+    title: 'E-Santé API',
     description: 'Plateforme IA-native de tiers payant santé pour la Tunisie',
     version: '1.0.0',
     contact: {
-      name: 'Dhamen Support',
-      email: 'support@dhamen.tn',
+      name: 'E-Santé Support',
+      email: 'support@e-sante.tn',
       url: 'https://dhamen.tn',
     },
     license: {
@@ -891,7 +891,7 @@ docs.get('/', (c) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dhamen API Documentation</title>
+  <title>E-Santé API Documentation</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.10.3/swagger-ui.css" />
   <style>
     body { margin: 0; padding: 0; }
@@ -935,7 +935,7 @@ docs.get('/redoc', (c) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dhamen API Documentation - ReDoc</title>
+  <title>E-Santé API Documentation - ReDoc</title>
   <link href="https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700" rel="stylesheet">
   <style>body { margin: 0; padding: 0; }</style>
 </head>

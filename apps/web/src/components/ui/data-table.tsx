@@ -67,7 +67,7 @@ export function DataTable<T extends { id: string }>({
 
   return (
     <div className={`space-y-4 ${className ?? ''}`}>
-      <div className="rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+      <div className="rounded-xl border border-gray-200 bg-white overflow-x-auto shadow-sm">
         <Table>
           <TableHeader>
             <TableRow className="bg-gray-50/80 hover:bg-gray-50/80">

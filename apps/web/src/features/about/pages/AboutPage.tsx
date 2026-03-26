@@ -13,7 +13,7 @@ const roleGuides: Record<string, RoleGuide> = {
   ADMIN: {
     title: "Administrateur plateforme",
     description:
-      "Vous avez un acces complet a la plateforme Dhamen. Vous gerez les utilisateurs, les prestataires, les assureurs et supervisez l'ensemble des operations.",
+      "Vous avez un acces complet a la plateforme E-Santé. Vous gerez les utilisateurs, les prestataires, les assureurs et supervisez l'ensemble des operations.",
     features: [
       "Gestion des utilisateurs et des roles",
       "Configuration des prestataires et assureurs",
@@ -26,7 +26,7 @@ const roleGuides: Record<string, RoleGuide> = {
   INSURER_ADMIN: {
     title: "Administrateur assureur",
     description:
-      "Vous gerez les operations de votre compagnie d'assurance sur Dhamen : adherents, contrats, bulletins de soins et remboursements.",
+      "Vous gerez les operations de votre compagnie d'assurance sur E-Santé : adherents, contrats, bulletins de soins et remboursements.",
     features: [
       "Gestion des adherents et ayants droit",
       "Saisie et validation des bulletins de soins",
@@ -93,7 +93,7 @@ const roleGuides: Record<string, RoleGuide> = {
     ],
   },
   ADHERENT: {
-    title: "Adherent",
+    title: "Adhérent",
     description:
       "Vous consultez votre contrat d'assurance, suivez vos remboursements et gerez vos informations personnelles.",
     features: [
@@ -121,7 +121,7 @@ const roleGuides: Record<string, RoleGuide> = {
 
 const defaultGuide: RoleGuide = {
   title: "Utilisateur",
-  description: "Bienvenue sur la plateforme Dhamen.",
+  description: "Bienvenue sur la plateforme E-Santé.",
   features: ["Tableau de bord", "Rapports"],
 };
 
@@ -132,7 +132,7 @@ export function AboutPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="A propos de Dhamen"
+        title="A propos de E-Santé"
         description="Plateforme de tiers payant sante pour la Tunisie"
       />
 
@@ -140,12 +140,12 @@ export function AboutPage() {
         {/* Presentation */}
         <Card>
           <CardHeader>
-            <CardTitle>Qu'est-ce que Dhamen ?</CardTitle>
+            <CardTitle>Qu'est-ce que E-Santé ?</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <p>
               <strong className="text-foreground">
-                Dhamen (&#1590;&#1575;&#1605;&#1606;)
+                E-Santé
               </strong>{" "}
               est une plateforme digitale de gestion du tiers payant sante en
               Tunisie. Elle connecte les assureurs, les prestataires de sante et
@@ -195,7 +195,7 @@ export function AboutPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {[
                 {
-                  term: "Adherent",
+                  term: "Adhérent",
                   def: "Personne couverte par un contrat d'assurance sante",
                 },
                 {
@@ -224,7 +224,7 @@ export function AboutPage() {
                 },
                 {
                   term: "Matricule",
-                  def: "Identifiant unique de l'adherent dans le systeme",
+                  def: "Identifiant unique de l'adherent dans le système",
                 },
                 {
                   term: "Plafond",
@@ -242,7 +242,7 @@ export function AboutPage() {
       </div>
 
       <div className="text-center text-xs text-muted-foreground pt-4">
-        Dhamen v1.0 — Plateforme de tiers payant sante
+        E-Santé v1.0 — Plateforme de tiers payant sante
       </div>
     </div>
   );

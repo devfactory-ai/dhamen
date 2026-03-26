@@ -150,7 +150,7 @@ export default function BulletinsHistoryPage() {
   const columns = [
     {
       key: 'bulletinNumber',
-      header: 'Numero',
+      header: 'Numéro',
       render: (row: HistoryBulletin) => (
         <span className="font-mono text-sm">{row.bulletinNumber}</span>
       ),
@@ -164,7 +164,7 @@ export default function BulletinsHistoryPage() {
     },
     {
       key: 'adherent',
-      header: 'Adherent',
+      header: 'Adhérent',
       render: (row: HistoryBulletin) => (
         <div>
           <p className="text-sm font-medium">{row.adherentFirstName} {row.adherentLastName}</p>

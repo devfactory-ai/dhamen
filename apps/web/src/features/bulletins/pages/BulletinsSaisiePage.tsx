@@ -192,7 +192,7 @@ type BulletinFormData = z.infer<typeof bulletinFormSchema>;
 
 // Map OCR nature_acte to referentiel codes (C1, C2, PH1, etc.)
 const NATURE_ACTE_MAPPINGS: { keywords: string[]; code: string; label: string }[] = [
-  { keywords: ['generaliste', 'medecin general', 'medecin de famille'], code: 'C1', label: 'Consultation généraliste' },
+  { keywords: ['generaliste', 'médecin général', 'médecin de famille'], code: 'C1', label: 'Consultation généraliste' },
   { keywords: ['specialiste', 'psychiatr', 'cardiologue', 'dermatologue', 'gynecologue', 'gyneco', 'orl', 'pneumologue', 'gastro', 'neurologue', 'urologue', 'endocrinologue', 'ophtalmologue', 'rhumatologue', 'nephrologue', 'oncologue', 'allergologue'], code: 'C2', label: 'Consultation spécialiste' },
   { keywords: ['professeur', 'prof '], code: 'C3', label: 'Consultation professeur' },
   { keywords: ['pharmacie', 'medicament', 'pharmaceut'], code: 'PH1', label: 'Frais pharmaceutiques' },
@@ -1656,7 +1656,7 @@ export function BulletinsSaisiePage() {
                                   }}
                                 >
                                   <SelectTrigger className="rounded-xl">
-                                    <SelectValue placeholder="Selectionner un medicament" />
+                                    <SelectValue placeholder="Sélectionner un médicament" />
                                   </SelectTrigger>
                                   <SelectContent className="max-h-80 overflow-y-auto" position="popper" sideOffset={4}>
                                     {(medications || []).map((med) => (

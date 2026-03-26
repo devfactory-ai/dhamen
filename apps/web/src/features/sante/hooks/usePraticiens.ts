@@ -161,7 +161,7 @@ export const CONVENTIONNEMENT_COLORS: Record<string, string> = {
 };
 
 export const SPECIALITES_COMMON = [
-  'Medecine generale',
+  'Médecine générale',
   'Cardiologie',
   'Dermatologie',
   'Gynecologie',

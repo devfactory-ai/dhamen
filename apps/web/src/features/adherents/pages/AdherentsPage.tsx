@@ -172,12 +172,12 @@ export function AdherentsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <PageHeader
           title="Adhérents"
           description="Gérer les adhérents et leurs ayants droit"
         />
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
             <Download className="mr-2 h-4 w-4" />
             {isExporting ? 'Export...' : 'Exporter'}

@@ -260,7 +260,7 @@ export class NotificationService {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'Dhamen <noreply@tnc.trading>',
+        from: 'E-Santé <noreply@tnc.trading>',
         to: [params.to],
         subject: params.subject,
         text: params.body,
@@ -283,7 +283,7 @@ export class NotificationService {
       },
       body: JSON.stringify({
         personalizations: [{ to: [{ email: params.to }] }],
-        from: { email: 'noreply@dhamen.tn', name: 'Dhamen' },
+        from: { email: 'noreply@e-sante.tn', name: 'E-Santé' },
         subject: params.subject,
         content: [
           { type: 'text/plain', value: params.body },
@@ -337,8 +337,8 @@ export class NotificationService {
     const html = renderMfaCodeEmail(code, userName);
     await this.sendEmail({
       to,
-      subject: 'Dhamen — Code de vérification',
-      body: `Votre code de vérification Dhamen : ${code}. Ce code expire dans 5 minutes.`,
+      subject: 'E-Santé — Code de vérification',
+      body: `Votre code de vérification E-Santé : ${code}. Ce code expire dans 5 minutes.`,
       html,
     });
   }
@@ -351,8 +351,8 @@ export class NotificationService {
     const html = renderMagicLinkEmail(loginUrl, userName);
     await this.sendEmail({
       to,
-      subject: 'Dhamen — Connexion par lien magique',
-      body: `Connectez-vous à Dhamen : ${loginUrl}. Ce lien expire dans 15 minutes.`,
+      subject: 'E-Santé — Connexion par lien magique',
+      body: `Connectez-vous à E-Santé : ${loginUrl}. Ce lien expire dans 15 minutes.`,
       html,
     });
   }
@@ -365,7 +365,7 @@ export class NotificationService {
     const html = renderPasswordResetEmail(resetUrl, userName);
     await this.sendEmail({
       to,
-      subject: 'Dhamen — Réinitialisation du mot de passe',
+      subject: 'E-Santé — Réinitialisation du mot de passe',
       body: `Réinitialisez votre mot de passe : ${resetUrl}. Ce lien expire dans 30 minutes.`,
       html,
     });

@@ -191,11 +191,11 @@ export function GroupContractDetailPage() {
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
-              <p className="text-sm text-muted-foreground">Numero de contrat</p>
+              <p className="text-sm text-muted-foreground">Numéro de contrat</p>
               <p className="font-medium">{contract.contract_number}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Societe</p>
+              <p className="text-sm text-muted-foreground">Société</p>
               <div className="flex items-center gap-2">
                 <Building2 className="h-4 w-4 text-muted-foreground" />
                 <p className="font-medium">{contract.company_name}</p>

@@ -62,6 +62,13 @@ database_name = "dhamen-ami"
 database_id = "7575cb4b-ae0d-4fd6-9dd3-22b467d434b7"
 migrations_dir = "../../packages/db/migrations"
 
+# BH Assurance tenant database
+[[d1_databases]]
+binding = "DB_BH"
+database_name = "dhamen-bh"
+database_id = "359616bc-cf96-4613-a06c-a784af509abf"
+migrations_dir = "../../packages/db/migrations"
+
 # ============================================
 # KV NAMESPACES
 # ============================================
@@ -156,6 +163,12 @@ database_name = "dhamen-ami"
 database_id = "7575cb4b-ae0d-4fd6-9dd3-22b467d434b7"
 migrations_dir = "../../packages/db/migrations"
 
+[[env.dev.d1_databases]]
+binding = "DB_BH"
+database_name = "dhamen-bh"
+database_id = "359616bc-cf96-4613-a06c-a784af509abf"
+migrations_dir = "../../packages/db/migrations"
+
 # KV
 [[env.dev.kv_namespaces]]
 binding = "CACHE"
@@ -237,6 +250,12 @@ migrations_dir = "../../packages/db/migrations"
 binding = "DB_AMI"
 database_name = "dhamen-staging-ami"
 database_id = "854fd2b8-868d-433b-b17c-c47315ce7f29"
+migrations_dir = "../../packages/db/migrations"
+
+[[env.staging.d1_databases]]
+binding = "DB_BH"
+database_name = "dhamen-staging-star"
+database_id = "9793c5be-adfb-4932-a97a-8e64c5e79f89"
 migrations_dir = "../../packages/db/migrations"
 
 # KV

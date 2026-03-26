@@ -39,6 +39,7 @@ export interface Bindings {
   DB_GAT: D1Database;
   DB_COMAR: D1Database;
   DB_AMI: D1Database;
+  DB_BH: D1Database;
 
   // KV namespaces
   CACHE: KVNamespace;

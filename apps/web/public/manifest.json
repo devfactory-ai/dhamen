@@ -1,6 +1,6 @@
 {
-  "name": "Dhamen - Tiers Payant Santé",
-  "short_name": "Dhamen",
+  "name": "E-Santé - Tiers Payant Santé",
+  "short_name": "E-Santé",
   "description": "Plateforme de gestion du tiers payant santé en Tunisie",
   "start_url": "/",
   "display": "standalone",
@@ -66,7 +66,7 @@
       "sizes": "1280x720",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "Tableau de bord Dhamen"
+      "label": "Tableau de bord E-Santé"
     }
   ],
   "shortcuts": [

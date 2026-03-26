@@ -208,7 +208,7 @@ export function InsurerDashboardPage() {
 
   const demandesColumns: Column<DemandeRecente>[] = [
     { key: 'numeroDemande', header: 'N Demande', sortable: true },
-    { key: 'adherent', header: 'Adherent', sortable: true },
+    { key: 'adherent', header: 'Adhérent', sortable: true },
     {
       key: 'typeSoin',
       header: 'Type',

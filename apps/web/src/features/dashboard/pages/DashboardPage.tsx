@@ -229,7 +229,7 @@ const quickActionsByRoleType: Record<
   ],
   provider: [
     { title: "Nouvelle PEC", icon: ClipboardIcon, href: "/claims" },
-    { title: "Nouvel Adherent", icon: UsersIcon, href: "/adherents/agent/new" },
+    { title: "Nouvel Adhérent", icon: UsersIcon, href: "/adherents/agent/new" },
     {
       title: "Exporter Rapports",
       icon: UploadIcon,
@@ -421,7 +421,7 @@ export function DashboardPage() {
           ))}
         </div>
 
-        {/* Right — Actions rapides + Statut Systeme */}
+        {/* Right — Actions rapides + Statut Système */}
         <div className="flex flex-col gap-5">
           {/* Actions rapides — dark navy */}
           <div className="flex-1 rounded-2xl bg-slate-900 p-4 sm:p-6 text-white">
@@ -456,7 +456,7 @@ export function DashboardPage() {
 
           {/* STATUT SYSTEME */}
           <div className="px-1">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Statut Systeme</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Statut Système</h3>
             <div className="mt-3 space-y-2.5">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-emerald-500" />

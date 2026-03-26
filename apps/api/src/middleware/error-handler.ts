@@ -54,6 +54,11 @@ export const errorHandler: ErrorHandler<{ Bindings: Bindings; Variables: Variabl
     method: c.req.method,
   });
 
-  // Don't expose internal error details in production
+  // In non-production, expose error details for debugging
+  const env = c.env?.ENVIRONMENT || 'development';
+  if (env !== 'production') {
+    const msg = err instanceof Error ? err.message : String(err);
+    return error(c, 'INTERNAL_ERROR', msg, 500);
+  }
   return internalError(c);
 };

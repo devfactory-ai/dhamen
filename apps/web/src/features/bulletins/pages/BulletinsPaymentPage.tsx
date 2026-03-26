@@ -397,7 +397,7 @@ export default function BulletinsPaymentPage() {
       {selectedBulletins.length > 0 && (
         <Card className="border-primary bg-primary/5">
           <CardContent className="py-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-primary" />
@@ -422,7 +422,7 @@ export default function BulletinsPaymentPage() {
           <div className="flex items-center gap-4">
             <Label>Filtrer par statut:</Label>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-64">
+              <SelectTrigger className="w-full md:w-64">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

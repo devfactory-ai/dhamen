@@ -9,7 +9,7 @@ import { useAuth } from '../hooks/useAuth';
 
 // Demo accounts - always visible for demo purposes
 const DEMO_ACCOUNTS = [
-  { email: 'admin@dhamen.tn', role: 'Admin Plateforme', icon: '👑', color: 'from-purple-500 to-purple-600', category: 'admin' },
+  { email: 'admin@e-sante.tn', role: 'Admin Plateforme', icon: '👑', color: 'from-purple-500 to-purple-600', category: 'admin' },
   { email: 'admin@star.com.tn', role: 'Assureur STAR', icon: '🏢', color: 'from-blue-500 to-blue-600', category: 'insurer' },
   { email: 'admin@gat.com.tn', role: 'Assureur GAT', icon: '🏛️', color: 'from-indigo-500 to-indigo-600', category: 'insurer' },
   { email: 'admin@ami.com.tn', role: 'Assureur AMI', icon: '🛡️', color: 'from-rose-500 to-rose-600', category: 'insurer' },

@@ -1,11 +1,11 @@
 /**
- * Dhamen Service Worker
+ * E-Santé Service Worker
  * Provides offline support and caching for the PWA
  */
 
-const CACHE_NAME = 'dhamen-v2';
-const STATIC_CACHE_NAME = 'dhamen-static-v2';
-const API_CACHE_NAME = 'dhamen-api-v2';
+const CACHE_NAME = 'e-sante-v2';
+const STATIC_CACHE_NAME = 'e-sante-static-v2';
+const API_CACHE_NAME = 'e-sante-api-v2';
 
 // Static assets to cache immediately
 const STATIC_ASSETS = [
@@ -185,12 +185,12 @@ self.addEventListener('push', (event) => {
       { action: 'view', title: 'Voir' },
       { action: 'dismiss', title: 'Ignorer' }
     ],
-    tag: data.tag || 'dhamen-notification',
+    tag: data.tag || 'e-sante-notification',
     renotify: true,
   };
 
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Dhamen', options)
+    self.registration.showNotification(data.title || 'E-Santé', options)
   );
 });
 

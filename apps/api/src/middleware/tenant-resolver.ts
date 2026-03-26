@@ -62,6 +62,7 @@ function getDbBinding(subdomain: string): keyof Bindings | null {
     gat: 'DB_GAT',
     comar: 'DB_COMAR',
     ami: 'DB_AMI',
+    bh: 'DB_BH',
     platform: 'DB_PLATFORM',
     admin: 'DB_PLATFORM',
   };

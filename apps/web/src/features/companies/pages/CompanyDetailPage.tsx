@@ -147,13 +147,13 @@ export function CompanyDetailPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Building2 className="h-5 w-5" />
-            Informations generales
+            Informations générales
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <p className="text-sm text-muted-foreground">Code societe</p>
+              <p className="text-sm text-muted-foreground">Code société</p>
               <p className="font-medium">{company.code || '-'}</p>
             </div>
             <div>
@@ -165,7 +165,7 @@ export function CompanyDetailPage() {
               <p className="font-medium">{company.matricule_fiscal || '-'}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">Numero de contrat</p>
+              <p className="text-sm text-muted-foreground">Numéro de contrat</p>
               <p className="font-medium">{company.contract_number || '-'}</p>
             </div>
             <div>

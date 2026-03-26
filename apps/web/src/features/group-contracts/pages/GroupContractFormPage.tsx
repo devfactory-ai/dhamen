@@ -105,8 +105,8 @@ const guaranteeSchema = z.object({
 });
 
 const formSchema = z.object({
-  contract_number: z.string().min(1, 'Numero de contrat requis'),
-  company_id: z.string().min(1, 'Societe requise'),
+  contract_number: z.string().min(1, 'Numéro de contrat requis'),
+  company_id: z.string().min(1, 'Société requise'),
   company_name_extracted: z.string().optional(),
   company_address: z.string().optional(),
   matricule_fiscale: z.string().optional(),
@@ -743,7 +743,7 @@ export function GroupContractFormPage() {
                   <div className="text-center space-y-1">
                     <p className="text-sm font-semibold">Analyse IA du contrat en cours...</p>
                     <p className="text-xs text-muted-foreground">
-                      Extraction du numero, souscripteur, assureur, garanties et baremes
+                      Extraction du numéro, souscripteur, assureur, garanties et baremes
                     </p>
                     <p className="text-xs text-amber-600 font-medium mt-2">
                       Cette operation peut prendre 30 a 60 secondes selon la taille du PDF
@@ -789,7 +789,7 @@ export function GroupContractFormPage() {
             {/* Row 1: Contract number + Status + Category */}
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="contract_number">Numero de contrat *</Label>
+                <Label htmlFor="contract_number">Numéro de contrat *</Label>
                 <Input
                   id="contract_number"
                   {...register('contract_number')}
@@ -835,7 +835,7 @@ export function GroupContractFormPage() {
                   onValueChange={(val) => setValue('insurer_id', val)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selectionner un assureur" />
+                    <SelectValue placeholder="Sélectionner un assureur" />
                   </SelectTrigger>
                   <SelectContent>
                     {(insurers || []).map((ins) => (
@@ -879,13 +879,13 @@ export function GroupContractFormPage() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Societe *</Label>
+                <Label>Société *</Label>
                 <Select
                   value={watch('company_id') || undefined}
                   onValueChange={(val) => setValue('company_id', val)}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Selectionner une societe" />
+                    <SelectValue placeholder="Sélectionner une société" />
                   </SelectTrigger>
                   <SelectContent>
                     {(companies || []).map((c) => (
@@ -1126,7 +1126,7 @@ export function GroupContractFormPage() {
                             }}
                           >
                             <SelectTrigger>
-                              <SelectValue placeholder="Selectionner" />
+                              <SelectValue placeholder="Sélectionner" />
                             </SelectTrigger>
                             <SelectContent>
                               {CARE_TYPES.map((ct) => (
@@ -1341,7 +1341,7 @@ export function GroupContractFormPage() {
                             }
                           >
                             <SelectTrigger>
-                              <SelectValue placeholder="Selectionner" />
+                              <SelectValue placeholder="Sélectionner" />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="annual">Annuel</SelectItem>

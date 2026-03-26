@@ -76,7 +76,7 @@ export async function findUserById(db: D1Database, id: string): Promise<User | n
 
 export async function findUserByEmail(db: D1Database, email: string): Promise<User | null> {
   const row = await db
-    .prepare('SELECT * FROM users WHERE email = ?')
+    .prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE')
     .bind(email.toLowerCase())
     .first<UserRow>();
 

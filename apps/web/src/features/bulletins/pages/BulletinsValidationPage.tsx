@@ -410,7 +410,7 @@ export function BulletinsValidationPage() {
     },
     {
       key: 'adherent',
-      header: 'Adherent',
+      header: 'Adhérent',
       render: (row: BulletinSoins) => (
         <div>
           <p className="font-medium">{row.adherent_first_name} {row.adherent_last_name}</p>
@@ -562,7 +562,7 @@ export function BulletinsValidationPage() {
       />
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-6">
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
         <Card className="border-l-4 border-l-yellow-500">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
@@ -661,7 +661,7 @@ export function BulletinsValidationPage() {
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-4">
-            <div className="flex-1 min-w-[200px]">
+            <div className="flex-1 min-w-0">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -759,7 +759,7 @@ export function BulletinsValidationPage() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center gap-2">
                     <User className="h-4 w-4" />
-                    Informations Adherent
+                    Informations Adhérent
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -1072,7 +1072,7 @@ export function BulletinsValidationPage() {
                   <Textarea
                     value={missingDocuments}
                     onChange={(e) => setMissingDocuments(e.target.value)}
-                    placeholder="Ex: Ordonnance originale&#10;Ticket de caisse&#10;Resultats d'analyse"
+                    placeholder="Ex: Ordonnance originale&#10;Ticket de caisse&#10;Résultats d'analyse"
                     className="mt-2"
                     rows={4}
                   />

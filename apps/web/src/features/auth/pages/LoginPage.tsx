@@ -25,62 +25,45 @@ const ORGANIZATIONS: {
   bgColor: string;
   textColor: string;
 }[] = [
-  { code: 'STAR', name: 'STAR', bgColor: 'bg-red-50', textColor: 'text-red-600' },
-  { code: 'GAT', name: 'GAT', bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
-  { code: 'COMAR', name: 'COMAR', bgColor: 'bg-emerald-50', textColor: 'text-emerald-600' },
-  { code: 'AMI', name: 'AMI', bgColor: 'bg-amber-50', textColor: 'text-amber-600' },
+  { code: 'BH', name: 'BH Assurance', bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
 ];
 
 /** Demo accounts by category */
 const DEMO_CATEGORIES = [
   {
-    label: 'Admin & Assureurs',
-    key: 'admin',
+    label: 'Super Admins',
+    key: 'superadmins',
     accounts: [
-      { email: 'admin@dhamen.tn', role: 'Admin Plateforme', color: 'bg-purple-500', icon: '👑' },
-      { email: 'admin@star.com.tn', role: 'Assureur STAR', color: 'bg-red-500', icon: '🏢' },
-      { email: 'admin@gat.com.tn', role: 'Assureur GAT', color: 'bg-blue-500', icon: '🏛️' },
-      { email: 'admin@ami.com.tn', role: 'Assureur AMI', color: 'bg-amber-500', icon: '🛡️' },
-      { email: 'admin@comar.com.tn', role: 'Assureur COMAR', color: 'bg-emerald-500', icon: '🔷' },
+      { email: 'admin@yopmail.com', role: 'Admin Principal', color: 'bg-purple-500', icon: '👑' },
+      { email: 'admin1@yopmail.com', role: 'Admin Secondaire', color: 'bg-purple-400', icon: '👑' },
     ],
   },
+  // {
+  //   label: 'Admins Assureur',
+  //   key: 'adminassureur',
+  //   accounts: [
+  //     { email: 'adminassureur@yopmail.com', role: 'Admin Assureur', color: 'bg-blue-500', icon: '🏢' },
+  //     { email: 'adminassureur1@yopmail.com', role: 'Admin Assureur 2', color: 'bg-blue-400', icon: '🏢' },
+  //   ],
+  // },
   {
     label: 'Agents',
     key: 'agents',
     accounts: [
-      { email: 'agent.star@email.tn', role: 'Agent STAR', color: 'bg-red-400', icon: '📋' },
-      { email: 'agent.gat@email.tn', role: 'Agent GAT', color: 'bg-blue-400', icon: '📝' },
-      { email: 'agent.comar@email.tn', role: 'Agent COMAR', color: 'bg-emerald-400', icon: '✅' },
-      { email: 'agent.ami@email.tn', role: 'Agent AMI', color: 'bg-amber-400', icon: '🛡️' },
+      { email: 'testagent@yopmail.com', role: 'Test Agent', color: 'bg-emerald-500', icon: '📋' },
+      { email: 'sirine@yopmail.com', role: 'Sirine Agent', color: 'bg-emerald-400', icon: '📋' },
     ],
   },
-  {
-    label: 'Prestataires',
-    key: 'providers',
-    accounts: [
-      { email: 'pharma.centrale@email.tn', role: 'Pharmacien', color: 'bg-green-500', icon: '💊' },
-      { email: 'dr.benali@email.tn', role: 'Medecin', color: 'bg-teal-500', icon: '🩺' },
-      { email: 'labo.central@email.tn', role: 'Laboratoire', color: 'bg-orange-500', icon: '🔬' },
-    ],
-  },
-  {
-    label: 'RH',
-    key: 'hr',
-    accounts: [
-      { email: 'rh@tunisietelecom.tn', role: 'Tunisie Telecom', color: 'bg-sky-500', icon: '📱' },
-      { email: 'rh@poulina.tn', role: 'Groupe Poulina', color: 'bg-emerald-500', icon: '🏭' },
-      { email: 'rh@biat.com.tn', role: 'BIAT Banque', color: 'bg-violet-500', icon: '🏦' },
-    ],
-  },
-  {
-    label: 'Adherents',
-    key: 'adherents',
-    accounts: [
-      { email: 'mohamed.bensalah@email.tn', role: 'Mohamed B.', color: 'bg-cyan-500', icon: '👤' },
-      { email: 'fatma.trabelsi@email.tn', role: 'Fatma T.', color: 'bg-pink-500', icon: '👩' },
-      { email: 'ahmed.bouazizi@email.tn', role: 'Ahmed B.', color: 'bg-amber-500', icon: '👨' },
-    ],
-  },
+  // {
+  //   label: 'Prestataires',
+  //   key: 'prestataires',
+  //   accounts: [
+  //     { email: 'pharmacien@yopmail.com', role: 'Pharmacie Centrale', color: 'bg-teal-500', icon: '💊' },
+  //     { email: 'medecin@yopmail.com', role: 'Dr. Ben Ali', color: 'bg-red-500', icon: '🩺' },
+  //     { email: 'labo@yopmail.com', role: 'Labo Central', color: 'bg-amber-500', icon: '🔬' },
+  //     { email: 'clinique@yopmail.com', role: 'Clinique Les Oliviers', color: 'bg-cyan-500', icon: '🏥' },
+  //   ],
+  // },
 ];
 const DEMO_PASSWORD = 'Password123!';
 
@@ -89,7 +72,7 @@ export function LoginPage() {
   const { login, isLoading, error } = useAuth();
   const [selectedOrg, setSelectedOrg] = useState<TenantCode | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-  const [demoTab, setDemoTab] = useState('admin');
+  const [demoTab, setDemoTab] = useState('superadmins');
   const [selectedDemo, setSelectedDemo] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | undefined>();
   const turnstileRef = useRef<TurnstileInstance | null>(null);
@@ -161,7 +144,7 @@ export function LoginPage() {
                     <path d="M12 7l-4 2.18v3.64c0 2.6 1.8 5 4 5.72 2.2-.72 4-3.12 4-5.72V9.18L12 7z" />
                   </svg>
                 </div>
-                <span className="text-2xl font-bold tracking-tight">Dhamen</span>
+                <span className="text-2xl font-bold tracking-tight">E-Santé</span>
               </div>
               <p className="text-sm text-blue-200/70 max-w-xs mt-1">
                 Plateforme de gestion d'assurance propulsee par l'intelligence artificielle
@@ -177,7 +160,7 @@ export function LoginPage() {
                   </svg>
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-white mb-1">Integration de l'Ecosysteme Numerique</h3>
+                  <h3 className="text-sm font-semibold text-white mb-1">Intégration de l'Écosystème Numérique</h3>
                   <p className="text-xs text-blue-200/50 leading-relaxed">
                     Connectez pharmacies, cliniques et laboratoires en temps reel
                   </p>
@@ -191,7 +174,7 @@ export function LoginPage() {
                   </svg>
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-white mb-1">Integration de l'Ecosysteme Numerique</h3>
+                  <h3 className="text-sm font-semibold text-white mb-1">Intégration de l'Écosystème Numérique</h3>
                   <p className="text-xs text-blue-200/50 leading-relaxed">
                     Automatisez la verification d'eligibilite et la tarification
                   </p>
@@ -205,7 +188,7 @@ export function LoginPage() {
                   </svg>
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-white mb-1">Securite de Grade Institutionnel</h3>
+                  <h3 className="text-sm font-semibold text-white mb-1">Sécurité de Grade Institutionnel</h3>
                   <p className="text-xs text-blue-200/50 leading-relaxed">
                     Chiffrement AES-256, audit trail complet, detection de fraude IA
                   </p>
@@ -215,7 +198,7 @@ export function LoginPage() {
 
             {/* Footer */}
             <p className="text-[10px] text-blue-200/30 uppercase tracking-widest">
-              &copy; 2024 DHAMEN SENTINEL &bull; VERSION 4.0.2
+              &copy; 2024 E-SANTE SENTINEL &bull; VERSION 4.0.2
             </p>
           </div>
         </div>
@@ -230,7 +213,7 @@ export function LoginPage() {
                   <path d="M12 2L3 7v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-9-5z" />
                 </svg>
               </div>
-              <span className="text-xl font-bold text-gray-900">Dhamen</span>
+              <span className="text-xl font-bold text-gray-900">E-Santé</span>
             </div>
 
             {/* Organization selector - pills */}
@@ -264,7 +247,7 @@ export function LoginPage() {
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8">
               {/* Title */}
               <div className="text-center mb-6">
-                <h1 className="text-xl font-bold text-gray-900">Dhamen</h1>
+                <h1 className="text-xl font-bold text-gray-900">E-Santé</h1>
                 <p className="text-xs text-gray-400 mt-1">
                   Gestion institutionnelle des risques & assurances
                 </p>
@@ -407,7 +390,7 @@ export function LoginPage() {
               <p className="text-center text-[10px] text-gray-400 uppercase tracking-wider mt-5">
                 Besoin d'aide ?{' '}
                 <a
-                  href="mailto:support@dhamen.tn"
+                  href="mailto:support@e-sante.tn"
                   className="font-semibold text-gray-500 hover:text-gray-700"
                 >
                   Contacter le support
@@ -443,7 +426,7 @@ export function LoginPage() {
                 </div>
 
                 {/* Accounts grid - cards with colored shield icons */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 gap-3">
                   {DEMO_CATEGORIES.find((c) => c.key === demoTab)?.accounts.map((account) => (
                     <button
                       key={account.email}
@@ -476,13 +459,13 @@ export function LoginPage() {
       <footer className="border-t border-gray-100 bg-white px-6 sm:px-10 py-4">
         <div className="max-w-screen-xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3 text-[10px] text-gray-400">
-            <span className="font-semibold text-gray-500 uppercase tracking-wider">Dhamen </span>
-            <span>&copy; 2024 DHAMEN. TOUS DROITS RESERVES. GESTIONNAIRE D'ASSURANCE AGREE.</span>
+            <span className="font-semibold text-gray-500 uppercase tracking-wider">E-Santé </span>
+            <span>&copy; 2024 E-SANTE. TOUS DROITS RESERVES. GESTIONNAIRE D'ASSURANCE AGREE.</span>
           </div>
           <div className="flex items-center gap-4 text-[10px] text-gray-400 uppercase tracking-wider">
             <a href="#" className="hover:text-gray-600 transition-colors">Politique de confidentialite</a>
             <a href="#" className="hover:text-gray-600 transition-colors">Conditions d'utilisation</a>
-            <a href="#" className="hover:text-gray-600 transition-colors">Divulgation de securite</a>
+            <a href="#" className="hover:text-gray-600 transition-colors">Divulgation de sécurité</a>
             <a href="#" className="hover:text-gray-600 transition-colors">Infos reglementaires</a>
           </div>
         </div>

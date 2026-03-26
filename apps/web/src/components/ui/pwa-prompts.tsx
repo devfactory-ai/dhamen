@@ -103,7 +103,7 @@ export function InstallPrompt() {
           </div>
 
           <div className="flex-1">
-            <h3 className="font-semibold text-gray-900">Installer Dhamen</h3>
+            <h3 className="font-semibold text-gray-900">Installer E-Santé</h3>
             <p className="text-sm text-gray-500 mt-1">
               Installez l'application pour un accès rapide et une utilisation hors ligne.
             </p>
@@ -156,7 +156,7 @@ export function UpdatePrompt() {
           <div className="flex-1">
             <h3 className="font-semibold">Mise à jour disponible</h3>
             <p className="text-sm text-blue-100 mt-1">
-              Une nouvelle version de Dhamen est disponible.
+              Une nouvelle version de E-Santé est disponible.
             </p>
 
             <div className="flex gap-2 mt-3">

@@ -63,7 +63,7 @@ export { RateLimiter } from './durable-objects/rate-limiter';
 export { NotificationHub } from './durable-objects/notification-hub';
 
 /**
- * Dhamen API - Cloudflare Worker
+ * E-Santé API - Cloudflare Worker
  *
  * Main entry point for the Hono API application
  */
@@ -216,7 +216,7 @@ api.route('/group-contracts', groupContracts);
 // Root redirect
 app.get('/', (c) => {
   return c.json({
-    name: 'Dhamen API',
+    name: 'E-Santé API',
     version: '0.1.0',
     description: 'Plateforme IA-native de tiers payant santé pour la Tunisie',
     docs: '/api/v1/health',
