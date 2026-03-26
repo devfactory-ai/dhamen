@@ -61,7 +61,7 @@ users.use('*', authMiddleware());
  * GET /api/v1/users
  * List users with pagination and filters
  */
-users.get('/', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
+users.get('/', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
   const { page, limit, role, search, isActive } = c.req.query();
 
   // Cap pagination limit to 100 items max to prevent DoS
@@ -90,7 +90,7 @@ users.get('/', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
  * GET /api/v1/users/:id
  * Get user by ID
  */
-users.get('/:id', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
+users.get('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
   const { id } = c.req.param();
 
   const user = await findUserById(getDb(c), id);
@@ -105,7 +105,7 @@ users.get('/:id', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
  * POST /api/v1/users
  * Create a new user
  */
-users.post('/', requireRole('ADMIN', 'INSURER_ADMIN'), zValidator('json', userCreateSchema, validationHook), async (c) => {
+users.post('/', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), zValidator('json', userCreateSchema, validationHook), async (c) => {
   const data = c.req.valid('json');
   const currentUser = c.get('user');
 
@@ -147,7 +147,7 @@ users.post('/', requireRole('ADMIN', 'INSURER_ADMIN'), zValidator('json', userCr
  * PATCH /api/v1/users/:id
  * Update an existing user
  */
-users.patch('/:id', requireRole('ADMIN', 'INSURER_ADMIN'), zValidator('json', userUpdateSchema, validationHook), async (c) => {
+users.patch('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), zValidator('json', userUpdateSchema, validationHook), async (c) => {
   const { id } = c.req.param();
   const data = c.req.valid('json');
   const currentUser = c.get('user');

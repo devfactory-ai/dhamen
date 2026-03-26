@@ -165,7 +165,7 @@ reports.get('/stats', requireRole('ADMIN', 'SOIN_GESTIONNAIRE'), async (c) => {
  */
 reports.get(
   '/',
-  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('query', listReportsQuerySchema),
   async (c) => {
     const { page, limit } = c.req.valid('query');
@@ -231,7 +231,7 @@ reports.get(
  */
 reports.post(
   '/generate',
-  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', generateReportSchema),
   async (c) => {
     const { templateId, format, parametres } = c.req.valid('json');

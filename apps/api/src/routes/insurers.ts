@@ -57,7 +57,7 @@ insurers.get(
  * GET /api/v1/insurers/:id
  * Get an insurer by ID
  */
-insurers.get('/:id', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
+insurers.get('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
   const id = c.req.param('id');
   const user = c.get('user');
 
@@ -115,7 +115,7 @@ insurers.post('/', requireRole('ADMIN'), zValidator('json', insurerCreateSchema)
  */
 insurers.put(
   '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', insurerUpdateSchema),
   async (c) => {
     const id = c.req.param('id');

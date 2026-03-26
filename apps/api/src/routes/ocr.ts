@@ -223,7 +223,7 @@ ocr.post(
  */
 ocr.post(
   '/extract-facture',
-  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', z.object({ imageData: z.string() })),
   async (c) => {
     const { imageData } = c.req.valid('json');

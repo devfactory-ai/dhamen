@@ -88,7 +88,7 @@ aiReconciliation.get('/anomalies', async (c) => {
  */
 aiReconciliation.post(
   '/auto-reconcile',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', z.object({
     minConfidence: z.number().min(0.8).max(1).default(0.95),
     dryRun: z.boolean().default(true),
@@ -194,7 +194,7 @@ aiReconciliation.post(
  */
 aiReconciliation.delete(
   '/reconcile/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const reconciliationId = c.req.param('id');
     const now = new Date().toISOString();

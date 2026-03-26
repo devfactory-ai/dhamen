@@ -148,7 +148,7 @@ providers.get('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), as
  */
 providers.post(
   '/',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', providerCreateSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -184,7 +184,7 @@ providers.post(
  */
 providers.put(
   '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', providerUpdateSchema),
   async (c) => {
     const id = c.req.param('id');
@@ -243,7 +243,7 @@ providers.delete('/:id', requireRole('ADMIN'), async (c) => {
  * POST /api/v1/providers/import
  * Bulk import providers from CSV data
  */
-providers.post('/import', requireRole('ADMIN', 'INSURER_ADMIN'), zValidator('json', providerImportSchema, validationHook), async (c) => {
+providers.post('/import', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), zValidator('json', providerImportSchema, validationHook), async (c) => {
   const { providers: providersData, skipDuplicates } = c.req.valid('json');
   const user = c.get('user');
 

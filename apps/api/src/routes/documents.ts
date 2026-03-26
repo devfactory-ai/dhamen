@@ -437,7 +437,7 @@ documents.get('/:id/versions', async (c) => {
  */
 documents.get(
   '/stats',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const insurerId = c.req.query('insurerId');
     const user = c.get('user');

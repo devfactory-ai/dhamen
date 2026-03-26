@@ -77,7 +77,7 @@ monitoring.get('/health/detailed', async (c) => {
  * GET /alerts
  * Get active alerts
  */
-monitoring.get('/alerts', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
+monitoring.get('/alerts', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
   const severity = c.req.query('severity');
   const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 100);
   const service = new MonitoringService(c.env);
@@ -122,7 +122,7 @@ monitoring.post('/alerts', requireRole('ADMIN'), async (c) => {
  * POST /alerts/:id/resolve
  * Resolve an alert
  */
-monitoring.post('/alerts/:id/resolve', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
+monitoring.post('/alerts/:id/resolve', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
   const alertId = c.req.param('id');
   const service = new MonitoringService(c.env);
 

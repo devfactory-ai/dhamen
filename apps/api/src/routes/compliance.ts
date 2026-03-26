@@ -162,7 +162,7 @@ compliance.get('/audit-logs/:id', requireRole('ADMIN', 'COMPLIANCE_OFFICER'), as
  */
 compliance.post(
   '/data-requests',
-  requireRole('ADMIN', 'COMPLIANCE_OFFICER', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'COMPLIANCE_OFFICER', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', dataAccessRequestSchema),
   async (c) => {
     const data = c.req.valid('json');

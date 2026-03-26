@@ -41,7 +41,7 @@ const webhookEndpointSchema = z.object({
  */
 webhooksOutbound.get(
   '/endpoints',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const insurerId = c.req.query('insurerId');
     const providerId = c.req.query('providerId');
@@ -72,7 +72,7 @@ webhooksOutbound.get(
  */
 webhooksOutbound.post(
   '/endpoints',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const body = await c.req.json();
     const validation = webhookEndpointSchema.safeParse(body);
@@ -124,7 +124,7 @@ webhooksOutbound.post(
  */
 webhooksOutbound.get(
   '/endpoints/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
 
@@ -154,7 +154,7 @@ webhooksOutbound.get(
  */
 webhooksOutbound.put(
   '/endpoints/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
     const body = await c.req.json();
@@ -189,7 +189,7 @@ webhooksOutbound.put(
  */
 webhooksOutbound.delete(
   '/endpoints/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
 
@@ -219,7 +219,7 @@ webhooksOutbound.delete(
  */
 webhooksOutbound.post(
   '/endpoints/:id/test',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
 
@@ -239,7 +239,7 @@ webhooksOutbound.post(
  */
 webhooksOutbound.get(
   '/deliveries',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const endpointId = c.req.query('endpointId');
     const event = c.req.query('event') as WebhookEvent | undefined;
@@ -275,7 +275,7 @@ webhooksOutbound.get(
  */
 webhooksOutbound.get(
   '/deliveries/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
 
@@ -305,7 +305,7 @@ webhooksOutbound.get(
  */
 webhooksOutbound.post(
   '/deliveries/:id/retry',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
 
@@ -325,7 +325,7 @@ webhooksOutbound.post(
  */
 webhooksOutbound.get(
   '/stats',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const endpointId = c.req.query('endpointId');
 

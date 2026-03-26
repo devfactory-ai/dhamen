@@ -440,7 +440,7 @@ contreVisites.patch(
  */
 contreVisites.patch(
   '/:id/valider',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
   async (c) => {
     const id = c.req.param('id');
     const user = c.get('user');
@@ -520,7 +520,7 @@ contreVisites.patch(
  */
 contreVisites.patch(
   '/:id/statut',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
   zValidator('json', santeContreVisiteUpdateStatutSchema),
   async (c) => {
     const id = c.req.param('id');
@@ -563,7 +563,7 @@ contreVisites.patch(
  */
 contreVisites.delete(
   '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
     const user = c.get('user');

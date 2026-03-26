@@ -101,7 +101,7 @@ contractManagement.get('/templates', async (c) => {
  */
 contractManagement.post(
   '/templates',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', templateSchema),
   async (c) => {
     const user = c.get('user');
@@ -144,7 +144,7 @@ contractManagement.get('/templates/:id', async (c) => {
  */
 contractManagement.put(
   '/templates/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', templateSchema.partial()),
   async (c) => {
     const user = c.get('user');
@@ -168,7 +168,7 @@ contractManagement.put(
  */
 contractManagement.post(
   '/templates/:id/clone',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', z.object({
     name: z.string().min(1).max(100),
     insurerId: z.string().optional(),
@@ -199,7 +199,7 @@ contractManagement.post(
  */
 contractManagement.post(
   '/templates/:id/activate',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const user = c.get('user');
     const templateId = c.req.param('id');
@@ -225,7 +225,7 @@ contractManagement.post(
  */
 contractManagement.post(
   '/templates/:id/deactivate',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const user = c.get('user');
     const templateId = c.req.param('id');
@@ -265,7 +265,7 @@ contractManagement.get('/templates/:id/versions', async (c) => {
  */
 contractManagement.post(
   '/templates/:id/restore/:version',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const user = c.get('user');
     const templateId = c.req.param('id');

@@ -87,7 +87,7 @@ export function PreAuthorizationDetailsPage() {
   const [isPartialApproval, setIsPartialApproval] = useState(false);
 
   const isAgent = ['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user?.role || '');
-  const canApprove = ['INSURER_ADMIN', 'ADMIN'].includes(user?.role || '');
+  const canApprove = ['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user?.role || '');
   const canReview = isAgent && preAuth && ['pending', 'under_review', 'additional_info', 'medical_review'].includes(preAuth.status);
   const canCancel = preAuth && !['rejected', 'cancelled', 'used'].includes(preAuth.status);
 

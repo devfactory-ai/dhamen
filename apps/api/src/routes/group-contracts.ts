@@ -1386,7 +1386,7 @@ async function analyseWithGemini(
 // Debug endpoint to test PDF text extraction (temporary)
 groupContracts.post(
   '/debug-pdf-extract',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     try {
       const body = await c.req.parseBody({ all: true });
@@ -1573,7 +1573,7 @@ groupContracts.post(
 // ---------------------------------------------------------------------------
 groupContracts.post(
   '/:id/apply-to-adherents',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
     const user = c.get('user');

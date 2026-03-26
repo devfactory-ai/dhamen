@@ -133,7 +133,7 @@ companies.get('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR
  */
 companies.post(
   '/',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', companyCreateSchema, validationHook),
   async (c) => {
     const data = c.req.valid('json');
@@ -183,7 +183,7 @@ companies.post(
  */
 companies.put(
   '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'HR'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
   zValidator('json', companyUpdateSchema, validationHook),
   async (c) => {
     const id = c.req.param('id');
@@ -308,7 +308,7 @@ companies.delete('/:id', requireRole('ADMIN'), async (c) => {
  * GET /api/v1/companies/:id/adherents
  * Get adherents for a company
  */
-companies.get('/:id/adherents', requireRole('ADMIN', 'INSURER_ADMIN', 'HR'), async (c) => {
+companies.get('/:id/adherents', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'), async (c) => {
   const id = c.req.param('id');
   const user = c.get('user');
 
@@ -334,7 +334,7 @@ companies.get('/:id/adherents', requireRole('ADMIN', 'INSURER_ADMIN', 'HR'), asy
  * GET /api/v1/companies/:id/stats
  * Get company statistics
  */
-companies.get('/:id/stats', requireRole('ADMIN', 'INSURER_ADMIN', 'HR'), async (c) => {
+companies.get('/:id/stats', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'), async (c) => {
   const id = c.req.param('id');
   const user = c.get('user');
 

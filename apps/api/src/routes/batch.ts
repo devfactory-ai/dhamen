@@ -20,7 +20,7 @@ batch.use('*', requireAuth);
  */
 batch.post(
   '/jobs',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
   async (c) => {
     const body = await c.req.json<{
       type: BatchJobType;
@@ -55,7 +55,7 @@ batch.post(
  */
 batch.get(
   '/jobs',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
   async (c) => {
     const type = c.req.query('type') as BatchJobType | undefined;
     const status = c.req.query('status') as 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | undefined;
@@ -84,7 +84,7 @@ batch.get(
  */
 batch.get(
   '/jobs/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
   async (c) => {
     const id = c.req.param('id');
 
@@ -114,7 +114,7 @@ batch.get(
  */
 batch.post(
   '/jobs/:id/start',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
   async (c) => {
     const id = c.req.param('id');
 
@@ -148,7 +148,7 @@ batch.post(
  */
 batch.post(
   '/jobs/:id/cancel',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
 
@@ -178,7 +178,7 @@ batch.post(
  */
 batch.post(
   '/claims/approve',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
   async (c) => {
     const body = await c.req.json<{
       claimIds: string[];
@@ -224,7 +224,7 @@ batch.post(
  */
 batch.post(
   '/claims/reject',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
   async (c) => {
     const body = await c.req.json<{
       claimIds: string[];
@@ -271,7 +271,7 @@ batch.post(
  */
 batch.post(
   '/bordereaux/generate',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const body = await c.req.json<{
       insurerId: string;
@@ -321,7 +321,7 @@ batch.post(
  */
 batch.post(
   '/bordereaux/validate',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const body = await c.req.json<{
       bordereauIds: string[];
@@ -364,7 +364,7 @@ batch.post(
  */
 batch.post(
   '/reconciliation',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const body = await c.req.json<{
       insurerId: string;
@@ -412,7 +412,7 @@ batch.post(
  */
 batch.post(
   '/adherents/import',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const body = await c.req.json<{
       contractId: string;

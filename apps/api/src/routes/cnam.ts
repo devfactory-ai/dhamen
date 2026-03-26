@@ -76,7 +76,7 @@ const submitClaimSchema = z.object({
  */
 cnam.post(
   '/verify',
-  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PHARMACIST', 'DOCTOR', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PHARMACIST', 'DOCTOR', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', verifyAffiliateSchema),
   async (c) => {
     const { matricule } = c.req.valid('json');
@@ -119,7 +119,7 @@ cnam.post(
  */
 cnam.post(
   '/search',
-  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', searchAffiliateSchema),
   async (c) => {
     const criteria = c.req.valid('json');
@@ -187,7 +187,7 @@ cnam.post(
  */
 cnam.post(
   '/claims',
-  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', submitClaimSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -310,7 +310,7 @@ cnam.get(
  * GET /cnam/stats
  * Get CNAM integration statistics
  */
-cnam.get('/stats', requireRole('ADMIN', 'INSURER_ADMIN'), async (c) => {
+cnam.get('/stats', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
   // Mock stats
   const stats = {
     totalVerifications: 15420,

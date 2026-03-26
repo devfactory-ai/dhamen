@@ -317,7 +317,7 @@ bordereaux.post(
  */
 bordereaux.post(
   '/:id/pay',
-  requireRole('INSURER_ADMIN', 'ADMIN'),
+  requireRole('INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', z.object({
     paymentReference: z.string().min(1),
     paymentDate: z.string().optional(),

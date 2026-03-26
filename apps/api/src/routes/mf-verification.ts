@@ -41,7 +41,7 @@ const updateVerificationSchema = z.object({
  */
 mfVerification.post(
   '/verify',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', verifyMFSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -205,7 +205,7 @@ mfVerification.put(
  */
 mfVerification.get(
   '/',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const page = parseInt(c.req.query('page') || '1');
     const limit = parseInt(c.req.query('limit') || '20');
@@ -283,7 +283,7 @@ mfVerification.get(
  */
 mfVerification.get(
   '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
 

@@ -34,7 +34,7 @@ payments.get('/providers', (c) => {
  */
 payments.post(
   '/orders',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const body = await c.req.json<{
       type: 'provider_payment' | 'refund';
@@ -99,7 +99,7 @@ payments.post(
  */
 payments.get(
   '/orders',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const insurerId = c.req.query('insurerId');
     const status = c.req.query('status') as 'pending' | 'processing' | 'completed' | 'failed' | undefined;
@@ -139,7 +139,7 @@ payments.get(
  */
 payments.get(
   '/orders/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
 
@@ -169,7 +169,7 @@ payments.get(
  */
 payments.post(
   '/orders/:id/process',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
 
@@ -199,7 +199,7 @@ payments.post(
  */
 payments.post(
   '/orders/:id/cancel',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason: string }>().catch(() => ({ reason: 'Cancelled by user' }));
@@ -230,7 +230,7 @@ payments.post(
  */
 payments.post(
   '/bordereau/:id/pay',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const bordereauId = c.req.param('id');
     const user = c.get('user');
@@ -281,7 +281,7 @@ payments.post(
  */
 payments.get(
   '/stats',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const insurerId = c.req.query('insurerId');
     const user = c.get('user');

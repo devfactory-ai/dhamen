@@ -277,7 +277,7 @@ export function SanteContreVisiteDetailsPage() {
 
   const canPlanifier = cv && cv.statut === 'demandee';
   const canRapport = cv && ['planifiée', 'en_attente', 'effectuée'].includes(cv.statut);
-  const canValider = cv && cv.statut === 'rapport_soumis' && ['ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'].includes(user?.role || '');
+  const canValider = cv && cv.statut === 'rapport_soumis' && ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'].includes(user?.role || '');
   const canAnnuler = cv && !['validée', 'effectuée', 'rapport_soumis'].includes(cv.statut);
 
   if (isLoading) {

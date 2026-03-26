@@ -511,7 +511,7 @@ appeals.patch(
  */
 appeals.post(
   '/:id/resolve',
-  requireRole('INSURER_ADMIN', 'ADMIN'),
+  requireRole('INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', resolveAppealSchema),
   async (c) => {
     const id = c.req.param('id');
@@ -626,7 +626,7 @@ appeals.post(
  */
 appeals.post(
   '/:id/assign',
-  requireRole('INSURER_ADMIN', 'ADMIN'),
+  requireRole('INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', assignReviewerSchema),
   async (c) => {
     const id = c.req.param('id');

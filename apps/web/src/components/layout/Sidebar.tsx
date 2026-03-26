@@ -69,7 +69,7 @@ const navigationSections: NavSection[] = [
       { name: 'Utilisateurs', href: '/users', icon: UsersIcon, roles: ['ADMIN'] },
       { name: 'Prestataires', href: '/providers', icon: BuildingIcon, roles: ['ADMIN'] },
       { name: 'Assureurs', href: '/insurers', icon: ShieldIcon, roles: ['ADMIN'] },
-      { name: 'Entreprises', href: '/companies', icon: CompanyIcon, roles: ['ADMIN', 'INSURER_ADMIN'] },
+      { name: 'Entreprises', href: '/companies', icon: CompanyIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'] },
       { name: 'Vérification MF', href: '/admin/mf-verification', icon: DocumentCheckIcon, roles: ['ADMIN'] },
       { name: 'Médicaments', href: '/admin/medications', icon: PillIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'] },
     ],
@@ -100,20 +100,21 @@ const navigationSections: NavSection[] = [
           { name: 'Import CSV', href: '/adherents/import', icon: UploadIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
         ],
       },
+      { name: 'Prestataires', href: '/providers', icon: BuildingIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
       { name: 'Contrats groupe', href: '/group-contracts', icon: DocumentCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'] },
       {
         name: 'Gestion bulletins', href: '/bulletins', icon: ClipboardIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'],
         children: [
           { name: 'Saisie bulletin', href: '/bulletins/saisie', icon: PenIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
           { name: 'Importer un lot', href: '/bulletins/import-lot', icon: UploadIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
-          { name: 'Validation', href: '/bulletins/validation', icon: ClipboardCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN'], disabled: true },
+          { name: 'Validation', href: '/bulletins/validation', icon: ClipboardCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'], disabled: true },
           { name: 'Historique', href: '/bulletins/history', icon: ClockIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
-          { name: 'Paiements adhérents', href: '/bulletins/payments', icon: CurrencyIcon, roles: ['INSURER_ADMIN'] },
+          { name: 'Paiements adhérents', href: '/bulletins/payments', icon: CurrencyIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
           { name: 'Archives bulletins', href: '/bulletins/archive', icon: ArchiveIcon, roles: ['INSURER_ADMIN', 'INSURER_AGENT'] },
         ],
       },
       { name: 'Gestion PEC', href: '/claims/manage', icon: ShieldIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'], disabled: true },
-      { name: 'Réconciliation', href: '/reconciliation', icon: CalculatorIcon, roles: ['ADMIN', 'INSURER_ADMIN'], disabled: true },
+      { name: 'Réconciliation', href: '/reconciliation', icon: CalculatorIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'], disabled: true },
       { name: 'Cartes virtuelles', href: '/cards', icon: CreditCardIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'], disabled: true },
       { name: 'Accords préalables', href: '/pre-authorizations', icon: DocumentCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'DOCTOR', 'CLINIC_ADMIN'], disabled: true },
       { name: 'Recours', href: '/appeals', icon: ClipboardCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'], disabled: true },
@@ -128,14 +129,14 @@ const navigationSections: NavSection[] = [
       { name: 'Bordereaux', href: '/sante/bordereaux', icon: DocumentIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE'] },
       { name: 'Paiements', href: '/sante/paiements', icon: CurrencyIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE'] },
       { name: 'Éligibilité', href: '/sante/eligibility', icon: CheckCircleIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'PRATICIEN'] },
-      { name: 'Garanties', href: '/sante/garanties', icon: ShieldIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN'], disabled: true },
+      { name: 'Garanties', href: '/sante/garanties', icon: ShieldIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT'], disabled: true },
       { name: 'Workflows', href: '/sante/workflows', icon: WorkflowIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT'] },
       { name: 'Documents', href: '/sante/documents', icon: DocumentsIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT'] },
       { name: 'Anti-Fraude', href: '/sante/fraud', icon: FraudIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE'], badge: 'IA' },
       { name: 'Contre-visites', href: '/sante/contre-visites', icon: ClipboardCheckIcon, roles: ['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'], disabled: true },
-      { name: 'Rapports', href: '/sante/reports', icon: ReportsIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN'], disabled: true },
-      { name: 'Praticiens', href: '/sante/praticiens', icon: UserGroupIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'PRATICIEN', 'HR'], disabled: true },
-      { name: 'Business Intel.', href: '/bi', icon: BIIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN'], disabled: true },
+      { name: 'Rapports', href: '/sante/reports', icon: ReportsIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT'], disabled: true },
+      { name: 'Praticiens', href: '/sante/praticiens', icon: UserGroupIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'PRATICIEN', 'HR'] },
+      { name: 'Business Intel.', href: '/bi', icon: BIIcon, roles: ['ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT'], disabled: true },
     ],
   },
   {
@@ -249,7 +250,7 @@ export function Sidebar() {
             </div>
             {!sidebarCollapsed && (
               <div className="flex flex-col">
-                <span className="font-bold text-lg text-gray-900 leading-tight">Dhamen</span>
+                <span className="font-bold text-lg text-gray-900 leading-tight">E-Santé</span>
                 <span className="text-[9px] font-semibold uppercase tracking-widest text-gray-400">Insurance Management</span>
               </div>
             )}
@@ -398,15 +399,19 @@ export function Sidebar() {
                                 <NavLink
                                   key={child.href}
                                   to={child.href}
-                                  end
-                                  className={({ isActive }) =>
-                                    cn(
+                                  end={child.href.includes('/import')}
+                                  className={({ isActive }) => {
+                                    const isListRoute = !child.href.includes('/import');
+                                    const pathMatches = isListRoute
+                                      ? location.pathname === child.href || location.pathname.startsWith(child.href + '/')
+                                      : isActive;
+                                    return cn(
                                       'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200',
-                                      isActive
+                                      pathMatches
                                         ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
                                         : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'
-                                    )
-                                  }
+                                    );
+                                  }}
                                 >
                                   <child.icon className="h-4 w-4 flex-shrink-0" />
                                   <span className="truncate">{child.name}</span>

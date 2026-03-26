@@ -893,7 +893,7 @@ preAuthorizations.post(
  */
 preAuthorizations.post(
   '/:id/approve',
-  requireRole('INSURER_ADMIN', 'ADMIN'),
+  requireRole('INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', approvePreAuthSchema),
   async (c) => {
     const id = c.req.param('id');
@@ -991,7 +991,7 @@ preAuthorizations.post(
  */
 preAuthorizations.post(
   '/:id/reject',
-  requireRole('INSURER_ADMIN', 'ADMIN'),
+  requireRole('INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', rejectPreAuthSchema),
   async (c) => {
     const id = c.req.param('id');
@@ -1063,7 +1063,7 @@ preAuthorizations.post(
  */
 preAuthorizations.post(
   '/:id/cancel',
-  requireRole('PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'INSURER_ADMIN', 'ADMIN'),
+  requireRole('PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', cancelPreAuthSchema),
   async (c) => {
     const id = c.req.param('id');
@@ -1131,7 +1131,7 @@ preAuthorizations.post(
  */
 preAuthorizations.post(
   '/:id/assign',
-  requireRole('INSURER_ADMIN', 'ADMIN'),
+  requireRole('INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', assignPreAuthReviewerSchema),
   async (c) => {
     const id = c.req.param('id');
@@ -1299,7 +1299,7 @@ preAuthorizations.post(
  */
 preAuthorizations.get(
   '/rules',
-  requireRole('INSURER_ADMIN', 'ADMIN'),
+  requireRole('INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   async (c) => {
     const user = c.get('user');
     const db = getDb(c);
@@ -1326,7 +1326,7 @@ preAuthorizations.get(
  */
 preAuthorizations.post(
   '/rules',
-  requireRole('INSURER_ADMIN', 'ADMIN'),
+  requireRole('INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', preAuthRuleSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -1435,7 +1435,7 @@ preAuthorizations.post(
  */
 preAuthorizations.delete(
   '/rules/:ruleId',
-  requireRole('INSURER_ADMIN', 'ADMIN'),
+  requireRole('INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   async (c) => {
     const ruleId = c.req.param('ruleId');
     const user = c.get('user');

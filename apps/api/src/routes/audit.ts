@@ -73,7 +73,7 @@ const audit = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 // All audit routes require authentication and elevated permissions
 audit.use('*', authMiddleware());
 audit.use('*', requireAuth);
-audit.use('*', requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'));
+audit.use('*', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'));
 
 /**
  * GET /audit/logs
@@ -223,7 +223,7 @@ audit.get('/stats', zValidator('query', auditStatsQuerySchema), async (c) => {
  */
 audit.get(
   '/compliance-report',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('query', complianceReportQuerySchema),
   async (c) => {
     const { startDate, endDate, insurerId } = c.req.valid('query');
@@ -252,7 +252,7 @@ audit.get(
  */
 audit.get(
   '/export',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('query', auditExportQuerySchema),
   async (c) => {
     const { format, userId, action, entityType, startDate, endDate, insurerId } = c.req.valid('query');

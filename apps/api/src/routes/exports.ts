@@ -76,7 +76,7 @@ exports.post(
  */
 exports.post(
   '/bordereau/:id/pdf',
-  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const bordereauId = c.req.param('id');
     const user = c.get('user');

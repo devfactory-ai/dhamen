@@ -254,7 +254,7 @@ analytics.get(
  */
 analytics.get(
   '/fraud',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
   zValidator('query', dateRangeQuerySchema),
   async (c) => {
     const { insurerId, startDate, endDate } = c.req.valid('query');
@@ -284,7 +284,7 @@ analytics.get(
  */
 analytics.get(
   '/compare',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
   zValidator('query', compareQuerySchema),
   async (c) => {
     const { insurerId, currentStart, currentEnd, previousStart, previousEnd } = c.req.valid('query');
@@ -327,7 +327,7 @@ analytics.get(
  */
 analytics.get(
   '/export',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('query', exportQuerySchema),
   async (c) => {
     const { type, format, insurerId, startDate, endDate } = c.req.valid('query');

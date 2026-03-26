@@ -129,7 +129,7 @@ medicationFamilyBaremes.get('/:id', async (c) => {
  */
 medicationFamilyBaremes.post(
   '/',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', createMedicationFamilyBaremeSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -215,7 +215,7 @@ medicationFamilyBaremes.post(
  */
 medicationFamilyBaremes.put(
   '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', updateMedicationFamilyBaremeSchema),
   async (c) => {
     const id = c.req.param('id');
@@ -321,7 +321,7 @@ medicationFamilyBaremes.put(
  */
 medicationFamilyBaremes.delete(
   '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
     const user = c.get('user');

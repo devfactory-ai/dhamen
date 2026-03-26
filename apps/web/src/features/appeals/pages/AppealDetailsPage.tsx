@@ -77,7 +77,7 @@ export function AppealDetailsPage() {
   });
 
   const isAgent = ['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user?.role || '');
-  const isAdmin = ['INSURER_ADMIN', 'ADMIN'].includes(user?.role || '');
+  const isAdmin = ['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user?.role || '');
   const isAdherent = user?.role === 'ADHERENT';
 
   const formatDate = (dateString: string | null) => {
