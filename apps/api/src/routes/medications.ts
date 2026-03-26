@@ -338,6 +338,231 @@ medications.post(
 );
 
 /**
+ * POST /import-amm
+ * Import medications from AMM Excel data (parsed client-side)
+ * Accessible to ADMIN, INSURER_ADMIN, INSURER_AGENT
+ */
+const ammRowSchema = z.object({
+  nom: z.string().min(1),
+  dosage: z.string().optional().default(''),
+  forme: z.string().optional().default(''),
+  presentation: z.string().optional().default(''),
+  dci: z.string().default(''),
+  classe: z.string().optional().default(''),
+  sousClasse: z.string().optional().default(''),
+  laboratoire: z.string().optional().default(''),
+  amm: z.string().min(1),
+  dateAmm: z.string().optional().default(''),
+  conditionnementPrimaire: z.string().optional().default(''),
+  specConditionnementPrimaire: z.string().optional().default(''),
+  tableau: z.string().optional().default(''),
+  dureeConservation: z.string().optional().default(''),
+  indications: z.string().optional().default(''),
+  gpb: z.string().optional().default(''),
+  veic: z.string().optional().default(''),
+});
+
+const importAmmSchema = z.object({
+  fileName: z.string().min(1),
+  rows: z.array(ammRowSchema).min(1),
+  notes: z.string().optional(),
+});
+
+medications.post(
+  '/import-amm',
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  zValidator('json', importAmmSchema),
+  async (c) => {
+    const user = c.get('user');
+    const data = c.req.valid('json');
+    const db = getDb(c);
+    const now = new Date().toISOString();
+
+    // Create import batch
+    const batchId = generateId();
+    await db.prepare(
+      `INSERT INTO medication_import_batches
+       (id, file_name, file_size, source, status, imported_by, started_at, notes, created_at)
+       VALUES (?, ?, ?, 'AMM', 'processing', ?, ?, ?, ?)`
+    )
+      .bind(batchId, data.fileName, 0, user?.sub, now, data.notes || '', now)
+      .run();
+
+    const results = {
+      imported: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [] as { row: number; error: string }[],
+    };
+
+    // Normalize GPB value
+    const normalizeGpb = (val: string): string | null => {
+      const v = val.trim().toLowerCase();
+      if (v.startsWith('g')) return 'G';
+      if (v.startsWith('p')) return 'P';
+      if (v.startsWith('b')) return 'B';
+      return null;
+    };
+
+    // Normalize VEIC value
+    const normalizeVeic = (val: string): string | null => {
+      const v = val.trim().toLowerCase();
+      if (v.startsWith('v')) return 'V';
+      if (v.startsWith('e')) return 'E';
+      if (v.startsWith('i')) return 'I';
+      if (v.startsWith('c')) return 'C';
+      return null;
+    };
+
+    // Load all existing code_amm values in ONE query to avoid per-row SELECTs
+    const existingCodesResult = await db.prepare(
+      'SELECT code_amm FROM medications WHERE code_amm IS NOT NULL'
+    ).all();
+    const existingCodes = new Set(
+      existingCodesResult.results.map((r) => String(r.code_amm))
+    );
+
+    // Process in batches of 200 for D1 performance
+    const BATCH_SIZE = 200;
+    for (let i = 0; i < data.rows.length; i += BATCH_SIZE) {
+      const chunk = data.rows.slice(i, i + BATCH_SIZE);
+      const statements: D1PreparedStatement[] = [];
+
+      for (let j = 0; j < chunk.length; j++) {
+        const row = chunk[j]!;
+        const rowIndex = i + j + 1;
+        try {
+          const codeAmm = row.amm.trim();
+          if (!codeAmm) {
+            results.errors.push({ row: rowIndex, error: 'Code AMM manquant' });
+            results.skipped++;
+            continue;
+          }
+
+          const gpb = normalizeGpb(row.gpb);
+          const veic = normalizeVeic(row.veic);
+          const dureeConservationRaw = row.dureeConservation ? parseInt(String(row.dureeConservation), 10) : null;
+          const dureeConservation = dureeConservationRaw !== null && isNaN(dureeConservationRaw) ? null : dureeConservationRaw;
+          const isUpdate = existingCodes.has(codeAmm);
+
+          // Upsert: INSERT with ON CONFLICT to avoid separate SELECT per row
+          statements.push(
+            db.prepare(
+              `INSERT INTO medications
+               (id, code_pct, code_amm, brand_name, dci, dosage, form, packaging,
+                laboratory, gpb, veic, is_generic, is_reimbursable, reimbursement_rate,
+                amm_classe, amm_sous_classe, amm_date,
+                indications, duree_conservation,
+                conditionnement_primaire, spec_conditionnement, tableau_amm,
+                import_batch_id, is_active, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0.7, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+               ON CONFLICT(code_amm) DO UPDATE SET
+                 brand_name = excluded.brand_name,
+                 dci = excluded.dci,
+                 dosage = excluded.dosage,
+                 form = excluded.form,
+                 packaging = excluded.packaging,
+                 laboratory = excluded.laboratory,
+                 gpb = excluded.gpb,
+                 veic = excluded.veic,
+                 is_generic = excluded.is_generic,
+                 amm_classe = excluded.amm_classe,
+                 amm_sous_classe = excluded.amm_sous_classe,
+                 amm_date = excluded.amm_date,
+                 indications = excluded.indications,
+                 duree_conservation = excluded.duree_conservation,
+                 conditionnement_primaire = excluded.conditionnement_primaire,
+                 spec_conditionnement = excluded.spec_conditionnement,
+                 tableau_amm = excluded.tableau_amm,
+                 import_batch_id = excluded.import_batch_id,
+                 updated_at = excluded.updated_at`
+            )
+              .bind(
+                generateId(), codeAmm, codeAmm, row.nom, row.dci,
+                row.dosage || null, row.forme || null, row.presentation || null,
+                row.laboratoire || null, gpb, veic, gpb === 'G' ? 1 : 0,
+                row.classe || null, row.sousClasse || null, row.dateAmm || null,
+                row.indications || null, dureeConservation,
+                row.conditionnementPrimaire || null, row.specConditionnementPrimaire || null, row.tableau || null,
+                batchId, now, now
+              )
+          );
+
+          if (isUpdate) {
+            results.updated++;
+          } else {
+            // Track new code so duplicates within the same file count as updates
+            existingCodes.add(codeAmm);
+            results.imported++;
+          }
+        } catch (err) {
+          results.errors.push({
+            row: rowIndex,
+            error: err instanceof Error ? err.message : 'Erreur inconnue',
+          });
+          results.skipped++;
+        }
+      }
+
+      // Execute batch
+      if (statements.length > 0) {
+        await db.batch(statements);
+      }
+    }
+
+    // Update batch status
+    await db.prepare(
+      `UPDATE medication_import_batches SET
+       status = 'completed',
+       total_rows = ?,
+       imported_count = ?,
+       updated_count = ?,
+       skipped_count = ?,
+       error_count = ?,
+       errors_json = ?,
+       completed_at = ?
+       WHERE id = ?`
+    )
+      .bind(
+        data.rows.length,
+        results.imported,
+        results.updated,
+        results.skipped,
+        results.errors.length,
+        JSON.stringify(results.errors.slice(0, 100)),
+        new Date().toISOString(),
+        batchId
+      )
+      .run();
+
+    // Audit log
+    await logAudit(getDb(c), {
+      userId: user?.sub,
+      action: 'medications.import_amm',
+      entityType: 'medication_batch',
+      entityId: batchId,
+      changes: {
+        fileName: data.fileName,
+        imported: results.imported,
+        updated: results.updated,
+        errors: results.errors.length,
+      },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return success(c, {
+      batchId,
+      totalRows: data.rows.length,
+      imported: results.imported,
+      updated: results.updated,
+      skipped: results.skipped,
+      errors: results.errors.slice(0, 10),
+    });
+  }
+);
+
+/**
  * GET /
  * List medications with search and filters
  */
@@ -349,6 +574,9 @@ medications.get(
     const search = c.req.query('search');
     const familyId = c.req.query('familyId');
     const isGeneric = c.req.query('isGeneric');
+    const gpb = c.req.query('gpb');
+    const veic = c.req.query('veic');
+    const ammClasse = c.req.query('ammClasse');
     const offset = (page - 1) * limit;
 
     let query = `
@@ -360,8 +588,8 @@ medications.get(
     const params: (string | number)[] = [];
 
     if (search) {
-      query += ` AND (m.brand_name LIKE ? OR m.dci LIKE ? OR m.code_pct LIKE ?)`;
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      query += ` AND (m.brand_name LIKE ? OR m.dci LIKE ? OR m.code_pct LIKE ? OR m.code_amm LIKE ?)`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     if (familyId) {
@@ -374,6 +602,21 @@ medications.get(
       params.push(isGeneric === 'true' ? 1 : 0);
     }
 
+    if (gpb) {
+      query += ' AND m.gpb = ?';
+      params.push(gpb);
+    }
+
+    if (veic) {
+      query += ' AND m.veic = ?';
+      params.push(veic);
+    }
+
+    if (ammClasse) {
+      query += ' AND m.amm_classe = ?';
+      params.push(ammClasse);
+    }
+
     query += ' ORDER BY m.brand_name ASC LIMIT ? OFFSET ?';
     params.push(limit, offset);
 
@@ -384,8 +627,8 @@ medications.get(
     const countParams: (string | number)[] = [];
 
     if (search) {
-      countQuery += ` AND (brand_name LIKE ? OR dci LIKE ? OR code_pct LIKE ?)`;
-      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      countQuery += ` AND (brand_name LIKE ? OR dci LIKE ? OR code_pct LIKE ? OR code_amm LIKE ?)`;
+      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
     if (familyId) {
       countQuery += ' AND family_id = ?';
@@ -394,6 +637,18 @@ medications.get(
     if (isGeneric !== undefined) {
       countQuery += ' AND is_generic = ?';
       countParams.push(isGeneric === 'true' ? 1 : 0);
+    }
+    if (gpb) {
+      countQuery += ' AND gpb = ?';
+      countParams.push(gpb);
+    }
+    if (veic) {
+      countQuery += ' AND veic = ?';
+      countParams.push(veic);
+    }
+    if (ammClasse) {
+      countQuery += ' AND amm_classe = ?';
+      countParams.push(ammClasse);
     }
 
     const countResult = await getDb(c).prepare(countQuery).bind(...countParams).first();
@@ -449,7 +704,7 @@ medications.post(
  */
 medications.get(
   '/imports',
-  requireRole('ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const page = parseInt(c.req.query('page') || '1');
     const limit = parseInt(c.req.query('limit') || '20');
