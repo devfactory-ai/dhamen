@@ -368,7 +368,7 @@ bulletinsSoins.get('/blank-pdf', async (c) => {
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Bulletin de Soins - Dhamen</title>
+  <title>Bulletin de Soins - E-Santé</title>
   <style>
     @page { size: A4; margin: 15mm; }
     body { font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.4; }
@@ -396,7 +396,7 @@ bulletinsSoins.get('/blank-pdf', async (c) => {
 </head>
 <body>
   <div class="header">
-    <div class="logo">Dhamen <span class="logo-ar">ضامن</span></div>
+    <div class="logo">E-Santé <span class="logo-ar">ضامن</span></div>
     <div class="title">BULLETIN DE SOINS</div>
     <div class="bulletin-number">N° ${bulletinNumber} | Date: ${currentDate}</div>
   </div>
@@ -523,8 +523,8 @@ bulletinsSoins.get('/blank-pdf', async (c) => {
   </div>
 
   <div class="footer">
-    <p><strong>Dhamen</strong> - Plateforme de tiers payant santé | www.dhamen.tn</p>
-    <p>Pour toute question: support@dhamen.tn | Tél: +216 71 XXX XXX</p>
+    <p><strong>E-Santé</strong> - Plateforme de tiers payant santé | www.e-sante.tn</p>
+    <p>Pour toute question: support@e-sante.tn | Tél: +216 71 XXX XXX</p>
     <p style="margin-top: 10px; font-size: 8pt;">
       Ce document est généré automatiquement. Veuillez le remplir lisiblement et joindre tous les justificatifs nécessaires.
     </p>

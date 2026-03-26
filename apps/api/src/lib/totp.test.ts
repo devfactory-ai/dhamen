@@ -182,13 +182,13 @@ describe('TOTP Library', () => {
       expect(uri).toContain(encodeURIComponent(issuer));
     });
 
-    it('should use Dhamen as default issuer', () => {
+    it('should use E-Santé as default issuer', () => {
       const secret = 'JBSWY3DPEHPK3PXP';
       const email = 'user@example.com';
 
       const uri = generateTOTPUri(secret, email);
 
-      expect(uri).toContain('Dhamen');
+      expect(uri).toContain('E-Sant');
     });
   });
 

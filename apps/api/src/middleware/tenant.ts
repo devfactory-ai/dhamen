@@ -63,7 +63,7 @@ export const tenantMiddleware: MiddlewareHandler<{
       c.set('tenant', {
         tenantId: 'platform',
         tenantType: 'platform',
-        tenantName: 'Dhamen Platform',
+        tenantName: 'E-Santé Platform',
         tenantConfig: getDefaultConfig(),
       });
     }

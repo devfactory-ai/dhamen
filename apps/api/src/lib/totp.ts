@@ -179,7 +179,7 @@ function timeSafeEqual(a: string, b: string): boolean {
 export function generateTOTPUri(
   secret: string,
   email: string,
-  issuer = 'Dhamen'
+  issuer = 'E-Santé'
 ): string {
   const encodedIssuer = encodeURIComponent(issuer);
   const encodedEmail = encodeURIComponent(email);

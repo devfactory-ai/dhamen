@@ -148,12 +148,12 @@ publicApiV2.get('/openapi.json', (c) => {
   const spec = {
     openapi: '3.0.3',
     info: {
-      title: 'Dhamen Public API',
+      title: 'E-Santé Public API',
       version: '2.0.0',
-      description: 'API publique pour l\'intégration avec la plateforme Dhamen',
+      description: 'API publique pour l\'intégration avec la plateforme E-Santé',
       contact: {
-        name: 'Support Dhamen',
-        email: 'api-support@dhamen.tn',
+        name: 'Support E-Santé',
+        email: 'api-support@e-sante.tn',
       },
     },
     servers: [

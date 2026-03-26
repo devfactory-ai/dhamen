@@ -236,7 +236,7 @@ users.post('/import', requireRole('ADMIN'), zValidator('json', userImportSchema,
   };
 
   // Default password for imported users (they must change it on first login)
-  const defaultPassword = `Dhamen@${new Date().getFullYear()}!`;
+  const defaultPassword = `ESante@${new Date().getFullYear()}!`;
   const defaultPasswordHash = await hashPassword(defaultPassword);
 
   for (let i = 0; i < usersData.length; i++) {

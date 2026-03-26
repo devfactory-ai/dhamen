@@ -482,7 +482,7 @@ ${claim.claim_number} | ${claim.adherent_name} | ${claim.care_date}
 
 ---
 Document généré le ${new Date().toLocaleString('fr-TN')}
-Plateforme Dhamen - www.dhamen.tn
+Plateforme E-Santé - www.e-sante.tn
 `;
 
   return content;

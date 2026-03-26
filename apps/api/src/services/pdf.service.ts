@@ -144,7 +144,7 @@ export class PDFService {
           ${content}
           <div class="footer">
             <p>Document généré le ${new Date().toLocaleDateString('fr-TN')} à ${new Date().toLocaleTimeString('fr-TN')}</p>
-            <p>Dhamen - Plateforme de Tiers Payant Santé</p>
+            <p>E-Santé - Plateforme de Tiers Payant Santé</p>
             ${options?.footer || ''}
           </div>
         </div>

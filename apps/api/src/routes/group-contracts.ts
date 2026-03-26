@@ -812,7 +812,7 @@ function mergeExtractedPages(pages: Array<Record<string, unknown>>): Record<stri
  * Prompt Gemini pour l'analyse complète d'un contrat d'assurance groupe tunisien.
  * Gemini supporte nativement les PDFs et images — pas besoin d'extraction de texte.
  */
-const GEMINI_CONTRACT_PROMPT = `Tu es un expert en assurance santé groupe en Tunisie. Tu travailles pour la plateforme Dhamen de tiers payant.
+const GEMINI_CONTRACT_PROMPT = `Tu es un expert en assurance santé groupe en Tunisie. Tu travailles pour la plateforme E-Santé de tiers payant.
 
 Analyse ce document de contrat d'assurance groupe multirisques tunisien. Ce document contient PLUSIEURS SECTIONS IMPORTANTES:
 

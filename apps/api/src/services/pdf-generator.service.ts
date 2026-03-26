@@ -172,7 +172,7 @@ export function generatePDFHTML(
 <body>
   <div class="header">
     <div>
-      ${options.logo !== false ? '<div class="logo">Dhamen</div><div class="logo-subtitle">Plateforme Tiers Payant Sante</div>' : ''}
+      ${options.logo !== false ? '<div class="logo">E-Santé</div><div class="logo-subtitle">Plateforme Tiers Payant Sante</div>' : ''}
     </div>
     <div class="header-right">
       <div class="header-date">Genere le ${today}</div>
@@ -190,7 +190,7 @@ export function generatePDFHTML(
 
   html += `
   <div class="footer">
-    Dhamen - Plateforme de Tiers Payant Sante - Document genere automatiquement
+    E-Santé - Plateforme de Tiers Payant Sante - Document genere automatiquement
   </div>
 </body>
 </html>`;

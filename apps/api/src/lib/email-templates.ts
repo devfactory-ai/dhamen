@@ -14,13 +14,13 @@ function baseLayout(content: string): string {
 <tr><td align="center">
 <table width="480" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
 <tr><td style="background:${BRAND_COLOR};padding:24px 32px;text-align:center;">
-<span style="color:#fff;font-size:20px;font-weight:700;letter-spacing:1px;">◆ DHAMEN</span>
+<span style="color:#fff;font-size:20px;font-weight:700;letter-spacing:1px;">◆ E-SANTÉ</span>
 </td></tr>
 <tr><td style="padding:32px;">
 ${content}
 </td></tr>
 <tr><td style="padding:16px 32px;background:#f8f9fa;text-align:center;border-top:1px solid #e5e7eb;">
-<p style="margin:0;font-size:11px;color:#9ca3af;">© ${new Date().getFullYear()} Dhamen. Tous droits réservés.</p>
+<p style="margin:0;font-size:11px;color:#9ca3af;">© ${new Date().getFullYear()} E-Santé. Tous droits réservés.</p>
 <p style="margin:4px 0 0;font-size:11px;color:#9ca3af;">Gestionnaire d'assurance agréé.</p>
 </td></tr>
 </table>
@@ -60,7 +60,7 @@ export function renderMagicLinkEmail(loginUrl: string, userName: string): string
   return baseLayout(`
 <h2 style="margin:0 0 8px;font-size:20px;color:${BRAND_COLOR};text-align:center;">Connexion par lien magique</h2>
 <p style="margin:0 0 24px;font-size:14px;color:#6b7280;text-align:center;">
-  Bonjour ${userName}, cliquez sur le bouton ci-dessous pour vous connecter à votre espace Dhamen.
+  Bonjour ${userName}, cliquez sur le bouton ci-dessous pour vous connecter à votre espace E-Santé.
 </p>
 <table cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">
 <tr><td>
