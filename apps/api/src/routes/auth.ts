@@ -91,8 +91,8 @@ auth.post('/login', zValidator('json', loginRequestSchema, validationHook), asyn
     return error(c, 'INVALID_CREDENTIALS', 'Email ou mot de passe incorrect', 401);
   }
 
-  // Check if user has MFA enabled (activated by admin or by user in their profile)
-  if (user.mfaEnabled) {
+  // Check if user has MFA enabled or if role requires MFA (agents always require MFA)
+  if (user.mfaEnabled || roleRequiresMFA(user.role)) {
     const mfaToken = await signJWT(
       { id: user.id, sub: user.id, email: user.email, role: user.role, purpose: 'mfa_verify' },
       c.env.JWT_SECRET,
@@ -1018,6 +1018,11 @@ auth.post('/mfa/email/disable', authMiddleware(), async (c) => {
 
   if (!user.mfaEnabled) {
     return error(c, 'MFA_NOT_ENABLED', 'MFA non active sur ce compte', 400);
+  }
+
+  // Agents cannot disable MFA — it is mandatory for their role
+  if (roleRequiresMFA(user.role)) {
+    return error(c, 'MFA_REQUIRED_FOR_ROLE', 'La double authentification est obligatoire pour votre rôle', 403);
   }
 
   await updateUser(getDb(c), user.id, { mfaEnabled: false, mfaSecret: undefined });

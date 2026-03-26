@@ -22,6 +22,10 @@ export function SettingsPage() {
   const [mfaStep, setMfaStep] = useState<'idle' | 'code_sent' | 'verifying'>('idle');
   const [mfaCode, setMfaCode] = useState('');
 
+  // MFA is mandatory for agents — they cannot toggle it off
+  const MFA_REQUIRED_ROLES = ['INSURER_AGENT'];
+  const isMfaRequired = MFA_REQUIRED_ROLES.includes(user?.role || '');
+
   const queryClient = useQueryClient();
 
   const {
@@ -331,29 +335,38 @@ export function SettingsPage() {
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-gray-900">Authentification à deux facteurs</p>
                     <p className="text-xs text-gray-500">
-                      {user?.mfaEnabled
-                        ? 'Un code de vérification par email est exigé à chaque connexion'
-                        : 'Sécurisez davantage votre compte avec un code par email'}
+                      {isMfaRequired
+                        ? 'La double authentification est obligatoire pour votre rôle'
+                        : user?.mfaEnabled
+                          ? 'Un code de vérification par email est exigé à chaque connexion'
+                          : 'Sécurisez davantage votre compte avec un code par email'}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleMfaToggle}
-                    disabled={mfaDisableMutation.isPending || mfaEnableSendMutation.isPending || mfaStep === 'code_sent'}
-                    className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      user?.mfaEnabled ? 'bg-blue-600' : 'bg-gray-300'
-                    } ${(mfaDisableMutation.isPending || mfaEnableSendMutation.isPending) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                        user?.mfaEnabled ? 'translate-x-5' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
+                  {isMfaRequired ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                      <Lock className="h-3 w-3" />
+                      Obligatoire
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleMfaToggle}
+                      disabled={mfaDisableMutation.isPending || mfaEnableSendMutation.isPending || mfaStep === 'code_sent'}
+                      className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        user?.mfaEnabled ? 'bg-blue-600' : 'bg-gray-300'
+                      } ${(mfaDisableMutation.isPending || mfaEnableSendMutation.isPending) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          user?.mfaEnabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  )}
                 </div>
 
-                {/* Inline MFA email verification */}
-                {mfaStep === 'code_sent' && (
+                {/* Inline MFA email verification — only for non-required roles */}
+                {!isMfaRequired && mfaStep === 'code_sent' && (
                   <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-2">
                     <p className="text-sm text-blue-800">
                       Un code à 6 chiffres a été envoyé à <strong>{user?.email}</strong>
