@@ -8,6 +8,24 @@ export const codeSituationFamSchema = z.enum(['C', 'M', 'D', 'V']);
 export const typePieceIdentiteSchema = z.enum(['CIN', 'PASSEPORT', 'CARTE_SEJOUR', 'AUTRE']);
 export const etatFicheSchema = z.enum(['TEMPORAIRE', 'NON_TEMPORAIRE']);
 
+/**
+ * Schema pour un ayant droit (conjoint ou enfant) créé en même temps que l'adhérent principal
+ */
+export const ayantDroitSchema = z.object({
+  lienParente: z.enum(['C', 'E']), // C=Conjoint, E=Enfant
+  nationalId: z.string().optional().or(z.literal('')),
+  typePieceIdentite: typePieceIdentiteSchema.optional(),
+  firstName: z.string().min(1, 'Prénom requis'),
+  lastName: z.string().min(1, 'Nom requis'),
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format date invalide (YYYY-MM-DD)'),
+  gender: genderSchema.optional(),
+  // etatCivil déduit automatiquement: conjoint='marie', enfant='celibataire'
+  phone: z.string().optional(),
+  email: z.string().email().optional().or(z.literal('')),
+});
+
+export type AyantDroitInput = z.infer<typeof ayantDroitSchema>;
+
 export const adherentCreateSchema = z.object({
   // Identité
   nationalId: z.string().optional().or(z.literal('')),
@@ -56,6 +74,8 @@ export const adherentCreateSchema = z.object({
   contreVisiteObligatoire: z.boolean().optional(),
   etatFiche: etatFicheSchema.optional(),
   credit: z.number().min(0).optional(),
+  // Ayants droit (conjoint + enfants) créés avec l'adhérent principal
+  ayantsDroit: z.array(ayantDroitSchema).max(10).optional(),
 });
 
 export const adherentUpdateSchema = z.object({

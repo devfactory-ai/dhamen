@@ -880,9 +880,8 @@ adherents.post(
     const user = c.get('user');
     const encryptionKey = getEncryptionKey(c);
 
-    // Encrypt sensitive data with AES-256-GCM
-    // national_id_encrypted is NOT NULL in DB, so encrypt even empty strings
-    const encryptedNationalId = await encrypt(data.nationalId || '', encryptionKey);
+    // Encrypt sensitive data with AES-256-GCM — skip costly PBKDF2 when values are empty
+    const encryptedNationalId = data.nationalId ? await encrypt(data.nationalId, encryptionKey) : '';
     const encryptedPhone = data.phone ? await encrypt(data.phone, encryptionKey) : undefined;
 
     // Store hash for searchability (allows lookup without decryption)
