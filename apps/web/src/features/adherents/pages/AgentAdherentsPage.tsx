@@ -19,7 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Users, Eye, FileText, UserPlus, Pencil, Trash2, Download } from 'lucide-react';
+import { Users, Eye, FileText, UserPlus, Pencil, Trash2, Download, AlertCircle } from 'lucide-react';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
 import {
   useAdherents,
@@ -59,6 +59,7 @@ interface AgentAdherent {
   plafondConsomme: number | null;
   ayantsDroitJson: string | null;
   isActive: boolean;
+  dossierComplet: boolean;
   createdAt: string;
 }
 
@@ -193,14 +194,22 @@ export function AgentAdherentsPage() {
     },
     {
       key: 'adherent',
-      header: 'Adherent',
+      header: 'Adhérent',
       render: (item: AgentAdherent) => (
         <div className="flex items-center gap-3">
           <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-medium text-white ${getAvatarColor(item.firstName + item.lastName)}`}>
             {getInitials(item.firstName, item.lastName)}
           </div>
           <div>
-            <p className="text-sm font-medium text-gray-900">{item.firstName} {item.lastName}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-gray-900">{item.firstName} {item.lastName}</p>
+              {!item.dossierComplet && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-amber-50 border-amber-300 text-amber-700 gap-0.5">
+                  <AlertCircle className="w-2.5 h-2.5" />
+                  Dossier incomplet
+                </Badge>
+              )}
+            </div>
             <p className="text-xs text-gray-400">{item.email || '—'}</p>
           </div>
         </div>
@@ -519,6 +528,19 @@ export function AgentAdherentsPage() {
 
           {viewAdherent && (
             <div className="space-y-5">
+              {/* Alerte dossier incomplet */}
+              {!viewAdherent.dossierComplet && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">Dossier incomplet</p>
+                    <p className="text-xs text-amber-700 mt-1">
+                      Cet adhérent a été créé automatiquement lors de l'import d'un bulletin. Veuillez compléter ses informations (CIN, date de naissance, adresse, etc.).
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Actions rapides */}
               <div className="flex gap-2">
                 <Button

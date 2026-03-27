@@ -49,6 +49,8 @@ import { FamilleTable } from '@/features/agent/adherents/components/FamilleTable
 import { PlafondsCard } from '@/features/agent/adherents/components/PlafondsCard';
 import { ScanUpload } from '@/features/bulletins/components/scan-upload';
 import { ActeSelector } from '@/features/agent/bulletins/components/ActeSelector';
+import { MedicationAutocomplete } from '@/features/bulletins/components/medication-autocomplete';
+import { MfLookupInput } from '@/features/bulletins/components/mf-lookup-input';
 import {
   FileText,
   Upload,
@@ -79,6 +81,8 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  XCircle,
+  UserPlus,
 } from 'lucide-react';
 
 // --- OCR Feedback types ---
@@ -163,11 +167,12 @@ const careTypeConfig = {
 
 // Form schema
 const acteFormSchema = z.object({
-  code: z.string().optional(),
+  code: z.string().optional().or(z.literal('')),
   label: z.string().min(1, 'Libelle requis'),
   amount: z.number().positive('Montant > 0'),
-  ref_prof_sant: z.string().min(1, 'Matricule fiscale requis'),
-  nom_prof_sant: z.string().min(2, 'Nom du praticien requis'),
+  ref_prof_sant: z.string().optional().or(z.literal('')),
+  nom_prof_sant: z.string().optional().or(z.literal('')),
+  care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']),
   care_description: z.string().optional(),
   cod_msgr: z.string().optional(),
   lib_msgr: z.string().optional(),
@@ -177,14 +182,19 @@ const bulletinFormSchema = z.object({
   bulletin_number: z.string().optional().or(z.literal('')),
   bulletin_date: z.string().min(1, 'Date requise'),
   adherent_matricule: z.string().min(1, 'Matricule requis'),
-  adherent_first_name: z.string().min(2, 'Prenom requis'),
-  adherent_last_name: z.string().min(2, 'Nom requis'),
+  adherent_first_name: z.string().optional().or(z.literal('')),
+  adherent_last_name: z.string().optional().or(z.literal('')),
   adherent_contract_number: z.string().optional(),
   adherent_national_id: z.string().optional().or(z.literal('')),
   adherent_email: z.string().email('Email invalide').optional().or(z.literal('')),
   adherent_address: z.string().optional(),
   beneficiary_name: z.string().optional(),
-  care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']),
+  beneficiary_id: z.string().optional(),
+  beneficiary_relationship: z.enum(['self', 'spouse', 'child']).optional(),
+  beneficiary_email: z.string().email('Email invalide').optional().or(z.literal('')),
+  beneficiary_address: z.string().optional().or(z.literal('')),
+  beneficiary_date_of_birth: z.string().optional().or(z.literal('')),
+  care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']).optional(),
   actes: z.array(acteFormSchema).min(1, 'Au moins un acte requis'),
 });
 
@@ -246,6 +256,7 @@ export function BulletinsSaisiePage() {
   const [validateNotes, setValidateNotes] = useState('');
   const validateMutation = useBulletinValidation();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [bulletinNumberFromOcr, setBulletinNumberFromOcr] = useState(false);
   const [showScanPreview, setShowScanPreview] = useState(false);
   const [ocrFeedback, setOcrFeedback] = useState<OcrFeedbackState | null>(null);
   const [isSendingFeedback, setIsSendingFeedback] = useState(false);
@@ -267,6 +278,16 @@ export function BulletinsSaisiePage() {
     (p) => p.familleCode === 'FA0003' && p.typeMaladie === 'ordinaire'
   );
   const [selectedMedicationFamily, setSelectedMedicationFamily] = useState<string>('');
+  const [mfStatuses, setMfStatuses] = useState<Record<number, import('@/features/bulletins/components/mf-lookup-input').MfStatus>>({});
+
+  // State for newly registered practitioners popup
+  const [newPractitioners, setNewPractitioners] = useState<string[]>([]);
+  const [showNewPractitionersDialog, setShowNewPractitionersDialog] = useState(false);
+
+  // OCR-extracted praticien info per acte (from tampon/stamp analysis)
+  const [ocrPraticienInfos, setOcrPraticienInfos] = useState<Record<number, { nom: string; mf: string; specialite?: string; adresse?: string; telephone?: string }>>({});
+  // Checkbox: auto-register new praticien on submit (per acte index)
+  const [autoRegisterPraticien, setAutoRegisterPraticien] = useState<Record<number, boolean>>({});
 
   const {
     register,
@@ -279,9 +300,8 @@ export function BulletinsSaisiePage() {
   } = useForm<BulletinFormData>({
     resolver: zodResolver(bulletinFormSchema),
     defaultValues: {
-      care_type: 'consultation',
       bulletin_date: new Date().toISOString().split('T')[0],
-      actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_description: '', cod_msgr: '', lib_msgr: '' }],
+      actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_type: 'consultation' as const, care_description: '', cod_msgr: '', lib_msgr: '' }],
     },
   });
 
@@ -290,9 +310,41 @@ export function BulletinsSaisiePage() {
     name: 'actes',
   });
 
-  const selectedCareType = watch('care_type');
   const watchedActes = watch('actes');
   const actesTotal = (watchedActes || []).reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+  // care_type is now per-acte; derive "primary" care type from first acte for medication families query
+  const selectedCareType = watchedActes?.[0]?.care_type || 'consultation';
+  // Check if any acte is pharmacy type (for medication families fetch)
+  const hasPharmacyActe = watchedActes?.some(a => a.care_type === 'pharmacy');
+
+  // Check if any MF is invalid or errored — blocks submit
+  // Allowed (non-blocking) statuses: 'found', 'registered', 'not_found', 'forced', 'idle' (not yet checked)
+  // Blocking statuses: 'loading' (in progress), 'invalid', 'error'
+  const MF_BLOCKING_STATUSES: import('@/features/bulletins/components/mf-lookup-input').MfStatus[] = ['loading', 'invalid', 'error'];
+  const hasMfBlocking = watchedActes?.length > 0 && (
+    watchedActes.some((_a, idx) => {
+      const status = mfStatuses[idx];
+      return status && MF_BLOCKING_STATUSES.includes(status);
+    })
+  );
+  const mfBlockingReason = (() => {
+    if (!hasMfBlocking) return null;
+    const statuses = watchedActes?.map((_a, idx) => mfStatuses[idx]);
+    if (statuses?.some(s => s === 'invalid')) return 'Matricule fiscale invalide';
+    if (statuses?.some(s => s === 'error')) return 'Erreur de vérification MF';
+    if (statuses?.some(s => s === 'loading')) return 'Vérification MF en cours...';
+    return 'Matricule fiscale requis';
+  })();
+
+  // Check if beneficiary selection is invalid (conjoint/enfant selected but not registered)
+  // Only block when adherent IS identified but family member is missing
+  const watchedBeneficiaryRel = watch('beneficiary_relationship');
+  const hasBeneficiaryBlocking = (() => {
+    if (!selectedAdherentInfo) return false; // Don't block when adherent not identified
+    if (watchedBeneficiaryRel === 'spouse' && !familleData?.conjoint) return true;
+    if (watchedBeneficiaryRel === 'child' && (!familleData?.enfants || familleData.enfants.length === 0)) return true;
+    return false;
+  })();
 
   // Fetch medication families for pharmacy care type
   const { data: medicationFamilies } = useQuery({
@@ -302,36 +354,7 @@ export function BulletinsSaisiePage() {
       if (!response.success) return [];
       return response.data?.families || [];
     },
-    enabled: selectedCareType === 'pharmacy',
-  });
-
-  // Fetch medications filtered by family
-  const { data: medications } = useQuery({
-    queryKey: ['medications', selectedMedicationFamily],
-    queryFn: async () => {
-      const params: Record<string, string> = { limit: '200' };
-      if (selectedMedicationFamily && selectedMedicationFamily !== 'all') {
-        params.familyId = selectedMedicationFamily;
-      }
-      const response = await apiClient.get<{
-        id: string;
-        code_pct: string;
-        dci: string;
-        brand_name: string;
-        dosage: string;
-        form: string;
-        family_name: string;
-        price_public: number;
-        is_generic: number;
-        is_reimbursable: number;
-        reimbursement_rate: number;
-      }[]>('/medications', { params });
-      if (!response.success) return [];
-      // apiClient may return data directly as array or wrapped
-      const raw = response as unknown as { data: unknown };
-      return Array.isArray(raw.data) ? raw.data : [];
-    },
-    enabled: selectedCareType === 'pharmacy',
+    enabled: !!hasPharmacyActe,
   });
 
   // Fetch bulletins (drafts and in_batch) for current batch
@@ -420,6 +443,9 @@ export function BulletinsSaisiePage() {
       setShowAdherentDropdown(false);
       setSelectedMedicationFamily('');
       setOcrFeedback(null);
+      setMfStatuses({});
+      setOcrPraticienInfos({});
+      setAutoRegisterPraticien({});
       setFeedbackErrors([]);
       setFeedbackComment('');
       setActiveTab('liste');
@@ -621,6 +647,9 @@ export function BulletinsSaisiePage() {
     });
     setSelectedAdherentInfo(null);
     setOcrFeedback(null);
+    setOcrPraticienInfos({});
+    setAutoRegisterPraticien({});
+    setMfStatuses({});
     setSelectedFiles(validFiles);
     // Reset input value so re-selecting the same files triggers onChange
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -647,6 +676,9 @@ export function BulletinsSaisiePage() {
       });
       setSelectedAdherentInfo(null);
       setOcrFeedback(null);
+      setOcrPraticienInfos({});
+      setAutoRegisterPraticien({});
+      setMfStatuses({});
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -705,6 +737,9 @@ export function BulletinsSaisiePage() {
       const numeroBulletin = parsed?.numero_bulletin || info?.numero_bulletin;
       if (numeroBulletin) {
         setValue('bulletin_number', numeroBulletin);
+        setBulletinNumberFromOcr(true);
+      } else {
+        setBulletinNumberFromOcr(false);
       }
 
       // Auto-fill adherent fields
@@ -749,18 +784,19 @@ export function BulletinsSaisiePage() {
         }
       }
 
-      // Auto-fill care type from first acte's type_soin
+      // Helper: detect care_type from OCR type_soin string
+      const detectCareType = (typeSoin?: string | null): 'consultation' | 'pharmacy' | 'lab' | 'hospital' => {
+        if (!typeSoin) return 'consultation';
+        const ts = typeSoin.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        if (ts.includes('pharmac') || ts.includes('medicament')) return 'pharmacy';
+        if (ts.includes('labo') || ts.includes('analyse') || ts.includes('biolog')) return 'lab';
+        if (ts.includes('hosp') || ts.includes('clinique')) return 'hospital';
+        return 'consultation';
+      };
+
+      // Auto-fill global care type from first acte's type_soin
       if (Array.isArray(actes) && actes.length > 0 && actes[0]?.type_soin) {
-        const typeSoin = actes[0].type_soin.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        if (typeSoin.includes('pharmac') || typeSoin.includes('medicament')) {
-          setValue('care_type', 'pharmacy');
-        } else if (typeSoin.includes('labo') || typeSoin.includes('analyse') || typeSoin.includes('biolog')) {
-          setValue('care_type', 'lab');
-        } else if (typeSoin.includes('hosp') || typeSoin.includes('clinique')) {
-          setValue('care_type', 'hospital');
-        } else {
-          setValue('care_type', 'consultation');
-        }
+        setValue('care_type', detectCareType(actes[0].type_soin));
       }
 
       // Auto-fill actes with enriched codes from backend (TASK-003)
@@ -770,31 +806,73 @@ export function BulletinsSaisiePage() {
           removeActe(currentActes.length - 1);
         }
 
-        // Detect if care type is pharmacy (from the OCR type_soin we just set)
-        const detectedCareType = watch('care_type');
-        const isPharmacy = detectedCareType === 'pharmacy';
-
         actes.forEach((acte: Record<string, string | null>, i: number) => {
+          // Detect care_type per acte from its own type_soin
+          const acteCareType = detectCareType(acte.type_soin);
+          const isPharmacy = acteCareType === 'pharmacy';
           const rawMontant = (acte.montant_facture || acte.montant_honoraires || '0')
             .replace(/[^\d.,]/g, '')
             .replace(',', '.');
           const montant = parseFloat(rawMontant) || 0;
 
-          // For pharmacy: don't set code (user must select medication from list)
+          // For pharmacy: use OCR-matched medication if available, otherwise leave empty
           // For other types: use backend-enriched codes or local mapping
           const mapped = acte.nature_acte ? mapNatureActeToCode(acte.nature_acte) : null;
-          const code = isPharmacy ? '' : (acte.matched_code || mapped?.code || '');
-          const label = isPharmacy ? (acte.nature_acte || '') : (acte.matched_label || mapped?.label || acte.nature_acte || '');
+          const matchedMed = acte.matched_medication as { code_pct?: string; brand_name?: string; dci?: string; dosage?: string; form?: string; price_public?: number; reimbursement_rate?: number } | undefined;
+
+          let code: string;
+          let label: string;
+          let autoAmount: number | null = null;
+
+          if (isPharmacy && matchedMed) {
+            code = matchedMed.code_pct || '';
+            const reimbLabel = matchedMed.reimbursement_rate ? `[R ${Math.round(matchedMed.reimbursement_rate * 100)}%]` : '[NR]';
+            label = `${matchedMed.brand_name || ''} - ${matchedMed.dci || ''} ${matchedMed.dosage || ''} ${matchedMed.form || ''} ${reimbLabel}`.trim();
+            if (matchedMed.price_public) {
+              autoAmount = matchedMed.price_public / 1000;
+            }
+          } else if (isPharmacy) {
+            code = '';
+            label = acte.nature_acte || '';
+          } else {
+            code = acte.matched_code || mapped?.code || '';
+            label = acte.matched_label || mapped?.label || acte.nature_acte || '';
+          }
 
           // Keep nature_acte from OCR as care_description (e.g. "Psychiatrie")
           const natureActeOriginal = acte.nature_acte || '';
 
+          // Use OCR-matched amount or fallback to extracted montant
+          const finalAmount = (isPharmacy && autoAmount) ? autoAmount : montant;
+
+          // MF: use enriched provider name if available, fallback to OCR raw
+          const mfProvider = acte.mf_provider as { name?: string; speciality?: string; address?: string } | undefined;
+          const nomPraticien = mfProvider?.name || acte.nom_praticien || '';
+          const refProfSant = (acte.mf_extracted as string) || acte.matricule_fiscale || '';
+
+          // Store OCR-extracted praticien info for display when MF not found in DB
+          if (refProfSant || nomPraticien) {
+            setOcrPraticienInfos(prev => ({
+              ...prev,
+              [i]: {
+                nom: nomPraticien,
+                mf: refProfSant,
+                specialite: mfProvider?.speciality || (acte.specialite as string) || natureActeOriginal || undefined,
+                adresse: (acte.adresse_praticien as string) || mfProvider?.address || undefined,
+                telephone: (acte.telephone_praticien as string) || undefined,
+              },
+            }));
+            // Auto-register checkbox: checked by default when MF exists but provider not in DB
+            setAutoRegisterPraticien(prev => ({ ...prev, [i]: true }));
+          }
+
           if (i === 0) {
             setValue('actes.0.code', code);
             setValue('actes.0.label', label);
-            setValue('actes.0.amount', montant);
-            setValue('actes.0.nom_prof_sant', acte.nom_praticien || '');
-            setValue('actes.0.ref_prof_sant', acte.matricule_fiscale || '');
+            setValue('actes.0.amount', finalAmount);
+            setValue('actes.0.nom_prof_sant', nomPraticien);
+            setValue('actes.0.ref_prof_sant', refProfSant);
+            setValue('actes.0.care_type', acteCareType);
             if (natureActeOriginal && !isPharmacy) {
               setValue('actes.0.care_description', natureActeOriginal);
             }
@@ -802,11 +880,12 @@ export function BulletinsSaisiePage() {
             appendActe({
               code,
               label,
-              amount: montant,
-              nom_prof_sant: acte.nom_praticien || '',
-              ref_prof_sant: acte.matricule_fiscale || '',
+              amount: finalAmount,
+              nom_prof_sant: nomPraticien,
+              ref_prof_sant: refProfSant,
+              care_type: acteCareType,
               cod_msgr: '',
-              lib_msgr: natureActeOriginal && !isPharmacy ? '' : '',
+              lib_msgr: '',
               care_description: !isPharmacy ? natureActeOriginal : '',
             });
           }
@@ -862,8 +941,51 @@ export function BulletinsSaisiePage() {
   };
 
   const onSubmitForm = async (data: BulletinFormData) => {
+    // Pre-submit business validations
+    const validationErrors: string[] = [];
+
+    // Warn if adherent not found, but don't block submission
+    // Bulletin can be saved even with unidentified adherent
+
+    // Bulletin date validation (only if parseable)
+    const bulletinDate = new Date(data.bulletin_date);
+    if (!isNaN(bulletinDate.getTime())) {
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      if (bulletinDate > today) {
+        validationErrors.push('La date du bulletin ne peut pas être dans le futur.');
+      }
+    }
+
+    // Total amount must be > 0
+    const total = data.actes.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+    if (total <= 0) {
+      validationErrors.push('Le montant total doit être supérieur à 0.');
+    }
+
+    // Each non-pharmacy acte should have a valid code (pharmacy actes may not have a referentiel code)
+    const actesWithoutCode = data.actes
+      .map((a, i) => ({ index: i, code: a.code, careType: a.care_type }))
+      .filter((a) => (!a.code || a.code.trim() === '') && a.careType !== 'pharmacy');
+    if (actesWithoutCode.length > 0) {
+      validationErrors.push(`Acte(s) ${actesWithoutCode.map(a => a.index + 1).join(', ')} : code acte requis (sélectionnez un acte du référentiel).`);
+    }
+
+    // If beneficiary is selected (not self), name must not be empty
+    if (data.beneficiary_relationship && data.beneficiary_relationship !== 'self' && !data.beneficiary_name?.trim()) {
+      validationErrors.push('Le nom du bénéficiaire (ayant droit) est requis.');
+    }
+
+    if (validationErrors.length > 0) {
+      validationErrors.forEach(err => toast.error(err));
+      return;
+    }
+
     setIsSubmitting(true);
     try {
+      // Everything is handled server-side in agent/create:
+      // - Auto-create adherent if not found (dossier_complet = 0)
+      // - Auto-create praticien for each acte with MF
       await submitMutation.mutateAsync({ formData: data, files: selectedFiles });
     } finally {
       setIsSubmitting(false);
@@ -1036,7 +1158,25 @@ export function BulletinsSaisiePage() {
               </CardContent>
             </Card>
           ) : (
-            <form onSubmit={handleSubmit(onSubmitForm)}>
+            <form onSubmit={handleSubmit(onSubmitForm, (formErrors) => {
+              // Show validation errors from Zod schema when form is invalid
+              const messages: string[] = [];
+              if (formErrors.bulletin_date) messages.push(`Date: ${formErrors.bulletin_date.message}`);
+              if (formErrors.adherent_matricule) messages.push(`Matricule: ${formErrors.adherent_matricule.message}`);
+              if (formErrors.actes?.root) messages.push(formErrors.actes.root.message || 'Erreur actes');
+              if (formErrors.actes && Array.isArray(formErrors.actes)) {
+                formErrors.actes.forEach((acteErr, idx) => {
+                  if (acteErr?.label) messages.push(`Acte ${idx + 1} — libellé: ${acteErr.label.message}`);
+                  if (acteErr?.amount) messages.push(`Acte ${idx + 1} — montant: ${acteErr.amount.message}`);
+                });
+              }
+              if (messages.length > 0) {
+                messages.forEach(m => toast.error(m));
+              } else {
+                toast.error('Veuillez vérifier les champs du formulaire.');
+              }
+            })}>
+              <fieldset disabled={isSubmitting} className="contents">
               <div className="grid gap-6 lg:grid-cols-3">
                 {/* ===== LEFT 2 COLUMNS ===== */}
                 <div className="lg:col-span-2 space-y-6">
@@ -1279,90 +1419,31 @@ export function BulletinsSaisiePage() {
                       </div>
                       <div className="space-y-4">
                         <div className="space-y-2">
-                          <Label className="text-sm text-gray-700">Numéro du bulletin *</Label>
-                          <Input {...register('bulletin_number')} placeholder="Ex: 847291-B" className="rounded-xl" />
+                          <Label className="text-sm text-gray-700">Numéro du bulletin</Label>
+                          <div className="relative">
+                            <Input {...register('bulletin_number')} placeholder="Auto-généré si vide" className="rounded-xl pr-24" />
+                            {watch('bulletin_number') && bulletinNumberFromOcr ? (
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded flex items-center gap-1">
+                                <ScanSearch className="h-3 w-3" />
+                                Détecté par IA
+                              </span>
+                            ) : !watch('bulletin_number') ? (
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">
+                                Auto-généré
+                              </span>
+                            ) : null}
+                          </div>
                           {errors.bulletin_number && (
                             <p className="text-sm text-destructive">{errors.bulletin_number.message}</p>
                           )}
                         </div>
                         <div className="space-y-2">
                           <Label className="text-sm text-gray-700">Date du bulletin *</Label>
-                          <Input type="date" {...register('bulletin_date')} className="rounded-xl" />
+                          <Input type="date" {...register('bulletin_date')} max={new Date().toISOString().split('T')[0]} className="rounded-xl" />
                           {errors.bulletin_date && (
                             <p className="text-sm text-destructive">{errors.bulletin_date.message}</p>
                           )}
                         </div>
-                        <div className="space-y-2">
-                          <Label className="text-sm text-gray-700">Type de soin *</Label>
-                          <Select
-                            value={selectedCareType}
-                            onValueChange={(v) => setValue('care_type', v as 'consultation' | 'pharmacy' | 'lab' | 'hospital')}
-                          >
-                            <SelectTrigger className="rounded-xl">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="consultation">Consultation</SelectItem>
-                              <SelectItem value="pharmacy">Pharmacie</SelectItem>
-                              <SelectItem value="lab">Analyses</SelectItem>
-                              <SelectItem value="hospital">Hospitalisation</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        {selectedCareType === 'pharmacy' && (
-                          <div className="space-y-2">
-                            <Label className="text-sm text-gray-700">Famille therapeutique</Label>
-                            <Select
-                              value={selectedMedicationFamily || undefined}
-                              onValueChange={setSelectedMedicationFamily}
-                            >
-                              <SelectTrigger className="rounded-xl">
-                                <SelectValue placeholder="Toutes les familles" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="all">Toutes les familles</SelectItem>
-                                {(medicationFamilies || []).map((f) => (
-                                  <SelectItem key={f.id} value={f.id}>
-                                    {f.code} - {f.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
-                        {selectedCareType === 'pharmacy' && selectedAdherentInfo && (
-                          <div className="rounded-xl border px-3 py-2 text-xs space-y-1 bg-blue-50/50">
-                            <p className="font-medium text-blue-800 flex items-center gap-1">
-                              <Pill className="h-3.5 w-3.5" />
-                              Remboursement Frais Pharmaceutiques
-                            </p>
-                            {plafondPharmaOrdinaire ? (
-                              <div className="flex justify-between text-blue-700">
-                                <span>Maladie ordinaire : {Math.round((plafondPharmaOrdinaire.montantConsomme / 1000) * 1000) / 1000} / {(plafondPharmaOrdinaire.montantPlafond / 1000).toFixed(3)} DT</span>
-                                <span className={plafondPharmaOrdinaire.pourcentageConsomme >= 80 ? 'text-red-600 font-semibold' : ''}>
-                                  Restant : {(plafondPharmaOrdinaire.montantRestant / 1000).toFixed(3)} DT
-                                </span>
-                              </div>
-                            ) : plafondPharma ? (
-                              <div className="flex justify-between text-blue-700">
-                                <span>Consomme : {(plafondPharma.montantConsomme / 1000).toFixed(3)} / {(plafondPharma.montantPlafond / 1000).toFixed(3)} DT</span>
-                                <span className={plafondPharma.pourcentageConsomme >= 80 ? 'text-red-600 font-semibold' : ''}>
-                                  Restant : {(plafondPharma.montantRestant / 1000).toFixed(3)} DT
-                                </span>
-                              </div>
-                            ) : (
-                              <p className="text-gray-500">Aucun plafond pharma configure</p>
-                            )}
-                            {plafondPharmaChronique && (
-                              <div className="flex justify-between text-orange-700">
-                                <span>Maladie chronique : {(plafondPharmaChronique.montantConsomme / 1000).toFixed(3)} / {(plafondPharmaChronique.montantPlafond / 1000).toFixed(3)} DT</span>
-                                <span className={plafondPharmaChronique.pourcentageConsomme >= 80 ? 'text-red-600 font-semibold' : ''}>
-                                  Restant : {(plafondPharmaChronique.montantRestant / 1000).toFixed(3)} DT
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        )}
                       </div>
                     </div>
 
@@ -1370,7 +1451,7 @@ export function BulletinsSaisiePage() {
                     <div className="rounded-2xl border border-gray-200 bg-white p-6">
                       <div className="flex items-center gap-3 mb-5">
                         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">03</span>
-                        <h2 className="text-lg font-semibold text-gray-900">Recherche Adhérent</h2>
+                        <h2 className="text-lg font-semibold text-gray-900">Adhérent</h2>
                       </div>
                       <div className="space-y-4">
                         {/* Matricule search */}
@@ -1386,7 +1467,17 @@ export function BulletinsSaisiePage() {
                                 register('adherent_matricule').onChange(e);
                                 setAdherentSearch(e.target.value);
                                 setShowAdherentDropdown(true);
-                                if (!e.target.value) setSelectedAdherentInfo(null);
+                                // Reset all adherent/beneficiary info when matricule changes
+                                setSelectedAdherentInfo(null);
+                                setValue('adherent_first_name', '');
+                                setValue('adherent_last_name', '');
+                                setValue('adherent_email', '');
+                                setValue('adherent_national_id', '');
+                                setValue('adherent_contract_number', '');
+                                setValue('adherent_address', '');
+                                setValue('beneficiary_relationship', undefined);
+                                setValue('beneficiary_name', '');
+                                setValue('beneficiary_id', '');
                               }}
                               onFocus={() => adherentSearch.length >= 2 && setShowAdherentDropdown(true)}
                               onBlur={() => setTimeout(() => setShowAdherentDropdown(false), 200)}
@@ -1435,146 +1526,365 @@ export function BulletinsSaisiePage() {
                           )}
                         </div>
 
-                        {/* Selected adherent card */}
-                        {selectedAdherentInfo && (
-                          <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4">
-                            <div className="flex items-center gap-3">
-                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
-                                {(selectedAdherentInfo.firstName?.[0] || '').toUpperCase()}{(selectedAdherentInfo.lastName?.[0] || '').toUpperCase()}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-semibold text-sm text-gray-900">{selectedAdherentInfo.firstName} {selectedAdherentInfo.lastName}</p>
-                                <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                                  {selectedAdherentInfo.contractType && (
-                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                                      {selectedAdherentInfo.contractType === 'individual' ? 'Individuel' :
-                                       selectedAdherentInfo.contractType === 'family' ? 'Famille' : 'Groupe'}
-                                    </Badge>
-                                  )}
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 border-green-200 text-green-700">
-                                    <Check className="w-2.5 h-2.5 mr-0.5" />
-                                    Actif
-                                  </Badge>
-                                </div>
-                              </div>
+                        {/* Adherent info fields — editable after OCR or selection */}
+                        {(selectedAdherentInfo || watch('adherent_last_name') || watch('adherent_first_name')) && (
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs text-gray-500">Nom</Label>
+                              <Input
+                                {...register('adherent_last_name')}
+                                placeholder="Nom de famille"
+                                className="rounded-xl text-sm"
+                                readOnly={!!selectedAdherentInfo}
+                              />
                             </div>
-                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                              <div>
-                                <p className="text-gray-500">Matricule</p>
-                                <p className="font-mono font-medium text-gray-700">{selectedAdherentInfo.matricule}</p>
-                              </div>
-                              {selectedAdherentInfo.plafondGlobal != null && (
-                                <div>
-                                  <p className="text-gray-500">Plafond restant</p>
-                                  <p className="font-medium text-gray-700">
-                                    {new Intl.NumberFormat('fr-TN', { maximumFractionDigits: 0 }).format(
-                                      ((selectedAdherentInfo.plafondGlobal || 0) - (selectedAdherentInfo.plafondConsomme || 0)) / 1000
-                                    )} DT
+                            <div className="space-y-1">
+                              <Label className="text-xs text-gray-500">Prénom</Label>
+                              <Input
+                                {...register('adherent_first_name')}
+                                placeholder="Prénom"
+                                className="rounded-xl text-sm"
+                                readOnly={!!selectedAdherentInfo}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs text-gray-500">N° CIN</Label>
+                              <Input
+                                {...register('adherent_national_id')}
+                                placeholder="N° CIN"
+                                className="rounded-xl text-sm"
+                                readOnly={!!selectedAdherentInfo}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs text-gray-500">N° Contrat</Label>
+                              <Input
+                                {...register('adherent_contract_number')}
+                                placeholder="N° Contrat"
+                                className="rounded-xl text-sm"
+                                readOnly={!!selectedAdherentInfo}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Bénéficiaire des soins — cases à cocher (toujours visibles) */}
+                        <div className="space-y-3">
+                            <Label className="text-sm font-medium text-gray-700">Bénéficiaire des soins</Label>
+                            <div className="flex flex-wrap gap-3">
+                              {/* Case Adhérent */}
+                              <label className={cn(
+                                'flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors',
+                                (!watch('beneficiary_relationship') || watch('beneficiary_relationship') === 'self')
+                                  ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
+                                  : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                              )}>
+                                <input
+                                  type="radio"
+                                  name="beneficiary_selection"
+                                  className="h-4 w-4 text-blue-600 border-gray-300"
+                                  checked={!watch('beneficiary_relationship') || watch('beneficiary_relationship') === 'self'}
+                                  onChange={() => {
+                                    setValue('beneficiary_relationship', 'self');
+                                    setValue('beneficiary_name', '');
+                                    setValue('beneficiary_id', '');
+                                  }}
+                                />
+                                <User className="h-4 w-4" />
+                                <span className="text-sm">Adhérent</span>
+                              </label>
+
+                              {/* Case Conjoint */}
+                              <label className={cn(
+                                'flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors',
+                                watch('beneficiary_relationship') === 'spouse'
+                                  ? 'border-purple-500 bg-purple-50 text-purple-700 font-medium'
+                                  : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                              )}>
+                                <input
+                                  type="radio"
+                                  name="beneficiary_selection"
+                                  className="h-4 w-4 text-purple-600 border-gray-300"
+                                  checked={watch('beneficiary_relationship') === 'spouse'}
+                                  onChange={() => {
+                                    setValue('beneficiary_relationship', 'spouse');
+                                    if (familleData?.conjoint) {
+                                      setValue('beneficiary_name', `${familleData.conjoint.firstName} ${familleData.conjoint.lastName}`);
+                                      setValue('beneficiary_id', familleData.conjoint.id);
+                                    }
+                                  }}
+                                />
+                                <span className="text-sm">Conjoint(e)</span>
+                              </label>
+
+                              {/* Case Enfant */}
+                              <label className={cn(
+                                'flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors',
+                                watch('beneficiary_relationship') === 'child'
+                                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700 font-medium'
+                                  : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                              )}>
+                                <input
+                                  type="radio"
+                                  name="beneficiary_selection"
+                                  className="h-4 w-4 text-emerald-600 border-gray-300"
+                                  checked={watch('beneficiary_relationship') === 'child'}
+                                  onChange={() => {
+                                    setValue('beneficiary_relationship', 'child');
+                                    const firstEnfant = familleData?.enfants?.[0];
+                                    if (firstEnfant) {
+                                      setValue('beneficiary_name', `${firstEnfant.firstName} ${firstEnfant.lastName}`);
+                                      setValue('beneficiary_id', firstEnfant.id);
+                                    }
+                                  }}
+                                />
+                                <span className="text-sm">Enfant</span>
+                              </label>
+                            </div>
+
+                            {/* Infos du bénéficiaire sélectionné */}
+                            {/* Adhérent sélectionné — afficher ses infos */}
+                            {(!watch('beneficiary_relationship') || watch('beneficiary_relationship') === 'self') && (
+                              selectedAdherentInfo ? (
+                                <div className="rounded-xl border border-blue-200 bg-blue-50/30 p-4 space-y-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+                                      {(selectedAdherentInfo.firstName?.[0] || '').toUpperCase()}{(selectedAdherentInfo.lastName?.[0] || '').toUpperCase()}
+                                    </div>
+                                    <div className="flex-1">
+                                      <p className="font-semibold text-sm text-gray-900">{selectedAdherentInfo.firstName} {selectedAdherentInfo.lastName}</p>
+                                      <p className="text-xs text-gray-500 font-mono">{selectedAdherentInfo.matricule}</p>
+                                    </div>
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 border-green-200 text-green-700">
+                                      <Check className="w-2.5 h-2.5 mr-0.5" />
+                                      Actif
+                                    </Badge>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                    {selectedAdherentInfo.email && (
+                                      <div>
+                                        <p className="text-gray-500">Email</p>
+                                        <p className="text-gray-700">{selectedAdherentInfo.email}</p>
+                                      </div>
+                                    )}
+                                    {selectedAdherentInfo.plafondGlobal != null && (
+                                      <div>
+                                        <p className="text-gray-500">Plafond restant</p>
+                                        <p className="font-medium text-gray-700">
+                                          {new Intl.NumberFormat('fr-TN', { maximumFractionDigits: 0 }).format(
+                                            ((selectedAdherentInfo.plafondGlobal || 0) - (selectedAdherentInfo.plafondConsomme || 0)) / 1000
+                                          )} DT
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="rounded-xl border border-blue-200 bg-blue-50/30 p-4 space-y-3">
+                                  <div className="flex items-center gap-2">
+                                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                    <p className="text-sm font-medium text-amber-800">Adhérent non identifié — saisir les informations</p>
+                                  </div>
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Nom</Label>
+                                      <Input {...register('adherent_last_name')} placeholder="Nom de famille" className="rounded-xl text-sm" />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Prénom</Label>
+                                      <Input {...register('adherent_first_name')} placeholder="Prénom" className="rounded-xl text-sm" />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">N° CIN</Label>
+                                      <Input {...register('adherent_national_id')} placeholder="N° CIN" className="rounded-xl text-sm" />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Email</Label>
+                                      <Input type="email" {...register('adherent_email')} placeholder="email@exemple.com" className="rounded-xl text-sm" />
+                                    </div>
+                                    <div className="space-y-1 sm:col-span-2">
+                                      <Label className="text-xs text-gray-500">Adresse</Label>
+                                      <Input {...register('adherent_address')} placeholder="Adresse" className="rounded-xl text-sm" />
+                                    </div>
+                                  </div>
+                                  <p className="text-[11px] text-amber-600">
+                                    <AlertTriangle className="h-3 w-3 inline mr-1" />
+                                    Son dossier sera marqué comme <span className="font-semibold">incomplet</span> — vous pourrez compléter ses informations ultérieurement.
                                   </p>
                                 </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Hidden fields for adherent data */}
-                        <div className="space-y-3">
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <div className="space-y-1.5">
-                              <Label className="text-sm text-gray-700">Nom *</Label>
-                              <Input {...register('adherent_last_name')} className="rounded-xl" />
-                              {errors.adherent_last_name && (
-                                <p className="text-sm text-destructive">{errors.adherent_last_name.message}</p>
-                              )}
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-sm text-gray-700">Prenom *</Label>
-                              <Input {...register('adherent_first_name')} className="rounded-xl" />
-                              {errors.adherent_first_name && (
-                                <p className="text-sm text-destructive">{errors.adherent_first_name.message}</p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <div className="space-y-1.5">
-                              <Label className="text-sm text-gray-700">CIN</Label>
-                              <Input {...register('adherent_national_id')} placeholder="12345678" className="rounded-xl" />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label className="text-sm text-gray-700">N° Contrat</Label>
-                              <Input {...register('adherent_contract_number')} placeholder="N° contrat assurance" className="rounded-xl" />
-                            </div>
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label className="text-sm text-gray-700">Email</Label>
-                            <Input {...register('adherent_email')} type="email" placeholder="adherent@email.tn" className="rounded-xl" />
-                            {errors.adherent_email && (
-                              <p className="text-sm text-destructive">{errors.adherent_email.message}</p>
+                              )
                             )}
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label className="text-sm text-gray-700">Adresse</Label>
-                            <Input {...register('adherent_address')} placeholder="Adresse de l'adherent" className="rounded-xl" />
-                          </div>
+
+                            {/* Conjoint sélectionné */}
+                            {watch('beneficiary_relationship') === 'spouse' && (
+                              familleData?.conjoint ? (
+                                <div className="rounded-xl border border-purple-200 bg-purple-50/30 p-4 space-y-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-600 text-sm font-bold text-white">
+                                      {(familleData.conjoint.firstName?.[0] || '').toUpperCase()}{(familleData.conjoint.lastName?.[0] || '').toUpperCase()}
+                                    </div>
+                                    <div className="flex-1">
+                                      <p className="font-semibold text-sm text-gray-900">{familleData.conjoint.firstName} {familleData.conjoint.lastName}</p>
+                                      <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">Conjoint(e)</span>
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                    {familleData.conjoint.dateOfBirth && (
+                                      <div>
+                                        <p className="text-gray-500">Date de naissance</p>
+                                        <p className="text-gray-700">{new Date(familleData.conjoint.dateOfBirth).toLocaleDateString('fr-TN')}</p>
+                                      </div>
+                                    )}
+                                    {familleData.conjoint.email && (
+                                      <div>
+                                        <p className="text-gray-500">Email</p>
+                                        <p className="text-gray-700">{familleData.conjoint.email}</p>
+                                      </div>
+                                    )}
+                                    {familleData.conjoint.phone && (
+                                      <div>
+                                        <p className="text-gray-500">Téléphone</p>
+                                        <p className="text-gray-700">{familleData.conjoint.phone}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="rounded-xl border border-purple-200 bg-purple-50/30 p-4 space-y-3">
+                                  <p className="text-sm font-medium text-purple-800">Saisir les informations du/de la conjoint(e)</p>
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Nom et prénom</Label>
+                                      <Input
+                                        placeholder="Nom et prénom"
+                                        className="rounded-xl text-sm"
+                                        value={watch('beneficiary_name') || ''}
+                                        onChange={(e) => setValue('beneficiary_name', e.target.value)}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Date de naissance</Label>
+                                      <Input
+                                        type="date"
+                                        className="rounded-xl text-sm"
+                                        {...register('beneficiary_date_of_birth')}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Email</Label>
+                                      <Input
+                                        type="email"
+                                        placeholder="email@exemple.com"
+                                        className="rounded-xl text-sm"
+                                        {...register('beneficiary_email')}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Adresse</Label>
+                                      <Input
+                                        placeholder="Adresse"
+                                        className="rounded-xl text-sm"
+                                        {...register('beneficiary_address')}
+                                      />
+                                    </div>
+                                  </div>
+                                  <p className="text-[11px] text-amber-600">
+                                    <AlertTriangle className="h-3 w-3 inline mr-1" />
+                                    Le/la conjoint(e) sera enregistré(e) avec le bulletin. Vous pourrez compléter ses informations ultérieurement.
+                                  </p>
+                                </div>
+                              )
+                            )}
+
+                            {/* Enfant sélectionné */}
+                            {watch('beneficiary_relationship') === 'child' && (
+                              familleData?.enfants && familleData.enfants.length > 0 ? (
+                                <div className="space-y-2">
+                                  {familleData.enfants.length > 1 && (
+                                    <Label className="text-xs text-gray-500">Sélectionnez l'enfant concerné</Label>
+                                  )}
+                                  <div className="grid gap-2">
+                                    {familleData.enfants.map((enfant) => (
+                                      <label key={enfant.id} className={cn(
+                                        'flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors',
+                                        watch('beneficiary_id') === enfant.id
+                                          ? 'border-emerald-500 bg-emerald-50/50'
+                                          : 'border-gray-200 hover:bg-gray-50'
+                                      )}>
+                                        <input
+                                          type="radio"
+                                          name="child_selection"
+                                          className="h-4 w-4 text-emerald-600 border-gray-300"
+                                          checked={watch('beneficiary_id') === enfant.id}
+                                          onChange={() => {
+                                            setValue('beneficiary_name', `${enfant.firstName} ${enfant.lastName}`);
+                                            setValue('beneficiary_id', enfant.id);
+                                          }}
+                                        />
+                                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">
+                                          {(enfant.firstName?.[0] || '').toUpperCase()}{(enfant.lastName?.[0] || '').toUpperCase()}
+                                        </div>
+                                        <div className="flex-1">
+                                          <p className="text-sm font-medium text-gray-900">{enfant.firstName} {enfant.lastName}</p>
+                                          <div className="flex items-center gap-3 text-[11px] text-gray-500 mt-0.5">
+                                            {enfant.dateOfBirth && (
+                                              <span>{new Date(enfant.dateOfBirth).toLocaleDateString('fr-TN')}</span>
+                                            )}
+                                            {enfant.email && <span>{enfant.email}</span>}
+                                            {enfant.phone && <span>{enfant.phone}</span>}
+                                          </div>
+                                        </div>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-4 space-y-3">
+                                  <p className="text-sm font-medium text-emerald-800">Saisir les informations de l'enfant</p>
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Nom et prénom</Label>
+                                      <Input
+                                        placeholder="Nom et prénom"
+                                        className="rounded-xl text-sm"
+                                        value={watch('beneficiary_name') || ''}
+                                        onChange={(e) => setValue('beneficiary_name', e.target.value)}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Date de naissance</Label>
+                                      <Input
+                                        type="date"
+                                        className="rounded-xl text-sm"
+                                        {...register('beneficiary_date_of_birth')}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Email</Label>
+                                      <Input
+                                        type="email"
+                                        placeholder="email@exemple.com"
+                                        className="rounded-xl text-sm"
+                                        {...register('beneficiary_email')}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Adresse</Label>
+                                      <Input
+                                        placeholder="Adresse"
+                                        className="rounded-xl text-sm"
+                                        {...register('beneficiary_address')}
+                                      />
+                                    </div>
+                                  </div>
+                                  <p className="text-[11px] text-amber-600">
+                                    <AlertTriangle className="h-3 w-3 inline mr-1" />
+                                    L'enfant sera enregistré(e) avec le bulletin. Vous pourrez compléter ses informations ultérieurement.
+                                  </p>
+                                </div>
+                              )
+                            )}
                         </div>
-
-                        {/* Ayant droit selection */}
-                        {selectedAdherentInfo && familleData && (familleData.conjoint || familleData.enfants.length > 0) && (
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                id="is_ayant_droit"
-                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                checked={!!watch('beneficiary_name')}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    const first = familleData?.conjoint || familleData?.enfants?.[0];
-                                    if (first) setValue('beneficiary_name', `${first.firstName} ${first.lastName}`);
-                                  } else {
-                                    setValue('beneficiary_name', '');
-                                  }
-                                }}
-                              />
-                              <Label htmlFor="is_ayant_droit" className="cursor-pointer text-sm text-gray-700">Soins pour un ayant droit</Label>
-                            </div>
-                            {watch('beneficiary_name') !== '' && watch('beneficiary_name') !== undefined && (
-                              <div className="flex flex-wrap gap-2 mt-1">
-                                {familleData.conjoint && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setValue('beneficiary_name', `${familleData.conjoint!.firstName} ${familleData.conjoint!.lastName}`)}
-                                    className={cn(
-                                      'px-3 py-1.5 rounded-lg border text-sm transition-colors',
-                                      watch('beneficiary_name') === `${familleData.conjoint.firstName} ${familleData.conjoint.lastName}`
-                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                        : 'border-gray-200 hover:bg-gray-50 text-gray-700'
-                                    )}
-                                  >
-                                    {familleData.conjoint.firstName} {familleData.conjoint.lastName}
-                                    <span className="ml-1 text-xs text-gray-400">Conjoint(e)</span>
-                                  </button>
-                                )}
-                                {familleData.enfants.map((enfant) => (
-                                  <button
-                                    key={enfant.id}
-                                    type="button"
-                                    onClick={() => setValue('beneficiary_name', `${enfant.firstName} ${enfant.lastName}`)}
-                                    className={cn(
-                                      'px-3 py-1.5 rounded-lg border text-sm transition-colors',
-                                      watch('beneficiary_name') === `${enfant.firstName} ${enfant.lastName}`
-                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                        : 'border-gray-200 hover:bg-gray-50 text-gray-700'
-                                    )}
-                                  >
-                                    {enfant.firstName} {enfant.lastName}
-                                    <span className="ml-1 text-xs text-gray-400">Enfant</span>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -1588,7 +1898,22 @@ export function BulletinsSaisiePage() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => appendActe({ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_description: '', cod_msgr: '', lib_msgr: '' })}
+                        onClick={() => {
+                          // Copy practitioner from previous acte to reduce repetitive entry
+                          const lastActe = watchedActes?.[watchedActes.length - 1];
+                          appendActe({
+                            code: '', label: '', amount: 0,
+                            ref_prof_sant: lastActe?.ref_prof_sant || '',
+                            nom_prof_sant: lastActe?.nom_prof_sant || '',
+                            care_type: lastActe?.care_type || 'consultation',
+                            care_description: '', cod_msgr: '', lib_msgr: '',
+                          });
+                          // Copy MF status from last acte if available
+                          const lastMfStatus = mfStatuses[watchedActes.length - 1];
+                          if (lastActe?.ref_prof_sant && lastMfStatus) {
+                            setMfStatuses(prev => ({ ...prev, [watchedActes.length]: lastMfStatus }));
+                          }
+                        }}
                         className="text-sm font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
                       >
                         <Plus className="h-4 w-4" />
@@ -1604,99 +1929,183 @@ export function BulletinsSaisiePage() {
                     <div className="border-b border-gray-100" />
 
                     <div className="divide-y divide-gray-100">
-                      {actesFields.map((field, index) => (
+                      {actesFields.map((field, index) => {
+                        const acteCareType = watch(`actes.${index}.care_type`) || 'consultation';
+                        return (
                         <div key={field.id} className="py-4 space-y-3">
+                          {/* Type de soin per acte */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-gray-400 uppercase">Acte {index + 1}</span>
+                            <Select
+                              value={acteCareType}
+                              onValueChange={(v) => setValue(`actes.${index}.care_type`, v as 'consultation' | 'pharmacy' | 'lab' | 'hospital')}
+                            >
+                              <SelectTrigger className="w-48 h-8 rounded-lg text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="consultation">
+                                  <span className="flex items-center gap-1.5"><Stethoscope className="h-3 w-3" /> Consultation</span>
+                                </SelectItem>
+                                <SelectItem value="pharmacy">
+                                  <span className="flex items-center gap-1.5"><Pill className="h-3 w-3" /> Pharmacie</span>
+                                </SelectItem>
+                                <SelectItem value="lab">
+                                  <span className="flex items-center gap-1.5"><FlaskConical className="h-3 w-3" /> Analyses</span>
+                                </SelectItem>
+                                <SelectItem value="hospital">
+                                  <span className="flex items-center gap-1.5"><Building2 className="h-3 w-3" /> Hospitalisation</span>
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {actesFields.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  removeActe(index);
+                                  setMfStatuses((prev) => {
+                                    const next = { ...prev };
+                                    delete next[index];
+                                    return next;
+                                  });
+                                }}
+                                className="ml-auto shrink-0 p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+
                           <div className="grid gap-3 sm:grid-cols-12 items-start">
                             {/* Practitioner / identifier */}
                             <div className="sm:col-span-3 space-y-2">
                               <div>
                                 <Label className="text-sm text-gray-700">
-                                  {selectedCareType === 'pharmacy' ? 'Pharmacien *' : selectedCareType === 'consultation' ? 'Médecin *' : selectedCareType === 'lab' ? 'Laboratoire *' : 'Établissement *'}
+                                  {acteCareType === 'pharmacy' ? 'Pharmacien *' : acteCareType === 'consultation' ? 'Médecin *' : acteCareType === 'lab' ? 'Laboratoire *' : 'Établissement *'}
                                 </Label>
                                 <Input
                                   {...register(`actes.${index}.nom_prof_sant`)}
-                                  placeholder={selectedCareType === 'pharmacy' ? 'Nom pharmacie' : selectedCareType === 'consultation' ? 'Dr. Mohamed Ali' : selectedCareType === 'lab' ? 'Nom du labo' : 'Clinique / Hôpital'}
+                                  placeholder={acteCareType === 'pharmacy' ? 'Nom pharmacie' : acteCareType === 'consultation' ? 'Dr. Mohamed Ali' : acteCareType === 'lab' ? 'Nom du labo' : 'Clinique / Hôpital'}
                                   className="rounded-xl text-sm"
                                 />
                                 {errors.actes?.[index]?.nom_prof_sant && (
                                   <p className="text-xs text-destructive mt-1">{errors.actes[index].nom_prof_sant?.message}</p>
                                 )}
+                                {/* Info praticien OCR + auto-enregistrement quand MF non trouvé */}
+                                {mfStatuses[index] === 'not_found' && (
+                                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/50 p-2.5 space-y-2">
+                                    {/* Afficher les infos OCR du tampon si disponibles */}
+                                    {ocrPraticienInfos[index] && (
+                                      <div className="space-y-1">
+                                        <p className="text-[11px] font-semibold text-amber-800 flex items-center gap-1">
+                                          <ScanSearch className="h-3 w-3" />
+                                          Informations extraites du tampon
+                                        </p>
+                                        <div className="grid grid-cols-1 gap-0.5 text-[11px] text-amber-700">
+                                          {ocrPraticienInfos[index]?.nom && (
+                                            <p><span className="text-amber-500">Nom :</span> {ocrPraticienInfos[index]!.nom}</p>
+                                          )}
+                                          {ocrPraticienInfos[index]?.mf && (
+                                            <p><span className="text-amber-500">MF :</span> <span className="font-mono">{ocrPraticienInfos[index]!.mf}</span></p>
+                                          )}
+                                          {ocrPraticienInfos[index]?.specialite && (
+                                            <p><span className="text-amber-500">Spécialité :</span> {ocrPraticienInfos[index]!.specialite}</p>
+                                          )}
+                                          {ocrPraticienInfos[index]?.adresse && (
+                                            <p><span className="text-amber-500">Adresse :</span> {ocrPraticienInfos[index]!.adresse}</p>
+                                          )}
+                                          {ocrPraticienInfos[index]?.telephone && (
+                                            <p><span className="text-amber-500">Tél :</span> {ocrPraticienInfos[index]!.telephone}</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {/* Checkbox auto-enregistrement */}
+                                    <label className="flex items-start gap-2 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={autoRegisterPraticien[index] ?? true}
+                                        onChange={(e) => setAutoRegisterPraticien(prev => ({ ...prev, [index]: e.target.checked }))}
+                                        className="mt-0.5 h-3.5 w-3.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                                      />
+                                      <span className="text-[11px] text-amber-700 leading-tight">
+                                        <span className="font-semibold flex items-center gap-1">
+                                          <AlertTriangle className="h-3 w-3 inline" />
+                                          Ce praticien sera enregistré automatiquement
+                                        </span>
+                                        <span className="block text-amber-600 mt-0.5">
+                                          Le praticien avec le MF <span className="font-mono">{watch(`actes.${index}.ref_prof_sant`)}</span> n'existe pas dans la base.
+                                          {watch(`actes.${index}.nom_prof_sant`)?.trim() ? ` Il sera créé sous le nom "${watch(`actes.${index}.nom_prof_sant`)?.trim()}".` : ' Veuillez renseigner son nom ci-dessus.'}
+                                        </span>
+                                      </span>
+                                    </label>
+                                  </div>
+                                )}
                               </div>
                               <div>
                                 <Label className="text-sm text-gray-700">Matricule fiscale *</Label>
-                                <Input
-                                  {...register(`actes.${index}.ref_prof_sant`)}
-                                  placeholder="Matricule fiscale"
-                                  className="rounded-xl text-sm"
+                                <MfLookupInput
+                                  value={watch(`actes.${index}.ref_prof_sant`) || ''}
+                                  onChange={(val) => setValue(`actes.${index}.ref_prof_sant`, val)}
+                                  onProviderFound={(provider) => {
+                                    setValue(`actes.${index}.nom_prof_sant`, provider.name);
+                                  }}
+                                  onStatusChange={(status) => {
+                                    setMfStatuses((prev) => ({ ...prev, [index]: status }));
+                                  }}
+                                  providerType={acteCareType === 'pharmacy' ? 'pharmacist' : acteCareType === 'lab' ? 'lab' : acteCareType === 'hospital' ? 'clinic' : 'doctor'}
+                                  error={errors.actes?.[index]?.ref_prof_sant?.message}
                                 />
-                                {errors.actes?.[index]?.ref_prof_sant && (
-                                  <p className="text-xs text-destructive mt-1">{errors.actes[index].ref_prof_sant?.message}</p>
-                                )}
                               </div>
                             </div>
 
                             {/* Acte description / selector */}
-                            <div className="sm:col-span-6">
-                              <Label className="text-sm text-gray-700">
-                                {selectedCareType === 'pharmacy' ? 'Médicament *' : 'Acte médical *'}
-                              </Label>
-                              {selectedCareType === 'pharmacy' ? (
-                                <Select
-                                  value={watch(`actes.${index}.code`) || undefined}
-                                  onValueChange={(codePct) => {
-                                    const med = (medications || []).find((m) => m.code_pct === codePct);
-                                    if (med) {
-                                      setValue(`actes.${index}.code`, med.code_pct);
-                                      const reimbLabel = med.is_reimbursable ? `[R ${Math.round((med.reimbursement_rate || 0.7) * 100)}%]` : '[NR]';
+                            <div className="sm:col-span-6 space-y-2">
+                              <div>
+                                <Label className="text-sm text-gray-700">
+                                  {acteCareType === 'pharmacy' ? 'Médicament *' : 'Acte médical *'}
+                                </Label>
+                                {acteCareType === 'pharmacy' ? (
+                                  <MedicationAutocomplete
+                                    value={watch(`actes.${index}.label`) || ''}
+                                    familyId={selectedMedicationFamily}
+                                    onSelect={(med) => {
+                                      setValue(`actes.${index}.code`, med.code_pct || med.code_amm || '');
+                                      const reimbLabel = med.reimbursement_rate ? `[R ${Math.round(med.reimbursement_rate * 100)}%]` : '[NR]';
                                       setValue(`actes.${index}.label`, `${med.brand_name} - ${med.dci} ${med.dosage || ''} ${med.form || ''} ${reimbLabel}`.trim());
                                       if (med.price_public) {
                                         setValue(`actes.${index}.amount`, med.price_public / 1000);
                                       }
-                                    }
-                                  }}
-                                >
-                                  <SelectTrigger className="rounded-xl">
-                                    <SelectValue placeholder="Sélectionner un médicament" />
-                                  </SelectTrigger>
-                                  <SelectContent className="max-h-80 overflow-y-auto" position="popper" sideOffset={4}>
-                                    {(medications || []).map((med) => (
-                                      <SelectItem key={med.id} value={med.code_pct}>
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-medium">{med.brand_name}</span>
-                                          <span className="text-xs text-gray-500">{med.dci}</span>
-                                          {med.dosage && <span className="text-xs text-gray-500">- {med.dosage}</span>}
-                                          {med.is_generic ? <span className="text-[10px] px-1 bg-blue-100 text-blue-700 rounded">GEN</span> : null}
-                                          {med.is_reimbursable ? (
-                                            <span className="text-[10px] px-1 bg-green-100 text-green-700 rounded">
-                                              R {Math.round((med.reimbursement_rate || 0.7) * 100)}%
-                                            </span>
-                                          ) : (
-                                            <span className="text-[10px] px-1 bg-red-100 text-red-600 rounded">Non remb.</span>
-                                          )}
-                                        </div>
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              ) : (
-                                <ActeSelector
-                                  value={watch(`actes.${index}.code`) || ''}
-                                  onChange={(code, acte) => {
-                                    setValue(`actes.${index}.code`, code);
-                                    setValue(`actes.${index}.label`, acte.label);
-                                  }}
-                                />
-                              )}
-                              {errors.actes?.[index]?.label && (
-                                <p className="text-xs text-destructive mt-1">{errors.actes[index].label?.message}</p>
-                              )}
+                                    }}
+                                  />
+                                ) : (
+                                  <>
+                                    <ActeSelector
+                                      value={watch(`actes.${index}.code`) || ''}
+                                      onChange={(code, acte) => {
+                                        setValue(`actes.${index}.code`, code);
+                                        setValue(`actes.${index}.label`, acte.label);
+                                      }}
+                                    />
+                                    {/* Libellé de l'acte — éditable, pré-rempli par OCR ou sélection */}
+                                    <Input
+                                      {...register(`actes.${index}.label`)}
+                                      placeholder="Libellé de l'acte médical"
+                                      className="rounded-xl text-sm mt-1.5"
+                                    />
+                                  </>
+                                )}
+                                {errors.actes?.[index]?.label && (
+                                  <p className="text-xs text-destructive mt-1">{errors.actes[index].label?.message}</p>
+                                )}
+                              </div>
                               {/* Reimbursement info for pharmacy */}
-                              {selectedCareType === 'pharmacy' && watch(`actes.${index}.code`) && (() => {
-                                const selectedMed = (medications || []).find((m) => m.code_pct === watch(`actes.${index}.code`));
-                                if (!selectedMed) return null;
+                              {acteCareType === 'pharmacy' && watch(`actes.${index}.label`) && (() => {
+                                const label = watch(`actes.${index}.label`) || '';
                                 const amount = watch(`actes.${index}.amount`) || 0;
-                                if (selectedMed.is_reimbursable) {
-                                  const taux = selectedMed.reimbursement_rate || 0.7;
+                                const tauxMatch = label.match(/\[R (\d+)%\]/);
+                                if (tauxMatch) {
+                                  const taux = Number.parseInt(tauxMatch[1] || '70', 10) / 100;
                                   const montantRembourse = amount * taux;
                                   const ticketModerateur = amount - montantRembourse;
                                   return (
@@ -1714,74 +2123,53 @@ export function BulletinsSaisiePage() {
                                     </div>
                                   );
                                 }
-                                return (
-                                  <div className="mt-1 flex items-center gap-1 text-[11px] px-1.5 py-0.5 bg-red-50 text-red-600 rounded border border-red-200 w-fit">
-                                    <Ban className="h-3 w-3" />
-                                    Non remboursable — a la charge de l'adherent
-                                  </div>
-                                );
+                                if (label.includes('[NR]')) {
+                                  return (
+                                    <div className="mt-1 flex items-center gap-1 text-[11px] px-1.5 py-0.5 bg-red-50 text-red-600 rounded border border-red-200 w-fit">
+                                      <Ban className="h-3 w-3" />
+                                      Non remboursable — à la charge de l'adhérent
+                                    </div>
+                                  );
+                                }
+                                return null;
                               })()}
-                              {/* Care description / observation */}
-                              {selectedCareType !== 'pharmacy' && (
-                                <div className="mt-2">
-                                  <Label className="text-sm text-gray-700">Description de soin</Label>
-                                  <Input
-                                    {...register(`actes.${index}.care_description`)}
-                                    placeholder={selectedCareType === 'consultation' ? 'Motif de consultation' : selectedCareType === 'lab' ? 'Ref. ordonnance ou prescription' : "Motif d'hospitalisation"}
-                                    className="rounded-xl text-sm"
-                                  />
-                                </div>
-                              )}
-                              {selectedCareType === 'pharmacy' && (
-                                <div className="mt-2">
-                                  <Label className="text-sm text-gray-700">Observation</Label>
-                                  <Input
-                                    {...register(`actes.${index}.lib_msgr`)}
-                                    placeholder="Observation (ex: ordonnance n°...)"
-                                    className="rounded-xl text-sm"
-                                  />
-                                </div>
-                              )}
-                              {selectedCareType === 'hospital' && (
-                                <div className="mt-2">
-                                  <Label className="text-sm text-gray-700">Observation</Label>
-                                  <Input
-                                    {...register(`actes.${index}.lib_msgr`)}
-                                    placeholder="Observation"
-                                    className="rounded-xl text-sm"
-                                  />
-                                </div>
-                              )}
+                              {/* Description de soin — Textarea */}
+                              <div>
+                                <Label className="text-sm text-gray-700">
+                                  {acteCareType === 'pharmacy' ? 'Observation' : 'Description de soin'}
+                                </Label>
+                                <Textarea
+                                  {...register(acteCareType === 'pharmacy' ? `actes.${index}.lib_msgr` : `actes.${index}.care_description`)}
+                                  placeholder={
+                                    acteCareType === 'pharmacy' ? 'Observation (ex: ordonnance n°...)'
+                                    : acteCareType === 'consultation' ? 'Motif de consultation, diagnostic, observations...'
+                                    : acteCareType === 'lab' ? 'Ref. ordonnance, analyses prescrites...'
+                                    : "Motif d'hospitalisation, durée de séjour..."
+                                  }
+                                  rows={2}
+                                  className="rounded-xl text-sm resize-none"
+                                />
+                              </div>
                             </div>
 
-                            {/* Amount + delete */}
+                            {/* Amount */}
                             <div className="sm:col-span-3">
                               <Label className="text-sm text-gray-700">Montant (TND)</Label>
-                              <div className="flex items-center gap-1">
-                                <Input
-                                  type="number"
-                                  step="0.001"
-                                  {...register(`actes.${index}.amount`, { valueAsNumber: true })}
-                                  placeholder="0.000"
-                                  className="rounded-xl text-right"
-                                />
-                                {actesFields.length > 1 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => removeActe(index)}
-                                    className="shrink-0 p-1.5 text-gray-400 hover:text-red-500 transition-colors"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                )}
-                              </div>
+                              <Input
+                                type="number"
+                                step="0.001"
+                                {...register(`actes.${index}.amount`, { valueAsNumber: true })}
+                                placeholder="0.000"
+                                className="rounded-xl text-right"
+                              />
                               {errors.actes?.[index]?.amount && (
                                 <p className="text-xs text-destructive mt-1">{errors.actes[index].amount?.message}</p>
                               )}
                             </div>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     <div className="flex justify-end border-t border-gray-100 pt-4 mt-2">
@@ -1801,9 +2189,11 @@ export function BulletinsSaisiePage() {
                     <div className="space-y-0">
                       {[
                         { label: 'Numérisation réalisée', done: selectedFiles.length > 0 },
-                        { label: 'Données générales', done: !!(watch('bulletin_number') && watch('bulletin_date') && watch('care_type')) },
+                        { label: 'Données générales', done: !!(watch('bulletin_number') && watch('bulletin_date')) },
                         { label: 'Adhérent identifié', done: !!selectedAdherentInfo || !!(watch('adherent_matricule') && watch('adherent_last_name')) },
+                        { label: 'Bénéficiaire sélectionné', done: !!selectedAdherentInfo && (watch('beneficiary_relationship') === 'self' || !!watch('beneficiary_name')) },
                         { label: 'Détails des actes', done: (watchedActes || []).some(a => a.label && a.amount > 0) },
+                        { label: 'Matricules fiscales validés', done: !hasMfBlocking && (watchedActes || []).length > 0 && watchedActes?.every((_a, idx) => ['found', 'registered', 'not_found', 'forced'].includes(mfStatuses[idx] || '')) },
                       ].map((step, i, arr) => (
                         <div key={step.label} className="flex items-start gap-3">
                           <div className="flex flex-col items-center">
@@ -1888,18 +2278,22 @@ export function BulletinsSaisiePage() {
                   {/* Action buttons */}
                   <button
                     type="submit"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || hasMfBlocking || hasBeneficiaryBlocking}
                     className="w-full rounded-xl bg-gradient-to-r from-gray-900 to-blue-950 px-6 py-3.5 text-sm font-semibold text-white hover:from-gray-800 hover:to-blue-900 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {isSubmitting ? (
                       <><Loader2 className="h-4 w-4 animate-spin" /> Enregistrement...</>
+                    ) : hasBeneficiaryBlocking ? (
+                      <><AlertTriangle className="h-4 w-4" /> {watchedBeneficiaryRel === 'spouse' ? 'Conjoint(e) non enregistré(e)' : 'Aucun enfant enregistré'}</>
+                    ) : hasMfBlocking ? (
+                      <><XCircle className="h-4 w-4" /> {mfBlockingReason}</>
                     ) : (
                       <>Enregistrer le bulletin</>
                     )}
                   </button>
                   <button
                     type="button"
-                    onClick={() => { reset(); setSelectedFiles([]); setSelectedAdherentInfo(null); setOcrFeedback(null); }}
+                    onClick={() => { reset(); setSelectedFiles([]); setSelectedAdherentInfo(null); setOcrFeedback(null); setMfStatuses({}); setBulletinNumberFromOcr(false); }}
                     className="w-full text-center text-sm font-medium text-gray-500 hover:text-gray-700 transition-colors py-2"
                   >
                     Annuler la saisie
@@ -1933,6 +2327,7 @@ export function BulletinsSaisiePage() {
                   )}
                 </div>
               </div>
+              </fieldset>
             </form>
           )}
         </TabsContent>
@@ -2273,6 +2668,39 @@ export function BulletinsSaisiePage() {
       </Dialog>
 
       {/* Export Dialog */}
+      {/* New practitioners registered popup */}
+      <Dialog open={showNewPractitionersDialog} onOpenChange={setShowNewPractitionersDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-700">
+              <CheckCircle2 className="h-5 w-5" />
+              Nouveau(x) praticien(s) ajouté(s)
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <p className="text-sm text-gray-600">
+              Les praticiens suivants ont été enregistrés automatiquement lors de la création du bulletin :
+            </p>
+            <ul className="space-y-1">
+              {newPractitioners.map((name, i) => (
+                <li key={i} className="flex items-center gap-2 text-sm font-medium text-gray-900 bg-emerald-50 rounded-lg px-3 py-2">
+                  <UserPlus className="h-4 w-4 text-emerald-600 shrink-0" />
+                  {name}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-gray-500 mt-2">
+              La vérification du matricule fiscal est en attente de validation.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowNewPractitionersDialog(false)} className="rounded-xl">
+              Compris
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog open={showExportDialog} onOpenChange={setShowExportDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>

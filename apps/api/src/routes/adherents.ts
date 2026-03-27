@@ -538,6 +538,7 @@ adherents.get(
       plafondConsomme: r.plafond_consomme,
       ayantsDroitJson: r.ayants_droit_json,
       isActive: r.is_active === 1 || r.is_active === true,
+      dossierComplet: r.dossier_complet === 1 || r.dossier_complet === true || r.dossier_complet === null,
       createdAt: r.created_at,
     })), {
       page,
@@ -731,7 +732,7 @@ adherents.get(
     const { results } = await db
       .prepare(
         `SELECT p.*, fa.code as famille_code, fa.label as famille_label
-         FROM plafonds_prestataire p
+         FROM plafonds_beneficiaire p
          LEFT JOIN familles_actes fa ON p.famille_acte_id = fa.id
          WHERE p.adherent_id = ? AND p.annee = ?
          ORDER BY fa.ordre ASC NULLS FIRST`
@@ -820,6 +821,8 @@ adherents.get(
       lastName: r.last_name,
       dateOfBirth: r.date_of_birth,
       gender: r.gender,
+      email: r.email || null,
+      phone: r.phone || null,
       codeType: r.code_type || 'A',
       rangPres: r.rang_pres ?? 0,
       codeSituationFam: r.code_situation_fam,
@@ -959,6 +962,81 @@ adherents.post(
       userAgent: c.req.header('User-Agent'),
     });
 
+    // --- Créer les ayants droit (conjoint + enfants) ---
+    const ayantsDroitCreated: Array<{ id: string; matricule: string; codeType: string; firstName: string; lastName: string }> = [];
+    if (data.ayantsDroit && data.ayantsDroit.length > 0) {
+      // Validate: max 1 conjoint
+      const conjoints = data.ayantsDroit.filter((a) => a.lienParente === 'C');
+      if (conjoints.length > 1) {
+        return conflict(c, 'Un seul conjoint est autorisé par adhérent');
+      }
+
+      let rangCounter = 1;
+      for (const ad of data.ayantsDroit) {
+        const adId = generateId();
+        const adEncryptedNationalId = await encrypt(ad.nationalId || '', encryptionKey);
+        const adNationalIdHash = ad.nationalId ? await hashForIndex(ad.nationalId, encryptionKey) : null;
+        const adEncryptedPhone = ad.phone ? await encrypt(ad.phone, encryptionKey) : null;
+
+        // Matricule ayant droit: basé sur le principal (ex: 0001-C1, 0001-E1, 0001-E2)
+        const suffix = ad.lienParente === 'C'
+          ? 'C1'
+          : `E${data.ayantsDroit.filter((x, i) => x.lienParente === 'E' && i <= data.ayantsDroit!.indexOf(ad)).length}`;
+        const adMatricule = `${matricule}-${suffix}`;
+
+        await db
+          .prepare(
+            `INSERT INTO adherents (
+              id, national_id_encrypted, national_id_hash, first_name, last_name,
+              date_of_birth, gender, etat_civil,
+              phone_encrypted, email,
+              company_id, company_name, matricule, plafond_global,
+              date_debut_adhesion, date_fin_adhesion, is_active,
+              code_type, parent_adherent_id, rang_pres, code_situation_fam,
+              type_piece_identite, etat_fiche,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            adId, adEncryptedNationalId, adNationalIdHash, ad.firstName, ad.lastName,
+            ad.dateOfBirth, ad.gender ?? null, ad.etatCivil ?? null,
+            adEncryptedPhone, ad.email || null,
+            data.companyId ?? null, null, adMatricule, data.plafondGlobal ?? null,
+            data.dateDebutAdhesion ?? null, data.dateFinAdhesion ?? null, 1,
+            ad.lienParente, id, rangCounter,
+            ad.lienParente === 'C' ? 'M' : 'C',
+            ad.typePieceIdentite ?? 'CIN', 'NON_TEMPORAIRE',
+            now, now
+          )
+          .run();
+
+        ayantsDroitCreated.push({
+          id: adId,
+          matricule: adMatricule,
+          codeType: ad.lienParente,
+          firstName: ad.firstName,
+          lastName: ad.lastName,
+        });
+
+        await logAudit(db, {
+          userId: user?.sub,
+          action: 'adherent.create_ayant_droit',
+          entityType: 'adherent',
+          entityId: adId,
+          changes: { parentId: id, codeType: ad.lienParente, firstName: ad.firstName, lastName: ad.lastName },
+          ipAddress: c.req.header('CF-Connecting-IP'),
+          userAgent: c.req.header('User-Agent'),
+        });
+
+        rangCounter++;
+      }
+    }
+
+    // Mettre à jour le code_type du principal à 'A' s'il a des ayants droit
+    if (ayantsDroitCreated.length > 0) {
+      await db.prepare('UPDATE adherents SET code_type = ? WHERE id = ?').bind('A', id).run();
+    }
+
     const result = await db
       .prepare(`SELECT a.*, co.name as co_name FROM adherents a LEFT JOIN companies co ON a.company_id = co.id WHERE a.id = ?`)
       .bind(id)
@@ -978,6 +1056,7 @@ adherents.post(
       plafondGlobal: data.plafondGlobal,
       plafondConsomme: 0,
       createdAt: now,
+      ayantsDroit: ayantsDroitCreated,
     });
   }
 );

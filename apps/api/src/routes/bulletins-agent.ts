@@ -3,8 +3,9 @@ import { findActeRefByCode, listActesGroupesParFamille, listActesReferentiel } f
  * Bulletins Agent Routes
  * Routes for insurance agents to create, manage batches, and export bulletins
  */
-import { actesArraySchema, createBatchSchema, validateBulletinSchema, importLotSchema } from '@dhamen/shared';
+import { actesArraySchema, createBatchSchema, validateBulletinSchema, importLotSchema, validerMatriculeFiscal } from '@dhamen/shared';
 import type { ActeInput, ValidateBulletinResponse } from '@dhamen/shared';
+import { logAudit } from '../middleware/audit-trail';
 import { Hono } from 'hono';
 import { generateId } from '../lib/ulid';
 import { authMiddleware } from '../middleware/auth';
@@ -118,11 +119,115 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
     const parsed = JSON.parse(cleaned);
 
     // Enrich volet_medical with matched acte codes (TASK-003)
+    const db = c.get('tenantDb') ?? c.env.DB;
+
     if (parsed && Array.isArray(parsed.volet_medical)) {
       for (const acte of parsed.volet_medical) {
         const match = mapNatureActeToCode(acte.nature_acte || '');
         acte.matched_code = match?.code || null;
         acte.matched_label = match?.label || acte.nature_acte || null;
+
+        // Medication matching for pharmacy actes (Bloc 4 - OCR enrichissement)
+        // Detect pharmacy from type_soin (OCR), matched code, or nature_acte keywords
+        const typeSoinLower = (acte.type_soin || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const isPharmacy = typeSoinLower.includes('pharmac') || typeSoinLower.includes('medicament') ||
+          match?.code === 'PH1' ||
+          (acte.nature_acte || '').toLowerCase().match(/pharmac|medicament|ordonnance/);
+
+        if (isPharmacy) {
+          // For pharmacy actes, try multiple search strategies:
+          // 1. Search by designation/nature_acte as medication name
+          // 2. Search by nom_praticien if it contains "PHARMACIE" (the pharmacy name, not a med)
+          const searchText = (acte.designation || acte.nature_acte || '').trim();
+
+          // Split compound entries like "270B + 1.5 AP3" into individual terms
+          // Also try the full text as a single search
+          const searchTerms: string[] = [];
+          if (searchText.length >= 3) {
+            searchTerms.push(searchText);
+            // Split by common separators: +, /, comma, semicolon
+            const parts = searchText.split(/[+/;,]\s*/).map((p: string) => p.trim()).filter((p: string) => p.length >= 3);
+            if (parts.length > 1) {
+              searchTerms.push(...parts);
+            }
+          }
+
+          for (const term of searchTerms) {
+            if (acte.matched_medication) break; // Already found a match
+            const searchPattern = `%${term}%`;
+            const medResult = await db
+              .prepare(
+                `SELECT id, code_pct, code_amm, brand_name, dci, dosage, form,
+                        price_public, reimbursement_rate, family_id, is_generic
+                 FROM medications
+                 WHERE deleted_at IS NULL AND is_active = 1
+                   AND (brand_name LIKE ? OR dci LIKE ? OR code_pct LIKE ? OR code_amm LIKE ?)
+                 ORDER BY
+                   CASE WHEN brand_name LIKE ? THEN 0 WHEN dci LIKE ? THEN 1 ELSE 2 END,
+                   brand_name ASC
+                 LIMIT 3`
+              )
+              .bind(searchPattern, searchPattern, searchPattern, searchPattern, `${term}%`, `${term}%`)
+              .all();
+
+            if (medResult.results.length > 0) {
+              const bestMatch = medResult.results[0]!;
+              acte.matched_medication = {
+                id: bestMatch.id,
+                code_pct: bestMatch.code_pct,
+                code_amm: bestMatch.code_amm,
+                brand_name: bestMatch.brand_name,
+                dci: bestMatch.dci,
+                dosage: bestMatch.dosage,
+                form: bestMatch.form,
+                price_public: bestMatch.price_public,
+                reimbursement_rate: bestMatch.reimbursement_rate,
+                family_id: bestMatch.family_id,
+                is_generic: bestMatch.is_generic,
+              };
+              if (medResult.results.length > 1) {
+                acte.medication_alternatives = medResult.results.slice(1).map((m) => ({
+                  id: m.id,
+                  code_pct: m.code_pct,
+                  brand_name: m.brand_name,
+                  dci: m.dci,
+                  price_public: m.price_public,
+                }));
+              }
+            }
+          }
+        }
+
+        // MF extraction + validation (Bloc 4) — using Tunisian MF rules
+        const rawMf = (acte.matricule_fiscale || acte.ref_prof_sant || '').trim().toUpperCase();
+        if (rawMf) {
+          const { validerMatriculeFiscal: validateMf } = await import('@dhamen/shared');
+          const mfResult = validateMf(rawMf);
+          acte.mf_extracted = mfResult.normalized || rawMf;
+          acte.mf_valid = mfResult.valid;
+          acte.mf_errors = mfResult.errors;
+
+          // Lookup provider by MF if valid
+          if (mfResult.valid && mfResult.normalized) {
+            const provider = await db
+              .prepare(
+                `SELECT id, name, type, speciality FROM providers
+                 WHERE mf_number = ? AND deleted_at IS NULL AND is_active = 1
+                 LIMIT 1`
+              )
+              .bind(mfResult.normalized)
+              .first();
+
+            if (provider) {
+              acte.mf_provider = {
+                id: provider.id,
+                name: provider.name,
+                type: provider.type,
+                speciality: provider.speciality,
+              };
+            }
+          }
+        }
       }
     }
 
@@ -878,17 +983,22 @@ bulletinsAgent.post('/create', async (c) => {
   const adherentNationalId = (formData['adherent_national_id'] as string) || null;
   const adherentEmail = (formData['adherent_email'] as string) || null;
   const beneficiaryName = (formData['beneficiary_name'] as string) || null;
+  const beneficiaryId = (formData['beneficiary_id'] as string) || null;
   const beneficiaryRelationship = (formData['beneficiary_relationship'] as string) || null;
+  const beneficiaryEmail = (formData['beneficiary_email'] as string) || null;
+  const beneficiaryAddress = (formData['beneficiary_address'] as string) || null;
+  const beneficiaryDateOfBirth = (formData['beneficiary_date_of_birth'] as string) || null;
   const providerName = (formData['provider_name'] as string) || null;
   const providerSpecialty = (formData['provider_specialty'] as string) || null;
-  const careType = formData['care_type'] as string;
+  // care_type is now per-acte; top-level is optional fallback
+  const careTypeFallback = (formData['care_type'] as string) || null;
   const careDescription = (formData['care_description'] as string) || null;
   const adherentAddress = (formData['adherent_address'] as string) || null;
   const batchId = (formData['batch_id'] as string) || null;
 
   // Parse actes array (JSON string from form)
   const actesRaw = formData['actes'] as string;
-  let actes: { code?: string; label: string; amount: number; ref_prof_sant?: string; nom_prof_sant?: string; cod_msgr?: string; lib_msgr?: string }[] = [];
+  let actes: { code?: string; label: string; amount: number; ref_prof_sant?: string; nom_prof_sant?: string; care_type?: string; cod_msgr?: string; lib_msgr?: string; care_description?: string }[] = [];
 
   if (actesRaw) {
     try {
@@ -924,14 +1034,14 @@ bulletinsAgent.post('/create', async (c) => {
       ? actes.reduce((sum, a) => sum + a.amount, 0)
       : Number.parseFloat(formData['total_amount'] as string);
 
+  // Derive care_type from first acte or fallback to top-level field
+  const careType = actes[0]?.care_type || careTypeFallback || 'consultation';
+
   // Validate required fields
-  // Note: providerName is optional since REQ-009 moved praticien to per-acte level
+  // Note: nom/prénom are optional — only matricule is required to identify adherent
   if (
     !bulletinDate ||
     !adherentMatricule ||
-    !adherentFirstName ||
-    !adherentLastName ||
-    !careType ||
     isNaN(totalAmount)
   ) {
     return c.json(
@@ -941,6 +1051,49 @@ bulletinsAgent.post('/create', async (c) => {
       },
       400
     );
+  }
+
+  // Validate bulletin date — not future, not older than 12 months
+  const bulletinDateObj = new Date(bulletinDate);
+  const now = new Date();
+  if (bulletinDateObj > now) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'La date du bulletin ne peut pas être dans le futur' },
+      },
+      400
+    );
+  }
+  const twelveMonthsAgo = new Date();
+  twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+  if (bulletinDateObj < twelveMonthsAgo) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'La date du bulletin est supérieure à 12 mois' },
+      },
+      400
+    );
+  }
+
+  // Validate MF (matricule fiscale) on each acte — required for all care types
+  if (actes.length > 0) {
+    const actesWithoutMf = actes
+      .map((a, i) => ({ index: i, ref: a.ref_prof_sant }))
+      .filter((a) => !a.ref || a.ref.trim().length < 7);
+    if (actesWithoutMf.length > 0) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'MF_REQUIRED',
+            message: `Matricule fiscale obligatoire pour chaque acte. Acte(s) sans MF : ${actesWithoutMf.map((a) => a.index + 1).join(', ')}`,
+          },
+        },
+        400
+      );
+    }
   }
 
   // Generate bulletin number
@@ -1069,45 +1222,68 @@ bulletinsAgent.post('/create', async (c) => {
       }
     }
 
+    let adherentAutoCreated = false;
+
     if (!adherentResult) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'ADHERENT_NOT_FOUND',
-            message: 'Adhérent non trouvé. Vérifiez le matricule ou le CIN.',
+      // Auto-create adherent so bulletin submission is never blocked
+      const newAdherentId = generateId();
+      const firstName = adherentFirstName || '';
+      const lastName = adherentLastName || adherentFirstName || 'Inconnu';
+
+      // Find company_id from user's insurer
+      let companyId: string | null = null;
+      if (user.insurerId) {
+        const company = await db
+          .prepare('SELECT id FROM companies WHERE insurer_id = ? LIMIT 1')
+          .bind(user.insurerId)
+          .first<{ id: string }>();
+        companyId = company?.id || null;
+      }
+
+      await db
+        .prepare(`
+          INSERT INTO adherents (id, matricule, first_name, last_name, national_id_encrypted, date_of_birth, company_id, is_active, dossier_complet, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, '1900-01-01', ?, 1, 0, datetime('now'), datetime('now'))
+        `)
+        .bind(
+          newAdherentId,
+          adherentMatricule,
+          firstName,
+          lastName,
+          adherentNationalId || `IMPORT_${adherentMatricule}`,
+          companyId
+        )
+        .run();
+
+      adherentId = newAdherentId;
+      adherentAutoCreated = true;
+    } else {
+      // Verify identity coherence: matricule must match the name or CIN provided
+      const dbFirstName = adherentResult.first_name as string | null;
+      const dbLastName = adherentResult.last_name as string | null;
+      const nameMatches =
+        !adherentFirstName || !adherentLastName ||
+        (dbFirstName?.toLowerCase() === adherentFirstName.toLowerCase() &&
+        dbLastName?.toLowerCase() === adherentLastName.toLowerCase());
+      const cinMatches =
+        !adherentNationalId ||
+        !adherentResult.national_id_hash ||
+        adherentResult.national_id_hash === adherentNationalId;
+
+      if (!nameMatches && !cinMatches) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              code: 'ADHERENT_IDENTITY_MISMATCH',
+              message:
+                "Le matricule ne correspond pas au nom/prénom ou CIN saisi. Vérifiez les informations de l'adhérent.",
+            },
           },
-        },
-        404
-      );
-    }
+          400
+        );
+      }
 
-    // Verify identity coherence: matricule must match the name or CIN provided
-    const dbFirstName = adherentResult.first_name as string | null;
-    const dbLastName = adherentResult.last_name as string | null;
-    const nameMatches =
-      dbFirstName?.toLowerCase() === adherentFirstName.toLowerCase() &&
-      dbLastName?.toLowerCase() === adherentLastName.toLowerCase();
-    const cinMatches =
-      !adherentNationalId ||
-      !adherentResult.national_id_hash ||
-      adherentResult.national_id_hash === adherentNationalId;
-
-    if (!nameMatches && !cinMatches) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'ADHERENT_IDENTITY_MISMATCH',
-            message:
-              "Le matricule ne correspond pas au nom/prénom ou CIN saisi. Vérifiez les informations de l'adhérent.",
-          },
-        },
-        400
-      );
-    }
-
-    if (adherentResult) {
       adherentId = adherentResult.id as string;
       // Update adherent email if provided and not already set
       if (adherentEmail) {
@@ -1129,20 +1305,122 @@ bulletinsAgent.post('/create', async (c) => {
 
     const status = batchId ? 'in_batch' : 'draft';
 
+    // --- Provider lookup / auto-registration per acte ---
+    // For each acte with a MF, find or create the provider in the providers table
+    const providerIds: Array<string | null> = [];
+    const newlyRegisteredProviders: Array<{ id: string; name: string; mfNumber: string }> = [];
+
+    for (const acte of actes) {
+      const rawMf = (acte.ref_prof_sant || '').trim().toUpperCase();
+      const nomPraticien = (acte.nom_prof_sant || '').trim();
+
+      if (!rawMf || rawMf.length < 7) {
+        providerIds.push(null);
+        continue;
+      }
+
+      // Normalize MF
+      const mfResult = validerMatriculeFiscal(rawMf);
+      const normalizedMf = mfResult.normalized || rawMf.replace(/[/\s-]/g, '');
+
+      // Search existing provider by MF
+      const existingProvider = await db
+        .prepare(
+          `SELECT id, name FROM providers
+           WHERE mf_number = ? AND deleted_at IS NULL AND is_active = 1
+           LIMIT 1`
+        )
+        .bind(normalizedMf)
+        .first<{ id: string; name: string }>();
+
+      if (existingProvider) {
+        providerIds.push(existingProvider.id);
+        continue;
+      }
+
+      // Provider not found — auto-register if we have a name
+      if (nomPraticien.length >= 2) {
+        const newProviderId = generateId();
+        const provType = careType === 'pharmacy' ? 'pharmacist' : careType === 'lab' ? 'lab' : careType === 'hospital' ? 'clinic' : 'doctor';
+        const licenseNo = `MF-${normalizedMf}`;
+
+        // Insert into providers table
+        await db
+          .prepare(
+            `INSERT INTO providers (id, type, name, license_no, mf_number, mf_verified, is_active, address, city, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 0, 1, 'À compléter', 'À compléter', datetime('now'), datetime('now'))`
+          )
+          .bind(newProviderId, provType, nomPraticien, licenseNo, normalizedMf)
+          .run();
+
+        // Also insert into sante_praticiens (annuaire praticiens)
+        const santePraticienId = generateId();
+        const santeType = careType === 'pharmacy' ? 'pharmacien'
+          : careType === 'lab' ? 'laborantin'
+          : careType === 'hospital' ? 'autre'
+          : 'medecin';
+        const santeSpecialite = careType === 'pharmacy' ? 'Pharmacie'
+          : careType === 'lab' ? 'Laboratoire'
+          : careType === 'hospital' ? 'Hospitalisation'
+          : 'Médecine générale';
+
+        await db
+          .prepare(
+            `INSERT INTO sante_praticiens (id, provider_id, nom, specialite, type_praticien, est_conventionne, is_active, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'), datetime('now'))`
+          )
+          .bind(santePraticienId, newProviderId, nomPraticien, santeSpecialite, santeType)
+          .run();
+
+        // Create pending MF verification
+        const verificationId = generateId();
+        await db
+          .prepare(
+            `INSERT INTO practitioner_mf_verifications (id, provider_id, mf_number, verification_status, created_at, updated_at)
+             VALUES (?, ?, ?, 'pending', datetime('now'), datetime('now'))`
+          )
+          .bind(verificationId, newProviderId, normalizedMf)
+          .run();
+
+        // Audit log
+        await logAudit(db, {
+          userId: user.id,
+          action: 'provider.auto_register',
+          entityType: 'provider',
+          entityId: newProviderId,
+          changes: { mfNumber: normalizedMf, name: nomPraticien, source: 'bulletin_creation', santePraticienId },
+          ipAddress: c.req.header('CF-Connecting-IP'),
+          userAgent: c.req.header('User-Agent'),
+        });
+
+        providerIds.push(newProviderId);
+        newlyRegisteredProviders.push({ id: newProviderId, name: nomPraticien, mfNumber: normalizedMf });
+      } else {
+        providerIds.push(null);
+      }
+    }
+
+    // Use first provider for bulletin-level provider_id
+    const bulletinProviderId = providerIds.find((id) => id !== null) || null;
+
     // Fallback: derive provider_name from first acte's nom_prof_sant if not provided at bulletin level
     const effectiveProviderName = providerName || (actes.length > 0 && (actes[0] as Record<string, unknown>).nom_prof_sant) || null;
 
     // Insert bulletin
+    // Use beneficiary_id from form data, or resolve from adherent family if relationship is provided
+    const effectiveBeneficiaryId = beneficiaryRelationship === 'self' ? null : beneficiaryId;
+
     await db
       .prepare(`
       INSERT INTO bulletins_soins (
         id, bulletin_number, bulletin_date, adherent_id, adherent_matricule,
         adherent_first_name, adherent_last_name, adherent_national_id, adherent_address,
-        beneficiary_name, beneficiary_relationship,
-        provider_name, provider_specialty, care_type, care_description,
+        beneficiary_id, beneficiary_name, beneficiary_relationship,
+        beneficiary_email, beneficiary_address, beneficiary_date_of_birth,
+        provider_id, provider_name, provider_specialty, care_type, care_description,
         total_amount, scan_url, batch_id, status, created_by,
         submission_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
     `)
       .bind(
         bulletinId,
@@ -1154,8 +1432,13 @@ bulletinsAgent.post('/create', async (c) => {
         adherentLastName,
         adherentNationalId,
         adherentAddress,
+        effectiveBeneficiaryId,
         beneficiaryName,
         beneficiaryRelationship,
+        beneficiaryEmail,
+        beneficiaryAddress,
+        beneficiaryDateOfBirth,
+        bulletinProviderId,
         effectiveProviderName,
         providerSpecialty,
         careType,
@@ -1203,6 +1486,46 @@ bulletinsAgent.post('/create', async (c) => {
         }
       }
 
+      // Medication matching for pharmacy care type
+      // Lookup medication by code (code_pct or code_amm) to populate medication_id + medication_family_id
+      const medicationMatches: Array<{
+        medicationId: string | null;
+        medicationFamilyId: string | null;
+        tauxApplique: number | null;
+      }> = [];
+
+      if (careType === 'pharmacy' || careType === 'pharmacie_chronique') {
+        for (const acte of actes) {
+          const code = acte.code?.trim();
+          if (!code) {
+            medicationMatches.push({ medicationId: null, medicationFamilyId: null, tauxApplique: null });
+            continue;
+          }
+          const med = await db
+            .prepare(
+              `SELECT id, family_id, reimbursement_rate FROM medications
+               WHERE (code_pct = ? OR code_amm = ?) AND deleted_at IS NULL AND is_active = 1
+               LIMIT 1`
+            )
+            .bind(code, code)
+            .first<{ id: string; family_id: string | null; reimbursement_rate: number | null }>();
+
+          if (med) {
+            medicationMatches.push({
+              medicationId: med.id,
+              medicationFamilyId: med.family_id,
+              tauxApplique: med.reimbursement_rate,
+            });
+          } else {
+            medicationMatches.push({ medicationId: null, medicationFamilyId: null, tauxApplique: null });
+          }
+        }
+      } else {
+        for (const _acte of actes) {
+          medicationMatches.push({ medicationId: null, medicationFamilyId: null, tauxApplique: null });
+        }
+      }
+
       // Contract-bareme-aware calculation (TASK-006)
       if (contractId && adherentId) {
         const baremeResults: CalculRemboursementResult[] = [];
@@ -1214,6 +1537,7 @@ bulletinsAgent.post('/create', async (c) => {
 
           if (acteRefInfo.ref) {
             try {
+              const medMatch = medicationMatches[i];
               const calcInput: CalculRemboursementInput = {
                 adherentId,
                 contractId,
@@ -1223,6 +1547,7 @@ bulletinsAgent.post('/create', async (c) => {
                 typeMaladie: (careType === 'pharmacie_chronique' ? 'chronique' : 'ordinaire') as
                   | 'ordinaire'
                   | 'chronique',
+                medicationFamilyId: medMatch?.medicationFamilyId ?? undefined,
               };
               const result = await calculerRemboursement(db, calcInput);
               baremeResults.push(result);
@@ -1273,14 +1598,15 @@ bulletinsAgent.post('/create', async (c) => {
 
         reimbursedAmount = totalRembourse;
 
-        // Insert actes with bareme-aware reimbursement data
+        // Insert actes with bareme-aware reimbursement data + medication fields
         const stmts = actes.map((acte, i) => {
           const acteId = generateId();
           const baremeResult = baremeResults[i]!;
+          const medMatch = medicationMatches[i];
           return db
             .prepare(
-              `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, ref_prof_sant, nom_prof_sant, cod_msgr, lib_msgr, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), ?, ?, ?, ?, datetime('now'))`
+              `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, care_type, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, ref_prof_sant, nom_prof_sant, provider_id, cod_msgr, lib_msgr, medication_id, medication_family_id, taux_applique, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
             )
             .bind(
               acteId,
@@ -1288,6 +1614,7 @@ bulletinsAgent.post('/create', async (c) => {
               acte.code?.trim() || null,
               acte.label,
               acte.amount,
+              acte.care_type || careType,
               baremeResult.valeurBareme,
               baremeResult.montantRembourse,
               baremeResult.details.montantBrut,
@@ -1299,8 +1626,12 @@ bulletinsAgent.post('/create', async (c) => {
               acte.code?.trim() || null,
               acte.ref_prof_sant?.trim() || null,
               acte.nom_prof_sant?.trim() || null,
+              providerIds[i] || null,
               acte.cod_msgr?.trim() || null,
-              acte.lib_msgr?.trim() || null
+              acte.lib_msgr?.trim() || null,
+              medMatch?.medicationId || null,
+              medMatch?.medicationFamilyId || null,
+              medMatch?.tauxApplique || null
             );
         });
         await db.batch(stmts);
@@ -1376,14 +1707,15 @@ bulletinsAgent.post('/create', async (c) => {
         const calcul = calculateRemboursementBulletin(actesInput, plafondRestant);
         reimbursedAmount = calcul.totalRembourse;
 
-        // Insert actes with reimbursement data
+        // Insert actes with reimbursement data + medication fields
         const stmts = actes.map((acte, i) => {
           const acteId = generateId();
           const acteResult = calcul.actes[i]!;
+          const medMatch = medicationMatches[i];
           return db
             .prepare(
-              `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, ref_prof_sant, nom_prof_sant, cod_msgr, lib_msgr, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), ?, ?, ?, ?, datetime('now'))`
+              `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, care_type, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, ref_prof_sant, nom_prof_sant, provider_id, cod_msgr, lib_msgr, medication_id, medication_family_id, taux_applique, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
             )
             .bind(
               acteId,
@@ -1391,6 +1723,7 @@ bulletinsAgent.post('/create', async (c) => {
               acte.code?.trim() || null,
               acte.label,
               acte.amount,
+              acte.care_type || careType,
               acteResult.tauxRemboursement,
               acteResult.remboursementFinal,
               acteResult.remboursementBrut,
@@ -1398,8 +1731,12 @@ bulletinsAgent.post('/create', async (c) => {
               acte.code?.trim() || null,
               acte.ref_prof_sant?.trim() || null,
               acte.nom_prof_sant?.trim() || null,
+              providerIds[i] || null,
               acte.cod_msgr?.trim() || null,
-              acte.lib_msgr?.trim() || null
+              acte.lib_msgr?.trim() || null,
+              medMatch?.medicationId || null,
+              medMatch?.medicationFamilyId || null,
+              medMatch?.tauxApplique || null
             );
         });
         await db.batch(stmts);
@@ -1431,6 +1768,8 @@ bulletinsAgent.post('/create', async (c) => {
           status,
           actes_count: actes.length,
           reimbursed_amount: reimbursedAmount,
+          adherent_auto_created: adherentAutoCreated || undefined,
+          newlyRegisteredProviders: newlyRegisteredProviders.length > 0 ? newlyRegisteredProviders : undefined,
         },
       },
       201
@@ -1592,7 +1931,7 @@ bulletinsAgent.post('/import-lot', async (c) => {
       .run();
 
     // Process each bulletin
-    const results: Array<{ id: string; bulletin_number: string; adherent_matricule: string; status: string; skipped?: boolean; reason?: string }> = [];
+    const results: Array<{ id: string; bulletin_number: string; adherent_matricule: string; adherent_name?: string; status: string; skipped?: boolean; reason?: string; adherent_auto_created?: boolean }> = [];
     let totalImported = 0;
     let skipped = 0;
 
@@ -1601,12 +1940,14 @@ bulletinsAgent.post('/import-lot', async (c) => {
       const bulletinNumber = `BS-${new Date().getFullYear()}-${bulletinId.slice(-8).toUpperCase()}`;
       const totalAmount = bulletin.actes.reduce((sum, a) => sum + a.amount, 0);
 
-      // Find adherent by matricule — required (adherent_id is NOT NULL)
-      // 1. Try within the selected company first (most precise)
+      // Find adherent by matricule
+      // 1. Try exact matricule within selected company
       // 2. Fall back to any company of this insurer
-      // 3. Fall back to global search
+      // 3. Try name-based match within company
+      // 4. Auto-create adherent if not found (so import is never blocked)
       let adherentId: string | null = null;
       const adherentSelectCols = 'a.id, a.first_name, a.last_name';
+      let adherentAutoCreated = false;
 
       // Try 1: find by matricule within the selected company
       let adherentResult = await db
@@ -1622,28 +1963,45 @@ bulletinsAgent.post('/import-lot', async (c) => {
           .first();
       }
 
-      // Try 3: find by matricule + name match globally
-      if (!adherentResult) {
+      // Try 3: find by name match within the selected company
+      if (!adherentResult && bulletin.adherent_first_name && bulletin.adherent_last_name) {
         adherentResult = await db
-          .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.matricule = ? AND LOWER(a.first_name) = LOWER(?) AND LOWER(a.last_name) = LOWER(?)`)
-          .bind(bulletin.adherent_matricule, bulletin.adherent_first_name, bulletin.adherent_last_name)
+          .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.company_id = ? AND LOWER(TRIM(a.first_name)) = LOWER(?) AND LOWER(TRIM(a.last_name)) = LOWER(?)`)
+          .bind(companyId, bulletin.adherent_first_name.trim(), bulletin.adherent_last_name.trim())
           .first();
       }
 
-      if (adherentResult) adherentId = adherentResult.id as string;
+      // Try 4: find by last_name only (SPROLS often has only the family name as adherent)
+      if (!adherentResult && bulletin.adherent_last_name) {
+        adherentResult = await db
+          .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.company_id = ? AND LOWER(TRIM(a.last_name)) = LOWER(?)`)
+          .bind(companyId, bulletin.adherent_last_name.trim())
+          .first();
+      }
 
-      // Skip bulletin if adherent not found
-      if (!adherentId) {
-        skipped++;
-        results.push({
-          id: '',
-          bulletin_number: '',
-          adherent_matricule: bulletin.adherent_matricule,
-          status: 'skipped',
-          skipped: true,
-          reason: `Adhérent non trouvé: ${bulletin.adherent_matricule}`,
-        });
-        continue;
+      if (adherentResult) {
+        adherentId = adherentResult.id as string;
+      } else {
+        // Auto-create adherent so the import is never blocked
+        const newAdherentId = generateId();
+        const firstName = bulletin.adherent_first_name || '';
+        const lastName = bulletin.adherent_last_name || bulletin.adherent_first_name || 'Inconnu';
+        await db
+          .prepare(`
+            INSERT INTO adherents (id, matricule, first_name, last_name, national_id_encrypted, date_of_birth, company_id, is_active, dossier_complet, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, '1900-01-01', ?, 1, 0, datetime('now'), datetime('now'))
+          `)
+          .bind(
+            newAdherentId,
+            bulletin.adherent_matricule,
+            firstName,
+            lastName,
+            `IMPORT_${bulletin.adherent_matricule}`,
+            companyId
+          )
+          .run();
+        adherentId = newAdherentId;
+        adherentAutoCreated = true;
       }
 
       // Insert bulletin
@@ -1679,8 +2037,8 @@ bulletinsAgent.post('/import-lot', async (c) => {
         const acteId = generateId();
         return db
           .prepare(
-            `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, ref_prof_sant, nom_prof_sant, cod_msgr, lib_msgr, created_at)
-             VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), ?, ?, ?, ?, datetime('now'))`
+            `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, care_type, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, ref_prof_sant, nom_prof_sant, cod_msgr, lib_msgr, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, 0, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), ?, ?, ?, ?, datetime('now'))`
           )
           .bind(
             acteId,
@@ -1688,6 +2046,7 @@ bulletinsAgent.post('/import-lot', async (c) => {
             acte.code?.trim() || null,
             acte.label,
             acte.amount,
+            acte.care_type || 'consultation',
             acte.code?.trim() || null,
             acte.ref_prof_sant?.trim() || null,
             acte.nom_prof_sant?.trim() || null,
@@ -1704,7 +2063,9 @@ bulletinsAgent.post('/import-lot', async (c) => {
         id: bulletinId,
         bulletin_number: bulletinNumber,
         adherent_matricule: bulletin.adherent_matricule,
+        adherent_name: `${bulletin.adherent_first_name} ${bulletin.adherent_last_name}`.trim(),
         status: 'in_batch',
+        adherent_auto_created: adherentAutoCreated,
       });
       totalImported++;
     }
