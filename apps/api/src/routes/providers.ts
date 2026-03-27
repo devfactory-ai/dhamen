@@ -48,7 +48,7 @@ const providerCsvRowSchema = z.object({
 });
 
 const providerImportSchema = z.object({
-  providers: z.array(providerCsvRowSchema).min(1, 'Au moins un prestataire requis').max(500, 'Maximum 500 prestataires'),
+  providers: z.array(providerCsvRowSchema).min(1, 'Au moins un praticien requis').max(500, 'Maximum 500 praticiens'),
   skipDuplicates: z.boolean().optional().default(true),
 });
 
@@ -60,6 +60,7 @@ providers.use('*', authMiddleware());
 // Map frontend type names to backend type names
 const typeMapping: Record<string, 'pharmacist' | 'doctor' | 'lab' | 'clinic'> = {
   PHARMACY: 'pharmacist',
+  DOCTOR: 'doctor',
   CLINIC: 'clinic',
   LABORATORY: 'lab',
   HOSPITAL: 'clinic',
@@ -136,7 +137,7 @@ providers.get('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), as
   const provider = await findProviderById(getDb(c), id);
 
   if (!provider) {
-    return notFound(c, 'Prestataire non trouvé');
+    return notFound(c, 'Praticien non trouvé');
   }
 
   return success(c, provider);
@@ -157,7 +158,7 @@ providers.post(
     // Check if license number already exists
     const existing = await findProviderByLicense(getDb(c), data.licenseNo);
     if (existing) {
-      return conflict(c, 'Un prestataire avec ce numéro de licence existe déjà');
+      return conflict(c, 'Un praticien avec ce numéro de licence existe déjà');
     }
 
     const id = generateId();
@@ -194,7 +195,7 @@ providers.put(
     const provider = await updateProvider(getDb(c), id, data);
 
     if (!provider) {
-      return notFound(c, 'Prestataire non trouvé');
+      return notFound(c, 'Praticien non trouvé');
     }
 
     // Audit log
@@ -223,7 +224,7 @@ providers.delete('/:id', requireRole('ADMIN'), async (c) => {
   const deleted = await softDeleteProvider(getDb(c), id);
 
   if (!deleted) {
-    return notFound(c, 'Prestataire non trouvé');
+    return notFound(c, 'Praticien non trouvé');
   }
 
   // Audit log
