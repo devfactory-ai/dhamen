@@ -1338,11 +1338,26 @@ bulletinsAgent.post('/create', async (c) => {
         continue;
       }
 
-      // Provider not found — auto-register if we have a name
-      if (nomPraticien.length >= 2) {
+      // Provider not found — auto-register
+      // Use per-acte care_type for provider type detection
+      const acteCareType = (acte.care_type || careType || 'consultation') as string;
+      const provType = acteCareType === 'pharmacy' ? 'pharmacist' : acteCareType === 'lab' ? 'lab' : acteCareType === 'hospital' ? 'clinic' : 'doctor';
+      const effectiveName = nomPraticien.length >= 2 ? nomPraticien : `Praticien MF ${normalizedMf}`;
+
+      try {
         const newProviderId = generateId();
-        const provType = careType === 'pharmacy' ? 'pharmacist' : careType === 'lab' ? 'lab' : careType === 'hospital' ? 'clinic' : 'doctor';
         const licenseNo = `MF-${normalizedMf}`;
+
+        // Check if license_no already exists (UNIQUE constraint)
+        const existingByLicense = await db
+          .prepare('SELECT id, name FROM providers WHERE license_no = ? AND deleted_at IS NULL LIMIT 1')
+          .bind(licenseNo)
+          .first<{ id: string; name: string }>();
+
+        if (existingByLicense) {
+          providerIds.push(existingByLicense.id);
+          continue;
+        }
 
         // Insert into providers table
         await db
@@ -1350,18 +1365,18 @@ bulletinsAgent.post('/create', async (c) => {
             `INSERT INTO providers (id, type, name, license_no, mf_number, mf_verified, is_active, address, city, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, 0, 1, 'À compléter', 'À compléter', datetime('now'), datetime('now'))`
           )
-          .bind(newProviderId, provType, nomPraticien, licenseNo, normalizedMf)
+          .bind(newProviderId, provType, effectiveName, licenseNo, normalizedMf)
           .run();
 
         // Also insert into sante_praticiens (annuaire praticiens)
         const santePraticienId = generateId();
-        const santeType = careType === 'pharmacy' ? 'pharmacien'
-          : careType === 'lab' ? 'laborantin'
-          : careType === 'hospital' ? 'autre'
+        const santeType = acteCareType === 'pharmacy' ? 'pharmacien'
+          : acteCareType === 'lab' ? 'laborantin'
+          : acteCareType === 'hospital' ? 'autre'
           : 'medecin';
-        const santeSpecialite = careType === 'pharmacy' ? 'Pharmacie'
-          : careType === 'lab' ? 'Laboratoire'
-          : careType === 'hospital' ? 'Hospitalisation'
+        const santeSpecialite = acteCareType === 'pharmacy' ? 'Pharmacie'
+          : acteCareType === 'lab' ? 'Laboratoire'
+          : acteCareType === 'hospital' ? 'Hospitalisation'
           : 'Médecine générale';
 
         await db
@@ -1369,7 +1384,7 @@ bulletinsAgent.post('/create', async (c) => {
             `INSERT INTO sante_praticiens (id, provider_id, nom, specialite, type_praticien, est_conventionne, is_active, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'), datetime('now'))`
           )
-          .bind(santePraticienId, newProviderId, nomPraticien, santeSpecialite, santeType)
+          .bind(santePraticienId, newProviderId, effectiveName, santeSpecialite, santeType)
           .run();
 
         // Create pending MF verification
@@ -1388,15 +1403,21 @@ bulletinsAgent.post('/create', async (c) => {
           action: 'provider.auto_register',
           entityType: 'provider',
           entityId: newProviderId,
-          changes: { mfNumber: normalizedMf, name: nomPraticien, source: 'bulletin_creation', santePraticienId },
+          changes: { mfNumber: normalizedMf, name: effectiveName, source: 'bulletin_creation', santePraticienId },
           ipAddress: c.req.header('CF-Connecting-IP'),
           userAgent: c.req.header('User-Agent'),
         });
 
         providerIds.push(newProviderId);
-        newlyRegisteredProviders.push({ id: newProviderId, name: nomPraticien, mfNumber: normalizedMf });
-      } else {
-        providerIds.push(null);
+        newlyRegisteredProviders.push({ id: newProviderId, name: effectiveName, mfNumber: normalizedMf });
+      } catch (providerError) {
+        // If insert fails (e.g. race condition), try to find by MF again
+        console.error('Provider auto-register failed:', providerError);
+        const retryProvider = await db
+          .prepare('SELECT id, name FROM providers WHERE mf_number = ? AND deleted_at IS NULL LIMIT 1')
+          .bind(normalizedMf)
+          .first<{ id: string; name: string }>();
+        providerIds.push(retryProvider?.id || null);
       }
     }
 

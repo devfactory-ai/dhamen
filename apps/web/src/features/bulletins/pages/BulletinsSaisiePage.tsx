@@ -1896,172 +1896,181 @@ export function BulletinsSaisiePage() {
                               </label>
                             </div>
 
-                            {/* Infos adhérent identifié */}
-                            {selectedAdherentInfo && (!watch("beneficiary_relationship") || watch("beneficiary_relationship") === "self") && (
-                              <div className="rounded-xl border border-blue-200 bg-blue-50/30 p-4 space-y-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
-                                    {(selectedAdherentInfo.firstName?.[0] || "").toUpperCase()}
-                                    {(selectedAdherentInfo.lastName?.[0] || "").toUpperCase()}
-                                  </div>
-                                  <div className="flex-1">
-                                    <p className="font-semibold text-sm text-gray-900">{selectedAdherentInfo.firstName} {selectedAdherentInfo.lastName}</p>
-                                    <p className="text-xs text-gray-500 font-mono">{selectedAdherentInfo.matricule}</p>
-                                  </div>
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 border-green-200 text-green-700">
-                                    <Check className="w-2.5 h-2.5 mr-0.5" />
-                                    Actif
-                                  </Badge>
-                                </div>
-                                <div className="grid grid-cols-2 gap-2 text-xs">
-                                  {selectedAdherentInfo.email && (
-                                    <div>
-                                      <p className="text-gray-500">Email</p>
-                                      <p className="text-gray-700">{selectedAdherentInfo.email}</p>
+                            {/* === ADHÉRENT sélectionné === */}
+                            {(!watch("beneficiary_relationship") || watch("beneficiary_relationship") === "self") && (
+                              selectedAdherentInfo ? (
+                                <div className="rounded-xl border border-blue-200 bg-blue-50/30 p-4 space-y-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+                                      {(selectedAdherentInfo.firstName?.[0] || "").toUpperCase()}
+                                      {(selectedAdherentInfo.lastName?.[0] || "").toUpperCase()}
                                     </div>
-                                  )}
-                                  {selectedAdherentInfo.plafondGlobal != null && (
-                                    <div>
-                                      <p className="text-gray-500">Plafond restant</p>
-                                      <p className="font-medium text-gray-700">
-                                        {new Intl.NumberFormat("fr-TN", { maximumFractionDigits: 0 }).format(
-                                          ((selectedAdherentInfo.plafondGlobal || 0) - (selectedAdherentInfo.plafondConsomme || 0)) / 1000
-                                        )} DT
-                                      </p>
+                                    <div className="flex-1">
+                                      <p className="font-semibold text-sm text-gray-900">{selectedAdherentInfo.firstName} {selectedAdherentInfo.lastName}</p>
+                                      <p className="text-xs text-gray-500 font-mono">{selectedAdherentInfo.matricule}</p>
                                     </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Conjoint trouvé dans le système */}
-                            {watch("beneficiary_relationship") === "spouse" && familleData?.conjoint && (
-                              <div className="rounded-xl border border-purple-200 bg-purple-50/30 p-4 space-y-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-600 text-sm font-bold text-white">
-                                    {(familleData.conjoint.firstName?.[0] || "").toUpperCase()}
-                                    {(familleData.conjoint.lastName?.[0] || "").toUpperCase()}
+                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 border-green-200 text-green-700">
+                                      <Check className="w-2.5 h-2.5 mr-0.5" />
+                                      Actif
+                                    </Badge>
                                   </div>
-                                  <div className="flex-1">
-                                    <p className="font-semibold text-sm text-gray-900">{familleData.conjoint.firstName} {familleData.conjoint.lastName}</p>
-                                    <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">Conjoint(e)</span>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Enfants trouvés dans le système */}
-                            {watch("beneficiary_relationship") === "child" && familleData?.enfants && familleData.enfants.length > 0 && (
-                              <div className="space-y-2">
-                                {familleData.enfants.length > 1 && (
-                                  <Label className="text-xs text-gray-500">Sélectionnez l'enfant concerné</Label>
-                                )}
-                                <div className="grid gap-2">
-                                  {familleData.enfants.map((enfant) => (
-                                    <label
-                                      key={enfant.id}
-                                      className={cn(
-                                        "flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors",
-                                        watch("beneficiary_id") === enfant.id
-                                          ? "border-emerald-500 bg-emerald-50/50"
-                                          : "border-gray-200 hover:bg-gray-50",
-                                      )}
-                                    >
-                                      <input
-                                        type="radio"
-                                        name="child_selection"
-                                        className="h-4 w-4 text-emerald-600 border-gray-300"
-                                        checked={watch("beneficiary_id") === enfant.id}
-                                        onChange={() => {
-                                          setValue("beneficiary_name", `${enfant.firstName} ${enfant.lastName}`);
-                                          setValue("beneficiary_id", enfant.id);
-                                        }}
-                                      />
-                                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">
-                                        {(enfant.firstName?.[0] || "").toUpperCase()}
-                                        {(enfant.lastName?.[0] || "").toUpperCase()}
+                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                    {selectedAdherentInfo.email && (
+                                      <div>
+                                        <p className="text-gray-500">Email</p>
+                                        <p className="text-gray-700">{selectedAdherentInfo.email}</p>
                                       </div>
-                                      <div className="flex-1">
-                                        <p className="text-sm font-medium text-gray-900">{enfant.firstName} {enfant.lastName}</p>
-                                        <div className="flex items-center gap-3 text-[11px] text-gray-500 mt-0.5">
-                                          {enfant.dateOfBirth && <span>{new Date(enfant.dateOfBirth).toLocaleDateString("fr-TN")}</span>}
-                                          {enfant.email && <span>{enfant.email}</span>}
+                                    )}
+                                    {selectedAdherentInfo.plafondGlobal != null && (
+                                      <div>
+                                        <p className="text-gray-500">Plafond restant</p>
+                                        <p className="font-medium text-gray-700">
+                                          {new Intl.NumberFormat("fr-TN", { maximumFractionDigits: 0 }).format(
+                                            ((selectedAdherentInfo.plafondGlobal || 0) - (selectedAdherentInfo.plafondConsomme || 0)) / 1000
+                                          )} DT
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : watch("adherent_matricule") ? (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50/30 p-4 space-y-3">
+                                  <div className="flex items-center gap-2">
+                                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                    <p className="text-sm font-medium text-amber-800">Adhérent non identifié</p>
+                                  </div>
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Nom</Label>
+                                      <Input {...register("adherent_last_name")} placeholder="Nom" className="rounded-xl text-sm" />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Prénom</Label>
+                                      <Input {...register("adherent_first_name")} placeholder="Prénom" className="rounded-xl text-sm" />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Date de naissance *</Label>
+                                      <Input type="date" {...register("adherent_date_of_birth")} className="rounded-xl text-sm" />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">N° Contrat</Label>
+                                      <Input {...register("adherent_contract_number")} placeholder="N° Contrat" className="rounded-xl text-sm" />
+                                    </div>
+                                    <div className="space-y-1 sm:col-span-2">
+                                      <Label className="text-xs text-gray-500">Email</Label>
+                                      <Input type="email" {...register("adherent_email")} placeholder="email@exemple.com" className="rounded-xl text-sm" />
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center justify-end pt-1">
+                                    <Button type="button" size="sm" onClick={handleRegisterAdherent} disabled={isRegisteringAdherent} className="gap-1.5">
+                                      {isRegisteringAdherent ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
+                                      {isRegisteringAdherent ? "Enregistrement..." : "Enregistrer l'adhérent"}
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : null
+                            )}
+
+                            {/* === CONJOINT === */}
+                            {watch("beneficiary_relationship") === "spouse" && (
+                              selectedAdherentInfo && familleData?.conjoint ? (
+                                <div className="rounded-xl border border-purple-200 bg-purple-50/30 p-4 space-y-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-600 text-sm font-bold text-white">
+                                      {(familleData.conjoint.firstName?.[0] || "").toUpperCase()}
+                                      {(familleData.conjoint.lastName?.[0] || "").toUpperCase()}
+                                    </div>
+                                    <div className="flex-1">
+                                      <p className="font-semibold text-sm text-gray-900">{familleData.conjoint.firstName} {familleData.conjoint.lastName}</p>
+                                      <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">Conjoint(e)</span>
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                    {familleData.conjoint.dateOfBirth && (
+                                      <div>
+                                        <p className="text-gray-500">Date de naissance</p>
+                                        <p className="text-gray-700">{new Date(familleData.conjoint.dateOfBirth).toLocaleDateString("fr-TN")}</p>
+                                      </div>
+                                    )}
+                                    {familleData.conjoint.email && (
+                                      <div>
+                                        <p className="text-gray-500">Email</p>
+                                        <p className="text-gray-700">{familleData.conjoint.email}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="rounded-xl border border-purple-200 bg-purple-50/30 p-4 space-y-3">
+                                  <p className="text-sm font-medium text-purple-800">Saisir les informations du/de la conjoint(e)</p>
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Nom et prénom</Label>
+                                      <Input placeholder="Nom et prénom" className="rounded-xl text-sm" value={watch("beneficiary_name") || ""} onChange={(e) => setValue("beneficiary_name", e.target.value)} />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Date de naissance</Label>
+                                      <Input type="date" className="rounded-xl text-sm" {...register("beneficiary_date_of_birth")} />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Email</Label>
+                                      <Input type="email" placeholder="email@exemple.com" className="rounded-xl text-sm" {...register("beneficiary_email")} />
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            )}
+
+                            {/* === ENFANT === */}
+                            {watch("beneficiary_relationship") === "child" && (
+                              selectedAdherentInfo && familleData?.enfants && familleData.enfants.length > 0 ? (
+                                <div className="space-y-2">
+                                  {familleData.enfants.length > 1 && (
+                                    <Label className="text-xs text-gray-500">Sélectionnez l'enfant concerné</Label>
+                                  )}
+                                  <div className="grid gap-2">
+                                    {familleData.enfants.map((enfant) => (
+                                      <label
+                                        key={enfant.id}
+                                        className={cn(
+                                          "flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors",
+                                          watch("beneficiary_id") === enfant.id ? "border-emerald-500 bg-emerald-50/50" : "border-gray-200 hover:bg-gray-50",
+                                        )}
+                                      >
+                                        <input type="radio" name="child_selection" className="h-4 w-4 text-emerald-600 border-gray-300" checked={watch("beneficiary_id") === enfant.id} onChange={() => { setValue("beneficiary_name", `${enfant.firstName} ${enfant.lastName}`); setValue("beneficiary_id", enfant.id); }} />
+                                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">
+                                          {(enfant.firstName?.[0] || "").toUpperCase()}{(enfant.lastName?.[0] || "").toUpperCase()}
                                         </div>
-                                      </div>
-                                    </label>
-                                  ))}
+                                        <div className="flex-1">
+                                          <p className="text-sm font-medium text-gray-900">{enfant.firstName} {enfant.lastName}</p>
+                                          <div className="flex items-center gap-3 text-[11px] text-gray-500 mt-0.5">
+                                            {enfant.dateOfBirth && <span>{new Date(enfant.dateOfBirth).toLocaleDateString("fr-TN")}</span>}
+                                            {enfant.email && <span>{enfant.email}</span>}
+                                          </div>
+                                        </div>
+                                      </label>
+                                    ))}
+                                  </div>
                                 </div>
-                              </div>
-                            )}
-
-                            {/* Champs communs — toujours visibles quelle que soit la case cochée */}
-                            <div className="grid gap-3 sm:grid-cols-2">
-                              <div className="space-y-1">
-                                <Label className="text-xs text-gray-500">Nom</Label>
-                                <Input
-                                  {...register("adherent_last_name")}
-                                  placeholder="Nom de famille"
-                                  className="rounded-xl text-sm"
-                                  readOnly={!!selectedAdherentInfo}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs text-gray-500">Prénom</Label>
-                                <Input
-                                  {...register("adherent_first_name")}
-                                  placeholder="Prénom"
-                                  className="rounded-xl text-sm"
-                                  readOnly={!!selectedAdherentInfo}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs text-gray-500">Date de naissance</Label>
-                                <Input
-                                  type="date"
-                                  {...register("adherent_date_of_birth")}
-                                  className="rounded-xl text-sm"
-                                  readOnly={!!selectedAdherentInfo}
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs text-gray-500">N° Contrat</Label>
-                                <Input
-                                  {...register("adherent_contract_number")}
-                                  placeholder="N° Contrat"
-                                  className="rounded-xl text-sm"
-                                  readOnly={!!selectedAdherentInfo}
-                                />
-                              </div>
-                              <div className="space-y-1 sm:col-span-2">
-                                <Label className="text-xs text-gray-500">Email</Label>
-                                <Input
-                                  type="email"
-                                  {...register("adherent_email")}
-                                  placeholder="email@exemple.com"
-                                  className="rounded-xl text-sm"
-                                  readOnly={!!selectedAdherentInfo}
-                                />
-                              </div>
-                            </div>
-
-                            {/* Bouton enregistrer adhérent — seulement si non identifié */}
-                            {!selectedAdherentInfo && watch("adherent_matricule") && (
-                              <div className="flex items-center justify-end pt-1">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  onClick={handleRegisterAdherent}
-                                  disabled={isRegisteringAdherent}
-                                  className="gap-1.5"
-                                >
-                                  {isRegisteringAdherent ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  ) : (
-                                    <UserPlus className="h-3.5 w-3.5" />
-                                  )}
-                                  {isRegisteringAdherent ? "Enregistrement..." : "Enregistrer l'adhérent"}
-                                </Button>
-                              </div>
+                              ) : (
+                                <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-4 space-y-3">
+                                  <p className="text-sm font-medium text-emerald-800">Saisir les informations de l'enfant</p>
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Nom et prénom</Label>
+                                      <Input placeholder="Nom et prénom" className="rounded-xl text-sm" value={watch("beneficiary_name") || ""} onChange={(e) => setValue("beneficiary_name", e.target.value)} />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Date de naissance</Label>
+                                      <Input type="date" className="rounded-xl text-sm" {...register("beneficiary_date_of_birth")} />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Email</Label>
+                                      <Input type="email" placeholder="email@exemple.com" className="rounded-xl text-sm" {...register("beneficiary_email")} />
+                                    </div>
+                                  </div>
+                                </div>
+                              )
                             )}
                           </div>
                         </div>
