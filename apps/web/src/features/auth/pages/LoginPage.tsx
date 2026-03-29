@@ -31,21 +31,13 @@ const ORGANIZATIONS: {
 /** Demo accounts by category */
 const DEMO_CATEGORIES = [
   {
-    label: 'Super Admins',
-    key: 'superadmins',
+    label: 'Admins',
+    key: 'admins',
     accounts: [
       { email: 'admin@yopmail.com', role: 'Admin Principal', color: 'bg-purple-500', icon: '👑' },
       { email: 'admin1@yopmail.com', role: 'Admin Secondaire', color: 'bg-purple-400', icon: '👑' },
     ],
   },
-  // {
-  //   label: 'Admins Assureur',
-  //   key: 'adminassureur',
-  //   accounts: [
-  //     { email: 'adminassureur@yopmail.com', role: 'Admin Assureur', color: 'bg-blue-500', icon: '🏢' },
-  //     { email: 'adminassureur1@yopmail.com', role: 'Admin Assureur 2', color: 'bg-blue-400', icon: '🏢' },
-  //   ],
-  // },
   {
     label: 'Agents',
     key: 'agents',
@@ -54,16 +46,32 @@ const DEMO_CATEGORIES = [
       { email: 'sirine@yopmail.com', role: 'Sirine Agent', color: 'bg-emerald-400', icon: '📋' },
     ],
   },
-  // {
-  //   label: 'Prestataires',
-  //   key: 'prestataires',
-  //   accounts: [
-  //     { email: 'pharmacien@yopmail.com', role: 'Pharmacie Centrale', color: 'bg-teal-500', icon: '💊' },
-  //     { email: 'medecin@yopmail.com', role: 'Dr. Ben Ali', color: 'bg-red-500', icon: '🩺' },
-  //     { email: 'labo@yopmail.com', role: 'Labo Central', color: 'bg-amber-500', icon: '🔬' },
-  //     { email: 'clinique@yopmail.com', role: 'Clinique Les Oliviers', color: 'bg-cyan-500', icon: '🏥' },
-  //   ],
-  // },
+  {
+    label: 'RH',
+    key: 'rh',
+    accounts: [
+      { email: 'rh@yopmail.com', role: 'RH Principal', color: 'bg-orange-500', icon: '👥' },
+      { email: 'rhTest@yopmail.com', role: 'RH Test', color: 'bg-orange-400', icon: '👥' },
+    ],
+  },
+  {
+    label: 'Praticiens',
+    key: 'praticiens',
+    accounts: [
+      { email: 'pharmacien@yopmail.com', role: 'Pharmacie', color: 'bg-teal-500', icon: '💊' },
+      { email: 'medecin@yopmail.com', role: 'Medecin', color: 'bg-red-500', icon: '🩺' },
+      { email: 'labo@yopmail.com', role: 'Laboratoire', color: 'bg-amber-500', icon: '🔬' },
+      { email: 'clinique@yopmail.com', role: 'Clinique', color: 'bg-cyan-500', icon: '🏥' },
+    ],
+  },
+  {
+    label: 'Assurance',
+    key: 'assurance',
+    accounts: [
+      { email: 'adminassureur@yopmail.com', role: 'Admin Assureur', color: 'bg-blue-500', icon: '🏢' },
+      { email: 'adminassureur2@yopmail.com', role: 'Admin Assureur 2', color: 'bg-blue-400', icon: '🏢' },
+    ],
+  },
 ];
 const DEMO_PASSWORD = 'Password123!';
 
@@ -72,7 +80,7 @@ export function LoginPage() {
   const { login, isLoading, error } = useAuth();
   const [selectedOrg, setSelectedOrg] = useState<TenantCode | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-  const [demoTab, setDemoTab] = useState('superadmins');
+  const [demoTab, setDemoTab] = useState('admins');
   const [selectedDemo, setSelectedDemo] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | undefined>();
   const turnstileRef = useRef<TurnstileInstance | null>(null);

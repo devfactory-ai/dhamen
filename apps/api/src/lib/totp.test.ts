@@ -12,7 +12,6 @@ import {
   hashBackupCode,
   verifyBackupCode,
   roleRequiresMFA,
-  MFA_REQUIRED_ROLES,
 } from './totp';
 
 describe('TOTP Library', () => {
@@ -313,32 +312,25 @@ describe('TOTP Library', () => {
   });
 
   describe('roleRequiresMFA', () => {
-    // Note: MFA_REQUIRED_ROLES is currently empty for demo environment
-    // In production, all staff roles should require MFA
-    it('should not require MFA in demo mode (MFA_REQUIRED_ROLES is empty)', () => {
-      // Demo mode - all roles return false
+    it('should NOT require MFA for ADMIN', () => {
       expect(roleRequiresMFA('ADMIN')).toBe(false);
-      expect(roleRequiresMFA('INSURER_ADMIN')).toBe(false);
-      expect(roleRequiresMFA('CLINIC_ADMIN')).toBe(false);
-      expect(roleRequiresMFA('PHARMACIST')).toBe(false);
-      expect(roleRequiresMFA('DOCTOR')).toBe(false);
-      expect(roleRequiresMFA('LAB_MANAGER')).toBe(false);
-      expect(roleRequiresMFA('INSURER_AGENT')).toBe(false);
     });
 
-    it('should NOT require MFA for ADHERENT (mobile users)', () => {
-      expect(roleRequiresMFA('ADHERENT')).toBe(false);
+    it('should require MFA for all non-ADMIN roles', () => {
+      expect(roleRequiresMFA('INSURER_ADMIN')).toBe(true);
+      expect(roleRequiresMFA('INSURER_AGENT')).toBe(true);
+      expect(roleRequiresMFA('HR')).toBe(true);
+      expect(roleRequiresMFA('PHARMACIST')).toBe(true);
+      expect(roleRequiresMFA('DOCTOR')).toBe(true);
+      expect(roleRequiresMFA('LAB_MANAGER')).toBe(true);
+      expect(roleRequiresMFA('CLINIC_ADMIN')).toBe(true);
+      expect(roleRequiresMFA('PRATICIEN')).toBe(true);
+      expect(roleRequiresMFA('ADHERENT')).toBe(true);
     });
 
     it('should NOT require MFA for unknown roles', () => {
       expect(roleRequiresMFA('UNKNOWN_ROLE')).toBe(false);
       expect(roleRequiresMFA('')).toBe(false);
-    });
-
-    it('should have MFA_REQUIRED_ROLES as empty array in demo mode', () => {
-      // Demo environment - MFA disabled
-      expect(MFA_REQUIRED_ROLES).toHaveLength(0);
-      expect(Array.isArray(MFA_REQUIRED_ROLES)).toBe(true);
     });
   });
 });
