@@ -107,7 +107,12 @@ function rowToAdherent(row: AdherentRow): Adherent {
 
 export async function findAdherentById(db: D1Database, id: string): Promise<Adherent | null> {
   const row = await db
-    .prepare('SELECT * FROM adherents WHERE id = ? AND deleted_at IS NULL')
+    .prepare(
+      `SELECT a.*, co.name as company_name
+       FROM adherents a
+       LEFT JOIN companies co ON a.company_id = co.id
+       WHERE a.id = ? AND a.deleted_at IS NULL`
+    )
     .bind(id)
     .first<AdherentRow>();
 

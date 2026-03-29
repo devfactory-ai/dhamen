@@ -29,9 +29,13 @@ const CARE_TYPES = [
 const PLAN_CATEGORIES = ['basic', 'standard', 'premium', 'vip'] as const;
 const CONTRACT_STATUSES = ['draft', 'active', 'suspended', 'expired', 'cancelled'] as const;
 
+const CONTRACT_TYPES = ['group', 'individual'] as const;
+
 const groupContractCreateSchema = z.object({
+  contractType: z.enum(CONTRACT_TYPES).default('group'),
   contractNumber: z.string().min(1, 'Numéro de contrat requis'),
-  companyId: z.string().min(1, 'Entreprise requise'),
+  companyId: z.string().optional(),
+  adherentId: z.string().optional(),
   insurerId: z.string().min(1, 'Assureur requis'),
   companyAddress: z.string().optional(),
   matriculeFiscale: z.string().optional(),
@@ -85,6 +89,7 @@ const groupContractFiltersSchema = z.object({
   insurerId: z.string().optional(),
   status: z.enum(CONTRACT_STATUSES).optional(),
   planCategory: z.enum(PLAN_CATEGORIES).optional(),
+  contractType: z.enum([...CONTRACT_TYPES, 'all']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -106,7 +111,7 @@ groupContracts.get(
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('query', groupContractFiltersSchema),
   async (c) => {
-    const { companyId, insurerId, status, planCategory, page, limit } = c.req.valid('query');
+    const { companyId, insurerId, status, planCategory, contractType, page, limit } = c.req.valid('query');
     const user = c.get('user');
     const db = getDb(c);
 
@@ -135,6 +140,13 @@ groupContracts.get(
       conditions.push('gc.plan_category = ?');
       params.push(planCategory);
     }
+    // Filter by contract type (group/individual)
+    if (contractType && contractType !== 'all') {
+      conditions.push('gc.contract_type = ?');
+      params.push(contractType);
+    }
+    // Exclude sentinel company from default views
+    conditions.push("gc.company_id != '__INDIVIDUAL__' OR gc.contract_type = 'individual'");
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -147,9 +159,15 @@ groupContracts.get(
     const offset = (page - 1) * limit;
     const rows = await db
       .prepare(
-        `SELECT gc.*, co.name as company_name, ins.name as insurer_name
+        `SELECT gc.*,
+                CASE WHEN gc.contract_type = 'individual'
+                     THEN (a.first_name || ' ' || a.last_name)
+                     ELSE co.name
+                END as company_name,
+                ins.name as insurer_name
          FROM group_contracts gc
          LEFT JOIN companies co ON gc.company_id = co.id
+         LEFT JOIN adherents a ON gc.adherent_id = a.id
          LEFT JOIN insurers ins ON gc.insurer_id = ins.id
          ${whereClause}
          ORDER BY gc.created_at DESC
@@ -179,9 +197,18 @@ groupContracts.get(
 
     const contract = await db
       .prepare(
-        `SELECT gc.*, co.name as company_name, ins.name as insurer_name
+        `SELECT gc.*,
+                CASE WHEN gc.contract_type = 'individual'
+                     THEN (a.first_name || ' ' || a.last_name)
+                     ELSE co.name
+                END as company_name,
+                a.first_name as adherent_first_name,
+                a.last_name as adherent_last_name,
+                a.matricule as adherent_matricule,
+                ins.name as insurer_name
          FROM group_contracts gc
          LEFT JOIN companies co ON gc.company_id = co.id
+         LEFT JOIN adherents a ON gc.adherent_id = a.id
          LEFT JOIN insurers ins ON gc.insurer_id = ins.id
          WHERE gc.id = ? AND gc.deleted_at IS NULL`
       )
@@ -189,7 +216,7 @@ groupContracts.get(
       .first();
 
     if (!contract) {
-      return notFound(c, 'Contrat groupe non trouvé');
+      return notFound(c, 'Contrat non trouvé');
     }
 
     // Access control for insurer roles
@@ -236,6 +263,16 @@ groupContracts.post(
       effectiveInsurerId = user.insurerId;
     }
 
+    const isIndividual = data.contractType === 'individual';
+
+    // Validate required fields based on contract type
+    if (!isIndividual && !data.companyId) {
+      return validationError(c, [{ path: 'companyId', message: 'Entreprise requise pour un contrat groupe' }]);
+    }
+    if (isIndividual && !data.adherentId) {
+      return validationError(c, [{ path: 'adherentId', message: 'Adhérent requis pour un contrat individuel' }]);
+    }
+
     // Check for duplicate contract number
     const existing = await db
       .prepare('SELECT id FROM group_contracts WHERE contract_number = ?')
@@ -247,11 +284,13 @@ groupContracts.post(
 
     const contractId = generateId();
     const now = new Date().toISOString();
+    const effectiveCompanyId = isIndividual ? '__INDIVIDUAL__' : data.companyId;
 
     await db
       .prepare(
         `INSERT INTO group_contracts (
           id, contract_number, company_id, insurer_id,
+          contract_type, adherent_id,
           company_address, matricule_fiscale,
           intermediary_name, intermediary_code,
           effective_date, annual_renewal_date, end_date,
@@ -262,13 +301,15 @@ groupContracts.post(
           document_url, document_id,
           plan_category, status, notes,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         contractId,
         data.contractNumber,
-        data.companyId,
+        effectiveCompanyId,
         effectiveInsurerId,
+        data.contractType,
+        data.adherentId ?? null,
         data.companyAddress ?? null,
         data.matriculeFiscale ?? null,
         data.intermediaryName ?? null,

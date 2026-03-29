@@ -55,6 +55,7 @@ function formatAmount(amount: number | null): string {
 export function AgentAdherentsPage() {
   const navigate = useNavigate();
   const { selectedCompany } = useAgentContext();
+  const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'incomplete'>('all');
@@ -82,8 +83,9 @@ export function AgentAdherentsPage() {
   const effectiveCompanyId = selectedCompany?.id; // companyFilter — TODO: rétablir le filtre entreprise
   const isActiveParam = statusFilter === 'active' ? 'true' as const : statusFilter === 'inactive' ? 'false' as const : undefined;
   const dossierCompletParam = statusFilter === 'incomplete' ? 'false' as const : undefined;
-  const { data, isLoading } = useAdherents(page, 20, search || undefined, effectiveCompanyId, isActiveParam, dossierCompletParam);
-  const { data: totalData } = useAdherents(1, 1, undefined, effectiveCompanyId);
+  const contractTypeParam = isIndividualMode ? 'individual' as const : undefined;
+  const { data, isLoading } = useAdherents(page, 20, search || undefined, effectiveCompanyId, isActiveParam, dossierCompletParam, contractTypeParam);
+  const { data: totalData } = useAdherents(1, 1, undefined, effectiveCompanyId, undefined, undefined, contractTypeParam);
   // const selectedCompanyName = companyFilter
   //   ? companiesList?.find((c) => c.id === companyFilter)?.name ?? selectedCompany?.name
   //   : undefined;
@@ -247,11 +249,12 @@ export function AgentAdherentsPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            Liste des Adhérents
+            {isIndividualMode ? 'Adhérents Individuels' : 'Liste des Adhérents'}
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Gerez votre base de donnees d'assures et leurs plafonds de
-            consommation.
+            {isIndividualMode
+              ? 'Adherents avec contrats individuels (sans entreprise).'
+              : 'Gerez votre base de donnees d\'assures et leurs plafonds de consommation.'}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -299,7 +302,7 @@ export function AgentAdherentsPage() {
           </Button>
           <Button
             className="gap-2 bg-slate-900 hover:bg-[#19355d]"
-            onClick={() => navigate("/adherents/agent/new")}
+            onClick={() => navigate(isIndividualMode ? "/adherents/agent/new?type=individual" : "/adherents/agent/new")}
             disabled={!selectedCompany}
           >
             <UserPlus className="w-4 h-4" /> Nouvel Adhérent

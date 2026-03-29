@@ -95,10 +95,13 @@ export default function BulletinsHistoryPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const queryClient = useQueryClient();
 
+  const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
+
   // Include companyId in filters when a company is selected
   const activeFilters: HistoryFilters = {
     ...filters,
     companyId: selectedCompany?.id,
+    contractType: isIndividualMode ? 'individual' : undefined,
   };
 
   const bulkDeleteMutation = useMutation({

@@ -652,10 +652,10 @@ export function Sidebar() {
             <div className="flex items-center justify-between">
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold text-blue-500 uppercase tracking-wider">
-                  Entreprise
+                  {selectedCompany?.id === '__INDIVIDUAL__' ? 'Mode' : 'Entreprise'}
                 </p>
                 <p className="text-sm font-medium text-blue-900 truncate">
-                  {selectedCompany?.name || "Non sélectionnée"}
+                  {selectedCompany?.id === '__INDIVIDUAL__' ? 'Individuel' : selectedCompany?.name || "Non sélectionnée"}
                 </p>
               </div>
               <button
@@ -688,254 +688,257 @@ export function Sidebar() {
         )}
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-4">
-          {filteredSections.map((section) => (
-            <div key={section.title}>
-              {!sidebarCollapsed && (
-                <button
-                  type="button"
-                  onClick={() => toggleSection(section.title)}
-                  className="w-full flex items-center justify-between px-3 mb-2 group cursor-pointer"
-                >
-                  <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-                    {section.title}
-                  </span>
-                  <ChevronRightIcon
-                    className={cn(
-                      "w-3 h-3 text-gray-300 group-hover:text-gray-500 transition-transform duration-200 opacity-0",
-                      collapsedSections[section.title]
-                        ? "rotate-0"
-                        : "rotate-90",
-                    )}
-                  />
-                </button>
-              )}
-              {!collapsedSections[section.title] && (
-                <div className="space-y-1">
-                  {section.items.map((item) => {
-                    // Item with submenu
-                    if (item.children && item.children.length > 0) {
-                      const isExpanded = expandedMenus[item.name] ?? false;
-                      const filteredChildren = item.children.filter((child) => {
-                        if (child.roles === "all")
-                          return !child.disabled || isAdmin;
-                        if (!user?.role) return false;
-                        if (!child.roles.includes(user.role)) return false;
-                        if (child.disabled && !isAdmin) return false;
-                        return true;
-                      });
-                      if (filteredChildren.length === 0) return null;
+        <nav className="flex-1 overflow-y-auto p-3 space-y-4 flex justify-between flex-col ">
+          <div className="flex-1 overflow-y-auto space-y-4">
+            {filteredSections.map((section) => (
+              <div key={section.title}>
+                {!sidebarCollapsed && (
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(section.title)}
+                    className="w-full flex items-center justify-between px-3 mb-2 group cursor-pointer"
+                  >
+                    <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                      {section.title}
+                    </span>
+                    <ChevronRightIcon
+                      className={cn(
+                        "w-3 h-3 text-gray-300 group-hover:text-gray-500 transition-transform duration-200 opacity-0",
+                        collapsedSections[section.title]
+                          ? "rotate-0"
+                          : "rotate-90",
+                      )}
+                    />
+                  </button>
+                )}
+                {!collapsedSections[section.title] && (
+                  <div className="space-y-1">
+                    {section.items.map((item) => {
+                      // Item with submenu
+                      if (item.children && item.children.length > 0) {
+                        const isExpanded = expandedMenus[item.name] ?? false;
+                        const filteredChildren = item.children.filter(
+                          (child) => {
+                            if (child.roles === "all")
+                              return !child.disabled || isAdmin;
+                            if (!user?.role) return false;
+                            if (!child.roles.includes(user.role)) return false;
+                            if (child.disabled && !isAdmin) return false;
+                            return true;
+                          },
+                        );
+                        if (filteredChildren.length === 0) return null;
 
-                      return (
-                        <div key={item.href}>
-                          <button
-                            type="button"
-                            onClick={() => toggleMenu(item.name)}
-                            title={sidebarCollapsed ? item.name : undefined}
-                            className={cn(
-                              "flex w-full items-center rounded-xl text-sm font-medium transition-all duration-200",
-                              sidebarCollapsed
-                                ? "justify-center px-2 py-2.5"
-                                : "gap-3 px-3 py-2.5",
-                              isExpanded
-                                ? "bg-blue-50 text-blue-700"
-                                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
-                            )}
-                          >
-                            <item.icon className="h-5 w-5 flex-shrink-0" />
-                            {!sidebarCollapsed && (
-                              <>
-                                <span className="truncate flex-1 text-left">
-                                  {item.name}
-                                </span>
-                                <ChevronRightIcon
-                                  className={cn(
-                                    "w-4 h-4 transition-transform duration-200",
-                                    isExpanded ? "rotate-90" : "rotate-0",
-                                  )}
-                                />
-                              </>
-                            )}
-                          </button>
-                          {isExpanded && !sidebarCollapsed && (
-                            <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-100 pl-3">
-                              {filteredChildren.map((child) =>
-                                child.disabled ? (
-                                  <span
-                                    key={child.href}
-                                    className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm cursor-not-allowed opacity-40 text-gray-400"
-                                  >
-                                    <child.icon className="h-4 w-4 flex-shrink-0" />
-                                    <span className="truncate">
-                                      {child.name}
-                                    </span>
-                                  </span>
-                                ) : (
-                                  <NavLink
-                                    key={child.href}
-                                    to={child.href}
-                                    end={child.href.includes("/import")}
-                                    className={({ isActive }) => {
-                                      const isListRoute =
-                                        !child.href.includes("/import");
-                                      const pathMatches = isListRoute
-                                        ? location.pathname === child.href ||
-                                          location.pathname.startsWith(
-                                            child.href + "/",
-                                          )
-                                        : isActive;
-                                      return cn(
-                                        "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
-                                        pathMatches
-                                          ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
-                                          : "text-gray-500 hover:bg-gray-100 hover:text-gray-900",
-                                      );
-                                    }}
-                                  >
-                                    <child.icon className="h-4 w-4 flex-shrink-0" />
-                                    <span className="truncate">
-                                      {child.name}
-                                    </span>
-                                  </NavLink>
-                                ),
+                        return (
+                          <div key={item.href}>
+                            <button
+                              type="button"
+                              onClick={() => toggleMenu(item.name)}
+                              title={sidebarCollapsed ? item.name : undefined}
+                              className={cn(
+                                "flex w-full items-center rounded-xl text-sm font-medium transition-all duration-200",
+                                sidebarCollapsed
+                                  ? "justify-center px-2 py-2.5"
+                                  : "gap-3 px-3 py-2.5",
+                                isExpanded
+                                  ? "bg-blue-50 text-blue-700"
+                                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
                               )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    }
+                            >
+                              <item.icon className="h-5 w-5 flex-shrink-0" />
+                              {!sidebarCollapsed && (
+                                <>
+                                  <span className="truncate flex-1 text-left">
+                                    {item.name}
+                                  </span>
+                                  <ChevronRightIcon
+                                    className={cn(
+                                      "w-4 h-4 transition-transform duration-200",
+                                      isExpanded ? "rotate-90" : "rotate-0",
+                                    )}
+                                  />
+                                </>
+                              )}
+                            </button>
+                            {isExpanded && !sidebarCollapsed && (
+                              <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-100 pl-3">
+                                {filteredChildren.map((child) =>
+                                  child.disabled ? (
+                                    <span
+                                      key={child.href}
+                                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm cursor-not-allowed opacity-40 text-gray-400"
+                                    >
+                                      <child.icon className="h-4 w-4 flex-shrink-0" />
+                                      <span className="truncate">
+                                        {child.name}
+                                      </span>
+                                    </span>
+                                  ) : (
+                                    <NavLink
+                                      key={child.href}
+                                      to={child.href}
+                                      end={child.href.includes("/import")}
+                                      className={({ isActive }) => {
+                                        const isListRoute =
+                                          !child.href.includes("/import");
+                                        const pathMatches = isListRoute
+                                          ? location.pathname === child.href ||
+                                            location.pathname.startsWith(
+                                              child.href + "/",
+                                            )
+                                          : isActive;
+                                        return cn(
+                                          "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+                                          pathMatches
+                                            ? "bg-blue-600 text-white shadow-md shadow-blue-600/25"
+                                            : "text-gray-500 hover:bg-gray-100 hover:text-gray-900",
+                                        );
+                                      }}
+                                    >
+                                      <child.icon className="h-4 w-4 flex-shrink-0" />
+                                      <span className="truncate">
+                                        {child.name}
+                                      </span>
+                                    </NavLink>
+                                  ),
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
 
-                    // Regular item (no children)
-                    return item.disabled ? (
-                      <span
-                        key={item.href}
-                        title={
-                          sidebarCollapsed
-                            ? `${item.name} (bientôt)`
-                            : "Bientôt disponible"
-                        }
-                        className={cn(
-                          "flex items-center rounded-xl text-sm font-medium cursor-not-allowed opacity-40",
-                          sidebarCollapsed
-                            ? "justify-center px-2 py-2.5"
-                            : "gap-3 px-3 py-2.5",
-                          "text-gray-400",
-                        )}
-                      >
-                        <item.icon className="h-5 w-5 flex-shrink-0" />
-                        {!sidebarCollapsed && (
-                          <span className="truncate">{item.name}</span>
-                        )}
-                      </span>
-                    ) : (
-                      <NavLink
-                        key={item.href}
-                        to={item.href}
-                        title={sidebarCollapsed ? item.name : undefined}
-                        className={({ isActive }) =>
-                          cn(
-                            "flex items-center rounded-xl text-sm font-medium transition-all duration-200",
+                      // Regular item (no children)
+                      return item.disabled ? (
+                        <span
+                          key={item.href}
+                          title={
+                            sidebarCollapsed
+                              ? `${item.name} (bientôt)`
+                              : "Bientôt disponible"
+                          }
+                          className={cn(
+                            "flex items-center rounded-xl text-sm font-medium cursor-not-allowed opacity-40",
                             sidebarCollapsed
                               ? "justify-center px-2 py-2.5"
                               : "gap-3 px-3 py-2.5",
-                            isActive
-                              ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-600/25"
-                              : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
-                          )
-                        }
-                      >
-                        <item.icon className="h-5 w-5 flex-shrink-0" />
-                        {!sidebarCollapsed && (
-                          <>
+                            "text-gray-400",
+                          )}
+                        >
+                          <item.icon className="h-5 w-5 flex-shrink-0" />
+                          {!sidebarCollapsed && (
                             <span className="truncate">{item.name}</span>
-                            {item.badge && (
-                              <span className="ml-auto px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-700 rounded">
-                                {item.badge}
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </NavLink>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          ))}
+                          )}
+                        </span>
+                      ) : (
+                        <NavLink
+                          key={item.href}
+                          to={item.href}
+                          title={sidebarCollapsed ? item.name : undefined}
+                          className={({ isActive }) =>
+                            cn(
+                              "flex items-center rounded-xl text-sm font-medium transition-all duration-200",
+                              sidebarCollapsed
+                                ? "justify-center px-2 py-2.5"
+                                : "gap-3 px-3 py-2.5",
+                              isActive
+                                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-600/25"
+                                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
+                            )
+                          }
+                        >
+                          <item.icon className="h-5 w-5 flex-shrink-0" />
+                          {!sidebarCollapsed && (
+                            <>
+                              <span className="truncate">{item.name}</span>
+                              {item.badge && (
+                                <span className="ml-auto px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-700 rounded">
+                                  {item.badge}
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </NavLink>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {/* Bottom section: New Policy + Settings + Support */}
+          <div className="p-3 border-t border-gray-100 shrink-0 space-y-2">
+            {/* Settings */}
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center rounded-xl text-sm font-medium transition-all duration-200",
+                  sidebarCollapsed
+                    ? "justify-center px-2 py-2.5"
+                    : "gap-3 px-3 py-2.5",
+                  isActive
+                    ? "bg-gray-100 text-gray-900"
+                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
+                )
+              }
+              title={sidebarCollapsed ? "Paramètres" : undefined}
+            >
+              <svg
+                className="h-5 w-5 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                />
+              </svg>
+              {!sidebarCollapsed && <span>Paramètres</span>}
+            </NavLink>
+
+            {/* Support */}
+            <NavLink
+              to="/about"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center rounded-xl text-sm font-medium transition-all duration-200",
+                  sidebarCollapsed
+                    ? "justify-center px-2 py-2.5"
+                    : "gap-3 px-3 py-2.5",
+                  isActive
+                    ? "bg-gray-100 text-gray-900"
+                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
+                )
+              }
+              title={sidebarCollapsed ? "Support" : undefined}
+            >
+              <svg
+                className="h-5 w-5 flex-shrink-0"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"
+                />
+              </svg>
+              {!sidebarCollapsed && <span>Support</span>}
+            </NavLink>
+          </div>
         </nav>
-
-        {/* Bottom section: New Policy + Settings + Support */}
-        <div className="p-3 border-t border-gray-100 shrink-0 space-y-2">
-          {/* Settings */}
-          <NavLink
-            to="/settings"
-            className={({ isActive }) =>
-              cn(
-                "flex items-center rounded-xl text-sm font-medium transition-all duration-200",
-                sidebarCollapsed
-                  ? "justify-center px-2 py-2.5"
-                  : "gap-3 px-3 py-2.5",
-                isActive
-                  ? "bg-gray-100 text-gray-900"
-                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
-              )
-            }
-            title={sidebarCollapsed ? "Paramètres" : undefined}
-          >
-            <svg
-              className="h-5 w-5 flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
-              />
-            </svg>
-            {!sidebarCollapsed && <span>Paramètres</span>}
-          </NavLink>
-
-          {/* Support */}
-          <NavLink
-            to="/about"
-            className={({ isActive }) =>
-              cn(
-                "flex items-center rounded-xl text-sm font-medium transition-all duration-200",
-                sidebarCollapsed
-                  ? "justify-center px-2 py-2.5"
-                  : "gap-3 px-3 py-2.5",
-                isActive
-                  ? "bg-gray-100 text-gray-900"
-                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
-              )
-            }
-            title={sidebarCollapsed ? "Support" : undefined}
-          >
-            <svg
-              className="h-5 w-5 flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"
-              />
-            </svg>
-            {!sidebarCollapsed && <span>Support</span>}
-          </NavLink>
-        </div>
       </aside>
     </>
   );

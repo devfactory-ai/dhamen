@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { UserPlus, Pencil, Save, Plus, Trash2, Users } from 'lucide-react';
+import { UserPlus, Pencil, Save, Plus, Trash2, Users, User } from 'lucide-react';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { useAdherentFamille } from '@/features/agent/hooks/use-adherent-famille';
 import {
@@ -123,6 +123,7 @@ export function AgentAdherentFormPage() {
   const { id } = useParams<{ id: string }>();
   const isEdit = !!id;
   const { selectedCompany } = useAgentContext();
+  const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
 
   const [form, setForm] = useState<AdherentFormState>(emptyForm);
   const [ayantsDroit, setAyantsDroit] = useState<AyantDroitFormState[]>([]);
@@ -314,7 +315,7 @@ export function AgentAdherentFormPage() {
         navigate('/adherents/agent');
       } catch { /* handled by mutation */ }
     } else {
-      if (!selectedCompany) return;
+      if (!isIndividualMode && !selectedCompany) return;
 
       // Build ayants droit payload
       const ayantsDroitPayload: AyantDroitData[] = ayantsDroit
@@ -347,7 +348,7 @@ export function AgentAdherentFormPage() {
         address: form.address || undefined,
         city: form.city || undefined,
         postalCode: form.postalCode || undefined,
-        companyId: selectedCompany.id,
+        companyId: isIndividualMode ? '__INDIVIDUAL__' : selectedCompany!.id,
         matricule: form.matricule || undefined,
         plafondGlobal: form.plafondGlobal ? Number(form.plafondGlobal) * 1000 : undefined,
         dateDebutAdhesion: form.dateDebutAdhesion || undefined,
@@ -381,28 +382,39 @@ export function AgentAdherentFormPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={isEdit ? 'Modifier l\'adherent' : 'Nouvel adherent'}
+        title={isEdit ? 'Modifier l\'adherent' : isIndividualMode ? 'Nouvel adherent individuel' : 'Nouvel adherent'}
         description={
           isEdit
             ? `Modification de ${form.firstName} ${form.lastName}`
-            : `Entreprise: ${selectedCompany?.name || '\u2014'}`
+            : isIndividualMode
+              ? 'Adherent avec contrat individuel (sans entreprise)'
+              : `Entreprise: ${selectedCompany?.name || '\u2014'}`
         }
-        icon={isEdit ? <Pencil className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
+        icon={isEdit ? <Pencil className="w-6 h-6" /> : isIndividualMode ? <User className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
         breadcrumb={[
           { label: 'Adherents', href: '/adherents/agent' },
-          { label: isEdit ? 'Modifier' : 'Nouveau' },
+          { label: isEdit ? 'Modifier' : isIndividualMode ? 'Individuel' : 'Nouveau' },
         ]}
       />
 
       <Card>
         <CardContent className="pt-6">
-          {/* Entreprise (read-only) */}
-          <div className="mb-4">
-            <Label className="text-xs text-gray-500">Entreprise</Label>
-            <p className="text-sm font-medium">
-              {selectedCompany?.name || '\u2014'}
-            </p>
-          </div>
+          {/* Entreprise (read-only) - hidden for individual */}
+          {!isIndividualMode && (
+            <div className="mb-4">
+              <Label className="text-xs text-gray-500">Entreprise</Label>
+              <p className="text-sm font-medium">
+                {selectedCompany?.name || '\u2014'}
+              </p>
+            </div>
+          )}
+          {isIndividualMode && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 p-3">
+              <User className="h-4 w-4 text-blue-600" />
+              <span className="text-sm font-medium text-blue-900">Contrat individuel</span>
+              <span className="text-xs text-blue-600">Sans rattachement entreprise</span>
+            </div>
+          )}
 
           <Tabs defaultValue="adherent" className="w-full">
             <TabsList className="grid w-full grid-cols-3">

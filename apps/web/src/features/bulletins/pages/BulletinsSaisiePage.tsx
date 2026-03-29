@@ -249,6 +249,7 @@ export function BulletinsSaisiePage() {
   const [batchStatusFilter, setBatchStatusFilter] = useState("all");
   const [batchPage, setBatchPage] = useState(1);
   const BATCH_PAGE_SIZE = 10;
+  const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
   const [adherentSearch, setAdherentSearch] = useState("");
   const [showAdherentDropdown, setShowAdherentDropdown] = useState(false);
   const [selectedAdherentInfo, setSelectedAdherentInfo] =
@@ -1148,8 +1149,8 @@ export function BulletinsSaisiePage() {
                 telephone: (acte.telephone_praticien as string) || undefined,
               },
             }));
-            // Auto-register checkbox: checked by default when MF exists but provider not in DB
-            setAutoRegisterPraticien((prev) => ({ ...prev, [i]: true }));
+            // Auto-register will be determined by MfLookupInput status callback
+            // Don't pre-set to true — the MF lookup may find the provider in DB
           }
 
           if (i === 0) {
@@ -1505,7 +1506,7 @@ export function BulletinsSaisiePage() {
               Créer un lot ({selectedBulletins.length})
             </Button>
           )}
-          {selectedCompany && (
+          {!isIndividualMode && selectedCompany && (
             <div className="flex items-center gap-2.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-[10px] font-bold text-white">
                 {selectedCompany.name?.slice(0, 3).toUpperCase()}
@@ -1517,6 +1518,17 @@ export function BulletinsSaisiePage() {
                 <p className="text-sm font-semibold text-gray-900">
                   {selectedCompany.name}
                 </p>
+              </div>
+            </div>
+          )}
+          {isIndividualMode && (
+            <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5">
+              <User className="h-5 w-5 text-blue-600" />
+              <div>
+                <p className="text-[10px] font-medium uppercase tracking-wide text-blue-500">
+                  Mode individuel
+                </p>
+                <p className="text-xs text-blue-700">Sans entreprise</p>
               </div>
             </div>
           )}
@@ -3030,6 +3042,7 @@ export function BulletinsSaisiePage() {
                                         )
                                       }
                                       onProviderFound={(provider) => {
+                                        // Autocomplete: fill name and provider_id from existing provider
                                         setValue(
                                           `actes.${index}.nom_prof_sant`,
                                           provider.name,
@@ -3038,11 +3051,28 @@ export function BulletinsSaisiePage() {
                                           `actes.${index}.provider_id`,
                                           provider.id,
                                         );
+                                        // Provider found — no need to auto-register
+                                        setAutoRegisterPraticien((prev) => ({
+                                          ...prev,
+                                          [index]: false,
+                                        }));
                                       }}
                                       onStatusChange={(status) => {
                                         // Clear provider_id when MF changes and provider is not found
                                         if (status !== 'found' && status !== 'registered') {
                                           setValue(`actes.${index}.provider_id`, undefined);
+                                        }
+                                        // Update auto-register state based on lookup result
+                                        if (status === 'not_found') {
+                                          setAutoRegisterPraticien((prev) => ({
+                                            ...prev,
+                                            [index]: true,
+                                          }));
+                                        } else if (status === 'found' || status === 'registered') {
+                                          setAutoRegisterPraticien((prev) => ({
+                                            ...prev,
+                                            [index]: false,
+                                          }));
                                         }
                                         setMfStatuses((prev) => ({
                                           ...prev,
@@ -3123,11 +3153,11 @@ export function BulletinsSaisiePage() {
                                           }}
                                         />
                                         {/* Libellé de l'acte — éditable, pré-rempli par OCR ou sélection */}
-                                        <Input
+                                        {/* <Input
                                           {...register(`actes.${index}.label`)}
                                           placeholder="Libellé de l'acte médical"
                                           className="rounded-xl text-sm mt-1.5"
-                                        />
+                                        /> */}
                                       </>
                                     )}
                                     {errors.actes?.[index]?.label && (

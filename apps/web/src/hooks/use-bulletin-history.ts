@@ -86,6 +86,7 @@ export interface HistoryStats {
 export interface HistoryFilters {
   adherentId?: string;
   companyId?: string;
+  contractType?: 'all' | 'group' | 'individual';
   dateFrom?: string;
   dateTo?: string;
   careType?: string;
@@ -108,6 +109,7 @@ function buildQueryString(filters: HistoryFilters): string {
   if (filters.careType) params.set('careType', filters.careType);
   if (filters.status) params.set('status', filters.status);
   if (filters.search) params.set('search', filters.search);
+  if (filters.contractType && filters.contractType !== 'all') params.set('contractType', filters.contractType);
   if (filters.sortBy) params.set('sortBy', filters.sortBy);
   if (filters.sortOrder) params.set('sortOrder', filters.sortOrder);
   return params.toString();

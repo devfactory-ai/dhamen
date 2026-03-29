@@ -177,7 +177,7 @@ export function ProviderFormPage() {
     <div className="space-y-6">
       <PageHeader
         title={isEditing ? 'Modifier le praticien' : 'Nouveau praticien'}
-        description={isEditing ? 'Modifier les informations du praticien' : 'Ajouter un nouveau praticien de sante'}
+        description={isEditing ? 'Modifier les informations du praticien' : 'Ajouter un nouveau praticien de santé'}
         breadcrumb={[
           { label: 'Praticiens', href: '/providers' },
           ...(isEditing && provider ? [{ label: provider.name, href: `/providers/${id}` }] : []),
@@ -341,7 +341,7 @@ export function ProviderFormPage() {
                 Annuler
               </Button>
               <Button type="submit" disabled={isLoading}>
-                {isLoading ? 'Enregistrement...' : isEditing ? 'Enregistrer' : 'Creer le praticien'}
+                {isLoading ? 'Enregistrement...' : isEditing ? 'Enregistrer' : 'Créer le praticien'}
               </Button>
             </div>
           </form>

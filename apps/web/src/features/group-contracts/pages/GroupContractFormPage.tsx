@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -16,6 +16,8 @@ import {
   ChevronDown,
   ChevronUp,
   RotateCcw,
+  User,
+  Search,
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,6 +45,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/stores/toast';
+import { useAgentContext } from '@/features/agent/stores/agent-context';
 
 // ---- Care types ----
 
@@ -164,8 +167,10 @@ const guaranteeSchema = z.object({
 });
 
 const formSchema = z.object({
+  contract_type: z.enum(['group', 'individual']).default('group'),
   contract_number: z.string().min(1, 'Numéro de contrat requis'),
-  company_id: z.string().min(1, 'Société requise'),
+  company_id: z.string().optional(),
+  adherent_id: z.string().optional(),
   company_name_extracted: z.string().optional(),
   company_address: z.string().optional(),
   matricule_fiscale: z.string().optional(),
@@ -193,6 +198,13 @@ type FormData = z.infer<typeof formSchema>;
 interface Company {
   id: string;
   name: string;
+}
+
+interface AdherentOption {
+  id: string;
+  nom: string;
+  prenom: string;
+  matricule?: string;
 }
 
 interface Insurer {
@@ -286,9 +298,16 @@ interface PdfAnalyseResponse {
 export function GroupContractFormPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isEditing = !!id;
+
+  // Determine contract type from URL param or agent context
+  const agentContext = useAgentContext();
+  const isIndividualFromContext = agentContext.isIndividualMode();
+  const urlContractType = searchParams.get('type') === 'individual' || isIndividualFromContext ? 'individual' : 'group';
+  const [selectedAdherent, setSelectedAdherent] = useState<AdherentOption | null>(null);
 
   const [pdfUploading, setPdfUploading] = useState(false);
   const [pdfExtracted, setPdfExtracted] = useState(false);
@@ -310,8 +329,10 @@ export function GroupContractFormPage() {
   } = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      contract_type: 'group',
       contract_number: '',
       company_id: '',
+      adherent_id: '',
       company_name_extracted: '',
       company_address: '',
       matricule_fiscale: '',
@@ -364,6 +385,21 @@ export function GroupContractFormPage() {
     },
   });
 
+  // Adherent search for individual contracts
+  const [adherentSearch, setAdherentSearch] = useState('');
+  const contractType = watch('contract_type');
+
+  const { data: adherentResults } = useQuery({
+    queryKey: ['adherents-search', adherentSearch],
+    queryFn: async () => {
+      const response = await apiClient.get<AdherentOption[]>(`/adherents?search=${encodeURIComponent(adherentSearch)}&limit=10&type=individuel`);
+      if (!response.success) return [];
+      const raw = response as unknown as { data: AdherentOption[] };
+      return Array.isArray(raw.data) ? raw.data : [];
+    },
+    enabled: contractType === 'individual' && adherentSearch.length >= 2,
+  });
+
   const { data: existingContract, isLoading: contractLoading } = useQuery({
     queryKey: ['group-contract', id],
     queryFn: async () => {
@@ -414,6 +450,13 @@ export function GroupContractFormPage() {
       });
     }
   }, [existingContract, reset]);
+
+  // Set contract type from URL on mount (new contracts only)
+  useEffect(() => {
+    if (!isEditing) {
+      setValue('contract_type', urlContractType as 'group' | 'individual');
+    }
+  }, [urlContractType, isEditing, setValue]);
 
   // ---- PDF Upload ----
 
@@ -590,9 +633,12 @@ export function GroupContractFormPage() {
   const mutation = useMutation({
     mutationFn: async (data: FormData) => {
       // Map form fields to API schema (camelCase)
+      const isIndividual = data.contract_type === 'individual';
       const payload = {
+        contractType: data.contract_type,
         contractNumber: data.contract_number,
-        companyId: data.company_id,
+        companyId: isIndividual ? undefined : data.company_id,
+        adherentId: isIndividual ? data.adherent_id : undefined,
         insurerId: data.insurer_id || undefined,
         companyAddress: data.company_address || undefined,
         matriculeFiscale: data.matricule_fiscale || undefined,
@@ -735,16 +781,20 @@ export function GroupContractFormPage() {
   return (
     <div className="space-y-6">
       <nav className="flex items-center gap-1.5 text-sm text-gray-500">
-        <Link to="/group-contracts" className="hover:text-gray-900 transition-colors">Contrats Groupe</Link>
+        <Link to="/group-contracts" className="hover:text-gray-900 transition-colors">Contrats</Link>
         <ChevronRight className="w-4 h-4" />
-        <span className="text-gray-900 font-medium">{isEditing ? 'Modifier' : 'Nouveau'}</span>
+        <span className="text-gray-900 font-medium">
+          {isEditing ? 'Modifier' : contractType === 'individual' ? 'Nouveau contrat individuel' : 'Nouveau contrat groupe'}
+        </span>
       </nav>
       <PageHeader
-        title={isEditing ? 'Modifier le contrat groupe' : 'Nouveau contrat groupe'}
+        title={isEditing ? 'Modifier le contrat' : contractType === 'individual' ? 'Nouveau contrat individuel' : 'Nouveau contrat groupe'}
         description={
           isEditing
             ? `Modifier ${existingContract?.contract_number || ''}`
-            : 'Créer un nouveau contrat d\'assurance groupe'
+            : contractType === 'individual'
+              ? 'Créer un nouveau contrat d\'assurance individuel'
+              : 'Créer un nouveau contrat d\'assurance groupe'
         }
       />
 
@@ -932,53 +982,120 @@ export function GroupContractFormPage() {
         {/* Souscripteur */}
         <Card>
           <CardHeader>
-            <CardTitle>Souscripteur</CardTitle>
+            <CardTitle>{contractType === 'individual' ? 'Adhérent' : 'Souscripteur'}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Société *</Label>
-                <Select
-                  value={watch('company_id') || undefined}
-                  onValueChange={(val) => setValue('company_id', val)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner une société" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(companies || []).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {watch('company_name_extracted') && !watch('company_id') && (
-                  <p className="text-xs text-amber-600">
-                    Extrait du PDF: {watch('company_name_extracted')}
-                  </p>
+            {contractType === 'individual' ? (
+              <>
+                {/* Adherent search for individual contracts */}
+                <div className="space-y-2">
+                  <Label>Rechercher un adhérent *</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      value={adherentSearch}
+                      onChange={(e) => setAdherentSearch(e.target.value)}
+                      placeholder="Nom, prénom ou matricule..."
+                      className="pl-9"
+                    />
+                  </div>
+                  {adherentSearch.length >= 2 && adherentResults && adherentResults.length > 0 && !selectedAdherent && (
+                    <div className="rounded-md border bg-white shadow-md max-h-48 overflow-y-auto">
+                      {adherentResults.map((a) => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2 hover:bg-gray-50 text-sm border-b last:border-b-0"
+                          onClick={() => {
+                            setValue('adherent_id', a.id);
+                            setSelectedAdherent(a);
+                            setAdherentSearch('');
+                          }}
+                        >
+                          <span className="font-medium">{a.prenom} {a.nom}</span>
+                          {a.matricule && <span className="text-gray-500 ml-2">({a.matricule})</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {adherentSearch.length >= 2 && adherentResults && adherentResults.length === 0 && (
+                    <p className="text-xs text-gray-500">Aucun adhérent trouvé</p>
+                  )}
+                </div>
+                {selectedAdherent && (
+                  <div className="flex items-center justify-between rounded-lg bg-blue-50 border border-blue-200 p-3">
+                    <div className="flex items-center gap-2">
+                      <User className="h-4 w-4 text-blue-600" />
+                      <span className="text-sm font-medium text-blue-900">
+                        {selectedAdherent.prenom} {selectedAdherent.nom}
+                      </span>
+                      {selectedAdherent.matricule && (
+                        <Badge variant="secondary" className="text-xs">{selectedAdherent.matricule}</Badge>
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedAdherent(null);
+                        setValue('adherent_id', '');
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
                 )}
-                {errors.company_id && (
-                  <p className="text-xs text-destructive">{errors.company_id.message}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="matricule_fiscale">Matricule fiscale</Label>
-                <Input
-                  id="matricule_fiscale"
-                  {...register('matricule_fiscale')}
-                  placeholder="Ex: 0002788H"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="company_address">Adresse du souscripteur</Label>
-              <Input
-                id="company_address"
-                {...register('company_address')}
-                placeholder="Ex: Rue Mohieddine ElKlibi El Manar 2, Tunis 2092"
-              />
-            </div>
+              </>
+            ) : (
+              <>
+                {/* Company selector for group contracts */}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Société *</Label>
+                    <Select
+                      value={watch('company_id') || undefined}
+                      onValueChange={(val) => setValue('company_id', val)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Sélectionner une société" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(companies || []).filter((c) => c.id !== '__INDIVIDUAL__').map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {watch('company_name_extracted') && !watch('company_id') && (
+                      <p className="text-xs text-amber-600">
+                        Extrait du PDF: {watch('company_name_extracted')}
+                      </p>
+                    )}
+                    {errors.company_id && (
+                      <p className="text-xs text-destructive">{errors.company_id.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="matricule_fiscale">Matricule fiscale</Label>
+                    <Input
+                      id="matricule_fiscale"
+                      {...register('matricule_fiscale')}
+                      placeholder="Ex: 0002788H"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="company_address">Adresse du souscripteur</Label>
+                  <Input
+                    id="company_address"
+                    {...register('company_address')}
+                    placeholder="Ex: Rue Mohieddine ElKlibi El Manar 2, Tunis 2092"
+                  />
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 

@@ -241,7 +241,7 @@ export function CompanyFormPage() {
                 Annuler
               </Button>
               <Button type="submit" disabled={mutation.isPending}>
-                {mutation.isPending ? 'Enregistrement...' : isEditing ? 'Enregistrer' : 'Creer'}
+                {mutation.isPending ? 'Enregistrement...' : isEditing ? 'Enregistrer' : 'Créer'}
               </Button>
             </div>
           </CardContent>

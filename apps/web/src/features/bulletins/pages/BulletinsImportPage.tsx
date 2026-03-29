@@ -42,7 +42,7 @@ import {
   FileArchive,
   FolderOpen,
   Settings2,
-  ChevronRight,
+  
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -925,7 +925,7 @@ export default function BulletinsImportPage() {
                 <p className="text-sm font-medium text-gray-700">
                   Glissez votre fichier ici ou <span className="text-blue-600">parcourir</span>
                 </p>
-                <p className="text-xs text-gray-400 mt-2">CSV, XLSX ou ZIP — Format SPROLS ou Dhamen standard</p>
+                <p className="text-xs text-gray-400 mt-2">CSV, XLSX ou ZIP — Format SPROLS ou E-Santé standard</p>
                 <p className="text-xs text-gray-400 mt-1">ZIP : peut contenir plusieurs fichiers CSV/Excel (un par lot) ou des documents scannés</p>
               </>
             )}

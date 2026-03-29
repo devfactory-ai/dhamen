@@ -1,17 +1,20 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, FileText, Building2, Shield, Eye, Pencil } from 'lucide-react';
+import { Plus, FileText, Building2, Shield, Eye, Pencil, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
+import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { DataTable } from '@/components/ui/data-table';
 import { Button } from '@/components/ui/button';
 
 interface GroupContract {
   id: string;
   contract_number: string;
+  contract_type: 'group' | 'individual';
   company_id: string;
   company_name: string;
+  adherent_id: string | null;
   insurer_name: string | null;
   intermediary: string | null;
   effective_date: string;
@@ -33,6 +36,9 @@ const STATUS_LABELS: Record<string, { label: string; variant: 'success' | 'secon
 
 export function GroupContractsPage() {
   const navigate = useNavigate();
+  const { selectedCompany } = useAgentContext();
+  const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
+  const typeFilter = isIndividualMode ? 'individual' : 'all';
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'draft' | 'expired' | 'suspended'>('all');
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
@@ -40,10 +46,11 @@ export function GroupContractsPage() {
   const pageSize = 10;
 
   const { data, isLoading } = useQuery({
-    queryKey: ['group-contracts', statusFilter],
+    queryKey: ['group-contracts', statusFilter, typeFilter],
     queryFn: async () => {
       const params = new URLSearchParams({ page: '1', limit: '500' });
       if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (typeFilter !== 'all') params.set('contractType', typeFilter);
       const response = await apiClient.get<GroupContract[]>(
         `/group-contracts?${params.toString()}`
       );
@@ -55,7 +62,8 @@ export function GroupContractsPage() {
 
   const allContracts = data?.contracts || [];
   const activeCount = allContracts.filter((c) => c.status === 'active').length;
-  const companiesCount = new Set(allContracts.map((c) => c.company_id)).size;
+  const groupCount = allContracts.filter((c) => (c.contract_type || 'group') === 'group').length;
+  const individualCount = allContracts.filter((c) => c.contract_type === 'individual').length;
 
   // Client-side search filter
   const filtered = useMemo(() => {
@@ -90,11 +98,25 @@ export function GroupContractsPage() {
     },
     {
       key: 'company_name',
-      header: 'Société',
+      header: 'Société / Adhérent',
       render: (contract: GroupContract) => (
         <div className="flex items-center gap-2">
-          <Building2 className="h-4 w-4 text-gray-400" />
-          <span className="text-sm text-gray-700">{contract.company_name}</span>
+          {contract.contract_type === 'individual' ? (
+            <>
+              <User className="h-4 w-4 text-indigo-400" />
+              <div>
+                <span className="text-sm text-gray-700">{contract.company_name || '—'}</span>
+                <span className="ml-2 inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-600">
+                  Individuel
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <Building2 className="h-4 w-4 text-gray-400" />
+              <span className="text-sm text-gray-700">{contract.company_name}</span>
+            </>
+          )}
         </div>
       ),
     },
@@ -174,18 +196,22 @@ export function GroupContractsPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Contrats Groupe</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {isIndividualMode ? 'Contrats Individuels' : 'Contrats'}
+          </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Gérer les contrats d'assurance groupe et leurs garanties
+            {isIndividualMode ? 'Gerer les contrats d\'assurance individuels' : 'Gerer les contrats d\'assurance groupe et individuels'}
           </p>
         </div>
-        <Button
-          className="gap-2 bg-slate-900 hover:bg-[#19355d]"
-          onClick={() => navigate("/group-contracts/new")}
-        >
-          <Plus className="h-4 w-4" />
-          Nouveau contrat
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            className="gap-2 bg-slate-900 hover:bg-[#19355d]"
+            onClick={() => navigate(isIndividualMode ? "/group-contracts/new?type=individual" : "/group-contracts/new")}
+          >
+            <Plus className="h-4 w-4" />
+            {isIndividualMode ? 'Nouveau contrat individuel' : 'Nouveau contrat groupe'}
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -215,13 +241,18 @@ export function GroupContractsPage() {
             <Building2 className="h-5 w-5 text-purple-600" />
           </div>
           <div>
-            <p className="text-2xl font-bold text-gray-900">{companiesCount}</p>
-            <p className="text-xs text-gray-500">Sociétés couvertes</p>
+            <p className="text-2xl font-bold text-gray-900">{groupCount}</p>
+            <p className="text-xs text-gray-500">Contrats groupe</p>
           </div>
         </div>
-        <div className="rounded-2xl bg-gradient-to-br from-gray-900 to-blue-950 px-5 py-4 text-white">
-          <p className="text-2xl font-bold">{filtered.length}</p>
-          <p className="text-xs text-blue-200">Résultats affichés</p>
+        <div className="flex items-center gap-4 rounded-2xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50">
+            <User className="h-5 w-5 text-indigo-600" />
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-gray-900">{individualCount}</p>
+            <p className="text-xs text-gray-500">Contrats individuels</p>
+          </div>
         </div>
       </div>
 
@@ -365,6 +396,14 @@ export function GroupContractsPage() {
               </div>
             )}
           </div>
+          {/* Mode indicator */}
+          {isIndividualMode && (
+            <div className="flex items-center gap-1.5 border-l border-gray-200 pl-4 ml-2">
+              <span className="px-3 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white">
+                Individuel
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

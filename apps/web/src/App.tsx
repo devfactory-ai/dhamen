@@ -118,6 +118,7 @@ const BulletinsHistoryPage = lazy(() => import('@/features/bulletins/pages/Bulle
 const BulletinHistoryDetailPage = lazy(() => import('@/features/bulletins/pages/BulletinHistoryDetailPage').then(m => ({ default: m.default })));
 const AgentAdherentsPage = lazy(() => import('@/features/adherents/pages/AgentAdherentsPage').then(m => ({ default: m.AgentAdherentsPage })));
 const AgentAdherentFormPage = lazy(() => import('@/features/adherents/pages/AgentAdherentFormPage').then(m => ({ default: m.default })));
+const AgentAdherentDetailPage = lazy(() => import('@/features/adherents/pages/AgentAdherentDetailPage').then(m => ({ default: m.default })));
 // Appeals page
 const AppealsPage = lazy(() => import('@/features/appeals/pages/AppealsPage').then(m => ({ default: m.AppealsPage })));
 const AppealDetailsPage = lazy(() => import('@/features/appeals/pages/AppealDetailsPage').then(m => ({ default: m.default })));
@@ -292,6 +293,7 @@ function App() {
                     <Route path="/bulletins/saisie" element={<AgentContextGuard><BulletinsSaisiePage /></AgentContextGuard>} />
                     <Route path="/adherents/agent" element={<AgentContextGuard><AgentAdherentsPage /></AgentContextGuard>} />
                     <Route path="/adherents/agent/new" element={<AgentContextGuard><AgentAdherentFormPage /></AgentContextGuard>} />
+                    <Route path="/adherents/agent/:id" element={<AgentContextGuard><AgentAdherentDetailPage /></AgentContextGuard>} />
                     <Route path="/adherents/agent/:id/edit" element={<AgentContextGuard><AgentAdherentFormPage /></AgentContextGuard>} />
                     <Route path="/bulletins/history" element={<AgentContextGuard><BulletinsHistoryPage /></AgentContextGuard>} />
                     <Route path="/bulletins/history/:id" element={<BulletinHistoryDetailPage />} />

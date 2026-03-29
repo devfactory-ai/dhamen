@@ -69,13 +69,13 @@ export default function SelectContextPage() {
         </p>
       </div>
 
-      {/* Step 1: Company selection */}
+      {/* Step 1: Company selection or Individual mode */}
       <div className="space-y-4">
         <h2 className="text-lg font-semibold">
           {selectedCompany ? (
             <span className="flex items-center gap-2">
-              Entreprise :
-              <span className="text-primary">{selectedCompany.name}</span>
+              {selectedCompany.id === '__INDIVIDUAL__' ? 'Mode :' : 'Entreprise :'}
+              <span className="text-primary">{selectedCompany.id === '__INDIVIDUAL__' ? 'Contrats Individuels' : selectedCompany.name}</span>
               <button
                 type="button"
                 onClick={() => setCompany(null)}
@@ -85,12 +85,42 @@ export default function SelectContextPage() {
               </button>
             </span>
           ) : (
-            'Etape 1 — Selectionnez une entreprise'
+            'Etape 1 — Selectionnez un mode de travail'
           )}
         </h2>
 
         {!selectedCompany && (
           <>
+            {/* Mode individuel card */}
+            <button
+              type="button"
+              onClick={() => {
+                setCompany({
+                  id: '__INDIVIDUAL__',
+                  name: 'Contrats Individuels',
+                  matriculeFiscal: '000000000',
+                });
+              }}
+              className="flex w-full items-center gap-4 rounded-lg border-2 border-dashed border-blue-300 bg-blue-50/50 p-4 text-left transition-colors hover:bg-blue-100/60 hover:border-blue-400"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
+                <svg className="h-5 w-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </div>
+              <div>
+                <p className="font-medium text-blue-900">Mode Individuel</p>
+                <p className="text-sm text-blue-600">Adherents avec contrats individuels (sans entreprise)</p>
+              </div>
+            </button>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">ou selectionnez une entreprise</span>
+              </div>
+            </div>
+
             <input
               type="text"
               placeholder="Rechercher par nom ou matricule fiscal..."
@@ -109,7 +139,7 @@ export default function SelectContextPage() {
               <p className="py-8 text-center text-muted-foreground">Aucune entreprise trouvee.</p>
             ) : (
               <div className="grid gap-2">
-                {companies.map((company) => (
+                {companies.filter((c) => c.id !== '__INDIVIDUAL__').map((company) => (
                   <button
                     key={company.id}
                     type="button"
@@ -153,8 +183,8 @@ export default function SelectContextPage() {
         </div>
       )}
 
-      {/* Step 2: Batch selection */}
-      {selectedCompany && (
+      {/* Step 2: Batch selection (group mode only) */}
+      {selectedCompany && selectedCompany.id !== '__INDIVIDUAL__' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Etape 2 — Selectionnez un lot (optionnel)</h2>

@@ -479,6 +479,7 @@ adherents.get(
     const companyId = c.req.query('companyId') || undefined;
     const isActiveParam = c.req.query('isActive');
     const dossierCompletParam = c.req.query('dossierComplet');
+    const contractTypeParam = c.req.query('contractType');
     const user = c.get('user');
     const db = getDb(c);
     const offset = (page - 1) * limit;
@@ -489,6 +490,13 @@ adherents.get(
     if (companyId) {
       whereClause += ' AND a.company_id = ?';
       params.push(companyId);
+    }
+
+    // Filter by contract type: individual = no company, group = has company
+    if (contractTypeParam === 'individual') {
+      whereClause += " AND (a.company_id IS NULL OR a.company_id = '' OR a.company_id = '__INDIVIDUAL__')";
+    } else if (contractTypeParam === 'group') {
+      whereClause += " AND a.company_id IS NOT NULL AND a.company_id != '' AND a.company_id != '__INDIVIDUAL__'";
     }
 
     if (isActiveParam === 'true') {

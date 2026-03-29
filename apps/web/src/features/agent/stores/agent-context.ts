@@ -31,6 +31,7 @@ interface AgentContextState {
   clearContext: () => void;
   clearIfDifferentUser: (userId: string) => void;
   isContextReady: () => boolean;
+  isIndividualMode: () => boolean;
 }
 
 export const useAgentContext = create<AgentContextState>()(
@@ -105,6 +106,10 @@ export const useAgentContext = create<AgentContextState>()(
       isContextReady: () => {
         const state = get();
         return state.selectedCompany !== null;
+      },
+      isIndividualMode: () => {
+        const state = get();
+        return state.selectedCompany?.id === '__INDIVIDUAL__';
       },
     }),
     {

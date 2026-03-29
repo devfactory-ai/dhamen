@@ -291,14 +291,14 @@ const recentPEC: RecentPEC[] = [
 const recentPECColumns = [
   {
     key: 'ref',
-    header: 'Reference',
+    header: 'Référence',
     render: (pec: RecentPEC) => (
       <span className="text-sm font-medium text-blue-600">{pec.ref}</span>
     ),
   },
   {
     key: 'adherent',
-    header: 'Adherent',
+    header: 'Adhérent',
     render: (pec: RecentPEC) => {
       const initials = pec.adherent.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
       const colors = ['bg-blue-500', 'bg-emerald-500', 'bg-purple-500', 'bg-amber-500', 'bg-rose-500'];
@@ -396,7 +396,7 @@ export function DashboardPage() {
           Bienvenue, {user?.firstName} !
         </h1>
         <p className="mt-1 text-sm text-gray-500">
-          Voici l'etat actuel de votre portefeuille d'assurance aujourd'hui.
+          Voici l'état actuel de votre portefeuille d'assurance aujourd'hui.
         </p>
       </div>
 
@@ -460,15 +460,15 @@ export function DashboardPage() {
             <div className="mt-3 space-y-2.5">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                <span className="text-sm text-gray-700">Base de donnees synchronisee</span>
+                <span className="text-sm text-gray-700">Base de données synchronisées</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                <span className="text-sm text-gray-700">API Connectivite stable</span>
+                <span className="text-sm text-gray-700">API Connectivité stable</span>
               </div>
             </div>
             <p className="mt-3 text-xs text-gray-400">
-              Derniere mise a jour effectuee il y a 12 minutes. Aucune interruption prevue.
+              Dernière mise à jour effectuée il y a 12 minutes. Aucune interruption prévue.
             </p>
           </div>
         </div>

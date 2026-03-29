@@ -99,6 +99,7 @@ function BulletinsArchivePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchYear, setSearchYear] = useState<string>('');
   const [hasScans, setHasScans] = useState<string>('');
+  const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
   const [currentPage, setCurrentPage] = useState(1);
 
   // Import state
@@ -123,13 +124,14 @@ function BulletinsArchivePage() {
 
   // Search archived bulletins
   const { data: searchResults, isLoading: searchLoading, refetch: doSearch } = useQuery({
-    queryKey: ['archive-search', searchQuery, searchYear, hasScans, currentPage, selectedCompany?.id],
+    queryKey: ['archive-search', searchQuery, searchYear, hasScans, isIndividualMode, currentPage, selectedCompany?.id],
     queryFn: async () => {
       const response = await apiClient.get('/bulletins-soins/archive/search', {
         params: {
           q: searchQuery || undefined,
           year: searchYear || undefined,
           hasScans: hasScans || undefined,
+          contractType: isIndividualMode ? 'individual' : undefined,
           companyId: selectedCompany?.id || undefined,
           page: currentPage,
           limit: 20,
@@ -753,11 +755,11 @@ function BulletinsArchivePage() {
                       ) : null,
                     },
                   ]}
-                  data={(searchResults.data as ArchiveBulletin[]) || []}
-                  pagination={searchResults.meta ? {
+                  data={(searchResults?.data as ArchiveBulletin[]) || []}
+                  pagination={searchResults?.meta ? {
                     page: currentPage,
-                    limit: searchResults.meta.limit ?? 20,
-                    total: searchResults.meta.total,
+                    limit: searchResults?.meta?.limit ?? 20,
+                    total: searchResults?.meta?.total,
                     onPageChange: setCurrentPage,
                   } : undefined}
                 />

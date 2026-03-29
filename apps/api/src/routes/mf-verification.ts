@@ -74,15 +74,18 @@ mfVerification.post(
     const normalizedMf = mfValidation.normalized!;
     const formattedMf = formaterMatriculeFiscal(normalizedMf);
 
-    // Search for existing provider with this MF (try both normalized and formatted)
+    // Search for existing provider with this MF (try normalized, raw, license_no, and stripped comparison)
     const existingProvider = await db.prepare(
       `SELECT p.id, p.name, p.type, p.speciality, p.address, p.city,
               p.phone, p.email, p.mf_number, p.mf_verified,
               p.license_no
        FROM providers p
-       WHERE p.mf_number = ? AND p.deleted_at IS NULL AND p.is_active = 1`
+       WHERE (p.mf_number = ? OR p.mf_number = ? OR p.license_no = ?
+              OR REPLACE(REPLACE(REPLACE(REPLACE(p.mf_number, '/', ''), '.', ''), '-', ''), ' ', '') = ?)
+         AND p.deleted_at IS NULL AND p.is_active = 1
+       LIMIT 1`
     )
-      .bind(normalizedMf)
+      .bind(normalizedMf, data.mfNumber.trim().toUpperCase(), `MF-${normalizedMf}`, normalizedMf)
       .first();
 
     if (existingProvider) {
