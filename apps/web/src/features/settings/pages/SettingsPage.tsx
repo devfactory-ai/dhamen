@@ -22,9 +22,8 @@ export function SettingsPage() {
   const [mfaStep, setMfaStep] = useState<'idle' | 'code_sent' | 'verifying'>('idle');
   const [mfaCode, setMfaCode] = useState('');
 
-  // MFA is mandatory for agents — they cannot toggle it off
-  const MFA_REQUIRED_ROLES = ['INSURER_AGENT'];
-  const isMfaRequired = MFA_REQUIRED_ROLES.includes(user?.role || '');
+  // MFA is mandatory for all roles except ADMIN
+  const isMfaRequired = user?.role !== 'ADMIN';
 
   const queryClient = useQueryClient();
 
