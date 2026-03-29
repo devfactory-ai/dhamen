@@ -11,5 +11,4 @@ UPDATE bulletins_soins
 SET company_id = (SELECT bb.company_id FROM bulletin_batches bb WHERE bb.id = bulletins_soins.batch_id)
 WHERE batch_id IS NOT NULL AND company_id IS NULL;
 
--- Index for filtering
 CREATE INDEX IF NOT EXISTS idx_bulletins_soins_company ON bulletins_soins(company_id);
