@@ -381,29 +381,43 @@ bulletinsArchive.get('/stats', async (c) => {
   const companyId = c.req.query('companyId');
 
   try {
-    const companyFilter = companyId ? ' AND company_id = ?' : '';
+    const companyFilter = companyId ? ' AND bs.company_id = ?' : '';
     const companyParams = companyId ? [companyId] : [];
 
-    // Total archived bulletins
+    // Total bulletins
     const total = await db.prepare(`
-      SELECT COUNT(*) as count FROM bulletins_soins WHERE status = 'archived'${companyFilter}
+      SELECT COUNT(*) as count FROM bulletins_soins bs WHERE 1=1${companyFilter}
     `).bind(...companyParams).first<{ count: number }>();
 
     // With scans
     const withScans = await db.prepare(`
-      SELECT COUNT(*) as count FROM bulletins_soins WHERE status = 'archived' AND scan_url IS NOT NULL${companyFilter}
+      SELECT COUNT(*) as count FROM bulletins_soins bs WHERE scan_url IS NOT NULL${companyFilter}
     `).bind(...companyParams).first<{ count: number }>();
 
     // By year
     const byYear = await db.prepare(`
       SELECT
-        substr(bulletin_date, 1, 4) as year,
+        COALESCE(substr(bs.bulletin_date, 1, 4), substr(bs.created_at, 1, 4)) as year,
         COUNT(*) as count,
-        SUM(CASE WHEN scan_url IS NOT NULL THEN 1 ELSE 0 END) as with_scans
-      FROM bulletins_soins
-      WHERE status = 'archived'${companyFilter}
-      GROUP BY substr(bulletin_date, 1, 4)
+        SUM(CASE WHEN bs.scan_url IS NOT NULL THEN 1 ELSE 0 END) as with_scans
+      FROM bulletins_soins bs
+      WHERE 1=1${companyFilter}
+      GROUP BY year
       ORDER BY year DESC
+    `).bind(...companyParams).all();
+
+    // Recent batches
+    const recentBatches = await db.prepare(`
+      SELECT
+        bb.id, bb.name, bb.created_at,
+        COUNT(bs.id) as bulletin_count,
+        SUM(CASE WHEN bs.scan_url IS NOT NULL THEN 1 ELSE 0 END) as with_scans
+      FROM bulletin_batches bb
+      LEFT JOIN bulletins_soins bs ON bs.batch_id = bb.id
+      ${companyId ? 'WHERE bb.company_id = ?' : ''}
+      GROUP BY bb.id
+      ORDER BY bb.created_at DESC
+      LIMIT 5
     `).bind(...companyParams).all();
 
     return c.json({
@@ -413,7 +427,7 @@ bulletinsArchive.get('/stats', async (c) => {
         withScans: withScans?.count || 0,
         withoutScans: (total?.count || 0) - (withScans?.count || 0),
         byYear: byYear.results,
-        recentBatches: [],
+        recentBatches: recentBatches.results,
       },
     });
   } catch (error) {
