@@ -13,10 +13,10 @@ const roleGuides: Record<string, RoleGuide> = {
   ADMIN: {
     title: "Administrateur plateforme",
     description:
-      "Vous avez un acces complet a la plateforme E-Santé. Vous gerez les utilisateurs, les prestataires, les assureurs et supervisez l'ensemble des operations.",
+      "Vous avez un acces complet a la plateforme E-Santé. Vous gerez les utilisateurs, les praticiens, les assureurs et supervisez l'ensemble des operations.",
     features: [
       "Gestion des utilisateurs et des roles",
-      "Configuration des prestataires et assureurs",
+      "Configuration des praticiens et assureurs",
       "Gestion des entreprises et contrats",
       "Supervision des prises en charge et remboursements",
       "Acces aux rapports et analytics",
@@ -103,7 +103,7 @@ const roleGuides: Record<string, RoleGuide> = {
       "Suivi des remboursements",
       "Gestion de vos ayants droit",
       "Carte virtuelle d'assurance",
-      "Recherche de prestataires de sante",
+      "Recherche de praticiens de santé",
     ],
   },
   HR: {
@@ -148,7 +148,7 @@ export function AboutPage() {
                 E-Santé
               </strong>{" "}
               est une plateforme digitale de gestion du tiers payant sante en
-              Tunisie. Elle connecte les assureurs, les prestataires de sante et
+              Tunisie. Elle connecte les assureurs, les praticiens de santé et
               les adherents pour simplifier le circuit de prise en charge.
             </p>
             <p>
@@ -199,8 +199,12 @@ export function AboutPage() {
                   def: "Personne couverte par un contrat d'assurance sante",
                 },
                 {
-                  term: "Prestataire",
-                  def: "Professionnel de sante (pharmacien, medecin, labo, clinique)",
+                  term: "Praticien",
+                  def: "Professionnel de santé (médecin, pharmacien, dentiste, labo, clinique)",
+                },
+                {
+                  term: "Bénéficiaire",
+                  def: "Personne ayant reçu les soins (adhérent, conjoint ou enfant)",
                 },
                 {
                   term: "PEC",
@@ -212,7 +216,7 @@ export function AboutPage() {
                 },
                 {
                   term: "Bordereau",
-                  def: "Releve periodique des PEC pour paiement assureur vers prestataire",
+                  def: "Relevé périodique des PEC pour paiement assureur vers praticien",
                 },
                 {
                   term: "Bulletin de soins",

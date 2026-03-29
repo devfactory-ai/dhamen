@@ -447,8 +447,8 @@ BORDEREAU DE FACTURATION
 Numéro: ${bordereau.bordereau_number}
 Date: ${new Date().toLocaleDateString('fr-TN')}
 
-PRESTATAIRE
------------
+PRATICIEN
+---------
 ${bordereau.provider_name}
 ${bordereau.provider_address || ''}
 

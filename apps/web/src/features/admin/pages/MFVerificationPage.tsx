@@ -65,7 +65,7 @@ const statusConfig = {
 export function MFVerificationPage() {
   const queryClient = useQueryClient();
   const { addToast } = useToastStore();
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showVerifyDialog, setShowVerifyDialog] = useState(false);
   const [showActionDialog, setShowActionDialog] = useState(false);
   const [selectedVerification, setSelectedVérification] = useState<MFVerification | null>(null);
@@ -85,7 +85,7 @@ export function MFVerificationPage() {
   const { data: verifications, isLoading } = useQuery({
     queryKey: ['mf-verifications', statusFilter],
     queryFn: async () => {
-      const url = statusFilter
+      const url = statusFilter && statusFilter !== 'all'
         ? `/mf-verification?status=${statusFilter}`
         : '/mf-verification';
       const response = await apiClient.get<{ data: MFVerification[]; meta: { total: number } }>(url);
@@ -143,7 +143,7 @@ export function MFVerificationPage() {
   const columns = [
     {
       key: 'provider_name',
-      header: 'Prestataire',
+      header: 'Praticien',
       cell: (row: MFVerification) => (
         <div>
           <p className="font-medium">{row.provider_name}</p>
@@ -227,7 +227,7 @@ export function MFVerificationPage() {
     <div className="space-y-6">
       <PageHeader
         title="Vérification Matricule Fiscal"
-        description="Vérifier le MF des praticiens et prestataires de sante"
+        description="Vérifier le MF des praticiens de santé"
         actions={
           <Button onClick={() => setShowVerifyDialog(true)}>
             <FileCheck className="mr-2 h-4 w-4" />
@@ -297,7 +297,7 @@ export function MFVerificationPage() {
                 <SelectValue placeholder="Tous les statuts" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Tous les statuts</SelectItem>
+                <SelectItem value="all">Tous les statuts</SelectItem>
                 <SelectItem value="pending">En attente</SelectItem>
                 <SelectItem value="verified">Vérifiés</SelectItem>
                 <SelectItem value="rejected">Rejetes</SelectItem>
@@ -326,13 +326,13 @@ export function MFVerificationPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Prestataire</Label>
+              <Label>Praticien</Label>
               <Select
                 value={newMF.providerId}
                 onValueChange={(v) => setNewMF({ ...newMF, providerId: v })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Sélectionner un prestataire" />
+                  <SelectValue placeholder="Sélectionner un praticien" />
                 </SelectTrigger>
                 <SelectContent>
                   {providersData?.map((p) => (

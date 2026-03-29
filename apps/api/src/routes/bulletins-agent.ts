@@ -305,6 +305,7 @@ bulletinsAgent.get('/', async (c) => {
   const status = c.req.query('status') || 'draft,in_batch';
   const search = c.req.query('search');
   const batchId = c.req.query('batchId');
+  const companyId = c.req.query('companyId');
 
   let query = `
     SELECT
@@ -319,6 +320,11 @@ bulletinsAgent.get('/', async (c) => {
       .join(',')})
   `;
   const params: (string | number)[] = [user.id, ...status.split(',')];
+
+  if (companyId) {
+    query += ' AND bs.company_id = ?';
+    params.push(companyId);
+  }
 
   if (batchId) {
     query += ' AND bs.batch_id = ?';
@@ -957,6 +963,105 @@ bulletinsAgent.delete('/:id', async (c) => {
 });
 
 /**
+ * POST /bulletins-soins/agent/bulk-delete - Delete multiple bulletins
+ */
+bulletinsAgent.post('/bulk-delete', async (c) => {
+  const user = c.get('user');
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès réservé aux agents' } }, 403);
+  }
+
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const body = await c.req.json<{ ids: string[] }>();
+  const ids = body.ids;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Liste d\'IDs requise' } }, 400);
+  }
+
+  if (ids.length > 100) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Maximum 100 bulletins à la fois' } }, 400);
+  }
+
+  try {
+    // Check for exported bulletins
+    const placeholders = ids.map(() => '?').join(',');
+    const exported = await db
+      .prepare(`SELECT id FROM bulletins_soins WHERE id IN (${placeholders}) AND status = 'exported'`)
+      .bind(...ids)
+      .all();
+
+    if (exported.results.length > 0) {
+      return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: `${exported.results.length} bulletin(s) exporté(s) ne peuvent pas être supprimés` } }, 400);
+    }
+
+    // Delete actes then bulletins
+    await db.batch([
+      db.prepare(`DELETE FROM actes_bulletin WHERE bulletin_id IN (${placeholders})`).bind(...ids),
+      db.prepare(`DELETE FROM bulletins_soins WHERE id IN (${placeholders}) AND status != 'exported'`).bind(...ids),
+    ]);
+
+    await logAudit(db, {
+      userId: user.id,
+      action: 'bulletin.bulk_delete',
+      entityType: 'bulletin',
+      entityId: ids.join(','),
+      changes: { count: ids.length },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return c.json({ success: true, data: { deleted: ids.length } });
+  } catch (error) {
+    console.error('Error bulk deleting bulletins:', error);
+    return c.json({ success: false, error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la suppression' } }, 500);
+  }
+});
+
+/**
+ * POST /bulletins-soins/agent/bulk-delete-batches - Delete multiple batches
+ */
+bulletinsAgent.post('/bulk-delete-batches', async (c) => {
+  const user = c.get('user');
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès réservé aux agents' } }, 403);
+  }
+
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const body = await c.req.json<{ ids: string[] }>();
+  const ids = body.ids;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Liste d\'IDs requise' } }, 400);
+  }
+
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    // Delete bulletins in these batches first, then the batches
+    await db.batch([
+      db.prepare(`DELETE FROM actes_bulletin WHERE bulletin_id IN (SELECT id FROM bulletins_soins WHERE batch_id IN (${placeholders}) AND status != 'exported')`).bind(...ids),
+      db.prepare(`DELETE FROM bulletins_soins WHERE batch_id IN (${placeholders}) AND status != 'exported'`).bind(...ids),
+      db.prepare(`DELETE FROM bulletin_batches WHERE id IN (${placeholders})`).bind(...ids),
+    ]);
+
+    await logAudit(db, {
+      userId: user.id,
+      action: 'batch.bulk_delete',
+      entityType: 'batch',
+      entityId: ids.join(','),
+      changes: { count: ids.length },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return c.json({ success: true, data: { deleted: ids.length } });
+  } catch (error) {
+    console.error('Error bulk deleting batches:', error);
+    return c.json({ success: false, error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la suppression' } }, 500);
+  }
+});
+
+/**
  * POST /bulletins-soins/agent/create - Create a new bulletin (agent saisie)
  */
 bulletinsAgent.post('/create', async (c) => {
@@ -985,9 +1090,6 @@ bulletinsAgent.post('/create', async (c) => {
   const beneficiaryName = (formData['beneficiary_name'] as string) || null;
   const beneficiaryId = (formData['beneficiary_id'] as string) || null;
   const beneficiaryRelationship = (formData['beneficiary_relationship'] as string) || null;
-  const beneficiaryEmail = (formData['beneficiary_email'] as string) || null;
-  const beneficiaryAddress = (formData['beneficiary_address'] as string) || null;
-  const beneficiaryDateOfBirth = (formData['beneficiary_date_of_birth'] as string) || null;
   const providerName = (formData['provider_name'] as string) || null;
   const providerSpecialty = (formData['provider_specialty'] as string) || null;
   // care_type is now per-acte; top-level is optional fallback
@@ -995,10 +1097,11 @@ bulletinsAgent.post('/create', async (c) => {
   const careDescription = (formData['care_description'] as string) || null;
   const adherentAddress = (formData['adherent_address'] as string) || null;
   const batchId = (formData['batch_id'] as string) || null;
+  const companyId = (formData['company_id'] as string) || null;
 
   // Parse actes array (JSON string from form)
   const actesRaw = formData['actes'] as string;
-  let actes: { code?: string; label: string; amount: number; ref_prof_sant?: string; nom_prof_sant?: string; care_type?: string; cod_msgr?: string; lib_msgr?: string; care_description?: string }[] = [];
+  let actes: { code?: string; label: string; amount: number; ref_prof_sant?: string; nom_prof_sant?: string; provider_id?: string; care_type?: string; cod_msgr?: string; lib_msgr?: string; care_description?: string }[] = [];
 
   if (actesRaw) {
     try {
@@ -1053,6 +1156,17 @@ bulletinsAgent.post('/create', async (c) => {
     );
   }
 
+  // company_id is required for agent/insurer users
+  if (!companyId && ['INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'MISSING_COMPANY', message: 'Entreprise (company_id) requise pour créer un bulletin' },
+      },
+      400
+    );
+  }
+
   // Validate bulletin date — not future, not older than 12 months
   const bulletinDateObj = new Date(bulletinDate);
   const now = new Date();
@@ -1061,17 +1175,6 @@ bulletinsAgent.post('/create', async (c) => {
       {
         success: false,
         error: { code: 'VALIDATION_ERROR', message: 'La date du bulletin ne peut pas être dans le futur' },
-      },
-      400
-    );
-  }
-  const twelveMonthsAgo = new Date();
-  twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-  if (bulletinDateObj < twelveMonthsAgo) {
-    return c.json(
-      {
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'La date du bulletin est supérieure à 12 mois' },
       },
       400
     );
@@ -1230,14 +1333,14 @@ bulletinsAgent.post('/create', async (c) => {
       const firstName = adherentFirstName || '';
       const lastName = adherentLastName || adherentFirstName || 'Inconnu';
 
-      // Find company_id from user's insurer
-      let companyId: string | null = null;
-      if (user.insurerId) {
+      // Use company_id from form (selected company), fallback to first company of insurer
+      let adherentCompanyId = companyId;
+      if (!adherentCompanyId && user.insurerId) {
         const company = await db
           .prepare('SELECT id FROM companies WHERE insurer_id = ? LIMIT 1')
           .bind(user.insurerId)
           .first<{ id: string }>();
-        companyId = company?.id || null;
+        adherentCompanyId = company?.id || null;
       }
 
       await db
@@ -1251,7 +1354,7 @@ bulletinsAgent.post('/create', async (c) => {
           firstName,
           lastName,
           adherentNationalId || `IMPORT_${adherentMatricule}`,
-          companyId
+          adherentCompanyId
         )
         .run();
 
@@ -1319,25 +1422,60 @@ bulletinsAgent.post('/create', async (c) => {
         continue;
       }
 
+      // If frontend already resolved provider_id via MF lookup, verify and use it
+      if (acte.provider_id) {
+        const frontendProvider = await db
+          .prepare('SELECT id, name FROM providers WHERE id = ? AND deleted_at IS NULL AND is_active = 1')
+          .bind(acte.provider_id)
+          .first<{ id: string; name: string }>();
+        if (frontendProvider) {
+          console.log('[PROVIDER-LOOKUP] Using frontend-resolved provider:', frontendProvider.id, frontendProvider.name);
+          providerIds.push(frontendProvider.id);
+          continue;
+        }
+      }
+
       // Normalize MF
       const mfResult = validerMatriculeFiscal(rawMf);
       const normalizedMf = mfResult.normalized || rawMf.replace(/[/\s-]/g, '');
+      console.log('[PROVIDER-LOOKUP] rawMf:', rawMf, 'normalizedMf:', normalizedMf, 'nomPraticien:', nomPraticien);
 
-      // Search existing provider by MF
+      // Search existing provider by MF (normalized, raw, license_no, or stripped DB value)
       const existingProvider = await db
         .prepare(
           `SELECT id, name FROM providers
-           WHERE mf_number = ? AND deleted_at IS NULL AND is_active = 1
+           WHERE (mf_number = ? OR mf_number = ? OR license_no = ?
+                  OR REPLACE(REPLACE(REPLACE(REPLACE(mf_number, '/', ''), '.', ''), '-', ''), ' ', '') = ?)
+             AND deleted_at IS NULL AND is_active = 1
+           LIMIT 1`
+        )
+        .bind(normalizedMf, rawMf, `MF-${normalizedMf}`, normalizedMf)
+        .first<{ id: string; name: string }>();
+
+      if (existingProvider) {
+        console.log('[PROVIDER-LOOKUP] Found existing provider:', existingProvider.id, existingProvider.name);
+        providerIds.push(existingProvider.id);
+        continue;
+      }
+
+      // Also check sante_praticiens (practitioners directory) by name+MF-based provider
+      const existingByVerification = await db
+        .prepare(
+          `SELECT p.id, p.name FROM practitioner_mf_verifications pmv
+           JOIN providers p ON pmv.provider_id = p.id
+           WHERE pmv.mf_number = ? AND p.deleted_at IS NULL
            LIMIT 1`
         )
         .bind(normalizedMf)
         .first<{ id: string; name: string }>();
 
-      if (existingProvider) {
-        providerIds.push(existingProvider.id);
+      if (existingByVerification) {
+        console.log('[PROVIDER-LOOKUP] Found via MF verification:', existingByVerification.id, existingByVerification.name);
+        providerIds.push(existingByVerification.id);
         continue;
       }
 
+      console.log('[PROVIDER-LOOKUP] Provider not found, auto-registering...');
       // Provider not found — auto-register
       // Use per-acte care_type for provider type detection
       const acteCareType = (acte.care_type || careType || 'consultation') as string;
@@ -1367,6 +1505,7 @@ bulletinsAgent.post('/create', async (c) => {
           )
           .bind(newProviderId, provType, effectiveName, licenseNo, normalizedMf)
           .run();
+        console.log('[PROVIDER-LOOKUP] Inserted into providers table:', newProviderId);
 
         // Also insert into sante_praticiens (annuaire praticiens)
         const santePraticienId = generateId();
@@ -1379,23 +1518,32 @@ bulletinsAgent.post('/create', async (c) => {
           : acteCareType === 'hospital' ? 'Hospitalisation'
           : 'Médecine générale';
 
-        await db
-          .prepare(
-            `INSERT INTO sante_praticiens (id, provider_id, nom, specialite, type_praticien, est_conventionne, is_active, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'), datetime('now'))`
-          )
-          .bind(santePraticienId, newProviderId, effectiveName, santeSpecialite, santeType)
-          .run();
+        try {
+          await db
+            .prepare(
+              `INSERT INTO sante_praticiens (id, provider_id, nom, specialite, type_praticien, est_conventionne, is_active, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'), datetime('now'))`
+            )
+            .bind(santePraticienId, newProviderId, effectiveName, santeSpecialite, santeType)
+            .run();
+          console.log('[PROVIDER-LOOKUP] Inserted into sante_praticiens:', santePraticienId);
+        } catch (spError) {
+          console.error('[PROVIDER-LOOKUP] sante_praticiens INSERT failed:', spError instanceof Error ? spError.message : spError);
+        }
 
         // Create pending MF verification
-        const verificationId = generateId();
-        await db
-          .prepare(
-            `INSERT INTO practitioner_mf_verifications (id, provider_id, mf_number, verification_status, created_at, updated_at)
-             VALUES (?, ?, ?, 'pending', datetime('now'), datetime('now'))`
-          )
-          .bind(verificationId, newProviderId, normalizedMf)
-          .run();
+        try {
+          const verificationId = generateId();
+          await db
+            .prepare(
+              `INSERT INTO practitioner_mf_verifications (id, provider_id, mf_number, verification_status, created_at, updated_at)
+               VALUES (?, ?, ?, 'pending', datetime('now'), datetime('now'))`
+            )
+            .bind(verificationId, newProviderId, normalizedMf)
+            .run();
+        } catch (mfvError) {
+          console.error('[PROVIDER-LOOKUP] MF verification INSERT failed:', mfvError instanceof Error ? mfvError.message : mfvError);
+        }
 
         // Audit log
         await logAudit(db, {
@@ -1408,11 +1556,14 @@ bulletinsAgent.post('/create', async (c) => {
           userAgent: c.req.header('User-Agent'),
         });
 
+        console.log('[PROVIDER-LOOKUP] Auto-registered provider:', newProviderId, effectiveName, normalizedMf);
         providerIds.push(newProviderId);
         newlyRegisteredProviders.push({ id: newProviderId, name: effectiveName, mfNumber: normalizedMf });
       } catch (providerError) {
         // If insert fails (e.g. race condition), try to find by MF again
-        console.error('Provider auto-register failed:', providerError);
+        const errMsg = providerError instanceof Error ? providerError.message : String(providerError);
+        console.error('[PROVIDER-LOOKUP] Auto-register failed:', errMsg, providerError);
+        newlyRegisteredProviders.push({ id: 'ERROR', name: errMsg, mfNumber: normalizedMf });
         const retryProvider = await db
           .prepare('SELECT id, name FROM providers WHERE mf_number = ? AND deleted_at IS NULL LIMIT 1')
           .bind(normalizedMf)
@@ -1437,11 +1588,10 @@ bulletinsAgent.post('/create', async (c) => {
         id, bulletin_number, bulletin_date, adherent_id, adherent_matricule,
         adherent_first_name, adherent_last_name, adherent_national_id, adherent_address,
         beneficiary_id, beneficiary_name, beneficiary_relationship,
-        beneficiary_email, beneficiary_address, beneficiary_date_of_birth,
         provider_id, provider_name, provider_specialty, care_type, care_description,
-        total_amount, scan_url, batch_id, status, created_by,
+        total_amount, scan_url, batch_id, company_id, status, created_by,
         submission_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
     `)
       .bind(
         bulletinId,
@@ -1456,9 +1606,6 @@ bulletinsAgent.post('/create', async (c) => {
         effectiveBeneficiaryId,
         beneficiaryName,
         beneficiaryRelationship,
-        beneficiaryEmail,
-        beneficiaryAddress,
-        beneficiaryDateOfBirth,
         bulletinProviderId,
         effectiveProviderName,
         providerSpecialty,
@@ -1467,6 +1614,7 @@ bulletinsAgent.post('/create', async (c) => {
         totalAmount,
         scanUrl,
         batchId,
+        companyId,
         status,
         user.id
       )
@@ -2033,9 +2181,9 @@ bulletinsAgent.post('/import-lot', async (c) => {
             adherent_first_name, adherent_last_name, adherent_national_id, adherent_address,
             beneficiary_name, beneficiary_relationship,
             provider_name, provider_specialty, care_type, care_description,
-            total_amount, scan_url, batch_id, status, created_by,
+            total_amount, scan_url, batch_id, company_id, status, created_by,
             submission_date, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?, NULL, ?, NULL, ?, 'in_batch', ?, datetime('now'), datetime('now'), datetime('now'))
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, NULL, ?, NULL, ?, NULL, ?, ?, 'in_batch', ?, datetime('now'), datetime('now'), datetime('now'))
         `)
         .bind(
           bulletinId,
@@ -2049,6 +2197,7 @@ bulletinsAgent.post('/import-lot', async (c) => {
           bulletin.care_type,
           totalAmount,
           batchId,
+          companyId,
           user.id
         )
         .run();

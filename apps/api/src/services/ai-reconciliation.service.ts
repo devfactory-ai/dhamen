@@ -196,7 +196,7 @@ export class AIReconciliationService {
           factor: 'provider_match',
           weight: providerWeight,
           score: 1.0,
-          details: `Prestataire correspondant: ${bordereau.provider_name}`,
+          details: `Praticien correspondant: ${bordereau.provider_name}`,
         });
         totalScore += providerWeight * 1.0;
       } else {
@@ -204,7 +204,7 @@ export class AIReconciliationService {
           factor: 'provider_match',
           weight: providerWeight,
           score: 0,
-          details: 'Prestataires différents',
+          details: 'Praticiens différents',
         });
         discrepancies.push({
           field: 'provider_id',

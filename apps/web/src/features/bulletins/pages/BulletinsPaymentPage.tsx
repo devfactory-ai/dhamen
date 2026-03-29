@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { apiClient } from '@/lib/api-client';
+import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { toast } from 'sonner';
 import {
   CreditCard,
@@ -79,6 +80,7 @@ const paymentMethods = [
 
 export default function BulletinsPaymentPage() {
   const queryClient = useQueryClient();
+  const { selectedCompany } = useAgentContext();
   const [selectedBulletins, setSelectedBulletins] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState('approved,pending_payment');
   const [page, setPage] = useState(1);
@@ -91,9 +93,11 @@ export default function BulletinsPaymentPage() {
 
   // Fetch bulletins pending payment
   const { data: bulletinsData, isLoading } = useQuery({
-    queryKey: ['bulletins-payments', statusFilter, page],
+    queryKey: ['bulletins-payments', statusFilter, page, selectedCompany?.id],
     queryFn: async () => {
-      const response = await apiClient.get(`/bulletins-soins/payments?status=${statusFilter}&page=${page}&limit=50`);
+      const params = new URLSearchParams({ status: statusFilter, page: String(page), limit: '50' });
+      if (selectedCompany) params.append('companyId', selectedCompany.id);
+      const response = await apiClient.get(`/bulletins-soins/payments?${params}`);
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur chargement paiements');
       }
@@ -105,9 +109,11 @@ export default function BulletinsPaymentPage() {
 
   // Fetch payment stats
   const { data: statsData } = useQuery({
-    queryKey: ['bulletins-payment-stats'],
+    queryKey: ['bulletins-payment-stats', selectedCompany?.id],
     queryFn: async () => {
-      const response = await apiClient.get('/bulletins-soins/payments/stats');
+      const params = new URLSearchParams();
+      if (selectedCompany) params.append('companyId', selectedCompany.id);
+      const response = await apiClient.get(`/bulletins-soins/payments/stats?${params}`);
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur chargement stats');
       }
@@ -260,7 +266,7 @@ export default function BulletinsPaymentPage() {
     },
     {
       key: 'provider',
-      header: 'Prestataire',
+      header: 'Praticien',
       render: (row: BulletinPayment) => (
         <div>
           <p className="text-sm">{row.provider_name}</p>

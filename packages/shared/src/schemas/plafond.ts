@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const typeMaladieSchema = z.enum(['ordinaire', 'chronique']);
 
-export const plafondPrestataireSchema = z.object({
+export const plafondBeneficiaireSchema = z.object({
   id: z.string(),
   adherentId: z.string().min(1),
   contractId: z.string().min(1),
@@ -13,4 +13,9 @@ export const plafondPrestataireSchema = z.object({
   montantConsomme: z.number().min(0).default(0),
 });
 
-export type PlafondPrestataireInput = z.infer<typeof plafondPrestataireSchema>;
+export type PlafondBeneficiaireInput = z.infer<typeof plafondBeneficiaireSchema>;
+
+/** @deprecated Use plafondBeneficiaireSchema */
+export const plafondPrestataireSchema = plafondBeneficiaireSchema;
+/** @deprecated Use PlafondBeneficiaireInput */
+export type PlafondPrestataireInput = PlafondBeneficiaireInput;

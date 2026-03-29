@@ -18,6 +18,7 @@ const UserFormPage = lazy(() => import('@/features/users/pages/UserFormPage').th
 const UsersImportPage = lazy(() => import('@/features/users/pages/UsersImportPage').then(m => ({ default: m.default })));
 const ProvidersPage = lazy(() => import('@/features/providers/pages/ProvidersPage').then(m => ({ default: m.ProvidersPage })));
 const ProviderFormPage = lazy(() => import('@/features/providers/pages/ProviderFormPage').then(m => ({ default: m.default })));
+const ProviderDetailPage = lazy(() => import('@/features/providers/pages/ProviderDetailPage').then(m => ({ default: m.default })));
 const ProvidersImportPage = lazy(() => import('@/features/providers/pages/ProvidersImportPage').then(m => ({ default: m.default })));
 const InsurersPage = lazy(() => import('@/features/insurers/pages/InsurersPage').then(m => ({ default: m.InsurersPage })));
 const InsurerFormPage = lazy(() => import('@/features/insurers/pages/InsurerFormPage').then(m => ({ default: m.default })));
@@ -89,6 +90,9 @@ const AdherentConsommationPage = lazy(() => import('@/features/adherent-portal/p
 // Admin pages
 const MFVerificationPage = lazy(() => import('@/features/admin/pages/MFVerificationPage').then(m => ({ default: m.default })));
 const MedicationsPage = lazy(() => import('@/features/admin/pages/MedicationsPage').then(m => ({ default: m.default })));
+const MedicationDetailPage = lazy(() => import('@/features/admin/pages/MedicationDetailPage').then(m => ({ default: m.default })));
+const MedicationFamilyFormPage = lazy(() => import('@/features/admin/pages/MedicationFamilyFormPage').then(m => ({ default: m.default })));
+const MedicationBaremeFormPage = lazy(() => import('@/features/admin/pages/MedicationBaremeFormPage').then(m => ({ default: m.default })));
 // Companies pages
 const CompaniesPage = lazy(() => import('@/features/companies/pages/CompaniesPage').then(m => ({ default: m.default })));
 const CompanyDetailPage = lazy(() => import('@/features/companies/pages/CompanyDetailPage').then(m => ({ default: m.default })));
@@ -111,6 +115,7 @@ const BulletinsSaisiePage = lazy(() => import('@/features/bulletins/pages/Bullet
 const BulletinsArchivePage = lazy(() => import('@/features/bulletins/pages/BulletinsArchivePage').then(m => ({ default: m.default })));
 const BulletinsImportPage = lazy(() => import('@/features/bulletins/pages/BulletinsImportPage').then(m => ({ default: m.default })));
 const BulletinsHistoryPage = lazy(() => import('@/features/bulletins/pages/BulletinsHistoryPage').then(m => ({ default: m.default })));
+const BulletinHistoryDetailPage = lazy(() => import('@/features/bulletins/pages/BulletinHistoryDetailPage').then(m => ({ default: m.default })));
 const AgentAdherentsPage = lazy(() => import('@/features/adherents/pages/AgentAdherentsPage').then(m => ({ default: m.AgentAdherentsPage })));
 const AgentAdherentFormPage = lazy(() => import('@/features/adherents/pages/AgentAdherentFormPage').then(m => ({ default: m.default })));
 // Appeals page
@@ -242,12 +247,17 @@ function App() {
                     <Route path="/providers/new" element={<ProviderFormPage />} />
                     <Route path="/providers/import" element={<ProvidersImportPage />} />
                     <Route path="/providers/:id/edit" element={<ProviderFormPage />} />
+                    <Route path="/providers/:id" element={<ProviderDetailPage />} />
                     <Route path="/insurers" element={<InsurersPage />} />
                     <Route path="/insurers/new" element={<InsurerFormPage />} />
                     <Route path="/insurers/:id/edit" element={<InsurerFormPage />} />
                     {/* Admin - MF & Medications */}
                     <Route path="/admin/mf-verification" element={<MFVerificationPage />} />
                     <Route path="/admin/medications" element={<MedicationsPage />} />
+                    <Route path="/admin/medications/families/new" element={<MedicationFamilyFormPage />} />
+                    <Route path="/admin/medications/baremes/new" element={<MedicationBaremeFormPage />} />
+                    <Route path="/admin/medications/baremes/:id/edit" element={<MedicationBaremeFormPage />} />
+                    <Route path="/admin/medications/:id" element={<MedicationDetailPage />} />
                     {/* Companies routes */}
                     <Route path="/companies" element={<CompaniesPage />} />
                     <Route path="/companies/new" element={<CompanyFormPage />} />
@@ -283,7 +293,8 @@ function App() {
                     <Route path="/adherents/agent" element={<AgentContextGuard><AgentAdherentsPage /></AgentContextGuard>} />
                     <Route path="/adherents/agent/new" element={<AgentContextGuard><AgentAdherentFormPage /></AgentContextGuard>} />
                     <Route path="/adherents/agent/:id/edit" element={<AgentContextGuard><AgentAdherentFormPage /></AgentContextGuard>} />
-                    <Route path="/bulletins/history" element={<BulletinsHistoryPage />} />
+                    <Route path="/bulletins/history" element={<AgentContextGuard><BulletinsHistoryPage /></AgentContextGuard>} />
+                    <Route path="/bulletins/history/:id" element={<BulletinHistoryDetailPage />} />
                     <Route path="/bulletins/archive" element={<BulletinsArchivePage />} />
                     <Route path="/bulletins/import-lot" element={<AgentContextGuard><BulletinsImportPage /></AgentContextGuard>} />
                     <Route path="/reconciliation" element={<ReconciliationPage />} />

@@ -252,7 +252,7 @@ export function checkProviderNetwork(
   if (!provider) {
     reasons.push({
       code: 'PROVIDER_NOT_IN_NETWORK',
-      message: 'Prestataire non trouve',
+      message: 'Praticien non trouvé',
       severity: 'error',
     });
     return reasons;
@@ -261,7 +261,7 @@ export function checkProviderNetwork(
   if (!provider.isActive) {
     reasons.push({
       code: 'PROVIDER_NOT_IN_NETWORK',
-      message: 'Prestataire inactif',
+      message: 'Praticien inactif',
       severity: 'error',
     });
     return reasons;
@@ -270,7 +270,7 @@ export function checkProviderNetwork(
   if (coverageRule?.networkOnly && !provider.isNetworkProvider) {
     reasons.push({
       code: 'PROVIDER_NOT_IN_NETWORK',
-      message: 'Ce prestataire n\'est pas dans le reseau conventionne',
+      message: 'Ce praticien n\'est pas dans le réseau conventionné',
       severity: 'error',
     });
   }

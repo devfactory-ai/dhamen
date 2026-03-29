@@ -175,11 +175,13 @@ export function GroupContractsPage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Contrats Groupe</h1>
-          <p className="mt-1 text-sm text-gray-500">Gérer les contrats d'assurance groupe et leurs garanties</p>
+          <p className="mt-1 text-sm text-gray-500">
+            Gérer les contrats d'assurance groupe et leurs garanties
+          </p>
         </div>
         <Button
-          className="gap-2 bg-slate-900 hover:bg-blue-700"
-          onClick={() => navigate('/group-contracts/new')}
+          className="gap-2 bg-slate-900 hover:bg-[#19355d]"
+          onClick={() => navigate("/group-contracts/new")}
         >
           <Plus className="h-4 w-4" />
           Nouveau contrat
@@ -193,7 +195,9 @@ export function GroupContractsPage() {
             <FileText className="h-5 w-5 text-blue-600" />
           </div>
           <div>
-            <p className="text-2xl font-bold text-gray-900">{data?.total || 0}</p>
+            <p className="text-2xl font-bold text-gray-900">
+              {data?.total || 0}
+            </p>
             <p className="text-xs text-gray-500">Total contrats</p>
           </div>
         </div>
@@ -227,25 +231,48 @@ export function GroupContractsPage() {
           {/* Search */}
           <div className="relative flex-1 min-w-[280px]">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <svg className="w-[18px] h-[18px] text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+              <svg
+                className="w-[18px] h-[18px] text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+                />
               </svg>
             </div>
             <input
               type="text"
               placeholder="Rechercher par numéro, société, assureur..."
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
               className="w-full h-11 pl-11 pr-10 rounded-xl bg-[#f3f4f5] text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all"
             />
             {search && (
               <button
                 type="button"
-                onClick={() => setSearch('')}
+                onClick={() => setSearch("")}
                 className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" />
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18 18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             )}
@@ -259,32 +286,78 @@ export function GroupContractsPage() {
               onBlur={() => setTimeout(() => setStatusDropdownOpen(false), 150)}
               className="flex items-center gap-2 px-5 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
             >
-              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Statut</span>
-              <span className="text-sm font-medium text-gray-900">{statusFilterLabel}</span>
-              <svg className={`w-3.5 h-3.5 text-gray-400 ml-1 transition-transform ${statusDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Statut
+              </span>
+              <span className="text-sm font-medium text-gray-900">
+                {statusFilterLabel}
+              </span>
+              <svg
+                className={`w-3.5 h-3.5 text-gray-400 ml-1 transition-transform ${statusDropdownOpen ? "rotate-180" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="m19 9-7 7-7-7"
+                />
               </svg>
             </button>
             {statusDropdownOpen && (
               <div className="absolute top-full left-0 mt-1 w-48 py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50 animate-in fade-in slide-in-from-top-1">
-                {([
-                  { value: 'all' as const, label: 'Tous', color: null },
-                  { value: 'active' as const, label: 'Actifs', color: 'bg-emerald-500' },
-                  { value: 'draft' as const, label: 'Brouillons', color: 'bg-gray-400' },
-                  { value: 'expired' as const, label: 'Expirés', color: 'bg-red-400' },
-                  { value: 'suspended' as const, label: 'Suspendus', color: 'bg-amber-400' },
-                ]).map((opt) => (
+                {[
+                  { value: "all" as const, label: "Tous", color: null },
+                  {
+                    value: "active" as const,
+                    label: "Actifs",
+                    color: "bg-emerald-500",
+                  },
+                  {
+                    value: "draft" as const,
+                    label: "Brouillons",
+                    color: "bg-gray-400",
+                  },
+                  {
+                    value: "expired" as const,
+                    label: "Expirés",
+                    color: "bg-red-400",
+                  },
+                  {
+                    value: "suspended" as const,
+                    label: "Suspendus",
+                    color: "bg-amber-400",
+                  },
+                ].map((opt) => (
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() => { setStatusFilter(opt.value); setStatusDropdownOpen(false); setPage(1); }}
-                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${statusFilter === opt.value ? 'text-blue-600 font-semibold bg-blue-50/50' : 'text-gray-700'}`}
+                    onClick={() => {
+                      setStatusFilter(opt.value);
+                      setStatusDropdownOpen(false);
+                      setPage(1);
+                    }}
+                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${statusFilter === opt.value ? "text-blue-600 font-semibold bg-blue-50/50" : "text-gray-700"}`}
                   >
-                    {opt.color && <span className={`w-2 h-2 rounded-full ${opt.color}`} />}
+                    {opt.color && (
+                      <span className={`w-2 h-2 rounded-full ${opt.color}`} />
+                    )}
                     {opt.label}
                     {statusFilter === opt.value && (
-                      <svg className="w-4 h-4 ml-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />
+                      <svg
+                        className="w-4 h-4 ml-auto text-blue-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="m4.5 12.75 6 6 9-13.5"
+                        />
                       </svg>
                     )}
                   </button>
@@ -301,9 +374,13 @@ export function GroupContractsPage() {
         data={paginatedContracts}
         isLoading={isLoading}
         onRowClick={(contract) => navigate(`/group-contracts/${contract.id}`)}
-        emptyMessage={search ? 'Aucun contrat trouvé pour cette recherche' : 'Aucun contrat groupe trouvé'}
+        emptyMessage={
+          search
+            ? "Aucun contrat trouvé pour cette recherche"
+            : "Aucun contrat groupe trouvé"
+        }
         searchTerm={search || undefined}
-        onClearSearch={() => setSearch('')}
+        onClearSearch={() => setSearch("")}
         emptyStateType="contracts"
         pagination={{
           page,

@@ -1,10 +1,11 @@
 /**
- * Types for plafonds prestataire (REQ-009)
+ * Types for plafonds bénéficiaire (REQ-009)
+ * Tracks reimbursement ceilings per bénéficiaire (adhérent/conjoint/enfant)
  */
 
 export type TypeMaladie = 'ordinaire' | 'chronique';
 
-export interface PlafondPrestataire {
+export interface PlafondBeneficiaire {
   id: string;
   adherentId: string;
   contractId: string;
@@ -17,7 +18,10 @@ export interface PlafondPrestataire {
   updatedAt: string;
 }
 
-export interface PlafondAvecFamille extends PlafondPrestataire {
+/** @deprecated Use PlafondBeneficiaire */
+export type PlafondPrestataire = PlafondBeneficiaire;
+
+export interface PlafondAvecFamille extends PlafondBeneficiaire {
   familleCode: string | null;
   familleLabel: string | null;
   pourcentageConsomme: number;

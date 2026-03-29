@@ -61,7 +61,7 @@ export const conventionTermsSchema = z.object({
  */
 export const conventionCreateSchema = z.object({
   insurerId: z.string().min(1, 'ID assureur requis'),
-  providerId: z.string().min(1, 'ID prestataire requis'),
+  providerId: z.string().min(1, 'ID praticien requis'),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format de date invalide (YYYY-MM-DD)'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format de date invalide (YYYY-MM-DD)').optional(),
   bareme: baremeConfigSchema,

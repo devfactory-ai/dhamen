@@ -281,7 +281,7 @@ export function InsurerDashboardPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Prestataires Conventionnes
+              Praticiens conventionnés
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -458,7 +458,7 @@ export function InsurerDashboardPage() {
           <CardContent className="pt-6">
             <div className="text-center">
               <div className="text-3xl">🏥</div>
-              <h3 className="mt-2 font-medium">Prestataires</h3>
+              <h3 className="mt-2 font-medium">Praticiens</h3>
               <p className="text-sm text-muted-foreground">Reseau conventionne</p>
             </div>
           </CardContent>

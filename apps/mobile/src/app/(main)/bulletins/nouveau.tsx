@@ -503,7 +503,7 @@ export default function NouveauBulletin() {
           </View>
 
           <View style={styles.formRow}>
-            <Text style={styles.formLabel}>Nom du praticien/prestataire</Text>
+            <Text style={styles.formLabel}>Nom du praticien</Text>
             <TextInput
               style={styles.formInput}
               value={providerName}

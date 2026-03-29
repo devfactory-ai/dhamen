@@ -13,8 +13,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { UserPlus, Pencil, Save } from 'lucide-react';
+import { UserPlus, Pencil, Save, Plus, Trash2, Users } from 'lucide-react';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
+import { useAdherentFamille } from '@/features/agent/hooks/use-adherent-famille';
 import {
   useAdherent,
   useCreateAdherent,
@@ -22,24 +23,25 @@ import {
   useNextMatricule,
   type CreateAdherentData,
   type UpdateAdherentData,
+  type AyantDroitData,
 } from '../hooks/useAdherents';
 
 // --- Constants ---
 
 const ETAT_CIVIL_OPTIONS = [
-  { value: 'celibataire', label: 'Célibataire' },
-  { value: 'marie', label: 'Marié(e)' },
-  { value: 'divorce', label: 'Divorcé(e)' },
+  { value: 'celibataire', label: 'Celibataire' },
+  { value: 'marie', label: 'Marie(e)' },
+  { value: 'divorce', label: 'Divorce(e)' },
   { value: 'veuf', label: 'Veuf(ve)' },
 ];
 
 const GOUVERNORATS_TUNISIE = [
   'Tunis', 'Ariana', 'Ben Arous', 'Manouba',
-  'Nabeul', 'Zaghouan', 'Bizerte', 'Béja',
+  'Nabeul', 'Zaghouan', 'Bizerte', 'Beja',
   'Jendouba', 'Le Kef', 'Siliana', 'Sousse',
   'Monastir', 'Mahdia', 'Sfax', 'Kairouan',
-  'Kasserine', 'Sidi Bouzid', 'Gabès', 'Médenine',
-  'Tataouine', 'Gafsa', 'Tozeur', 'Kébili',
+  'Kasserine', 'Sidi Bouzid', 'Gabes', 'Medenine',
+  'Tataouine', 'Gafsa', 'Tozeur', 'Kebili',
 ];
 
 // --- Form State ---
@@ -80,6 +82,18 @@ interface AdherentFormState {
   credit: string;
 }
 
+interface AyantDroitFormState {
+  lienParente: 'C' | 'E';
+  nationalId: string;
+  typePieceIdentite: string;
+  firstName: string;
+  lastName: string;
+  dateOfBirth: string;
+  gender: string;
+  phone: string;
+  email: string;
+}
+
 const emptyForm: AdherentFormState = {
   typePieceIdentite: 'CIN', nationalId: '', dateEditionPiece: '',
   firstName: '', lastName: '', dateOfBirth: '',
@@ -92,6 +106,18 @@ const emptyForm: AdherentFormState = {
   credit: '',
 };
 
+const emptyAyantDroit: AyantDroitFormState = {
+  lienParente: 'E',
+  nationalId: '',
+  typePieceIdentite: 'CIN',
+  firstName: '',
+  lastName: '',
+  dateOfBirth: '',
+  gender: '',
+  phone: '',
+  email: '',
+};
+
 export function AgentAdherentFormPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -99,6 +125,7 @@ export function AgentAdherentFormPage() {
   const { selectedCompany } = useAgentContext();
 
   const [form, setForm] = useState<AdherentFormState>(emptyForm);
+  const [ayantsDroit, setAyantsDroit] = useState<AyantDroitFormState[]>([]);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const { data: nextMatricule } = useNextMatricule(selectedCompany?.id);
@@ -107,6 +134,39 @@ export function AgentAdherentFormPage() {
 
   // Fetch adherent data if editing
   const { data: adherentData } = useAdherent(id || '');
+  // Fetch family (ayants droit) if editing
+  const { data: familleData } = useAdherentFamille(isEdit ? id : undefined);
+
+  // Populate ayants droit from family data when editing
+  useEffect(() => {
+    if (!isEdit || !familleData) return;
+    const loaded: AyantDroitFormState[] = [];
+    if (familleData.conjoint) {
+      loaded.push({
+        ...emptyAyantDroit,
+        lienParente: 'C',
+        firstName: familleData.conjoint.firstName || '',
+        lastName: familleData.conjoint.lastName || '',
+        dateOfBirth: familleData.conjoint.dateOfBirth || '',
+        gender: familleData.conjoint.gender || '',
+        email: familleData.conjoint.email || '',
+        phone: familleData.conjoint.phone || '',
+      });
+    }
+    for (const enfant of familleData.enfants) {
+      loaded.push({
+        ...emptyAyantDroit,
+        lienParente: 'E',
+        firstName: enfant.firstName || '',
+        lastName: enfant.lastName || '',
+        dateOfBirth: enfant.dateOfBirth || '',
+        gender: enfant.gender || '',
+        email: enfant.email || '',
+        phone: enfant.phone || '',
+      });
+    }
+    setAyantsDroit(loaded);
+  }, [isEdit, familleData]);
 
   // Populate form when editing
   useEffect(() => {
@@ -152,6 +212,25 @@ export function AgentAdherentFormPage() {
     }
   }, [adherentData, isEdit, nextMatricule]);
 
+  // --- Ayants droit helpers ---
+  const hasConjoint = ayantsDroit.some((ad) => ad.lienParente === 'C');
+
+  function addAyantDroit(type: 'C' | 'E') {
+    setAyantsDroit([...ayantsDroit, { ...emptyAyantDroit, lienParente: type, lastName: form.lastName }]);
+  }
+
+  function removeAyantDroit(index: number) {
+    setAyantsDroit(ayantsDroit.filter((_, i) => i !== index));
+  }
+
+  function updateAyantDroit(index: number, field: keyof AyantDroitFormState, value: string) {
+    const updated = [...ayantsDroit];
+    const current = updated[index];
+    if (!current) return;
+    updated[index] = { ...current, [field]: value };
+    setAyantsDroit(updated);
+  }
+
   function validateForm(): boolean {
     const errors: Record<string, string> = {};
     if (!isEdit && form.nationalId) {
@@ -160,10 +239,18 @@ export function AgentAdherentFormPage() {
       }
     }
     if (!form.lastName.trim()) errors.lastName = 'Nom requis';
-    if (!form.firstName.trim()) errors.firstName = 'Prénom requis';
+    if (!form.firstName.trim()) errors.firstName = 'Prenom requis';
     if (!form.dateOfBirth) errors.dateOfBirth = 'Date de naissance requise';
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errors.email = 'Email invalide';
-    if (form.phone && !/^\d{8}$/.test(form.phone.replace(/\s/g, ''))) errors.phone = 'Numéro invalide (8 chiffres)';
+    if (form.phone && !/^\d{8}$/.test(form.phone.replace(/\s/g, ''))) errors.phone = 'Numero invalide (8 chiffres)';
+
+    // Validate ayants droit
+    ayantsDroit.forEach((ad, i) => {
+      if (!ad.firstName.trim()) errors[`ad_${i}_firstName`] = 'Prenom requis';
+      if (!ad.lastName.trim()) errors[`ad_${i}_lastName`] = 'Nom requis';
+      if (!ad.dateOfBirth) errors[`ad_${i}_dateOfBirth`] = 'Date de naissance requise';
+    });
+
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   }
@@ -172,6 +259,21 @@ export function AgentAdherentFormPage() {
     if (!validateForm()) return;
 
     if (isEdit && id) {
+      // Build ayants droit payload for update
+      const ayantsDroitPayload: AyantDroitData[] = ayantsDroit
+        .filter((ad) => ad.firstName.trim() && ad.lastName.trim() && ad.dateOfBirth)
+        .map((ad) => ({
+          lienParente: ad.lienParente,
+          nationalId: ad.nationalId || undefined,
+          typePieceIdentite: ad.typePieceIdentite || undefined,
+          firstName: ad.firstName.trim(),
+          lastName: ad.lastName.trim(),
+          dateOfBirth: ad.dateOfBirth,
+          gender: ad.gender || undefined,
+          phone: ad.phone || undefined,
+          email: ad.email || undefined,
+        }));
+
       const payload: UpdateAdherentData = {
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
@@ -205,6 +307,7 @@ export function AgentAdherentFormPage() {
         contreVisiteObligatoire: form.contreVisiteObligatoire || undefined,
         etatFiche: form.etatFiche || undefined,
         credit: form.credit ? Number(form.credit) : undefined,
+        ayantsDroit: ayantsDroitPayload.length > 0 ? ayantsDroitPayload : undefined,
       };
       try {
         await updateMutation.mutateAsync({ id, data: payload });
@@ -212,6 +315,22 @@ export function AgentAdherentFormPage() {
       } catch { /* handled by mutation */ }
     } else {
       if (!selectedCompany) return;
+
+      // Build ayants droit payload
+      const ayantsDroitPayload: AyantDroitData[] = ayantsDroit
+        .filter((ad) => ad.firstName.trim() && ad.lastName.trim() && ad.dateOfBirth)
+        .map((ad) => ({
+          lienParente: ad.lienParente,
+          nationalId: ad.nationalId || undefined,
+          typePieceIdentite: ad.typePieceIdentite || undefined,
+          firstName: ad.firstName.trim(),
+          lastName: ad.lastName.trim(),
+          dateOfBirth: ad.dateOfBirth,
+          gender: ad.gender || undefined,
+          phone: ad.phone || undefined,
+          email: ad.email || undefined,
+        }));
+
       const payload: CreateAdherentData = {
         nationalId: form.nationalId,
         firstName: form.firstName.trim(),
@@ -247,6 +366,7 @@ export function AgentAdherentFormPage() {
         contreVisiteObligatoire: form.contreVisiteObligatoire || undefined,
         etatFiche: form.etatFiche || undefined,
         credit: form.credit ? Number(form.credit) : undefined,
+        ayantsDroit: ayantsDroitPayload.length > 0 ? ayantsDroitPayload : undefined,
       };
       try {
         await createMutation.mutateAsync(payload);
@@ -261,15 +381,15 @@ export function AgentAdherentFormPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={isEdit ? 'Modifier l\'adhérent' : 'Nouvel adhérent'}
+        title={isEdit ? 'Modifier l\'adherent' : 'Nouvel adherent'}
         description={
           isEdit
             ? `Modification de ${form.firstName} ${form.lastName}`
-            : `Entreprise: ${selectedCompany?.name || '—'}`
+            : `Entreprise: ${selectedCompany?.name || '\u2014'}`
         }
         icon={isEdit ? <Pencil className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
         breadcrumb={[
-          { label: 'Adhérents', href: '/adherents/agent' },
+          { label: 'Adherents', href: '/adherents/agent' },
           { label: isEdit ? 'Modifier' : 'Nouveau' },
         ]}
       />
@@ -280,34 +400,43 @@ export function AgentAdherentFormPage() {
           <div className="mb-4">
             <Label className="text-xs text-gray-500">Entreprise</Label>
             <p className="text-sm font-medium">
-              {selectedCompany?.name || '—'}
+              {selectedCompany?.name || '\u2014'}
             </p>
           </div>
 
           <Tabs defaultValue="adherent" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="adherent">Adhérent</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="adherent">Adherent</TabsTrigger>
               <TabsTrigger value="renseignement">Renseignement</TabsTrigger>
+              <TabsTrigger value="ayants-droit" className="gap-1">
+                <Users className="w-3.5 h-3.5" />
+                Ayants droit
+                {ayantsDroit.length > 0 && (
+                  <span className="ml-1 bg-blue-100 text-blue-700 text-xs font-medium px-1.5 py-0.5 rounded-full">
+                    {ayantsDroit.length}
+                  </span>
+                )}
+                </TabsTrigger>
             </TabsList>
 
-            {/* === Onglet Adhérent === */}
+            {/* === Onglet Adherent === */}
             <TabsContent value="adherent" className="space-y-4 mt-4">
-              {/* Type piece identite / N° piece / Date edition */}
+              {/* Type piece identite / N piece / Date edition */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <Label>Type de pièce</Label>
+                  <Label>Type de piece</Label>
                   <Select value={form.typePieceIdentite} onValueChange={(v) => setForm({ ...form, typePieceIdentite: v })}>
                     <SelectTrigger><SelectValue placeholder="CIN" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="CIN">Carte d'Identité Nationale</SelectItem>
+                      <SelectItem value="CIN">Carte d'Identite Nationale</SelectItem>
                       <SelectItem value="PASSEPORT">Passeport</SelectItem>
-                      <SelectItem value="CARTE_SEJOUR">Carte de séjour</SelectItem>
+                      <SelectItem value="CARTE_SEJOUR">Carte de sejour</SelectItem>
                       <SelectItem value="AUTRE">Autre</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="nationalId">N° pièce</Label>
+                  <Label htmlFor="nationalId">N° piece</Label>
                   <Input
                     id="nationalId"
                     placeholder="12345678"
@@ -320,12 +449,12 @@ export function AgentAdherentFormPage() {
                   {formErrors.nationalId && <p className="text-xs text-red-500 mt-1">{formErrors.nationalId}</p>}
                 </div>
                 <div>
-                  <Label htmlFor="dateEditionPiece">Date d'édition</Label>
-                  <Input id="dateEditionPiece" type="date" value={form.dateEditionPiece} onChange={(e) => setForm({ ...form, dateEditionPiece: e.target.value })} />
+                  <Label htmlFor="dateEditionPiece">Date d'edition</Label>
+                  <Input id="dateEditionPiece" type="date" max={new Date().toISOString().split('T')[0]} value={form.dateEditionPiece} onChange={(e) => setForm({ ...form, dateEditionPiece: e.target.value })} />
                 </div>
               </div>
 
-              {/* Nom / Prénom */}
+              {/* Nom / Prenom */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="lastName">Nom *</Label>
@@ -333,7 +462,7 @@ export function AgentAdherentFormPage() {
                   {formErrors.lastName && <p className="text-xs text-red-500 mt-1">{formErrors.lastName}</p>}
                 </div>
                 <div>
-                  <Label htmlFor="firstName">Prénom *</Label>
+                  <Label htmlFor="firstName">Prenom *</Label>
                   <Input id="firstName" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} className={formErrors.firstName ? 'border-red-500' : ''} />
                   {formErrors.firstName && <p className="text-xs text-red-500 mt-1">{formErrors.firstName}</p>}
                 </div>
@@ -347,14 +476,8 @@ export function AgentAdherentFormPage() {
                   {formErrors.dateOfBirth && <p className="text-xs text-red-500 mt-1">{formErrors.dateOfBirth}</p>}
                 </div>
                 <div>
-                  <Label>Lieu de naissance</Label>
-                  <Select value={form.lieuNaissance || 'none'} onValueChange={(v) => setForm({ ...form, lieuNaissance: v === 'none' ? '' : v })}>
-                    <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Sélectionner</SelectItem>
-                      {GOUVERNORATS_TUNISIE.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="lieuNaissance">Lieu de naissance</Label>
+                  <Input id="lieuNaissance" value={form.lieuNaissance} onChange={(e) => setForm({ ...form, lieuNaissance: e.target.value })} placeholder="Ex: Tunis, Sfax, Sousse..." />
                 </div>
               </div>
 
@@ -363,27 +486,27 @@ export function AgentAdherentFormPage() {
                 <div>
                   <Label>Sexe</Label>
                   <Select value={form.gender || 'none'} onValueChange={(v) => setForm({ ...form, gender: v === 'none' ? '' : v })}>
-                    <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">—</SelectItem>
+                      <SelectItem value="none">{'\u2014'}</SelectItem>
                       <SelectItem value="M">Masculin</SelectItem>
-                      <SelectItem value="F">Féminin</SelectItem>
+                      <SelectItem value="F">Feminin</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label>État civil</Label>
+                  <Label>Etat civil</Label>
                   <Select value={form.etatCivil || 'none'} onValueChange={(v) => setForm({ ...form, etatCivil: v === 'none' ? '' : v })}>
-                    <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">—</SelectItem>
+                      <SelectItem value="none">{'\u2014'}</SelectItem>
                       {ETAT_CIVIL_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label htmlFor="dateMarriage">Date mariage</Label>
-                  <Input id="dateMarriage" type="date" value={form.dateMarriage} onChange={(e) => setForm({ ...form, dateMarriage: e.target.value })} />
+                  <Input id="dateMarriage" type="date" max={new Date().toISOString().split('T')[0]} value={form.dateMarriage} onChange={(e) => setForm({ ...form, dateMarriage: e.target.value })} />
                 </div>
               </div>
 
@@ -399,14 +522,14 @@ export function AgentAdherentFormPage() {
                 </div>
               </div>
 
-              {/* Dates adhésion / Rang / Actif */}
+              {/* Dates adhesion / Rang / Actif */}
               <div className="grid grid-cols-4 gap-3">
                 <div>
-                  <Label htmlFor="dateDebutAdhesion">Début adhésion</Label>
-                  <Input id="dateDebutAdhesion" type="date" value={form.dateDebutAdhesion} onChange={(e) => setForm({ ...form, dateDebutAdhesion: e.target.value })} />
+                  <Label htmlFor="dateDebutAdhesion">Debut adhesion</Label>
+                  <Input id="dateDebutAdhesion" type="date" max={new Date().toISOString().split('T')[0]} value={form.dateDebutAdhesion} onChange={(e) => setForm({ ...form, dateDebutAdhesion: e.target.value })} />
                 </div>
                 <div>
-                  <Label htmlFor="dateFinAdhesion">Fin adhésion</Label>
+                  <Label htmlFor="dateFinAdhesion">Fin adhesion</Label>
                   <Input id="dateFinAdhesion" type="date" value={form.dateFinAdhesion} onChange={(e) => setForm({ ...form, dateFinAdhesion: e.target.value })} />
                 </div>
                 <div>
@@ -430,7 +553,7 @@ export function AgentAdherentFormPage() {
                   </label>
                 </div>
                 <div>
-                  <Label>État de fiche</Label>
+                  <Label>Etat de fiche</Label>
                   <Select value={form.etatFiche} onValueChange={(v) => setForm({ ...form, etatFiche: v })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -440,7 +563,7 @@ export function AgentAdherentFormPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="credit">Crédit (DT)</Label>
+                  <Label htmlFor="credit">Credit (DT)</Label>
                   <Input id="credit" type="number" min={0} step="0.001" placeholder="0" value={form.credit} onChange={(e) => setForm({ ...form, credit: e.target.value })} />
                 </div>
               </div>
@@ -457,9 +580,9 @@ export function AgentAdherentFormPage() {
                 <div>
                   <Label>Gouvernorat</Label>
                   <Select value={form.city || 'none'} onValueChange={(v) => setForm({ ...form, city: v === 'none' ? '' : v })}>
-                    <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Selectionner" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Sélectionner</SelectItem>
+                      <SelectItem value="none">Selectionner</SelectItem>
                       {GOUVERNORATS_TUNISIE.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -470,7 +593,7 @@ export function AgentAdherentFormPage() {
                 </div>
               </div>
               <div>
-                <Label htmlFor="address">Adresse complète</Label>
+                <Label htmlFor="address">Adresse complete</Label>
                 <Input id="address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
               </div>
 
@@ -483,7 +606,7 @@ export function AgentAdherentFormPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label htmlFor="phone">Téléphone</Label>
+                    <Label htmlFor="phone">Telephone</Label>
                     <Input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={formErrors.phone ? 'border-red-500' : ''} />
                     {formErrors.phone && <p className="text-xs text-red-500 mt-1">{formErrors.phone}</p>}
                   </div>
@@ -506,14 +629,14 @@ export function AgentAdherentFormPage() {
                 </div>
               </div>
 
-              {/* Régime social / Fonction */}
+              {/* Regime social / Fonction */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>CNSS / CNRPS</Label>
                   <Select value={form.regimeSocial || 'none'} onValueChange={(v) => setForm({ ...form, regimeSocial: v === 'none' ? '' : v })}>
-                    <SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">—</SelectItem>
+                      <SelectItem value="none">{'\u2014'}</SelectItem>
                       <SelectItem value="CNSS">CNSS</SelectItem>
                       <SelectItem value="CNRPS">CNRPS</SelectItem>
                     </SelectContent>
@@ -541,6 +664,152 @@ export function AgentAdherentFormPage() {
                 </div>
               </div>
             </TabsContent>
+
+            {/* === Onglet Ayants Droit === */}
+              <TabsContent value="ayants-droit" className="space-y-4 mt-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-500">
+                    Ajoutez les membres de la famille couverts par le contrat (conjoint, enfants).
+                  </p>
+                  <div className="flex gap-2">
+                    {!hasConjoint && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => addAyantDroit('C')}
+                        className="gap-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Conjoint
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addAyantDroit('E')}
+                      className="gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Enfant
+                    </Button>
+                  </div>
+                </div>
+
+                {ayantsDroit.length === 0 && (
+                  <div className="text-center py-8 text-gray-400 border-2 border-dashed rounded-lg">
+                    <Users className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">Aucun ayant droit ajoute</p>
+                    <p className="text-xs mt-1">Cliquez sur "Conjoint" ou "Enfant" pour ajouter un membre</p>
+                  </div>
+                )}
+
+                {ayantsDroit.map((ad, index) => (
+                  <Card key={index} className={`border-l-4 ${ad.lienParente === 'C' ? 'border-l-purple-500' : 'border-l-emerald-500'}`}>
+                    <CardContent className="pt-4 pb-4 space-y-3">
+                      {/* Header */}
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-semibold px-2 py-1 rounded ${
+                          ad.lienParente === 'C'
+                            ? 'bg-purple-100 text-purple-700'
+                            : 'bg-emerald-100 text-emerald-700'
+                        }`}>
+                          {ad.lienParente === 'C' ? 'Conjoint' : `Enfant ${ayantsDroit.filter((x, i) => x.lienParente === 'E' && i <= index).length}`}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeAyantDroit(index)}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+
+                      {/* Nom / Prenom */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label>Nom *</Label>
+                          <Input
+                            value={ad.lastName}
+                            onChange={(e) => updateAyantDroit(index, 'lastName', e.target.value)}
+                            className={formErrors[`ad_${index}_lastName`] ? 'border-red-500' : ''}
+                          />
+                          {formErrors[`ad_${index}_lastName`] && <p className="text-xs text-red-500 mt-1">{formErrors[`ad_${index}_lastName`]}</p>}
+                        </div>
+                        <div>
+                          <Label>Prenom *</Label>
+                          <Input
+                            value={ad.firstName}
+                            onChange={(e) => updateAyantDroit(index, 'firstName', e.target.value)}
+                            className={formErrors[`ad_${index}_firstName`] ? 'border-red-500' : ''}
+                          />
+                          {formErrors[`ad_${index}_firstName`] && <p className="text-xs text-red-500 mt-1">{formErrors[`ad_${index}_firstName`]}</p>}
+                        </div>
+                      </div>
+
+                      {/* Date naissance / Sexe / CIN */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <Label>Date de naissance *</Label>
+                          <Input
+                            type="date"
+                            max={new Date().toISOString().split('T')[0]}
+                            value={ad.dateOfBirth}
+                            onChange={(e) => updateAyantDroit(index, 'dateOfBirth', e.target.value)}
+                            className={formErrors[`ad_${index}_dateOfBirth`] ? 'border-red-500' : ''}
+                          />
+                          {formErrors[`ad_${index}_dateOfBirth`] && <p className="text-xs text-red-500 mt-1">{formErrors[`ad_${index}_dateOfBirth`]}</p>}
+                        </div>
+                        <div>
+                          <Label>Sexe</Label>
+                          <Select value={ad.gender || 'none'} onValueChange={(v) => updateAyantDroit(index, 'gender', v === 'none' ? '' : v)}>
+                            <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">{'\u2014'}</SelectItem>
+                              <SelectItem value="M">Masculin</SelectItem>
+                              <SelectItem value="F">Feminin</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>N° CIN</Label>
+                          <Input
+                            placeholder={ad.lienParente === 'E' ? 'Optionnel' : '12345678'}
+                            maxLength={8}
+                            value={ad.nationalId}
+                            onChange={(e) => updateAyantDroit(index, 'nationalId', e.target.value.replace(/\D/g, ''))}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Conjoint: Telephone / Email */}
+                      {ad.lienParente === 'C' && (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label>Telephone</Label>
+                            <Input
+                              value={ad.phone}
+                              onChange={(e) => updateAyantDroit(index, 'phone', e.target.value)}
+                              placeholder="XX XXX XXX"
+                            />
+                          </div>
+                          <div>
+                            <Label>Email</Label>
+                            <Input
+                              type="email"
+                              value={ad.email}
+                              onChange={(e) => updateAyantDroit(index, 'email', e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </TabsContent>
           </Tabs>
 
           {formError && (
@@ -551,7 +820,7 @@ export function AgentAdherentFormPage() {
         </CardContent>
       </Card>
 
-      {/* Actions — sticky bottom bar */}
+      {/* Actions -- sticky bottom bar */}
       <div className="sticky bottom-0 z-10 border-t bg-white/95 backdrop-blur-sm py-4 -mx-6 px-6 flex justify-end gap-3">
         <Button
           variant="outline"
@@ -568,8 +837,10 @@ export function AgentAdherentFormPage() {
           {isBusy
             ? 'Enregistrement...'
             : isEdit
-              ? 'Mettre à jour'
-              : 'Enregistrer'}
+              ? 'Mettre a jour'
+              : ayantsDroit.length > 0
+                ? `Enregistrer (${1 + ayantsDroit.length} membres)`
+                : 'Enregistrer'}
         </Button>
       </div>
     </div>

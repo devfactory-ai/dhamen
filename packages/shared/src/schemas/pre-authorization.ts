@@ -59,7 +59,7 @@ export const preAuthActionSchema = z.enum([
 // Create pre-authorization schema (provider submits)
 export const createPreAuthSchema = z.object({
   adherentId: z.string().min(1, 'Adhérent requis'),
-  providerId: z.string().min(1, 'Prestataire requis'),
+  providerId: z.string().min(1, 'Praticien requis'),
   contractId: z.string().optional(),
 
   // Care details

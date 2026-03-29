@@ -78,7 +78,7 @@ export function AdhérentCardPage() {
     <div className="space-y-6">
       <PageHeader
         title="Ma carte virtuelle"
-        description="Presentez cette carte chez vos prestataires de sante"
+        description="Presentez cette carte chez vos praticiens de santé"
       />
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -146,7 +146,7 @@ export function AdhérentCardPage() {
                 )}
               </div>
               <p className="mt-4 text-center text-sm text-muted-foreground">
-                Presentez ce QR code au prestataire pour une vérification rapide
+                Presentez ce QR code au praticien pour une vérification rapide
               </p>
             </CardContent>
           </Card>

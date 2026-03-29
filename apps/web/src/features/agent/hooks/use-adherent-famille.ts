@@ -8,6 +8,8 @@ interface FamilleMembre {
   lastName: string;
   dateOfBirth: string;
   gender: string | null;
+  email: string | null;
+  phone: string | null;
   codeType: 'A' | 'C' | 'E';
   rangPres: number;
   codeSituationFam: string | null;

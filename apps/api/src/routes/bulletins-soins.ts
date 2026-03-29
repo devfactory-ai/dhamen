@@ -275,8 +275,8 @@ bulletinsSoins.post('/me', async (c) => {
 
   // Get adherent ID
   const adherent = await db.prepare(`
-    SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL
-  `).bind(user.email).first<{ id: string }>();
+    SELECT id, company_id FROM adherents WHERE email = ? AND deleted_at IS NULL
+  `).bind(user.email).first<{ id: string; company_id: string | null }>();
 
   if (!adherent) {
     return c.json({
@@ -294,8 +294,8 @@ bulletinsSoins.post('/me', async (c) => {
       id, adherent_id, beneficiary_id, bulletin_number, bulletin_date,
       provider_name, provider_specialty, care_type, care_description,
       total_amount, status, submission_date, scan_url, scan_filename,
-      additional_documents, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?)
+      additional_documents, company_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     id,
     adherent.id,
@@ -311,6 +311,7 @@ bulletinsSoins.post('/me', async (c) => {
     body.scan_url || null,
     body.scan_filename || null,
     body.additional_documents ? JSON.stringify(body.additional_documents) : null,
+    adherent.company_id || null,
     now,
     now
   ).run();
@@ -643,8 +644,8 @@ bulletinsSoins.post('/submit', async (c) => {
 
   // Get adherent ID
   const adherent = await db.prepare(`
-    SELECT id FROM adherents WHERE email = ? AND deleted_at IS NULL
-  `).bind(user.email).first<{ id: string }>();
+    SELECT id, company_id FROM adherents WHERE email = ? AND deleted_at IS NULL
+  `).bind(user.email).first<{ id: string; company_id: string | null }>();
 
   if (!adherent) {
     return c.json({
@@ -749,8 +750,8 @@ bulletinsSoins.post('/submit', async (c) => {
       id, adherent_id, beneficiary_id, bulletin_number, bulletin_date,
       provider_name, provider_specialty, care_type, care_description,
       total_amount, status, submission_date, scan_url, scan_filename,
-      additional_documents, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scan_uploaded', ?, ?, ?, ?, ?, ?)
+      additional_documents, company_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scan_uploaded', ?, ?, ?, ?, ?, ?, ?)
   `).bind(
     id,
     adherent.id,
@@ -766,6 +767,7 @@ bulletinsSoins.post('/submit', async (c) => {
     firstFile.url,
     firstFile.filename,
     uploadedFiles.length > 1 ? JSON.stringify(uploadedFiles.slice(1)) : null,
+    adherent.company_id || null,
     now,
     now
   ).run();
@@ -1568,15 +1570,20 @@ bulletinsSoins.get('/payments', async (c) => {
     const limit = parseInt(c.req.query('limit') || '50');
     const offset = (page - 1) * limit;
 
+    const companyId = c.req.query('companyId');
     const statuses = status.split(',').map(s => s.trim());
     const placeholders = statuses.map(() => '?').join(',');
 
-    // Build insurer filter
+    // Build insurer + company filter
     let payInsurer = '';
     const payInsurerParams: string[] = [];
     if (user.insurerId) {
       payInsurer = ' AND co.insurer_id = ?';
       payInsurerParams.push(user.insurerId);
+    }
+    if (companyId) {
+      payInsurer += ' AND a.company_id = ?';
+      payInsurerParams.push(companyId);
     }
 
     const countResult = await db.prepare(`
@@ -1639,12 +1646,18 @@ bulletinsSoins.get('/payments/stats', async (c) => {
     }, 403);
   }
 
-  // Build insurer filter
+  const companyId = c.req.query('companyId');
+
+  // Build insurer + company filter
   let payStatsWhere = 'WHERE 1=1';
   const payStatsParams: string[] = [];
   if (user.insurerId) {
     payStatsWhere += ' AND co.insurer_id = ?';
     payStatsParams.push(user.insurerId);
+  }
+  if (companyId) {
+    payStatsWhere += ' AND a.company_id = ?';
+    payStatsParams.push(companyId);
   }
 
   const stats = await db.prepare(`
@@ -1928,14 +1941,28 @@ bulletinsSoins.get('/history/stats', async (c) => {
 
   const dateFrom = c.req.query('dateFrom');
   const dateTo = c.req.query('dateTo');
+  const companyId = c.req.query('companyId');
+
+  // Require companyId for agent users
+  if (!companyId && ['INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'MISSING_COMPANY', message: 'companyId est requis' },
+    }, 400);
+  }
 
   let periodClause = '';
   const periodParams: string[] = [];
 
   // Filter by insurer
   if (user.insurerId) {
-    periodClause += ' AND co.insurer_id = ?';
+    periodClause += ' AND COALESCE(co.insurer_id, bb_co.insurer_id) = ?';
     periodParams.push(user.insurerId);
+  }
+  // Filter by company — use adherent's company_id as primary filter
+  if (companyId) {
+    periodClause += ' AND a.company_id = ?';
+    periodParams.push(companyId);
   }
   if (dateFrom) {
     periodClause += ' AND bs.bulletin_date >= ?';
@@ -1946,7 +1973,11 @@ bulletinsSoins.get('/history/stats', async (c) => {
     periodParams.push(dateTo);
   }
 
-  const histJoin = 'FROM bulletins_soins bs JOIN adherents a ON bs.adherent_id = a.id JOIN companies co ON a.company_id = co.id';
+  const histJoin = `FROM bulletins_soins bs
+    LEFT JOIN adherents a ON bs.adherent_id = a.id
+    LEFT JOIN companies co ON a.company_id = co.id
+    LEFT JOIN bulletin_batches bb ON bs.batch_id = bb.id
+    LEFT JOIN companies bb_co ON bb.company_id = bb_co.id`;
 
   try {
     // Count + sum by status
@@ -2032,18 +2063,32 @@ bulletinsSoins.get('/history/export', async (c) => {
   }
 
   const adherentId = c.req.query('adherentId');
+  const companyId = c.req.query('companyId');
   const dateFrom = c.req.query('dateFrom');
   const dateTo = c.req.query('dateTo');
   const careType = c.req.query('careType');
   const status = c.req.query('status');
+
+  // Require companyId for agent users
+  if (!companyId && ['INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'MISSING_COMPANY', message: 'companyId est requis' },
+    }, 400);
+  }
 
   let whereClause = "WHERE bs.status IN ('approved', 'reimbursed', 'rejected')";
   const params: (string | number)[] = [];
 
   // Filter by insurer
   if (user.insurerId) {
-    whereClause += ' AND co.insurer_id = ?';
+    whereClause += ' AND COALESCE(co.insurer_id, bb_co.insurer_id) = ?';
     params.push(user.insurerId);
+  }
+  // Filter by company — use adherent's company_id as primary filter
+  if (companyId) {
+    whereClause += ' AND a.company_id = ?';
+    params.push(companyId);
   }
   if (adherentId) {
     whereClause += ' AND bs.adherent_id = ?';
@@ -2075,6 +2120,8 @@ bulletinsSoins.get('/history/export', async (c) => {
       FROM bulletins_soins bs
       LEFT JOIN adherents a ON bs.adherent_id = a.id
       LEFT JOIN companies co ON a.company_id = co.id
+      LEFT JOIN bulletin_batches bb ON bs.batch_id = bb.id
+      LEFT JOIN companies bb_co ON bb.company_id = bb_co.id
       ${whereClause}
       ORDER BY bs.bulletin_date DESC
       LIMIT 10000
@@ -2275,6 +2322,7 @@ bulletinsSoins.get('/history', async (c) => {
   }
 
   const adherentId = c.req.query('adherentId');
+  const companyId = c.req.query('companyId');
   const dateFrom = c.req.query('dateFrom');
   const dateTo = c.req.query('dateTo');
   const careType = c.req.query('careType');
@@ -2285,6 +2333,14 @@ bulletinsSoins.get('/history', async (c) => {
   const page = parseInt(c.req.query('page') || '1');
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
   const offset = (page - 1) * limit;
+
+  // Require companyId for agent users — data must be isolated per company
+  if (!companyId && ['INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
+    return c.json({
+      success: false,
+      error: { code: 'MISSING_COMPANY', message: 'companyId est requis' },
+    }, 400);
+  }
 
   // Whitelist sortBy to prevent SQL injection
   const allowedSortColumns: Record<string, string> = {
@@ -2301,8 +2357,13 @@ bulletinsSoins.get('/history', async (c) => {
 
   // Filter by insurer
   if (user.insurerId) {
-    whereClause += ' AND co.insurer_id = ?';
+    whereClause += ' AND COALESCE(co.insurer_id, bb_co.insurer_id) = ?';
     params.push(user.insurerId);
+  }
+  // Filter by company — use adherent's company_id as primary filter (always populated)
+  if (companyId) {
+    whereClause += ' AND a.company_id = ?';
+    params.push(companyId);
   }
   if (adherentId) {
     whereClause += ' AND bs.adherent_id = ?';
@@ -2330,13 +2391,18 @@ bulletinsSoins.get('/history', async (c) => {
     params.push(s, s, s, s, s, s);
   }
 
+  const historyJoins = `
+      FROM bulletins_soins bs
+      LEFT JOIN adherents a ON bs.adherent_id = a.id
+      LEFT JOIN companies co ON a.company_id = co.id
+      LEFT JOIN bulletin_batches bb ON bs.batch_id = bb.id
+      LEFT JOIN companies bb_co ON bb.company_id = bb_co.id`;
+
   try {
     // Count
     const countResult = await db.prepare(`
       SELECT COUNT(*) as total
-      FROM bulletins_soins bs
-      LEFT JOIN adherents a ON bs.adherent_id = a.id
-      LEFT JOIN companies co ON a.company_id = co.id
+      ${historyJoins}
       ${whereClause}
     `).bind(...params).first<{ total: number }>();
 
@@ -2351,9 +2417,7 @@ bulletinsSoins.get('/history', async (c) => {
              COALESCE(a.last_name, bs.adherent_last_name) as adherent_last_name,
              COALESCE(a.matricule, bs.adherent_matricule) as adherent_matricule,
              (SELECT COUNT(*) FROM actes_bulletin ab WHERE ab.bulletin_id = bs.id) as actes_count
-      FROM bulletins_soins bs
-      LEFT JOIN adherents a ON bs.adherent_id = a.id
-      LEFT JOIN companies co ON a.company_id = co.id
+      ${historyJoins}
       ${whereClause}
       ORDER BY ${sortColumn} ${sortOrder}
       LIMIT ? OFFSET ?
@@ -2384,6 +2448,7 @@ bulletinsSoins.get('/history', async (c) => {
         total,
         totalPages: Math.ceil(total / limit),
       },
+      _debug: { companyId: companyId || null, whereClause, total },
     });
   } catch (err) {
     console.error('History list error:', err);

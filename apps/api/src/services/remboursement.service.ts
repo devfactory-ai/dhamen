@@ -211,7 +211,7 @@ export async function calculerRemboursement(
   if (plafondFamilleAnnuel !== null && acte.famille_id) {
     const plafondRow = await db
       .prepare(
-        `SELECT montant_plafond, montant_consomme FROM plafonds_prestataire
+        `SELECT montant_plafond, montant_consomme FROM plafonds_beneficiaire
          WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id = ? AND type_maladie = ?`
       )
       .bind(adherentId, contractId, annee, acte.famille_id, typeMaladie)
@@ -231,7 +231,7 @@ export async function calculerRemboursement(
   let plafondGlobalApplique = false;
   const plafondGlobal = await db
     .prepare(
-      `SELECT montant_plafond, montant_consomme FROM plafonds_prestataire
+      `SELECT montant_plafond, montant_consomme FROM plafonds_beneficiaire
        WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id IS NULL AND type_maladie = 'ordinaire'`
     )
     .bind(adherentId, contractId, annee)
@@ -285,7 +285,7 @@ export async function mettreAJourPlafonds(
   if (familleActeId) {
     await db
       .prepare(
-        `UPDATE plafonds_prestataire SET montant_consomme = montant_consomme + ?, updated_at = datetime('now')
+        `UPDATE plafonds_beneficiaire SET montant_consomme = montant_consomme + ?, updated_at = datetime('now')
          WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id = ? AND type_maladie = ?`
       )
       .bind(montant, adherentId, contractId, annee, familleActeId, typeMaladie)
@@ -295,7 +295,7 @@ export async function mettreAJourPlafonds(
   // Update global plafond
   await db
     .prepare(
-      `UPDATE plafonds_prestataire SET montant_consomme = montant_consomme + ?, updated_at = datetime('now')
+      `UPDATE plafonds_beneficiaire SET montant_consomme = montant_consomme + ?, updated_at = datetime('now')
        WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id IS NULL`
     )
     .bind(montant, adherentId, contractId, annee)

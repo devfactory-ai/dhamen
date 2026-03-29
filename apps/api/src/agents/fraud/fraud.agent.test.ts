@@ -321,7 +321,7 @@ describe('Fraud Detection Agent', () => {
             {
               id: 'rule_5',
               ruleCode: 'PROVIDER_HIGH_VOLUME',
-              ruleName: 'Volume prestataire élevé',
+              ruleName: 'Volume praticien élevé',
               ruleType: 'provider',
               baseScore: 20,
               thresholdValue: 100,

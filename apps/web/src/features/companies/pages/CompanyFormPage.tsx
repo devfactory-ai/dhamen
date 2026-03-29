@@ -4,7 +4,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -143,14 +142,14 @@ export function CompanyFormPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/companies')}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Retour
-        </Button>
+      <div>
         <PageHeader
           title={isEditing ? 'Modifier l\'entreprise' : 'Nouvelle entreprise'}
           description={isEditing ? `Modifier ${company?.name || ''}` : 'Ajouter une nouvelle entreprise cliente'}
+          breadcrumb={[
+            { label: 'Entreprises', href: '/companies' },
+            { label: isEditing ? (company?.name || 'Modifier') : 'Nouvelle' },
+          ]}
         />
       </div>
 
@@ -183,7 +182,7 @@ export function CompanyFormPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="dateOuverture">Date d'ouverture</Label>
-                <Input id="dateOuverture" type="date" {...register('dateOuverture')} />
+                <Input id="dateOuverture" type="date" max={new Date().toISOString().split('T')[0]} {...register('dateOuverture')} />
               </div>
             </div>
 

@@ -111,7 +111,7 @@ export function AdhérentClaimsPage() {
     },
     {
       key: 'provider',
-      header: 'Prestataire',
+      header: 'Praticien',
       render: (claim: Claim) => claim.providerName,
     },
     {
@@ -243,7 +243,7 @@ export function AdhérentClaimsPage() {
                   <p className="font-medium">{formatDate(selectedClaim.date)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Prestataire</p>
+                  <p className="text-sm text-muted-foreground">Praticien</p>
                   <p className="font-medium">{selectedClaim.providerName}</p>
                 </div>
                 <div>

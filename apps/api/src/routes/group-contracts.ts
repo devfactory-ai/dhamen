@@ -627,7 +627,7 @@ Extrais TOUTES les informations visibles dans cette page au format JSON. Selon l
 ## Si c'est le TABLEAU DES PRESTATIONS (le plus important):
 {
   "pageType": "guarantees",
-  "annualGlobalLimit": nombre en DT (ex: 6000 pour "6000 DT par prestataire et par an"),
+  "annualGlobalLimit": nombre en DT (ex: 6000 pour "6000 DT par bénéficiaire et par an"),
   "guarantees": [
     {
       "guaranteeNumber": numéro de 1 à 18,
@@ -709,7 +709,7 @@ Extrais TOUTES les informations visibles dans cette page au format JSON. Selon l
 - "80%" → reimbursementRate: 0.8
 - "Forfait par enfant =200,000 Dinars" → isFixedAmount: true, perEventLimit: 200
 - "B =0.320DT" → letterKeys.B: 0.32
-- "Maximum/an/prestataire" → annualLimit
+- "Maximum/an/prestataire" → annualLimit (NB: "prestataire" dans le contrat BH = bénéficiaire/membre famille)
 - Inclure UNIQUEMENT les lettres-clés et sous-limites qui sont VISIBLES sur cette page.
 - Si une valeur n'est pas visible, ne l'inclure PAS dans le JSON (ne pas mettre null).
 
@@ -835,7 +835,7 @@ La PREMIERE PAGE contient TOUJOURS les informations suivantes dans un cadre ou e
 
 ## SECTION 3 — TABLEAU DES PRESTATIONS
 Le tableau avec les 18 rubriques de garantie et leurs barèmes détaillés.
-Le bas du tableau contient: "MAXIMUM DES PRESTATIONS: X,000 DINARS PAR PRESTATAIRE ET PAR AN"
+Le bas du tableau contient: "MAXIMUM DES PRESTATIONS: X,000 DINARS PAR PRESTATAIRE ET PAR AN" (NB: "prestataire" = bénéficiaire dans la terminologie BH Assurance)
 
 EXTRAIS ABSOLUMENT TOUTES CES INFORMATIONS. Ne mets null QUE si l'information est réellement ABSENTE du document.
 
@@ -926,7 +926,7 @@ Retourne UNIQUEMENT du JSON valide (pas de texte avant/après, pas de bloc markd
 
 ## RÈGLES DE CONVERSION DES MONTANTS TUNISIENS:
 - "45,000 DT" ou "45,000DT" → 45 (en Dinars tunisiens, diviser par 1000 les millimes)
-- "1000,000 Dinars/an/prestataire" → annualLimit: 1000
+- "1000,000 Dinars/an/prestataire" → annualLimit: 1000  (prestataire = bénéficiaire)
 - "1500,000 Dinars" → 1500
 - "Maximum=300,000 Dinars/acte" → perEventLimit: 300
 - "B =0,320DT" ou "B =0.320DT" → letterKeys.B = 0.32

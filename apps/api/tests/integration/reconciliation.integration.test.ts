@@ -447,7 +447,7 @@ describe('Reconciliation Integration Tests', () => {
         }
 
         const csvContent = [
-          'Bordereau,Prestataire,Période,Nombre PEC,Montant Déclaré (TND),Montant Vérifié (TND),Écart (TND),Statut,Date',
+          'Bordereau,Praticien,Période,Nombre PEC,Montant Déclaré (TND),Montant Vérifié (TND),Écart (TND),Statut,Date',
           'BRD-2024-001,Pharmacie Ben Ali,2024-01-01 - 2024-01-31,45,12.500,12.500,0.000,MATCHED,15/01/2024',
           'BRD-2024-002,Clinique Pasteur,2024-01-01 - 2024-01-31,23,45.000,43.500,-1.500,UNMATCHED,15/01/2024',
         ].join('\n');

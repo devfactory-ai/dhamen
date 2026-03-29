@@ -15,7 +15,7 @@ export const claimItemCreateSchema = z.object({
 export const claimCreateSchema = z.object({
   type: claimTypeSchema,
   contractId: z.string().min(1, 'Contrat requis'),
-  providerId: z.string().min(1, 'Prestataire requis'),
+  providerId: z.string().min(1, 'Praticien requis'),
   items: z.array(claimItemCreateSchema).min(1, 'Au moins un article requis'),
   notes: z.string().optional(),
 });

@@ -23,6 +23,18 @@ export interface Adherent {
   updatedAt: string;
 }
 
+export interface AyantDroitData {
+  lienParente: 'C' | 'E'; // C=Conjoint, E=Enfant
+  nationalId?: string;
+  typePieceIdentite?: string;
+  firstName: string;
+  lastName: string;
+  dateOfBirth: string;
+  gender?: string;
+  phone?: string;
+  email?: string;
+}
+
 export interface CreateAdherentData {
   // Identité
   nationalId: string;
@@ -64,6 +76,8 @@ export interface CreateAdherentData {
   contreVisiteObligatoire?: boolean;
   etatFiche?: string;
   credit?: number;
+  // Ayants droit
+  ayantsDroit?: AyantDroitData[];
 }
 
 export type UpdateAdherentData = Partial<Omit<CreateAdherentData, 'nationalId' | 'companyId'>>;
@@ -229,6 +243,23 @@ export function useDeleteAdherent() {
       if (!response.success && response.error?.code !== 'PARSE_ERROR') {
         throw new Error(response.error?.message || 'Erreur lors de la suppression de l\'adhérent');
       }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['adherents'] });
+    },
+  });
+}
+
+export function useBulkDeleteAdherents() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      const response = await apiClient.post('/adherents/bulk-delete', { ids });
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur lors de la suppression');
+      }
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['adherents'] });

@@ -92,8 +92,8 @@ const emptyStateConfigs: Record<Exclude<EmptyStateType, 'custom'>, EmptyStateCon
   },
   providers: {
     icon: Stethoscope,
-    title: 'Aucun prestataire',
-    description: 'Ajoutez des prestataires de santé pour commencer.',
+    title: 'Aucun praticien',
+    description: 'Ajoutez des praticiens de santé pour commencer.',
     iconBgColor: 'bg-green-50',
     iconColor: 'text-green-400',
   },

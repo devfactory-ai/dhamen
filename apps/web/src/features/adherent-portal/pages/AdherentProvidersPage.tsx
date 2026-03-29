@@ -106,7 +106,7 @@ export function AdherentProvidersPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Trouver un prestataire de santé"
+        title="Trouver un praticien de santé"
         description="Recherchez des établissements et praticiens conventionnés"
       />
 

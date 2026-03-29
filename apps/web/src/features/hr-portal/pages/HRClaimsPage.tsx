@@ -88,7 +88,7 @@ export function HRClaimsPage() {
     { key: 'reference', header: 'Référence' },
     { key: 'adherent_name', header: 'Adhérent' },
     { key: 'type', header: 'Type' },
-    { key: 'provider_name', header: 'Prestataire' },
+    { key: 'provider_name', header: 'Praticien' },
     { key: 'amount', header: 'Montant' },
     { key: 'covered_amount', header: 'Montant couvert' },
     { key: 'status', header: 'Statut' },
@@ -130,7 +130,7 @@ export function HRClaimsPage() {
     },
     {
       key: 'provider',
-      header: 'Prestataire',
+      header: 'Praticien',
       render: (claim: Claim) => claim.provider_name,
     },
     {
@@ -213,7 +213,7 @@ export function HRClaimsPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Rechercher par adhérent, référence, prestataire..."
+            placeholder="Rechercher par adhérent, référence, praticien..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"

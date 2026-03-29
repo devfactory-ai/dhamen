@@ -2,6 +2,17 @@ import { useState, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 
+interface BulletinActe {
+  id: string;
+  code: string | null;
+  label: string;
+  amount: number;
+  taux_remboursement: number | null;
+  montant_rembourse: number | null;
+  ref_prof_sant: string | null;
+  nom_prof_sant: string | null;
+}
+
 interface BulletinInQueue {
   id: string;
   bulletin_number: string;
@@ -18,16 +29,9 @@ interface BulletinInQueue {
   reimbursed_amount: number | null;
   status: string;
   scan_url: string | null;
-  actes: Array<{
-    id: string;
-    code: string | null;
-    label: string;
-    amount: number;
-    taux_remboursement: number | null;
-    montant_rembourse: number | null;
-    ref_prof_sant: string | null;
-    nom_prof_sant: string | null;
-  }>;
+  actes: BulletinActe[];
+  plafond_global?: number | null;
+  plafond_consomme?: number | null;
 }
 
 interface UseBatchValidationQueueOptions {
@@ -43,20 +47,55 @@ export function useBatchValidationQueue({ batchId }: UseBatchValidationQueueOpti
     queryKey: ['batch-bulletins', batchId],
     queryFn: async () => {
       if (!batchId) return [];
-      const response = await apiClient.get<BulletinInQueue[]>(`/bulletins-soins/agent?batchId=${batchId}&status=draft,in_batch,approved,rejected,processing`);
-      if (!response.success) throw new Error(response.error?.message);
 
-      // For each bulletin, fetch full detail with actes
+      // Step 1: Get bulletin list for this batch
+      const response = await apiClient.get(
+        `/bulletins-soins/agent?batchId=${batchId}&status=draft,in_batch,approved,rejected,processing`
+      );
+      if (!response.success) {
+        console.error('[batch-queue] list error:', response.error);
+        throw new Error(response.error?.message || 'Failed to fetch batch bulletins');
+      }
+
+      const list = (response.data || []) as Array<{ id: string }>;
+      if (list.length === 0) return [];
+
+      // Step 2: Fetch detail (with actes) for each bulletin
       const detailed: BulletinInQueue[] = [];
-      for (const b of (response.data || [])) {
-        const detail = await apiClient.get<BulletinInQueue>(`/bulletins-soins/agent/${b.id}`);
-        if (detail.success && detail.data) {
-          detailed.push(detail.data);
+      for (const item of list) {
+        try {
+          const detail = await apiClient.get(`/bulletins-soins/agent/${item.id}`);
+          if (detail.success && detail.data) {
+            const d = detail.data as Record<string, unknown>;
+            detailed.push({
+              id: (d.id as string) || item.id,
+              bulletin_number: (d.bulletin_number as string) || '',
+              bulletin_date: (d.bulletin_date as string) || '',
+              adherent_matricule: (d.adherent_matricule as string) || '',
+              adherent_first_name: (d.adherent_first_name as string) || '',
+              adherent_last_name: (d.adherent_last_name as string) || '',
+              adherent_national_id: (d.adherent_national_id as string) || null,
+              beneficiary_name: (d.beneficiary_name as string) || null,
+              provider_name: (d.provider_name as string) || null,
+              care_type: (d.care_type as string) || 'consultation',
+              care_description: (d.care_description as string) || null,
+              total_amount: (d.total_amount as number) || 0,
+              reimbursed_amount: (d.reimbursed_amount as number) || null,
+              status: (d.status as string) || 'draft',
+              scan_url: (d.scan_url as string) || null,
+              actes: ((d.actes as BulletinActe[]) || []),
+              plafond_global: (d.plafond_global as number) || null,
+              plafond_consomme: (d.plafond_consomme as number) || null,
+            });
+          }
+        } catch (err) {
+          console.error(`[batch-queue] detail error for ${item.id}:`, err);
         }
       }
       return detailed;
     },
     enabled: !!batchId,
+    refetchOnWindowFocus: false,
   });
 
   const currentBulletin = bulletins[currentIndex] || null;

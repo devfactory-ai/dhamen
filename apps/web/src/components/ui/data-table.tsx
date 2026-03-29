@@ -5,7 +5,7 @@ import { EmptyState, SearchEmptyState, ErrorEmptyState } from './empty-state';
 
 interface Column<T> {
   key: string;
-  header: string;
+  header: string | React.ReactNode;
   render?: (item: T) => React.ReactNode;
   className?: string;
   sortable?: boolean;

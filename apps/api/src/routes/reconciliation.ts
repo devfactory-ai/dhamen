@@ -595,7 +595,7 @@ reconciliation.get(
     // Generate CSV content
     const headers = [
       'Bordereau',
-      'Prestataire',
+      'Praticien',
       'Période',
       'Nombre PEC',
       'Montant Déclaré (TND)',

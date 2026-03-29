@@ -124,6 +124,8 @@ export const adherentUpdateSchema = z.object({
   contreVisiteObligatoire: z.boolean().optional(),
   etatFiche: etatFicheSchema.optional(),
   credit: z.number().min(0).optional(),
+  // Ayants droit
+  ayantsDroit: z.array(ayantDroitSchema).max(10).optional(),
 });
 
 export const adherentFiltersSchema = z.object({

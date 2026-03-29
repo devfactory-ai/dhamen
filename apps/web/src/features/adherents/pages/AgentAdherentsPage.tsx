@@ -25,6 +25,7 @@ import {
   useAdherents,
   useAdherentBulletins,
   useDeleteAdherent,
+  useBulkDeleteAdherents,
   type AdherentBulletin,
 } from '../hooks/useAdherents';
 
@@ -154,10 +155,13 @@ export function AgentAdherentsPage() {
 
   // Dialogs
   const [deleteConfirm, setDeleteConfirm] = useState<AgentAdherent | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
 
   const { data, isLoading } = useAdherents(page, 20, search || undefined, selectedCompany?.id);
   const { data: totalData } = useAdherents(1, 1, undefined, selectedCompany?.id);
   const deleteMutation = useDeleteAdherent();
+  const bulkDeleteMutation = useBulkDeleteAdherents();
 
   const allAdherents: AgentAdherent[] = (data?.data as unknown as AgentAdherent[]) ?? [];
   const meta = data?.meta;
@@ -181,8 +185,45 @@ export function AgentAdherentsPage() {
     return avatarColors[Math.abs(hash) % avatarColors.length];
   }
 
+  // --- Selection helpers ---
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    if (selectedIds.size === adherents.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(adherents.map((a) => a.id)));
+    }
+  };
+
   // --- Columns ---
   const columns = [
+    {
+      key: 'select',
+      header: (
+        <input
+          type="checkbox"
+          checked={adherents.length > 0 && selectedIds.size === adherents.length}
+          onChange={toggleSelectAll}
+          className="h-4 w-4 rounded border-gray-300"
+        />
+      ),
+      render: (item: AgentAdherent) => (
+        <input
+          type="checkbox"
+          checked={selectedIds.has(item.id)}
+          onChange={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
+          onClick={(e) => e.stopPropagation()}
+          className="h-4 w-4 rounded border-gray-300"
+        />
+      ),
+    },
     {
       key: 'matricule',
       header: 'Matricule',
@@ -261,7 +302,17 @@ export function AgentAdherentsPage() {
     try {
       await deleteMutation.mutateAsync(deleteConfirm.id);
       setDeleteConfirm(null);
+      selectedIds.delete(deleteConfirm.id);
+      setSelectedIds(new Set(selectedIds));
       if (viewAdherent?.id === deleteConfirm.id) setViewAdherent(null);
+    } catch { /* handled by mutation */ }
+  }
+
+  async function handleBulkDelete() {
+    try {
+      await bulkDeleteMutation.mutateAsync(Array.from(selectedIds));
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
     } catch { /* handled by mutation */ }
   }
 
@@ -292,39 +343,51 @@ export function AgentAdherentsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {selectedIds.size > 0 && (
+            <Button
+              variant="outline"
+              className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
+              onClick={() => setBulkDeleteConfirm(true)}
+              disabled={bulkDeleteMutation.isPending}
+            >
+              <Trash2 className="w-4 h-4" />
+              Supprimer ({selectedIds.size})
+            </Button>
+          )}
           <Button
             variant="outline"
             className="gap-2"
             onClick={async () => {
               try {
-                const token = localStorage.getItem('accessToken');
+                const token = localStorage.getItem("accessToken");
                 const params = new URLSearchParams();
-                if (selectedCompany?.id) params.set('companyId', selectedCompany.id);
-                if (search) params.set('search', search);
-                const url = `${import.meta.env.VITE_API_URL || '/api/v1'}/adherents/export?${params}`;
+                if (selectedCompany?.id)
+                  params.set("companyId", selectedCompany.id);
+                if (search) params.set("search", search);
+                const url = `${import.meta.env.VITE_API_URL || "/api/v1"}/adherents/export?${params}`;
                 const res = await fetch(url, {
                   headers: {
                     Authorization: `Bearer ${token}`,
-                    'X-Tenant-Code': localStorage.getItem('tenantCode') || '',
+                    "X-Tenant-Code": localStorage.getItem("tenantCode") || "",
                   },
                 });
-                if (!res.ok) throw new Error('Erreur export');
+                if (!res.ok) throw new Error("Erreur export");
                 const blob = await res.blob();
-                const a = document.createElement('a');
+                const a = document.createElement("a");
                 a.href = URL.createObjectURL(blob);
                 a.download = `adherents_${new Date().toISOString().slice(0, 10)}.csv`;
                 a.click();
                 URL.revokeObjectURL(a.href);
               } catch {
-                alert('Erreur lors de l\'export CSV');
+                alert("Erreur lors de l'export CSV");
               }
             }}
           >
             <Download className="w-4 h-4" /> Exporter CSV
           </Button>
           <Button
-            className="gap-2 bg-slate-900 hover:bg-blue-700"
-            onClick={() => navigate('/adherents/agent/new')}
+            className="gap-2 bg-slate-900 hover:bg-[#19355d]"
+            onClick={() => navigate("/adherents/agent/new")}
             disabled={!selectedCompany}
           >
             <UserPlus className="w-4 h-4" /> Nouvel Adhérent
@@ -394,30 +457,67 @@ export function AgentAdherentsPage() {
                 Statut
               </span>
               <span className="text-sm font-medium text-gray-900">
-                {statusFilter === 'all' ? 'Tous' : statusFilter === 'active' ? 'Actifs' : 'Inactifs'}
+                {statusFilter === "all"
+                  ? "Tous"
+                  : statusFilter === "active"
+                    ? "Actifs"
+                    : "Inactifs"}
               </span>
-              <svg className={`w-3.5 h-3.5 text-gray-400 ml-1 transition-transform ${statusDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+              <svg
+                className={`w-3.5 h-3.5 text-gray-400 ml-1 transition-transform ${statusDropdownOpen ? "rotate-180" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="m19 9-7 7-7-7"
+                />
               </svg>
             </button>
             {statusDropdownOpen && (
               <div className="absolute top-full left-0 mt-1 w-44 py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50 animate-in fade-in slide-in-from-top-1">
-                {([
-                  { value: 'all' as const, label: 'Tous', color: null },
-                  { value: 'active' as const, label: 'Actifs', color: 'bg-emerald-500' },
-                  { value: 'inactive' as const, label: 'Inactifs', color: 'bg-red-400' },
-                ]).map((opt) => (
+                {[
+                  { value: "all" as const, label: "Tous", color: null },
+                  {
+                    value: "active" as const,
+                    label: "Actifs",
+                    color: "bg-emerald-500",
+                  },
+                  {
+                    value: "inactive" as const,
+                    label: "Inactifs",
+                    color: "bg-red-400",
+                  },
+                ].map((opt) => (
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() => { setStatusFilter(opt.value); setStatusDropdownOpen(false); }}
-                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${statusFilter === opt.value ? 'text-blue-600 font-semibold bg-blue-50/50' : 'text-gray-700'}`}
+                    onClick={() => {
+                      setStatusFilter(opt.value);
+                      setStatusDropdownOpen(false);
+                    }}
+                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${statusFilter === opt.value ? "text-blue-600 font-semibold bg-blue-50/50" : "text-gray-700"}`}
                   >
-                    {opt.color && <span className={`w-2 h-2 rounded-full ${opt.color}`} />}
+                    {opt.color && (
+                      <span className={`w-2 h-2 rounded-full ${opt.color}`} />
+                    )}
                     {opt.label}
                     {statusFilter === opt.value && (
-                      <svg className="w-4 h-4 ml-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />
+                      <svg
+                        className="w-4 h-4 ml-auto text-blue-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="m4.5 12.75 6 6 9-13.5"
+                        />
                       </svg>
                     )}
                   </button>
@@ -438,8 +538,18 @@ export function AgentAdherentsPage() {
               <span className="text-sm font-medium text-gray-900">
                 {selectedCompany?.name || "Toutes"}
               </span>
-              <svg className="w-3.5 h-3.5 text-gray-400 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+              <svg
+                className="w-3.5 h-3.5 text-gray-400 ml-1"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="m19 9-7 7-7-7"
+                />
               </svg>
             </button>
           </div>
@@ -471,12 +581,16 @@ export function AgentAdherentsPage() {
             setViewAdherent(item);
             setShowBulletins(false);
           }}
-          pagination={meta ? {
-            page,
-            limit: pageSize,
-            total: filteredTotal,
-            onPageChange: setPage,
-          } : undefined}
+          pagination={
+            meta
+              ? {
+                  page,
+                  limit: pageSize,
+                  total: filteredTotal,
+                  onPageChange: setPage,
+                }
+              : undefined
+          }
         />
       </div>
 
@@ -511,6 +625,33 @@ export function AgentAdherentsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* === Bulk Delete Confirmation === */}
+      <AlertDialog
+        open={bulkDeleteConfirm}
+        onOpenChange={() => setBulkDeleteConfirm(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Suppression multiple</AlertDialogTitle>
+            <AlertDialogDescription>
+              Voulez-vous vraiment supprimer <strong>{selectedIds.size}</strong>{" "}
+              adhérent(s) sélectionné(s) ? Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {bulkDeleteMutation.isPending
+                ? "Suppression..."
+                : `Supprimer (${selectedIds.size})`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* === Detail Dialog === */}
       <Dialog open={!!viewAdherent} onOpenChange={() => setViewAdherent(null)}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
@@ -533,9 +674,13 @@ export function AgentAdherentsPage() {
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
                   <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-medium text-amber-800">Dossier incomplet</p>
+                    <p className="text-sm font-medium text-amber-800">
+                      Dossier incomplet
+                    </p>
                     <p className="text-xs text-amber-700 mt-1">
-                      Cet adhérent a été créé automatiquement lors de l'import d'un bulletin. Veuillez compléter ses informations (CIN, date de naissance, adresse, etc.).
+                      Cet adhérent a été créé automatiquement lors de l'import
+                      d'un bulletin. Veuillez compléter ses informations (CIN,
+                      date de naissance, adresse, etc.).
                     </p>
                   </div>
                 </div>

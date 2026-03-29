@@ -85,6 +85,7 @@ export interface HistoryStats {
 
 export interface HistoryFilters {
   adherentId?: string;
+  companyId?: string;
   dateFrom?: string;
   dateTo?: string;
   careType?: string;
@@ -101,6 +102,7 @@ function buildQueryString(filters: HistoryFilters): string {
   params.set('page', String(filters.page));
   params.set('limit', String(filters.limit));
   if (filters.adherentId) params.set('adherentId', filters.adherentId);
+  if (filters.companyId) params.set('companyId', filters.companyId);
   if (filters.dateFrom) params.set('dateFrom', filters.dateFrom);
   if (filters.dateTo) params.set('dateTo', filters.dateTo);
   if (filters.careType) params.set('careType', filters.careType);
@@ -111,9 +113,10 @@ function buildQueryString(filters: HistoryFilters): string {
   return params.toString();
 }
 
-export function useHistoryList(filters: HistoryFilters) {
+export function useHistoryList(filters: HistoryFilters, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['bulletins-history', filters],
+    enabled: options?.enabled ?? true,
     queryFn: async () => {
       const qs = buildQueryString(filters);
       const response = await apiClient.get(`/bulletins-soins/history?${qs}`);
@@ -130,13 +133,15 @@ export function useHistoryList(filters: HistoryFilters) {
   });
 }
 
-export function useHistoryStats(dateFrom?: string, dateTo?: string) {
+export function useHistoryStats(dateFrom?: string, dateTo?: string, companyId?: string, options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: ['bulletins-history-stats', dateFrom, dateTo],
+    queryKey: ['bulletins-history-stats', dateFrom, dateTo, companyId],
+    enabled: options?.enabled ?? true,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (dateFrom) params.set('dateFrom', dateFrom);
       if (dateTo) params.set('dateTo', dateTo);
+      if (companyId) params.set('companyId', companyId);
       const qs = params.toString();
       const response = await apiClient.get(`/bulletins-soins/history/stats${qs ? `?${qs}` : ''}`);
       if (!response.success) {
@@ -165,6 +170,7 @@ export function useHistoryDetail(bulletinId: string | null) {
 export async function exportHistoryCSV(filters: Omit<HistoryFilters, 'page' | 'limit' | 'sortBy' | 'sortOrder'>, token: string | null) {
   const params = new URLSearchParams();
   if (filters.adherentId) params.set('adherentId', filters.adherentId);
+  if (filters.companyId) params.set('companyId', filters.companyId);
   if (filters.dateFrom) params.set('dateFrom', filters.dateFrom);
   if (filters.dateTo) params.set('dateTo', filters.dateTo);
   if (filters.careType) params.set('careType', filters.careType);

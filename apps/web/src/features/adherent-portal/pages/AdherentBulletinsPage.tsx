@@ -1005,7 +1005,7 @@ export function AdhérentBulletinsPage() {
 
                       <div className="space-y-2">
                         <Label>Date du bulletin *</Label>
-                        <Input type="date" {...register('bulletin_date')} />
+                        <Input type="date" max={new Date().toISOString().split('T')[0]} {...register('bulletin_date')} />
                         {errors.bulletin_date && (
                           <p className="text-sm text-destructive">{errors.bulletin_date.message}</p>
                         )}

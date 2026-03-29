@@ -17,6 +17,7 @@ interface ProviderRow {
   name: string;
   license_no: string;
   speciality: string | null;
+  mf_number: string | null;
   address: string;
   city: string;
   lat: number | null;
@@ -36,6 +37,7 @@ function rowToProvider(row: ProviderRow): Provider {
     name: row.name,
     licenseNo: row.license_no,
     speciality: row.speciality,
+    mfNumber: row.mf_number,
     address: row.address,
     city: row.city,
     lat: row.lat,
@@ -100,8 +102,8 @@ export async function listProviders(
     params.push(isActive ? 1 : 0);
   }
   if (search) {
-    whereClause += ' AND (name LIKE ? OR license_no LIKE ?)';
-    params.push(`%${search}%`, `%${search}%`);
+    whereClause += ' AND (name LIKE ? OR license_no LIKE ? OR mf_number LIKE ?)';
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
   const countResult = await db
@@ -129,8 +131,8 @@ export async function createProvider(
 
   await db
     .prepare(
-      `INSERT INTO providers (id, type, name, license_no, speciality, address, city, lat, lng, phone, email, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+      `INSERT INTO providers (id, type, name, license_no, speciality, mf_number, address, city, lat, lng, phone, email, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     )
     .bind(
       id,
@@ -138,6 +140,7 @@ export async function createProvider(
       data.name,
       data.licenseNo,
       data.speciality ?? null,
+      data.mfNumber ?? null,
       data.address,
       data.city,
       data.lat ?? null,
@@ -176,6 +179,10 @@ export async function updateProvider(
   if (data.speciality !== undefined) {
     updates.push('speciality = ?');
     params.push(data.speciality);
+  }
+  if (data.mfNumber !== undefined) {
+    updates.push('mf_number = ?');
+    params.push(data.mfNumber);
   }
   if (data.address !== undefined) {
     updates.push('address = ?');

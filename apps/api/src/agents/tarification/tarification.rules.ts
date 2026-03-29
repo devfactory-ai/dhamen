@@ -135,7 +135,7 @@ export function calculateCoverageRate(
     appliedRules.push({
       ruleId: 'NETWORK_BONUS',
       ruleName: 'Bonus réseau',
-      effect: `+${bonus}% pour prestataire conventionné`,
+      effect: `+${bonus}% pour praticien conventionné`,
       value: bonus,
     });
     coverageRate = newRate;
@@ -148,7 +148,7 @@ export function calculateCoverageRate(
 
     warnings.push({
       code: 'NON_NETWORK_PROVIDER',
-      message: 'Prestataire hors reseau - couverture reduite',
+      message: 'Praticien hors réseau - couverture reduite',
       details: {
         originalRate: coverageRate,
         reduction,
@@ -159,7 +159,7 @@ export function calculateCoverageRate(
     appliedRules.push({
       ruleId: 'OUT_OF_NETWORK',
       ruleName: 'Hors réseau',
-      effect: `-${reduction}% pour prestataire non conventionné`,
+      effect: `-${reduction}% pour praticien non conventionné`,
       value: -reduction,
     });
 

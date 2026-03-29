@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -205,16 +205,15 @@ interface BaremeHistoryEntry {
 }
 
 export function MedicationsPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToastStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState('');
   const [familyFilter, setFamilyFilter] = useState('');
   const [showImportDialog, setShowImportDialog] = useState(false);
-  const [showFamilyDialog, setShowFamilyDialog] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importNotes, setImportNotes] = useState('');
-  const [newFamily, setNewFamily] = useState({ code: '', name: '', nameAr: '', description: '' });
   const [gpbFilter, setGpbFilter] = useState('');
   const [veicFilter, setVeicFilter] = useState('');
   const [ammClasseFilter, setAmmClasseFilter] = useState('');
@@ -225,20 +224,8 @@ export function MedicationsPage() {
   const [ammImportNotes, setAmmImportNotes] = useState('');
   const ammFileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState('medications');
-  const [showBaremeDialog, setShowBaremeDialog] = useState(false);
-  const [editingBareme, setEditingBareme] = useState<MedicationFamilyBareme | null>(null);
   const [showBaremeHistoryDialog, setShowBaremeHistoryDialog] = useState(false);
   const [selectedBaremeForHistory, setSelectedBaremeForHistory] = useState<string | null>(null);
-  const [baremeForm, setBaremeForm] = useState({
-    medicationFamilyId: '',
-    tauxRemboursement: '',
-    plafondActe: '',
-    plafondFamilleAnnuel: '',
-    dateEffet: new Date().toISOString().split('T')[0],
-    dateFinEffet: '',
-    motif: '',
-  });
-  const [selectedMedication, setSelectedMedication] = useState<Medication | null>(null);
   const [baremePage, setBaremePage] = useState(1);
   const [medsPage, setMedsPage] = useState(1);
   const [importsPage, setImportsPage] = useState(1);
@@ -322,23 +309,6 @@ export function MedicationsPage() {
     },
   });
 
-  // Create family mutation
-  const createFamilyMutation = useMutation({
-    mutationFn: async (data: typeof newFamily) => {
-      const response = await apiClient.post('/medications/families', data);
-      if (!response.success) throw new Error(response.error?.message);
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['medication-families'] });
-      setShowFamilyDialog(false);
-      setNewFamily({ code: '', name: '', nameAr: '', description: '' });
-      toast({ variant: 'success', title: 'Famille créée avec succès' });
-    },
-    onError: (error: Error) => {
-      toast({ variant: 'destructive', title: error.message });
-    },
-  });
 
   // Convert Excel serial date to ISO string
   const excelDateToString = (value: unknown): string => {
@@ -511,45 +481,6 @@ export function MedicationsPage() {
   });
 
   // Create/update bareme mutation
-  interface BaremeFormData {
-    medicationFamilyId: string;
-    tauxRemboursement: number;
-    plafondActe?: number;
-    plafondFamilleAnnuel?: number;
-    dateEffet: string;
-    dateFinEffet?: string;
-    motif?: string;
-  }
-  const saveBaremeMutation = useMutation({
-    mutationFn: async (data: BaremeFormData) => {
-      if (editingBareme) {
-        const response = await apiClient.put(`/medication-family-baremes/${editingBareme.id}`, data);
-        if (!response.success) throw new Error(response.error?.message);
-        return response.data;
-      }
-      // For create, we need a contractId - use first available contract
-      const response = await apiClient.post('/medication-family-baremes', {
-        ...data,
-        contractId: 'default', // Will be replaced by actual contract selection
-      });
-      if (!response.success) throw new Error(response.error?.message);
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['medication-family-baremes'] });
-      setShowBaremeDialog(false);
-      setEditingBareme(null);
-      resetBaremeForm();
-      toast({
-        variant: 'success',
-        title: editingBareme ? 'Barème mis à jour' : 'Barème créé avec succès',
-      });
-    },
-    onError: (error: Error) => {
-      toast({ variant: 'destructive', title: error.message });
-    },
-  });
-
   // Deactivate bareme mutation
   const deactivateBaremeMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -565,50 +496,6 @@ export function MedicationsPage() {
       toast({ variant: 'destructive', title: error.message });
     },
   });
-
-  function resetBaremeForm() {
-    setBaremeForm({
-      medicationFamilyId: '',
-      tauxRemboursement: '',
-      plafondActe: '',
-      plafondFamilleAnnuel: '',
-      dateEffet: new Date().toISOString().split('T')[0],
-      dateFinEffet: '',
-      motif: '',
-    });
-  }
-
-  function openEditBareme(bareme: MedicationFamilyBareme) {
-    setEditingBareme(bareme);
-    setBaremeForm({
-      medicationFamilyId: bareme.medication_family_id,
-      tauxRemboursement: String(bareme.taux_remboursement * 100),
-      plafondActe: bareme.plafond_acte ? String(bareme.plafond_acte) : '',
-      plafondFamilleAnnuel: bareme.plafond_famille_annuel ? String(bareme.plafond_famille_annuel) : '',
-      dateEffet: bareme.date_effet,
-      dateFinEffet: bareme.date_fin_effet || '',
-      motif: '',
-    });
-    setShowBaremeDialog(true);
-  }
-
-  function handleSaveBareme() {
-    const taux = parseFloat(baremeForm.tauxRemboursement) / 100;
-    if (isNaN(taux) || taux < 0 || taux > 1) {
-      toast({ variant: 'destructive', title: 'Taux invalide (0-100%)' });
-      return;
-    }
-    const formData: BaremeFormData = {
-      medicationFamilyId: baremeForm.medicationFamilyId,
-      tauxRemboursement: taux,
-      dateEffet: baremeForm.dateEffet || new Date().toISOString().split('T')[0]!,
-    };
-    if (baremeForm.plafondActe) formData.plafondActe = parseFloat(baremeForm.plafondActe);
-    if (baremeForm.plafondFamilleAnnuel) formData.plafondFamilleAnnuel = parseFloat(baremeForm.plafondFamilleAnnuel);
-    if (baremeForm.dateFinEffet) formData.dateFinEffet = baremeForm.dateFinEffet;
-    if (baremeForm.motif) formData.motif = baremeForm.motif;
-    saveBaremeMutation.mutate(formData);
-  }
 
   const baremeColumns = [
     {
@@ -680,7 +567,7 @@ export function MedicationsPage() {
                 size="sm"
                 onClick={(e) => {
                   e.stopPropagation();
-                  openEditBareme(row);
+                  navigate(`/admin/medications/baremes/${row.id}/edit`);
                 }}
               >
                 <Pencil className="h-4 w-4" />
@@ -831,13 +718,13 @@ export function MedicationsPage() {
     },
     {
       key: 'actions',
-      header: '',
+      header: 'Actions',
       className: 'text-right',
       render: (row: Medication) => (
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setSelectedMedication(row)}
+          onClick={() => navigate(`/admin/medications/${row.id}`)}
           title="Voir détails"
         >
           <Eye className="h-4 w-4" />
@@ -909,26 +796,34 @@ export function MedicationsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Gestion des Médicaments"
-        description="Base de données des médicaments - Sources: PCT & AMM (DPM Tunisie)"
-        action={
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setShowFamilyDialog(true)}>
-              <Package className="mr-2 h-4 w-4" />
-              Nouvelle famille
-            </Button>
-            <Button variant="outline" onClick={() => setShowImportDialog(true)}>
-              <Upload className="mr-2 h-4 w-4" />
-              Importer CSV
-            </Button>
-            <Button onClick={() => setShowAmmImportDialog(true)}>
-              <ShieldCheck className="mr-2 h-4 w-4" />
-              Importer AMM
-            </Button>
-          </div>
-        }
-      />
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Gestion des Médicaments
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Base de données des médicaments - Sources: PCT & AMM (DPM Tunisie)
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => navigate('/admin/medications/families/new')}
+          >
+            <Package className="w-4 h-4" />
+            Nouvelle famille
+          </Button>
+          <Button
+            className="gap-2 bg-slate-900 hover:bg-[#19355d]"
+            onClick={() => setShowAmmImportDialog(true)}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            Importer AMM
+          </Button>
+        </div>
+      </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
@@ -947,69 +842,47 @@ export function MedicationsPage() {
         </TabsList>
 
         <TabsContent value="medications" className="space-y-4">
-          {/* Stats */}
-          <div className="grid gap-4 md:grid-cols-4">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-center">
-                  <Pill className="mx-auto h-8 w-8 text-blue-500" />
-                  <p className="mt-2 text-2xl font-bold">{medicationsData?.meta?.total || 0}</p>
-                  <p className="text-sm text-muted-foreground">Total médicaments</p>
+          {/* Filters bar + Total card */}
+          <div className="flex flex-col md:flex-row items-stretch gap-4">
+            <div className="flex flex-1 flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              {/* Search */}
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Search className="w-[18px] h-[18px] text-gray-400" />
                 </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-center">
-                  <Package className="mx-auto h-8 w-8 text-purple-500" />
-                  <p className="mt-2 text-2xl font-bold">{familiesData?.length || 0}</p>
-                  <p className="text-sm text-muted-foreground">Familles</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-center">
-                  <CheckCircle className="mx-auto h-8 w-8 text-green-500" />
-                  <p className="mt-2 text-2xl font-bold">
-                    {medicationsData?.data?.filter((m) => m.is_reimbursable).length || 0}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Remboursables</p>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-center">
-                  <AlertCircle className="mx-auto h-8 w-8 text-orange-500" />
-                  <p className="mt-2 text-2xl font-bold">
-                    {medicationsData?.data?.filter((m) => m.is_generic).length || 0}
-                  </p>
-                  <p className="text-sm text-muted-foreground">Génériques</p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Filters */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Search className="h-5 w-5" />
-                Recherche et filtres
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-4">
-                <div className="flex-1 min-w-64">
-                  <Input
-                    placeholder="Rechercher par nom, DCI ou code..."
-                    value={search}
-                    onChange={(e) => { setSearch(e.target.value); setMedsPage(1); }}
-                  />
-                </div>
-                <Select value={familyFilter || 'all'} onValueChange={(v) => { setFamilyFilter(v === 'all' ? '' : v); setMedsPage(1); }}>
-                  <SelectTrigger className="w-48">
+                <input
+                  type="text"
+                  placeholder="Rechercher par nom, DCI ou code..."
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setMedsPage(1);
+                  }}
+                  className="w-full h-11 pl-11 pr-10 rounded-xl bg-[#f3f4f5] text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch("");
+                      setMedsPage(1);
+                    }}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <XCircle className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              {/* Filters */}
+              <div className="flex items-center gap-3">
+                <Select
+                  value={familyFilter || "all"}
+                  onValueChange={(v) => {
+                    setFamilyFilter(v === "all" ? "" : v);
+                    setMedsPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-10 min-w-[160px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
                     <SelectValue placeholder="Toutes familles" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1021,8 +894,14 @@ export function MedicationsPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={gpbFilter || 'all'} onValueChange={(v) => { setGpbFilter(v === 'all' ? '' : v); setMedsPage(1); }}>
-                  <SelectTrigger className="w-40">
+                <Select
+                  value={gpbFilter || "all"}
+                  onValueChange={(v) => {
+                    setGpbFilter(v === "all" ? "" : v);
+                    setMedsPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-10 min-w-[130px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
                     <SelectValue placeholder="G/P/B" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1032,8 +911,14 @@ export function MedicationsPage() {
                     <SelectItem value="B">Biosimilaire</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select value={veicFilter || 'all'} onValueChange={(v) => { setVeicFilter(v === 'all' ? '' : v); setMedsPage(1); }}>
-                  <SelectTrigger className="w-44">
+                <Select
+                  value={veicFilter || "all"}
+                  onValueChange={(v) => {
+                    setVeicFilter(v === "all" ? "" : v);
+                    setMedsPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-10 min-w-[140px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
                     <SelectValue placeholder="VEIC" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1046,30 +931,42 @@ export function MedicationsPage() {
                 </Select>
                 <Input
                   placeholder="Classe AMM..."
-                  className="w-48"
+                  className="h-10 min-w-[150px] max-w-[180px] rounded-xl bg-[#f3f4f5] border-0 text-sm"
                   value={ammClasseFilter}
-                  onChange={(e) => { setAmmClasseFilter(e.target.value); setMedsPage(1); }}
+                  onChange={(e) => {
+                    setAmmClasseFilter(e.target.value);
+                    setMedsPage(1);
+                  }}
                 />
               </div>
-            </CardContent>
-          </Card>
+            </div>
+            <div className="flex items-center gap-4 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 px-6 text-white shadow-sm">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-white">
+                  Total Médicaments
+                </p>
+                <p className="text-2xl font-bold text-[30px]">
+                  {(medicationsData?.meta?.total || 0).toLocaleString("fr-TN")}
+                </p>
+              </div>
+              <Pill className="w-8 h-8 text-white ml-auto" />
+            </div>
+          </div>
 
           {/* Table */}
-          <Card>
-            <CardContent className="pt-6">
-              <DataTable
-                columns={medicationColumns}
-                data={medicationsData?.data || []}
-                isLoading={loadingMeds}
-                pagination={{
-                  page: medsPage,
-                  limit: 20,
-                  total: medicationsData?.meta?.total || 0,
-                  onPageChange: setMedsPage,
-                }}
-              />
-            </CardContent>
-          </Card>
+          <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+            <DataTable
+              columns={medicationColumns}
+              data={medicationsData?.data || []}
+              isLoading={loadingMeds}
+              pagination={{
+                page: medsPage,
+                limit: 20,
+                total: medicationsData?.meta?.total || 0,
+                onPageChange: setMedsPage,
+              }}
+            />
+          </div>
         </TabsContent>
 
         <TabsContent value="baremes" className="space-y-4">
@@ -1081,11 +978,7 @@ export function MedicationsPage() {
               </CardTitle>
               <Button
                 size="sm"
-                onClick={() => {
-                  setEditingBareme(null);
-                  resetBaremeForm();
-                  setShowBaremeDialog(true);
-                }}
+                onClick={() => navigate('/admin/medications/baremes/new')}
               >
                 <Plus className="mr-2 h-4 w-4" />
                 Nouveau barème
@@ -1164,7 +1057,9 @@ export function MedicationsPage() {
             </div>
 
             <div className="rounded-lg bg-muted p-4 text-sm">
-              <p className="font-medium mb-2">Format CSV attendu (separateur: point-virgule):</p>
+              <p className="font-medium mb-2">
+                Format CSV attendu (separateur: point-virgule):
+              </p>
               <code className="text-xs">
                 code_pct;dci;marque;dosage;forme;conditionnement;famille;laboratoire;prix_public;generique;remboursable
               </code>
@@ -1180,137 +1075,32 @@ export function MedicationsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowImportDialog(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowImportDialog(false)}
+            >
               Annuler
             </Button>
             <Button
               onClick={() => importFile && importMutation.mutate(importFile)}
               disabled={!importFile || importMutation.isPending}
             >
-              {importMutation.isPending ? 'Import en cours...' : 'Importer'}
+              {importMutation.isPending ? "Import en cours..." : "Importer"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Bareme Dialog */}
-      <Dialog open={showBaremeDialog} onOpenChange={setShowBaremeDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {editingBareme ? 'Modifier le barème' : 'Nouveau barème de remboursement'}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>Famille de médicaments</Label>
-              <Select
-                value={baremeForm.medicationFamilyId}
-                onValueChange={(v) => setBaremeForm({ ...baremeForm, medicationFamilyId: v })}
-                disabled={!!editingBareme}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Sélectionner une famille" />
-                </SelectTrigger>
-                <SelectContent>
-                  {familiesData?.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      {f.name} ({f.code})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Taux de remboursement (%)</Label>
-              <Input
-                type="number"
-                min="0"
-                max="100"
-                placeholder="Ex: 80"
-                value={baremeForm.tauxRemboursement}
-                onChange={(e) => setBaremeForm({ ...baremeForm, tauxRemboursement: e.target.value })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Plafond par acte (TND, optionnel)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.001"
-                  placeholder="Ex: 50.000"
-                  value={baremeForm.plafondActe}
-                  onChange={(e) => setBaremeForm({ ...baremeForm, plafondActe: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label>Plafond famille/an (TND, optionnel)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.001"
-                  placeholder="Ex: 500.000"
-                  value={baremeForm.plafondFamilleAnnuel}
-                  onChange={(e) => setBaremeForm({ ...baremeForm, plafondFamilleAnnuel: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Date d'effet</Label>
-                <Input
-                  type="date"
-                  value={baremeForm.dateEffet}
-                  onChange={(e) => setBaremeForm({ ...baremeForm, dateEffet: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label>Date fin d'effet (optionnel)</Label>
-                <Input
-                  type="date"
-                  value={baremeForm.dateFinEffet}
-                  onChange={(e) => setBaremeForm({ ...baremeForm, dateFinEffet: e.target.value })}
-                />
-              </div>
-            </div>
-            <div>
-              <Label>Motif du changement</Label>
-              <Textarea
-                placeholder="Ex: Révision annuelle des taux, décision CA..."
-                value={baremeForm.motif}
-                onChange={(e) => setBaremeForm({ ...baremeForm, motif: e.target.value })}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowBaremeDialog(false)}>
-              Annuler
-            </Button>
-            <Button
-              onClick={handleSaveBareme}
-              disabled={
-                saveBaremeMutation.isPending ||
-                !baremeForm.medicationFamilyId ||
-                !baremeForm.tauxRemboursement ||
-                !baremeForm.dateEffet
-              }
-            >
-              {saveBaremeMutation.isPending
-                ? 'Enregistrement...'
-                : editingBareme
-                  ? 'Mettre à jour'
-                  : 'Créer'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Bareme History Dialog */}
-      <Dialog open={showBaremeHistoryDialog} onOpenChange={(open) => {
-        setShowBaremeHistoryDialog(open);
-        if (!open) setSelectedBaremeForHistory(null);
-      }}>
+      <Dialog
+        open={showBaremeHistoryDialog}
+        onOpenChange={(open) => {
+          setShowBaremeHistoryDialog(open);
+          if (!open) setSelectedBaremeForHistory(null);
+        }}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1320,43 +1110,54 @@ export function MedicationsPage() {
           </DialogHeader>
           <div className="max-h-96 space-y-3 overflow-y-auto">
             {baremeHistoryData?.data?.length === 0 && (
-              <p className="py-8 text-center text-muted-foreground">Aucun historique</p>
+              <p className="py-8 text-center text-muted-foreground">
+                Aucun historique
+              </p>
             )}
             {baremeHistoryData?.data?.map((entry) => (
               <div key={entry.id} className="rounded-lg border p-3">
                 <div className="flex items-center justify-between">
                   <Badge
                     variant={
-                      entry.action === 'create'
-                        ? 'success'
-                        : entry.action === 'update'
-                          ? 'secondary'
-                          : 'destructive'
+                      entry.action === "create"
+                        ? "success"
+                        : entry.action === "update"
+                          ? "secondary"
+                          : "destructive"
                     }
                   >
-                    {entry.action === 'create'
-                      ? 'Création'
-                      : entry.action === 'update'
-                        ? 'Modification'
-                        : 'Désactivation'}
+                    {entry.action === "create"
+                      ? "Création"
+                      : entry.action === "update"
+                        ? "Modification"
+                        : "Désactivation"}
                   </Badge>
                   <span className="text-xs text-muted-foreground">
-                    {new Date(entry.created_at).toLocaleString('fr-TN')}
+                    {new Date(entry.created_at).toLocaleString("fr-TN")}
                   </span>
                 </div>
-                {entry.action === 'update' && entry.old_taux !== null && entry.new_taux !== null && (
+                {entry.action === "update" &&
+                  entry.old_taux !== null &&
+                  entry.new_taux !== null && (
+                    <p className="mt-2 text-sm">
+                      Taux: {Math.round(entry.old_taux * 100)}% →{" "}
+                      {Math.round(entry.new_taux * 100)}%
+                    </p>
+                  )}
+                {entry.action === "create" && entry.new_taux !== null && (
                   <p className="mt-2 text-sm">
-                    Taux: {Math.round(entry.old_taux * 100)}% → {Math.round(entry.new_taux * 100)}%
+                    Taux: {Math.round(entry.new_taux * 100)}%
                   </p>
                 )}
-                {entry.action === 'create' && entry.new_taux !== null && (
-                  <p className="mt-2 text-sm">Taux: {Math.round(entry.new_taux * 100)}%</p>
-                )}
                 {entry.motif && (
-                  <p className="mt-1 text-xs text-muted-foreground">Motif: {entry.motif}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Motif: {entry.motif}
+                  </p>
                 )}
                 {entry.changed_by_name && (
-                  <p className="mt-1 text-xs text-muted-foreground">Par: {entry.changed_by_name}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Par: {entry.changed_by_name}
+                  </p>
                 )}
               </div>
             ))}
@@ -1364,71 +1165,20 @@ export function MedicationsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* New Family Dialog */}
-      <Dialog open={showFamilyDialog} onOpenChange={setShowFamilyDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Nouvelle famille de médicaments</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>Code</Label>
-              <Input
-                placeholder="Ex: ANTIB"
-                value={newFamily.code}
-                onChange={(e) => setNewFamily({ ...newFamily, code: e.target.value.toUpperCase() })}
-              />
-            </div>
-            <div>
-              <Label>Nom</Label>
-              <Input
-                placeholder="Ex: Antibiotiques"
-                value={newFamily.name}
-                onChange={(e) => setNewFamily({ ...newFamily, name: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label>Nom en arabe (optionnel)</Label>
-              <Input
-                placeholder="Ex: مضادات حيوية"
-                value={newFamily.nameAr}
-                onChange={(e) => setNewFamily({ ...newFamily, nameAr: e.target.value })}
-                dir="rtl"
-              />
-            </div>
-            <div>
-              <Label>Description (optionnel)</Label>
-              <Textarea
-                placeholder="Description de la famille..."
-                value={newFamily.description}
-                onChange={(e) => setNewFamily({ ...newFamily, description: e.target.value })}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowFamilyDialog(false)}>
-              Annuler
-            </Button>
-            <Button
-              onClick={() => createFamilyMutation.mutate(newFamily)}
-              disabled={createFamilyMutation.isPending || !newFamily.code || !newFamily.name}
-            >
-              Créer
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* AMM Import Dialog */}
-      <Dialog open={showAmmImportDialog} onOpenChange={(open) => {
-        setShowAmmImportDialog(open);
-        if (!open) {
-          setAmmFile(null);
-          setAmmParsedRows([]);
-          setAmmParseError('');
-          setAmmImportNotes('');
-        }
-      }}>
+      <Dialog
+        open={showAmmImportDialog}
+        onOpenChange={(open) => {
+          setShowAmmImportDialog(open);
+          if (!open) {
+            setAmmFile(null);
+            setAmmParsedRows([]);
+            setAmmParseError("");
+            setAmmImportNotes("");
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1458,7 +1208,7 @@ export function MedicationsPage() {
                   onRemove={() => {
                     setAmmFile(null);
                     setAmmParsedRows([]);
-                    setAmmParseError('');
+                    setAmmParseError("");
                   }}
                 />
                 {ammParseError && (
@@ -1470,10 +1220,22 @@ export function MedicationsPage() {
                 {ammParsedRows.length > 0 && (
                   <div className="space-y-2">
                     <div className="flex items-center gap-4 text-sm">
-                      <Badge variant="success">{ammParsedRows.length} médicaments détectés</Badge>
+                      <Badge variant="success">
+                        {ammParsedRows.length} médicaments détectés
+                      </Badge>
                       <span className="text-muted-foreground">
-                        Classes: {new Set(ammParsedRows.map(r => r.classe).filter(Boolean)).size} |
-                        DCI: {new Set(ammParsedRows.map(r => r.dci).filter(Boolean)).size}
+                        Classes:{" "}
+                        {
+                          new Set(
+                            ammParsedRows.map((r) => r.classe).filter(Boolean),
+                          ).size
+                        }{" "}
+                        | DCI:{" "}
+                        {
+                          new Set(
+                            ammParsedRows.map((r) => r.dci).filter(Boolean),
+                          ).size
+                        }
                       </span>
                     </div>
                     {/* Preview first 5 rows */}
@@ -1493,9 +1255,15 @@ export function MedicationsPage() {
                           {ammParsedRows.slice(0, 5).map((row, i) => (
                             <tr key={i} className="border-t">
                               <td className="p-1.5 font-mono">{row.amm}</td>
-                              <td className="p-1.5 max-w-32 truncate">{row.nom}</td>
-                              <td className="p-1.5 max-w-24 truncate">{row.dci}</td>
-                              <td className="p-1.5 max-w-24 truncate">{row.classe}</td>
+                              <td className="p-1.5 max-w-32 truncate">
+                                {row.nom}
+                              </td>
+                              <td className="p-1.5 max-w-24 truncate">
+                                {row.dci}
+                              </td>
+                              <td className="p-1.5 max-w-24 truncate">
+                                {row.classe}
+                              </td>
                               <td className="p-1.5">{row.gpb}</td>
                               <td className="p-1.5">{row.veic}</td>
                             </tr>
@@ -1517,8 +1285,12 @@ export function MedicationsPage() {
                 onClick={() => ammFileInputRef.current?.click()}
               >
                 <ShieldCheck className="h-12 w-12 text-muted-foreground" />
-                <p className="mt-2 font-medium">Fichier AMM (Excel .xls / .xlsx)</p>
-                <p className="text-sm text-muted-foreground">liste_amm.xls de la DPM Tunisie</p>
+                <p className="mt-2 font-medium">
+                  Fichier AMM (Excel .xls / .xlsx)
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  liste_amm.xls de la DPM Tunisie
+                </p>
                 <Button variant="link" type="button">
                   Parcourir
                 </Button>
@@ -1528,10 +1300,12 @@ export function MedicationsPage() {
             <div className="rounded-lg bg-muted p-3 text-sm">
               <p className="font-medium mb-1">Colonnes attendues:</p>
               <p className="text-xs text-muted-foreground">
-                Nom, Dosage, Forme, Présentation, DCI, Classe, Sous Classe, Laboratoire, AMM, Date AMM, G/P/B, VEIC, Indications...
+                Nom, Dosage, Forme, Présentation, DCI, Classe, Sous Classe,
+                Laboratoire, AMM, Date AMM, G/P/B, VEIC, Indications...
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Les médicaments existants seront mis à jour par code AMM. Les nouveaux seront créés.
+                Les médicaments existants seront mis à jour par code AMM. Les
+                nouveaux seront créés.
               </p>
             </div>
 
@@ -1545,12 +1319,17 @@ export function MedicationsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAmmImportDialog(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowAmmImportDialog(false)}
+            >
               Annuler
             </Button>
             <Button
               onClick={() => importAmmMutation.mutate(ammParsedRows)}
-              disabled={ammParsedRows.length === 0 || importAmmMutation.isPending}
+              disabled={
+                ammParsedRows.length === 0 || importAmmMutation.isPending
+              }
             >
               {importAmmMutation.isPending
                 ? `Import en cours... ${Math.min(ammImportProgress.current, ammImportProgress.total)}/${ammImportProgress.total}`
@@ -1560,116 +1339,6 @@ export function MedicationsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Medication Detail Dialog */}
-      <Dialog open={!!selectedMedication} onOpenChange={() => setSelectedMedication(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pill className="h-5 w-5" />
-              {selectedMedication?.brand_name}
-            </DialogTitle>
-          </DialogHeader>
-          {selectedMedication && (
-            <div className="space-y-6">
-              {/* Identification */}
-              <div>
-                <h4 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">Identification</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <DetailField label="Nom commercial" value={selectedMedication.brand_name} />
-                  <DetailField label="DCI" value={selectedMedication.dci} />
-                  <DetailField label="Code PCT" value={selectedMedication.code_pct} />
-                  <DetailField label="Code AMM" value={selectedMedication.code_amm} />
-                  <DetailField label="Code CNAM" value={selectedMedication.code_cnam} />
-                  <DetailField label="Famille" value={selectedMedication.family_name} />
-                </div>
-              </div>
-
-              {/* Pharmaceutical */}
-              <div>
-                <h4 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">Informations pharmaceutiques</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <DetailField label="Dosage" value={selectedMedication.dosage} />
-                  <DetailField label="Forme" value={selectedMedication.form} />
-                  <DetailField label="Conditionnement" value={selectedMedication.packaging} />
-                  <DetailField label="Laboratoire" value={selectedMedication.laboratory} />
-                  <DetailField label="Pays d'origine" value={selectedMedication.country_origin} />
-                  <DetailField label="Durée conservation" value={selectedMedication.duree_conservation ? `${selectedMedication.duree_conservation} mois` : null} />
-                </div>
-              </div>
-
-              {/* Classification */}
-              <div>
-                <h4 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">Classification</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-xs text-muted-foreground">G/P/B</p>
-                    {selectedMedication.gpb ? (
-                      <Badge variant={gpbLabel[selectedMedication.gpb]?.variant || 'outline'}>
-                        {gpbLabel[selectedMedication.gpb]?.label || selectedMedication.gpb}
-                      </Badge>
-                    ) : <p className="text-sm text-muted-foreground">-</p>}
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">VEIC</p>
-                    {selectedMedication.veic ? (
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${veicLabel[selectedMedication.veic]?.color || ''}`}>
-                        {veicLabel[selectedMedication.veic]?.label || selectedMedication.veic}
-                      </span>
-                    ) : <p className="text-sm text-muted-foreground">-</p>}
-                  </div>
-                  <DetailField label="Classe AMM" value={selectedMedication.amm_classe} />
-                  <DetailField label="Sous-classe AMM" value={selectedMedication.amm_sous_classe} />
-                  <DetailField label="Date AMM" value={selectedMedication.amm_date} />
-                  <DetailField label="Tableau" value={selectedMedication.tableau_amm} />
-                </div>
-              </div>
-
-              {/* Pricing & Reimbursement */}
-              <div>
-                <h4 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">Tarification & Remboursement</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <DetailField label="Prix public" value={formatPrice(selectedMedication.price_public)} />
-                  <DetailField label="Prix hospitalier" value={formatPrice(selectedMedication.price_hospital)} />
-                  <DetailField label="Prix référence" value={formatPrice(selectedMedication.price_reference)} />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Remboursable</p>
-                    {selectedMedication.is_reimbursable ? (
-                      <Badge variant="success">{Math.round(selectedMedication.reimbursement_rate * 100)}%</Badge>
-                    ) : (
-                      <Badge variant="outline">Non</Badge>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Ordonnance requise</p>
-                    <p className="text-sm">{selectedMedication.requires_prescription ? 'Oui' : 'Non'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Substance contrôlée</p>
-                    <p className="text-sm">{selectedMedication.is_controlled ? 'Oui' : 'Non'}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Indications */}
-              {selectedMedication.indications && (
-                <div>
-                  <h4 className="mb-3 text-sm font-semibold text-muted-foreground uppercase tracking-wide">Indications</h4>
-                  <p className="rounded-md bg-muted p-3 text-sm whitespace-pre-line">{selectedMedication.indications}</p>
-                </div>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-function DetailField({ label, value }: { label: string; value: string | number | null | undefined }) {
-  return (
-    <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm">{value || <span className="text-muted-foreground">-</span>}</p>
     </div>
   );
 }

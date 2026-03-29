@@ -13,6 +13,13 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Upload,
   FileSpreadsheet,
   FileText,
@@ -26,7 +33,6 @@ import {
   Pill,
   FlaskConical,
   Building2,
-  Eye,
   ThumbsUp,
   ThumbsDown,
   SkipForward,
@@ -34,6 +40,7 @@ import {
   ArrowLeft,
   FileArchive,
   FolderOpen,
+  Settings2,
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -66,7 +73,11 @@ interface ImportResult {
     id: string;
     bulletin_number: string;
     adherent_matricule: string;
+    adherent_name?: string;
     status: string;
+    skipped?: boolean;
+    reason?: string;
+    adherent_auto_created?: boolean;
   }>;
 }
 
@@ -103,6 +114,126 @@ const CARE_TYPE_MAP: Record<string, 'consultation' | 'pharmacy' | 'lab' | 'hospi
   hospitalisation: 'hospital',
   hospital: 'hospital',
 };
+
+// ─── Column Mapping ──────────────────────────────────────────────────────────
+
+/** Semantic fields that we need to extract from any file format */
+type MappableField =
+  | 'num_contrat'
+  | 'matricule'
+  | 'rang_prest'
+  | 'nom_prest'
+  | 'date_bs'
+  | 'date_acte'
+  | 'code_acte'
+  | 'frais_engages'
+  | 'mnt_remb'
+  | 'mnt_a_regler'
+  | 'cod_msgr'
+  | 'lib_msgr'
+  | 'ref_prof_sant'
+  | 'nom_prof_sant'
+  | 'typ_bs'
+  | 'nom_adherent'
+  | 'ref_bs'
+  | 'ignore';
+
+interface ColumnMapping {
+  /** Column index → semantic field */
+  [columnIndex: number]: MappableField;
+}
+
+const FIELD_LABELS: Record<MappableField, string> = {
+  num_contrat: 'N° Contrat',
+  matricule: 'Matricule',
+  rang_prest: 'Rang bénéficiaire',
+  nom_prest: 'Nom bénéficiaire',
+  date_bs: 'Date bulletin',
+  date_acte: 'Date acte',
+  code_acte: 'Code acte',
+  frais_engages: 'Frais engagés',
+  mnt_remb: 'Montant remboursé',
+  mnt_a_regler: 'Montant à régler',
+  cod_msgr: 'Code message',
+  lib_msgr: 'Libellé message',
+  ref_prof_sant: 'Réf. prof. santé (MF)',
+  nom_prof_sant: 'Nom prof. santé',
+  typ_bs: 'Type bulletin',
+  nom_adherent: 'Nom adhérent',
+  ref_bs: 'Réf. bulletin',
+  ignore: '— Ignorer —',
+};
+
+/** Default mapping for SPROLS format (31 columns) */
+const SPROLS_DEFAULT_MAPPING: ColumnMapping = {
+  0: 'num_contrat',
+  1: 'matricule',
+  2: 'rang_prest',
+  3: 'nom_prest',
+  4: 'date_bs',
+  5: 'ignore',       // Ref_Bs_Phys_Ass
+  6: 'ref_bs',       // Ref_Bs_Phys_Clt
+  7: 'ignore',       // Ref_Bord_Clt
+  8: 'date_acte',
+  9: 'code_acte',
+  10: 'frais_engages',
+  11: 'ignore',      // Mnt_Revise
+  12: 'ignore',      // Nbr_Cle
+  13: 'mnt_remb',
+  14: 'ignore',      // Mnt_Red_If_Avanc
+  15: 'mnt_a_regler',
+  16: 'cod_msgr',
+  17: 'lib_msgr',
+  18: 'ref_prof_sant',
+  19: 'nom_prof_sant',
+  20: 'typ_bs',
+  24: 'nom_adherent',
+};
+
+/** Auto-detect column mapping from headers */
+function autoDetectMapping(headers: string[]): ColumnMapping {
+  const mapping: ColumnMapping = {};
+  const headerMap: Record<string, MappableField> = {
+    num_cont: 'num_contrat',
+    mat: 'matricule',
+    rang_pres: 'rang_prest',
+    nom_pren_prest: 'nom_prest',
+    dat_bs: 'date_bs',
+    dat_act: 'date_acte',
+    cod_act: 'code_acte',
+    frais_engag: 'frais_engages',
+    mnt_revise: 'ignore',
+    nbr_cle: 'ignore',
+    mnt_act_remb: 'mnt_remb',
+    mnt_red_if_avanc: 'ignore',
+    mnt_act_a_regl: 'mnt_a_regler',
+    cod_msgr: 'cod_msgr',
+    lib_msgr: 'lib_msgr',
+    ref_prof_sant: 'ref_prof_sant',
+    nom_prof_sant: 'nom_prof_sant',
+    typ_bs: 'typ_bs',
+    nom_adh: 'nom_adherent',
+    ref_bs_phys_clt: 'ref_bs',
+    // Dhamen format
+    matricule: 'matricule',
+    prenom: 'nom_prest',
+    nom: 'nom_adherent',
+    date_bulletin: 'date_bs',
+    type_soin: 'typ_bs',
+    code_acte: 'code_acte',
+    libelle_acte: 'lib_msgr',
+    montant: 'frais_engages',
+    ref_prof_sant_2: 'ref_prof_sant',
+    nom_prof_sant_2: 'nom_prof_sant',
+  };
+  headers.forEach((h, i) => {
+    const norm = h.toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (headerMap[norm]) {
+      mapping[i] = headerMap[norm]!;
+    }
+  });
+  return mapping;
+}
 
 // ─── CSV Parsing ─────────────────────────────────────────────────────────────
 
@@ -147,14 +278,48 @@ function detectFormat(headers: string[]): 'sprols' | 'dhamen' | 'unknown' {
   return 'unknown';
 }
 
-function parseSPROLSRows(rows: string[][]): ParsedBulletin[] {
-  // Group rows by (matricule, date) to form bulletins
-  const groups = new Map<string, { rows: string[][]; first: string[] }>();
+/** Normalize SPROLS date: DD/MM/YY or DD/MM/YYYY → YYYY-MM-DD */
+function normalizeSPROLSDate(raw: string): string {
+  // DD/MM/YY
+  if (/^\d{2}\/\d{2}\/\d{2}$/.test(raw)) {
+    const [d, m, y] = raw.split('/');
+    const fullYear = parseInt(y!, 10) < 80 ? `20${y}` : `19${y}`;
+    return `${fullYear}-${m}-${d}`;
+  }
+  // DD/MM/YYYY
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+    const [d, m, y] = raw.split('/');
+    return `${y}-${m}-${d}`;
+  }
+  return raw;
+}
+
+/** Get field value from a row using the column mapping */
+function getField(row: unknown[], mapping: ColumnMapping, field: MappableField): string {
+  for (const [idx, f] of Object.entries(mapping)) {
+    if (f === field) {
+      const raw = row[parseInt(idx)];
+      if (raw == null) return '';
+      return String(raw).trim();
+    }
+  }
+  return '';
+}
+
+/** Convert millimes to DT (SPROLS amounts are in millimes: 355372 = 355.372 DT) */
+function millimesToDT(raw: string): number {
+  const n = parseFloat(raw.replace(',', '.') || '0') || 0;
+  // SPROLS amounts are in millimes (1 DT = 1000 millimes)
+  return n >= 1000 ? n / 1000 : n;
+}
+
+function parseMappedRows(rows: unknown[][], mapping: ColumnMapping, isSprols: boolean): ParsedBulletin[] {
+  const groups = new Map<string, { rows: unknown[][]; first: unknown[] }>();
 
   for (const row of rows) {
-    if (row.length < 7) continue;
-    const mat = row[1]?.trim() || '';
-    const date = row[4]?.trim() || '';
+    if (row.length < 5) continue;
+    const mat = getField(row, mapping, 'matricule');
+    const date = getField(row, mapping, 'date_bs');
     if (!mat || !date) continue;
     const key = `${mat}|${date}`;
     if (!groups.has(key)) {
@@ -166,37 +331,40 @@ function parseSPROLSRows(rows: string[][]): ParsedBulletin[] {
   const bulletins: ParsedBulletin[] = [];
   for (const [, group] of groups) {
     const firstRow = group.first;
-    const mat = firstRow[1]?.trim() || '';
-    const nomPren = firstRow[3]?.trim() || '';
-    const dateBs = firstRow[4]?.trim() || '';
+    const mat = getField(firstRow, mapping, 'matricule');
+    const nomPren = getField(firstRow, mapping, 'nom_prest');
+    const nomAdh = getField(firstRow, mapping, 'nom_adherent');
+    const dateBs = getField(firstRow, mapping, 'date_bs');
     const errors: string[] = [];
 
-    // Parse name (format: "NOM Prenom")
-    const nameParts = nomPren.split(' ');
+    // Parse name (format: " NOM PRENOM" — SPROLS has leading space)
+    const cleanName = nomPren.trim();
+    const nameParts = cleanName.split(/\s+/).filter(Boolean);
     const lastName = nameParts[0] || '';
     const firstName = nameParts.slice(1).join(' ') || '';
 
-    // Normalize date (DD/MM/YYYY -> YYYY-MM-DD)
-    let bulletinDate = dateBs;
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateBs)) {
-      const [d, m, y] = dateBs.split('/');
-      bulletinDate = `${y}-${m}-${d}`;
-    }
+    // Normalize date
+    const bulletinDate = isSprols ? normalizeSPROLSDate(dateBs) : dateBs;
 
     if (!mat) errors.push('Matricule manquant');
-    if (!firstName && !lastName) errors.push('Nom manquant');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(bulletinDate)) errors.push('Date invalide');
+    if (!firstName && !lastName && !nomAdh) errors.push('Nom manquant');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(bulletinDate)) errors.push(`Date invalide: ${dateBs}`);
 
-    // Build actes from all rows in group
-    const actes = group.rows.map(r => ({
-      code: r[5]?.trim() || '',
-      label: r[9]?.trim() || r[5]?.trim() || 'Acte importé',
-      amount: parseFloat(r[6]?.replace(',', '.') || '0') || 0,
-      ref_prof_sant: r[10]?.trim() || '',
-      nom_prof_sant: r[11]?.trim() || r[3]?.trim() || '',
-      cod_msgr: r[8]?.trim() || undefined,
-      lib_msgr: r[9]?.trim() || undefined,
-    }));
+    // Build actes from all rows
+    const actes = group.rows.map(r => {
+      const rawAmount = getField(r, mapping, 'frais_engages');
+      const rawRemb = getField(r, mapping, 'mnt_a_regler') || getField(r, mapping, 'mnt_remb');
+      return {
+        code: getField(r, mapping, 'code_acte'),
+        label: getField(r, mapping, 'lib_msgr') || getField(r, mapping, 'code_acte') || 'Acte importé',
+        amount: isSprols ? millimesToDT(rawAmount) : (parseFloat(rawAmount.replace(',', '.') || '0') || 0),
+        ref_prof_sant: getField(r, mapping, 'ref_prof_sant'),
+        nom_prof_sant: getField(r, mapping, 'nom_prof_sant') || cleanName,
+        cod_msgr: getField(r, mapping, 'cod_msgr') || undefined,
+        lib_msgr: getField(r, mapping, 'lib_msgr') || undefined,
+        mnt_remb: isSprols ? millimesToDT(rawRemb) : (parseFloat(rawRemb.replace(',', '.') || '0') || 0),
+      };
+    });
 
     if (actes.every(a => a.amount === 0)) errors.push('Aucun montant');
 
@@ -210,7 +378,7 @@ function parseSPROLSRows(rows: string[][]): ParsedBulletin[] {
     bulletins.push({
       adherent_matricule: mat,
       adherent_first_name: firstName,
-      adherent_last_name: lastName,
+      adherent_last_name: lastName || nomAdh,
       bulletin_date: bulletinDate,
       care_type: careType,
       actes,
@@ -221,13 +389,24 @@ function parseSPROLSRows(rows: string[][]): ParsedBulletin[] {
   return bulletins;
 }
 
-function parseDhamenRows(rows: string[][]): ParsedBulletin[] {
-  const groups = new Map<string, { rows: string[][]; first: string[] }>();
+/** Legacy wrapper for backward compatibility */
+function parseSPROLSRows(rows: unknown[][]): ParsedBulletin[] {
+  return parseMappedRows(rows, SPROLS_DEFAULT_MAPPING, true);
+}
+
+/** Safe string accessor for XLSX rows that may contain numbers */
+function str(val: unknown): string {
+  if (val == null) return '';
+  return String(val).trim();
+}
+
+function parseDhamenRows(rows: unknown[][]): ParsedBulletin[] {
+  const groups = new Map<string, { rows: unknown[][]; first: unknown[] }>();
 
   for (const row of rows) {
     if (row.length < 8) continue;
-    const mat = row[0]?.trim() || '';
-    const date = row[3]?.trim() || '';
+    const mat = str(row[0]);
+    const date = str(row[3]);
     if (!mat) continue;
     const key = `${mat}|${date}`;
     if (!groups.has(key)) {
@@ -239,11 +418,11 @@ function parseDhamenRows(rows: string[][]): ParsedBulletin[] {
   const bulletins: ParsedBulletin[] = [];
   for (const [, group] of groups) {
     const f = group.first;
-    const mat = f[0]?.trim() || '';
-    const firstName = f[1]?.trim() || '';
-    const lastName = f[2]?.trim() || '';
-    const bulletinDate = f[3]?.trim() || '';
-    const typeSoin = f[4]?.trim()?.toLowerCase() || '';
+    const mat = str(f[0]);
+    const firstName = str(f[1]);
+    const lastName = str(f[2]);
+    const bulletinDate = str(f[3]);
+    const typeSoin = str(f[4]).toLowerCase();
     const errors: string[] = [];
 
     if (!mat) errors.push('Matricule manquant');
@@ -253,11 +432,11 @@ function parseDhamenRows(rows: string[][]): ParsedBulletin[] {
     const careType = CARE_TYPE_MAP[typeSoin] || 'consultation';
 
     const actes = group.rows.map(r => ({
-      code: r[5]?.trim() || '',
-      label: r[6]?.trim() || 'Acte importé',
-      amount: parseFloat(r[7]?.replace(',', '.') || '0') || 0,
-      ref_prof_sant: r[8]?.trim() || '',
-      nom_prof_sant: r[9]?.trim() || '',
+      code: str(r[5]),
+      label: str(r[6]) || 'Acte importé',
+      amount: parseFloat(str(r[7]).replace(',', '.') || '0') || 0,
+      ref_prof_sant: str(r[8]),
+      nom_prof_sant: str(r[9]),
     }));
 
     if (actes.every(a => a.amount === 0)) errors.push('Aucun montant');
@@ -313,7 +492,7 @@ function parseExcelContent(buffer: ArrayBuffer): ParsedBulletin[] {
   const data = new Uint8Array(buffer);
   const workbook = XLSX.read(data, { type: 'array' });
   const sheet = workbook.Sheets[workbook.SheetNames[0]!]!;
-  const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
   if (rows.length < 2) return [];
   const headers = rows[0]!;
   const format = detectFormat(headers);
@@ -408,6 +587,12 @@ export default function BulletinsImportPage() {
   const [zipSubLots, setZipSubLots] = useState<ZipSubLot[]>([]);
   const [zipScannedDocs, setZipScannedDocs] = useState<ZipScannedDoc[]>([]);
   const [selectedSubLot, setSelectedSubLot] = useState<number | null>(null);
+
+  // Column mapping
+  const [rawHeaders, setRawHeaders] = useState<string[]>([]);
+  const [rawDataRows, setRawDataRows] = useState<unknown[][]>([]);
+  const [columnMapping, setColumnMapping] = useState<ColumnMapping>({});
+  const [showColumnMapping, setShowColumnMapping] = useState(false);
 
   // Phase 2: Confirm
   const [batchName, setBatchName] = useState(`Import_${new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', 'h')}`);
@@ -521,7 +706,7 @@ export default function BulletinsImportPage() {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]!]!;
-        const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
         processRows(rows);
       };
       reader.readAsArrayBuffer(file);
@@ -537,36 +722,61 @@ export default function BulletinsImportPage() {
     }
   }, []);
 
-  const processRows = (rows: string[][]) => {
+  const processRows = (rows: unknown[][]) => {
     if (rows.length < 2) {
       toast.error('Fichier vide ou invalide');
       return;
     }
-    const headers = rows[0]!;
+    const headers = (rows[0] || []).map(h => String(h ?? ''));
     const format = detectFormat(headers);
     setFileFormat(format);
 
     const dataRows = rows.slice(1);
-    let bulletins: ParsedBulletin[];
+    // Store raw data for re-parsing after column mapping changes
+    setRawHeaders(headers);
+    setRawDataRows(dataRows);
 
+    // Auto-detect column mapping
+    let mapping: ColumnMapping;
     if (format === 'sprols') {
-      bulletins = parseSPROLSRows(dataRows);
-    } else if (format === 'dhamen') {
+      // Use known SPROLS mapping, refined by header matching
+      const detected = autoDetectMapping(headers);
+      mapping = Object.keys(detected).length >= 5 ? detected : { ...SPROLS_DEFAULT_MAPPING };
+    } else {
+      mapping = autoDetectMapping(headers);
+    }
+    setColumnMapping(mapping);
+
+    // Parse with mapping
+    const isSprols = format === 'sprols';
+    let bulletins: ParsedBulletin[];
+    if (format === 'dhamen') {
       bulletins = parseDhamenRows(dataRows);
     } else {
-      // Try dhamen format as default
-      bulletins = parseDhamenRows(dataRows);
-      if (bulletins.length === 0) {
-        bulletins = parseSPROLSRows(dataRows);
-      }
+      bulletins = parseMappedRows(dataRows, mapping, isSprols);
     }
 
     setParsedBulletins(bulletins);
     if (bulletins.length > 0) {
-      toast.success(`${bulletins.length} bulletins détectés`);
+      toast.success(`${bulletins.length} bulletins détectés (format ${format === 'sprols' ? 'SPROLS' : format === 'dhamen' ? 'Dhamen' : 'auto'})`);
     } else {
       toast.error('Aucun bulletin détecté. Vérifiez le format du fichier.');
     }
+  };
+
+  /** Re-parse data after user changes column mapping */
+  const reParseWithMapping = (newMapping: ColumnMapping) => {
+    setColumnMapping(newMapping);
+    if (rawDataRows.length === 0) return;
+    const isSprols = fileFormat === 'sprols';
+    const bulletins = parseMappedRows(rawDataRows, newMapping, isSprols);
+    setParsedBulletins(bulletins);
+    toast.success(`${bulletins.length} bulletins re-détectés avec le nouveau mapping`);
+  };
+
+  const updateColumnField = (colIndex: number, field: MappableField) => {
+    const newMapping = { ...columnMapping, [colIndex]: field };
+    reParseWithMapping(newMapping);
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -618,7 +828,7 @@ export default function BulletinsImportPage() {
             {phase !== 'upload' && (
               <button
                 type="button"
-                onClick={() => { setPhase('upload'); setParsedBulletins([]); setImportResult(null); setImportedBatchId(null); setZipSubLots([]); setZipScannedDocs([]); setSelectedSubLot(null); setFileName(''); }}
+                onClick={() => { setPhase('upload'); setParsedBulletins([]); setImportResult(null); setImportedBatchId(null); setZipSubLots([]); setZipScannedDocs([]); setSelectedSubLot(null); setFileName(''); setRawHeaders([]); setRawDataRows([]); setColumnMapping({}); setShowColumnMapping(false); }}
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"
               >
                 <ArrowLeft className="h-4 w-4" />
@@ -719,6 +929,25 @@ export default function BulletinsImportPage() {
                 <span className="text-blue-500 font-medium">
                   ({fileFormat === 'sprols' ? 'Format SPROLS' : fileFormat === 'dhamen' ? 'Format Dhamen' : 'Auto-détecté'})
                 </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setParsedBulletins([]);
+                    setFileName('');
+                    setFileFormat('unknown');
+                    setRawHeaders([]);
+                    setRawDataRows([]);
+                    setColumnMapping({});
+                    setShowColumnMapping(false);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                    toast.info('Fichier supprimé. Vous pouvez importer un autre fichier.');
+                  }}
+                  className="ml-2 flex h-5 w-5 items-center justify-center rounded-full bg-blue-200 text-blue-700 hover:bg-red-200 hover:text-red-700 transition-colors"
+                  title="Supprimer et ré-importer"
+                >
+                  <X className="h-3 w-3" />
+                </button>
               </div>
             )}
           </div>
@@ -809,6 +1038,91 @@ export default function BulletinsImportPage() {
                 Les fichiers images et PDF seront disponibles pour saisie manuelle ou traitement OCR ultérieurement.
                 Formats : {zipScannedDocs.map(d => d.name).join(', ')}
               </p>
+            </div>
+          )}
+
+          {/* Column Mapping Editor */}
+          {rawHeaders.length > 0 && parsedBulletins.length > 0 && (
+            <div className="rounded-2xl border border-gray-200 bg-white">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <Settings2 className="h-4 w-4 text-gray-500" />
+                  <h3 className="text-sm font-bold text-gray-900">Mapping des colonnes</h3>
+                  <Badge variant="secondary" className="text-[10px]">
+                    {fileFormat === 'sprols' ? 'SPROLS' : fileFormat === 'dhamen' ? 'Dhamen' : 'Auto'}
+                  </Badge>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowColumnMapping(!showColumnMapping)}
+                  className="text-xs gap-1"
+                >
+                  {showColumnMapping ? 'Masquer' : 'Modifier les colonnes'}
+                  <ChevronRight className={cn('h-3 w-3 transition-transform', showColumnMapping && 'rotate-90')} />
+                </Button>
+              </div>
+              {showColumnMapping && (
+                <div className="p-4 space-y-3 max-h-[400px] overflow-y-auto">
+                  <p className="text-xs text-gray-500 mb-2">
+                    Associez chaque colonne du fichier au champ correspondant. Les 3 premières lignes de données sont affichées en aperçu.
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-gray-100">
+                          <th className="px-2 py-2 text-left font-semibold text-gray-500 w-8">#</th>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-500">En-tête fichier</th>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-500 min-w-[180px]">Champ mappé</th>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-400">Aperçu (ligne 1)</th>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-400">Ligne 2</th>
+                          <th className="px-2 py-2 text-left font-semibold text-gray-400">Ligne 3</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {rawHeaders.map((header, colIdx) => {
+                          const currentField = columnMapping[colIdx] || 'ignore';
+                          const isImportant = currentField !== 'ignore';
+                          return (
+                            <tr key={colIdx} className={cn(isImportant ? 'bg-blue-50/30' : 'opacity-60')}>
+                              <td className="px-2 py-1.5 text-gray-400">{colIdx}</td>
+                              <td className="px-2 py-1.5 font-mono text-gray-700 truncate max-w-[150px]" title={header}>
+                                {header}
+                              </td>
+                              <td className="px-2 py-1.5">
+                                <Select
+                                  value={currentField}
+                                  onValueChange={(val) => updateColumnField(colIdx, val as MappableField)}
+                                >
+                                  <SelectTrigger className="h-7 text-xs rounded-lg">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {(Object.keys(FIELD_LABELS) as MappableField[]).map((f) => (
+                                      <SelectItem key={f} value={f} className="text-xs">
+                                        {FIELD_LABELS[f]}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </td>
+                              <td className="px-2 py-1.5 text-gray-400 truncate max-w-[120px]" title={String(rawDataRows[0]?.[colIdx] ?? '')}>
+                                {String(rawDataRows[0]?.[colIdx] ?? '—')}
+                              </td>
+                              <td className="px-2 py-1.5 text-gray-400 truncate max-w-[120px]">
+                                {String(rawDataRows[1]?.[colIdx] ?? '—')}
+                              </td>
+                              <td className="px-2 py-1.5 text-gray-400 truncate max-w-[120px]">
+                                {String(rawDataRows[2]?.[colIdx] ?? '—')}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -998,11 +1312,86 @@ export default function BulletinsImportPage() {
       {/* ═══ Phase 3: Validation Queue ═══ */}
       {phase === 'validate' && (
         <div className="space-y-4">
+          {/* Import result summary */}
+          {importResult && (
+            <div className="rounded-2xl border border-gray-200 bg-white p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-green-50">
+                  <Check className="h-6 w-6 text-green-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Import réussi</h3>
+                  <p className="text-sm text-gray-500">
+                    Lot : <strong>{importResult.batch_name}</strong>
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div className="rounded-xl bg-green-50 p-4 text-center">
+                  <p className="text-2xl font-bold text-green-700">{importResult.total_imported}</p>
+                  <p className="text-xs text-green-600">Bulletins importés</p>
+                </div>
+                <div className="rounded-xl bg-amber-50 p-4 text-center">
+                  <p className="text-2xl font-bold text-amber-700">{importResult.skipped}</p>
+                  <p className="text-xs text-amber-600">Ignorés (adhérent non trouvé)</p>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-4 text-center">
+                  <p className="text-2xl font-bold text-gray-700">{importResult.bulletins?.length || 0}</p>
+                  <p className="text-xs text-gray-500">Total traités</p>
+                </div>
+              </div>
+              {/* Show skipped bulletins */}
+              {importResult.bulletins?.filter(b => b.skipped).length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 mb-4">
+                  <p className="text-xs font-semibold text-amber-800 mb-2">Bulletins ignorés :</p>
+                  {importResult.bulletins.filter(b => b.skipped).map((b, i) => (
+                    <p key={i} className="text-xs text-amber-700">
+                      Matricule <strong>{b.adherent_matricule}</strong> : {b.reason}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {/* Show imported bulletins list */}
+              {importResult.bulletins?.filter(b => !b.skipped).length > 0 && (
+                <div className="rounded-xl border border-gray-200 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-100">
+                        <th className="px-4 py-2 text-left text-[11px] font-semibold uppercase text-gray-500">N° Bulletin</th>
+                        <th className="px-4 py-2 text-left text-[11px] font-semibold uppercase text-gray-500">Adhérent</th>
+                        <th className="px-4 py-2 text-left text-[11px] font-semibold uppercase text-gray-500">Matricule</th>
+                        <th className="px-4 py-2 text-left text-[11px] font-semibold uppercase text-gray-500">Statut</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {importResult.bulletins.filter(b => !b.skipped).map((b) => (
+                        <tr key={b.id} className="hover:bg-gray-50/50">
+                          <td className="px-4 py-2 font-mono text-gray-700">{b.bulletin_number}</td>
+                          <td className="px-4 py-2">
+                            <span className="text-gray-900">{b.adherent_name || '—'}</span>
+                            {b.adherent_auto_created && (
+                              <Badge className="ml-2 bg-amber-100 text-amber-700 text-[10px]">Nouveau</Badge>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 font-mono text-gray-600">{b.adherent_matricule}</td>
+                          <td className="px-4 py-2">
+                            <Badge className="bg-blue-100 text-blue-700">{b.status === 'in_batch' ? 'En attente' : b.status}</Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Progress bar */}
+          {queue.bulletins.length > 0 && (
           <div className="rounded-2xl border border-gray-200 bg-white px-6 py-4">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-900">
-                Progression : {queue.progress.validated + queue.progress.rejected} / {queue.progress.total} traités
+                Validation : {queue.progress.validated + queue.progress.rejected} / {queue.progress.total} traités
               </p>
               <div className="flex items-center gap-3 text-xs">
                 <span className="flex items-center gap-1 text-green-600">
@@ -1023,6 +1412,27 @@ export default function BulletinsImportPage() {
               />
             </div>
           </div>
+          )}
+
+          {/* Navigation buttons */}
+          {!queue.isLoading && queue.bulletins.length === 0 && (
+            <div className="flex justify-center gap-3 mt-4">
+              <Button
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => window.location.href = '/bulletins/history'}
+              >
+                Voir l'historique des bulletins
+              </Button>
+              <button
+                type="button"
+                onClick={() => { setPhase('upload'); setParsedBulletins([]); setImportResult(null); setImportedBatchId(null); setZipSubLots([]); setZipScannedDocs([]); setSelectedSubLot(null); setFileName(''); setRawHeaders([]); setRawDataRows([]); setColumnMapping({}); setShowColumnMapping(false); }}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 px-5 py-2.5 text-sm font-medium text-white hover:from-blue-700 hover:to-blue-800 shadow-lg shadow-blue-600/25"
+              >
+                Importer un autre lot
+              </button>
+            </div>
+          )}
 
           {queue.isComplete ? (
             /* Completion card */
@@ -1054,9 +1464,9 @@ export default function BulletinsImportPage() {
           ) : queue.isLoading ? (
             <div className="flex items-center justify-center py-16 text-gray-400">
               <Loader2 className="h-5 w-5 animate-spin mr-2" />
-              <span className="text-sm">Chargement des bulletins...</span>
+              <span className="text-sm">Chargement des bulletins pour validation...</span>
             </div>
-          ) : (
+          ) : queue.bulletins.length > 0 ? (
             /* Main validation area */
             <div className="grid grid-cols-[280px_1fr] gap-4">
               {/* Left sidebar: bulletin list */}
@@ -1239,7 +1649,7 @@ export default function BulletinsImportPage() {
                 </div>
               )}
             </div>
-          )}
+          ) : null}
         </div>
       )}
     </div>

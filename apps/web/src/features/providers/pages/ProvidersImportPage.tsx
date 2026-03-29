@@ -131,7 +131,7 @@ export function ProvidersImportPage() {
     },
     onSuccess: (data) => {
       setImportResult(data);
-      if (data.success > 0) toast.success(`${data.success} prestataire(s) importé(s)`);
+      if (data.success > 0) toast.success(`${data.success} praticien(s) importé(s)`);
       if (data.errors.length > 0) toast.warning(`${data.errors.length} erreur(s)`);
     },
     onError: (error: Error) => {
@@ -163,14 +163,14 @@ export function ProvidersImportPage() {
         <Button variant="ghost" size="icon" onClick={() => navigate('/providers')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <PageHeader title="Import de prestataires" description="Importer des prestataires en masse depuis un fichier CSV" />
+        <PageHeader title="Import de praticiens" description="Importer des praticiens en masse depuis un fichier CSV" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5" />Fichier CSV</CardTitle>
-            <CardDescription>Sélectionnez un fichier CSV contenant les prestataires</CardDescription>
+            <CardDescription>Sélectionnez un fichier CSV contenant les praticiens</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Button variant="outline" size="sm" onClick={downloadTemplate}>
@@ -320,7 +320,7 @@ export function ProvidersImportPage() {
               </div>
             </div>
             <div className="flex justify-end">
-              <Button onClick={() => navigate('/providers')}>Voir les prestataires</Button>
+              <Button onClick={() => navigate('/providers')}>Voir les praticiens</Button>
             </div>
           </CardContent>
         </Card>

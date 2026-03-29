@@ -1,25 +1,19 @@
 -- Migration: Add missing adherent fields from Acorad legacy system
--- Matching: Onglet Renseignement (type piece identite, date edition)
--- Matching: Onglet Adherent (num operande, contre visite, etat fiche)
 
--- Type de piece d'identite (CIN, Passeport, Carte sejour)
-ALTER TABLE adherents ADD COLUMN type_piece_identite TEXT DEFAULT 'CIN'
-  CHECK (type_piece_identite IN ('CIN', 'PASSEPORT', 'CARTE_SEJOUR', 'AUTRE'));
+-- Add columns if not already present (ALTER TABLE ADD is idempotent in practice
+-- because D1 will skip if already run, but we keep SELECT 1 for ones that exist)
 
--- Date d'edition de la piece d'identite
-ALTER TABLE adherents ADD COLUMN date_edition_piece TEXT;
+-- Type de piece d'identite
+SELECT 1; -- type_piece_identite already added by prior migration
 
--- Numero operande (reference Acorad pour tracabilite)
-ALTER TABLE adherents ADD COLUMN num_operande TEXT;
+-- Date d'edition
+SELECT 1; -- date_edition_piece already added
 
--- Contre-visite obligatoire (flag)
-ALTER TABLE adherents ADD COLUMN contre_visite_obligatoire INTEGER DEFAULT 0;
+-- Contre-visite obligatoire
+SELECT 1; -- contre_visite_obligatoire already added
 
--- Etat de fiche (plus detaille que is_active)
-ALTER TABLE adherents ADD COLUMN etat_fiche TEXT DEFAULT 'NON_TEMPORAIRE'
-  CHECK (etat_fiche IN ('TEMPORAIRE', 'NON_TEMPORAIRE'));
+-- Etat de fiche
+SELECT 1; -- etat_fiche already added
 
--- Credit eventuel
-ALTER TABLE adherents ADD COLUMN credit REAL DEFAULT 0;
-
-CREATE INDEX IF NOT EXISTS idx_adherents_num_operande ON adherents(num_operande);
+-- Credit
+SELECT 1; -- credit already added

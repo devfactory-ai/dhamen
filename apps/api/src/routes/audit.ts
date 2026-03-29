@@ -367,7 +367,7 @@ audit.get('/entity-types', (c) => {
   const entityTypes = [
     { code: 'user', label: 'Utilisateur' },
     { code: 'adherent', label: 'Adhérent' },
-    { code: 'provider', label: 'Prestataire' },
+    { code: 'provider', label: 'Praticien' },
     { code: 'insurer', label: 'Assureur' },
     { code: 'contract', label: 'Contrat' },
     { code: 'claim', label: 'Demande' },

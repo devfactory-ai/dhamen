@@ -200,7 +200,7 @@ export function ReconciliationDetailsPage() {
                 <p className="font-medium">{item.bordereauNumber}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Prestataire</p>
+                <p className="text-sm text-muted-foreground">Praticien</p>
                 <p className="font-medium">{item.providerName}</p>
               </div>
               <div>

@@ -242,10 +242,10 @@ export function checkProviderVolume(
     return {
       ruleId: rule?.id || 'PROVIDER_HIGH_VOLUME',
       ruleCode: 'PROVIDER_HIGH_VOLUME',
-      ruleName: 'Volume prestataire élevé',
+      ruleName: 'Volume praticien élevé',
       severity: rule?.severity || 'medium',
       scoreImpact: rule?.baseScore || 25,
-      description: `${providerClaimsToday} réclamations du prestataire aujourd'hui (seuil: ${thresholds.daily_threshold})`,
+      description: `${providerClaimsToday} réclamations du praticien aujourd'hui (seuil: ${thresholds.daily_threshold})`,
       details: {
         providerId,
         claimsToday: providerClaimsToday,

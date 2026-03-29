@@ -1,13 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, Plus, Download } from 'lucide-react';
-import { PageHeader } from '@/components/ui/page-header';
+import { Upload, Plus, Download, Eye, Pencil, Trash2, Stethoscope, Search, Filter, X } from 'lucide-react';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { toCSV, downloadCSV, type ExportColumn } from '@/lib/export-utils';
-import { apiClient } from '@/lib/api-client';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,32 +14,106 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { toCSV, downloadCSV, type ExportColumn } from '@/lib/export-utils';
+import { apiClient } from '@/lib/api-client';
 import { useProviders, useDeleteProvider, type Provider } from '../hooks/useProviders';
 import { useToast } from '@/stores/toast';
 
-const PROVIDER_TYPES = {
-  PHARMACY: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
-  DOCTOR: { label: 'Cabinet Medical', color: 'bg-blue-100 text-blue-800' },
+const PROVIDER_TYPES: Record<string, { label: string; color: string }> = {
+  PHARMACY: { label: 'Pharmacie', color: 'bg-emerald-100 text-emerald-800' },
+  DOCTOR: { label: 'Médecin', color: 'bg-blue-100 text-blue-800' },
   LAB: { label: 'Laboratoire', color: 'bg-purple-100 text-purple-800' },
   CLINIC: { label: 'Clinique', color: 'bg-orange-100 text-orange-800' },
+  HOSPITAL: { label: 'Hôpital', color: 'bg-red-100 text-red-800' },
+  DENTIST: { label: 'Dentiste', color: 'bg-pink-100 text-pink-800' },
+  OPTICIAN: { label: 'Opticien', color: 'bg-cyan-100 text-cyan-800' },
+  KINESITHERAPEUTE: { label: 'Kinésithérapeute', color: 'bg-amber-100 text-amber-800' },
 };
+
+const SPECIALITES_PROVIDER = [
+  'Médecine générale',
+  'Cardiologie',
+  'Dermatologie',
+  'Gastro-entérologie',
+  'Gynécologie',
+  'Neurologie',
+  'Ophtalmologie',
+  'ORL',
+  'Pédiatrie',
+  'Pneumologie',
+  'Psychiatrie',
+  'Radiologie',
+  'Rhumatologie',
+  'Urologie',
+  'Chirurgie générale',
+  'Orthopédie',
+  'Biologie',
+  'Kinésithérapie',
+  'Dentaire',
+  'Optique',
+];
+
+const VILLES_TUNISIE = [
+  'Tunis', 'Sfax', 'Sousse', 'Kairouan', 'Bizerte', 'Gabes', 'Ariana',
+  'Gafsa', 'Monastir', 'Ben Arous', 'Kasserine', 'Medenine', 'Nabeul',
+  'Tataouine', 'Beja', 'Jendouba', 'Mahdia', 'Sidi Bouzid', 'Tozeur',
+  'Siliana', 'Kef', 'Kebili', 'Zaghouan', 'Manouba',
+];
+
+const avatarColors = ['bg-blue-600', 'bg-purple-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-cyan-500', 'bg-indigo-500'];
+function getAvatarColor(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return avatarColors[Math.abs(hash) % avatarColors.length];
+}
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/);
+  return parts.length >= 2
+    ? `${parts[0]?.[0] || ''}${parts[1]?.[0] || ''}`.toUpperCase()
+    : (name.slice(0, 2) || '??').toUpperCase();
+}
 
 export function ProvidersPage() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [typeFilter, setTypeFilter] = useState<string | undefined>();
+  const [specialityFilter, setSpecialityFilter] = useState<string | undefined>();
+  const [cityFilter, setCityFilter] = useState<string | undefined>();
+  const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [search, setSearch] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<Provider | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isExporting, setIsExporting] = useState(false);
   const { toast } = useToast();
 
   const { data, isLoading } = useProviders(page, 20, typeFilter);
   const deleteProvider = useDeleteProvider();
 
+  const providers = data?.providers || [];
+  const total = data?.total || 0;
+
+  // Client-side search + filters
+  const filtered = providers.filter((p) => {
+    if (search) {
+      const q = search.toLowerCase();
+      if (
+        !p.name.toLowerCase().includes(q) &&
+        !(p.city || '').toLowerCase().includes(q) &&
+        !(p.licenseNo || '').toLowerCase().includes(q)
+      ) return false;
+    }
+    if (specialityFilter && (p.speciality || '').toLowerCase() !== specialityFilter.toLowerCase()) return false;
+    if (cityFilter && (p.city || '').toLowerCase() !== cityFilter.toLowerCase()) return false;
+    if (statusFilter === 'active' && !p.isActive) return false;
+    if (statusFilter === 'inactive' && p.isActive) return false;
+    return true;
+  });
+
   const exportColumns: ExportColumn<Provider>[] = [
     { key: 'name', header: 'Nom' },
-    { key: 'type', header: 'Type', format: (v) => PROVIDER_TYPES[v as keyof typeof PROVIDER_TYPES]?.label || String(v) },
+    { key: 'type', header: 'Type', format: (v) => PROVIDER_TYPES[v as string]?.label || String(v) },
     { key: 'licenseNo', header: 'N° Licence' },
-    { key: 'registrationNumber', header: 'N° Enregistrément' },
     { key: 'speciality', header: 'Spécialité' },
     { key: 'address', header: 'Adresse' },
     { key: 'city', header: 'Ville' },
@@ -55,15 +125,14 @@ export function ProvidersPage() {
   const handleExportCSV = async () => {
     setIsExporting(true);
     try {
-      const response = await apiClient.get<{ data: Provider[]; meta: { total: number } }>('/providers?limit=10000');
+      const response = await apiClient.get<Provider[]>('/providers?limit=10000');
       if (!response.success) throw new Error(response.error?.message);
-
-      const allData = response.data?.data || [];
+      const allData = Array.isArray(response.data) ? response.data : [];
       const csv = toCSV(allData, exportColumns);
-      downloadCSV(csv, 'prestataires');
-      toast({ title: `${allData.length} prestataires exportés`, variant: 'success' });
+      downloadCSV(csv, 'praticiens');
+      toast({ title: `${allData.length} praticiens exportés`, variant: 'success' });
     } catch {
-      toast({ title: 'Erreur lors de l\'export', variant: 'destructive' });
+      toast({ title: "Erreur lors de l'export", variant: 'destructive' });
     } finally {
       setIsExporting(false);
     }
@@ -74,80 +143,120 @@ export function ProvidersPage() {
     try {
       await deleteProvider.mutateAsync(deleteConfirm.id);
       setDeleteConfirm(null);
-      toast({ title: 'Prestataire supprimé avec succès', variant: 'success' });
+      toast({ title: 'Praticien supprimé', variant: 'success' });
     } catch {
-      toast({ title: 'Erreur lors de la suppression', description: 'Veuillez réessayer', variant: 'destructive' });
+      toast({ title: 'Erreur lors de la suppression', variant: 'destructive' });
     }
+  };
+
+  // Selection helpers
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filtered.map((p) => p.id)));
   };
 
   const columns = [
     {
-      key: 'name',
-      header: 'Prestataire',
-      render: (provider: Provider) => (
-        <div>
-          <p className="font-medium">{provider.name}</p>
-          <p className='text-muted-foreground text-sm'>{provider.registrationNumber}</p>
+      key: 'select',
+      header: (
+        <input
+          type="checkbox"
+          checked={filtered.length > 0 && selectedIds.size === filtered.length}
+          onChange={toggleSelectAll}
+          className="h-4 w-4 rounded border-gray-300"
+        />
+      ),
+      render: (item: Provider) => (
+        <input
+          type="checkbox"
+          checked={selectedIds.has(item.id)}
+          onChange={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
+          onClick={(e) => e.stopPropagation()}
+          className="h-4 w-4 rounded border-gray-300"
+        />
+      ),
+    },
+    {
+      key: 'praticien',
+      header: 'Praticien',
+      render: (item: Provider) => (
+        <div className="flex items-center gap-3">
+          <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-medium text-white ${getAvatarColor(item.name)}`}>
+            {getInitials(item.name)}
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-900">{item.name}</p>
+            <p className="text-xs text-gray-400">{item.speciality || '—'}</p>
+          </div>
         </div>
       ),
     },
     {
       key: 'type',
       header: 'Type',
-      render: (provider: Provider) => {
-        const typeInfo = PROVIDER_TYPES[provider.type];
-        return (
-          <span className={`rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>
-            {typeInfo.label}
-          </span>
-        );
+      render: (item: Provider) => {
+        const info = PROVIDER_TYPES[item.type] || { label: item.type, color: 'bg-gray-100 text-gray-800' };
+        return <Badge className={info.color}>{info.label}</Badge>;
       },
+    },
+    {
+      key: 'licenseNo',
+      header: 'N° Licence / MF',
+      render: (item: Provider) => (
+        <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-xs font-mono text-slate-700">
+          {item.licenseNo || '—'}
+        </span>
+      ),
     },
     {
       key: 'location',
       header: 'Localisation',
-      render: (provider: Provider) => (
+      render: (item: Provider) => (
         <div>
-          <p className="text-sm">{provider.city}</p>
-          <p className='text-muted-foreground text-xs'>{provider.address}</p>
+          <p className="text-sm text-gray-700">{item.city || '—'}</p>
+          <p className="text-xs text-gray-400 truncate max-w-[180px]">{item.address || ''}</p>
         </div>
       ),
     },
     {
       key: 'contact',
       header: 'Contact',
-      render: (provider: Provider) => (
+      render: (item: Provider) => (
         <div>
-          <p className="text-sm">{provider.phone}</p>
-          {provider.email && <p className='text-muted-foreground text-xs'>{provider.email}</p>}
+          <p className="text-sm text-gray-700">{item.phone || '—'}</p>
+          {item.email && <p className="text-xs text-gray-400">{item.email}</p>}
         </div>
       ),
     },
     {
       key: 'status',
       header: 'Statut',
-      render: (provider: Provider) => (
-        <Badge variant={provider.isActive ? 'success' : 'destructive'}>
-          {provider.isActive ? 'Actif' : 'Inactif'}
+      render: (item: Provider) => (
+        <Badge variant={item.isActive ? 'default' : 'destructive'} className={item.isActive ? 'bg-green-100 text-green-800' : ''}>
+          {item.isActive ? 'Actif' : 'Inactif'}
         </Badge>
       ),
     },
     {
       key: 'actions',
-      header: '',
-      className: 'text-right',
-      render: (provider: Provider) => (
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => navigate(`/providers/${provider.id}/edit`)}>
-            Modifier
+      header: 'Actions',
+      render: (item: Provider) => (
+        <div className="flex gap-1">
+          <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/providers/${item.id}`); }}>
+            <Eye className="w-4 h-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={() => setDeleteConfirm(provider)}
-          >
-            Supprimer
+          {/* <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/providers/${item.id}/edit`); }}>
+            <Pencil className="w-4 h-4" />
+          </Button> */}
+          <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={(e) => { e.stopPropagation(); setDeleteConfirm(item); }}>
+            <Trash2 className="w-4 h-4" />
           </Button>
         </div>
       ),
@@ -156,81 +265,236 @@ export function ProvidersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <PageHeader
-          title="Prestataires"
-          description="Gérer les prestataires de sante"
-        />
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
-            <Download className="mr-2 h-4 w-4" />
-            {isExporting ? 'Export...' : 'Exporter'}
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Praticiens</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Gérer les praticiens de santé conventionnés
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {selectedIds.size > 0 && (
+            <Button
+              variant="outline"
+              className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
+            >
+              <Trash2 className="w-4 h-4" /> Supprimer ({selectedIds.size})
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            onClick={handleExportCSV}
+            disabled={isExporting}
+            className="gap-2"
+          >
+            <Download className="w-4 h-4" />{" "}
+            {isExporting ? "Export..." : "Exporter CSV"}
           </Button>
-          <Button variant="outline" onClick={() => navigate('/providers/import')}>
-            <Upload className="mr-2 h-4 w-4" />
-            Import CSV
+          <Button
+            variant="outline"
+            onClick={() => navigate("/providers/import")}
+            className="gap-2"
+          >
+            <Upload className="w-4 h-4" /> Import CSV
           </Button>
-          <Button onClick={() => navigate('/providers/new')}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nouveau prestataire
+          <Button
+            className="gap-2 bg-slate-900 hover:bg-[#19355d]"
+            onClick={() => navigate("/providers/new")}
+          >
+            <Plus className="w-4 h-4" /> Nouveau praticien
           </Button>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-4">
-        <Select value={typeFilter || 'all'} onValueChange={(v) => setTypeFilter(v === 'all' ? undefined : v)}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Tous les types" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les types</SelectItem>
-            {Object.entries(PROVIDER_TYPES).map(([value, { label }]) => (
-              <SelectItem key={value} value={value}>{label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {/* Filters + Total */}
+      <div className="flex flex-col md:flex-row items-stretch gap-4">
+        <div className="flex flex-1 flex-col rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setPage(1);
+            }}
+            className="space-y-4"
+          >
+            {/* Search bar + Rechercher + Filtres toggle */}
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Rechercher par nom, licence, ville..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full h-10 pl-10 pr-4 rounded-xl bg-[#f3f4f5] text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowFilters(!showFilters)}
+                className="rounded-xl bg-[#f3f4f5]  focus:outline-none  transition-all"
+              >
+                <Filter className="h-4 w-4 mr-2" />
+                Filtres
+                {(typeFilter || specialityFilter || cityFilter || statusFilter || search) && (
+                  <Badge variant="secondary" className="ml-2">
+                    {(typeFilter ? 1 : 0) + (specialityFilter ? 1 : 0) + (cityFilter ? 1 : 0) + (statusFilter ? 1 : 0) + (search ? 1 : 0)}
+                  </Badge>
+                )}
+              </Button>
+            </div>
+
+            {/* Expandable filters */}
+            {showFilters && (
+              <div className="grid gap-3 md:grid-cols-5 pt-4 border-t">
+                {/* Type */}
+                <div className="relative">
+                  <select
+                    value={typeFilter || ""}
+                    onChange={(e) => { setTypeFilter(e.target.value || undefined); setPage(1); }}
+                    className="w-full h-10 px-4 pr-8 rounded-xl bg-[#f3f4f5] text-sm text-gray-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Tous les types</option>
+                    {Object.entries(PROVIDER_TYPES).map(([key, { label }]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+                  <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+                  </svg>
+                </div>
+
+                {/* Spécialité */}
+                <div className="relative">
+                  <select
+                    value={specialityFilter || ""}
+                    onChange={(e) => { setSpecialityFilter(e.target.value || undefined); setPage(1); }}
+                    className="w-full h-10 px-4 pr-8 rounded-xl bg-[#f3f4f5] text-sm text-gray-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Toutes spécialités</option>
+                    {SPECIALITES_PROVIDER.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                  <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+                  </svg>
+                </div>
+
+                {/* Ville */}
+                <div className="relative">
+                  <select
+                    value={cityFilter || ""}
+                    onChange={(e) => { setCityFilter(e.target.value || undefined); setPage(1); }}
+                    className="w-full h-10 px-4 pr-8 rounded-xl bg-[#f3f4f5] text-sm text-gray-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Toutes villes</option>
+                    {VILLES_TUNISIE.map((v) => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
+                  <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+                  </svg>
+                </div>
+
+                {/* Statut */}
+                <div className="relative">
+                  <select
+                    value={statusFilter || ""}
+                    onChange={(e) => { setStatusFilter(e.target.value || undefined); setPage(1); }}
+                    className="w-full h-10 px-4 pr-8 rounded-xl bg-[#f3f4f5] text-sm text-gray-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <option value="">Tous</option>
+                    <option value="active">Actif</option>
+                    <option value="inactive">Inactif</option>
+                  </select>
+                  <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+                  </svg>
+                </div>
+
+                {/* Effacer */}
+                {(typeFilter || specialityFilter || cityFilter || statusFilter || search) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTypeFilter(undefined);
+                      setSpecialityFilter(undefined);
+                      setCityFilter(undefined);
+                      setStatusFilter(undefined);
+                      setSearch("");
+                      setPage(1);
+                    }}
+                    className="inline-flex items-center justify-center gap-1 rounded-xl px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                  >
+                    <X className="h-4 w-4" />
+                    Effacer filtres
+                  </button>
+                )}
+              </div>
+            )}
+          </form>
+        </div>
+
+        {/* Total card */}
+        <div className="flex items-center gap-4 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 px-6 text-white shadow-sm">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-white">
+              Total Praticiens
+            </p>
+            <p className="text-2xl font-bold text-[30px]">
+              {total.toLocaleString("fr-TN")}
+            </p>
+          </div>
+          <Stethoscope className="w-8 h-8 text-white ml-auto" />
+        </div>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={data?.providers || []}
-        isLoading={isLoading}
-        emptyMessage="Aucun adhérent trouvé"
-        pagination={
-          data
-            ? {
-                page,
-                limit: 20,
-                total: data.total,
-                onPageChange: setPage,
-              }
-            : undefined
-        }
-      />
+      {/* Table */}
+      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+        <DataTable
+          columns={columns}
+          data={filtered}
+          isLoading={isLoading}
+          emptyMessage="Aucun praticien trouvé"
+          onRowClick={(item) => navigate(`/providers/${item.id}`)}
+          pagination={{
+            page,
+            limit: 20,
+            total: search ? filtered.length : total,
+            onPageChange: setPage,
+          }}
+        />
+      </div>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
+      {/* Delete Confirmation */}
+      <AlertDialog
+        open={!!deleteConfirm}
+        onOpenChange={() => setDeleteConfirm(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+            <AlertDialogTitle>Supprimer le praticien</AlertDialogTitle>
             <AlertDialogDescription>
-              Êtes-vous sûr de vouloir supprimer le prestataire{' '}
-              <strong>{deleteConfirm?.name}</strong> ?
-              Cette action est irréversible.
+              Voulez-vous vraiment supprimer{" "}
+              <strong>{deleteConfirm?.name}</strong> ? Cette action est
+              irréversible.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-red-600 hover:bg-red-700"
             >
-              {deleteProvider.isPending ? 'Suppression...' : 'Supprimer'}
+              {deleteProvider.isPending ? "Suppression..." : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
     </div>
   );
 }

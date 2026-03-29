@@ -8,6 +8,7 @@ export const providerCreateSchema = z.object({
   name: z.string().min(1, 'Nom requis'),
   licenseNo: z.string().min(1, 'Numéro de licence requis'),
   speciality: z.string().optional(),
+  mfNumber: z.string().optional(),
   address: z.string().min(1, 'Adresse requise'),
   city: z.string().min(1, 'Ville requise'),
   lat: z.number().min(-90).max(90).optional(),
@@ -19,6 +20,7 @@ export const providerCreateSchema = z.object({
 export const providerUpdateSchema = z.object({
   name: z.string().min(1).optional(),
   speciality: z.string().optional(),
+  mfNumber: z.string().optional(),
   address: z.string().min(1).optional(),
   city: z.string().min(1).optional(),
   lat: z.number().min(-90).max(90).optional(),

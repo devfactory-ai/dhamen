@@ -4,13 +4,13 @@ import { apiClient } from '@/lib/api-client';
 export interface Provider {
   id: string;
   name: string;
-  type: 'PHARMACY' | 'DOCTOR' | 'LAB' | 'CLINIC';
-  registrationNumber: string;
-  taxId: string | null;
+  type: string;
+  licenseNo: string;
+  speciality: string | null;
+  mfNumber: string | null;
   address: string;
   city: string;
-  postalCode: string | null;
-  phone: string;
+  phone: string | null;
   email: string | null;
   isActive: boolean;
   createdAt: string;
@@ -22,15 +22,27 @@ interface ProvidersResponse {
   total: number;
 }
 
+/** Map backend type → frontend display key */
+const BACKEND_TO_FRONTEND_TYPE: Record<string, string> = {
+  pharmacist: 'PHARMACY',
+  doctor: 'DOCTOR',
+  lab: 'LAB',
+  clinic: 'CLINIC',
+  hospital: 'HOSPITAL',
+  dentist: 'DENTIST',
+  optician: 'OPTICIAN',
+  kinesitherapeute: 'KINESITHERAPEUTE',
+};
+
 interface CreateProviderData {
   name: string;
   type: string;
-  registrationNumber: string;
-  taxId?: string;
+  licenseNo: string;
+  speciality?: string;
+  mfNumber?: string;
   address: string;
   city: string;
-  postalCode?: string;
-  phone: string;
+  phone?: string;
   email?: string;
 }
 
@@ -38,13 +50,20 @@ export function useProviders(page = 1, limit = 20, type?: string) {
   return useQuery({
     queryKey: ['providers', page, limit, type],
     queryFn: async () => {
-      const response = await apiClient.get<ProvidersResponse>('/providers', {
+      const response = await apiClient.get<Provider[]>('/providers', {
         params: { page, limit, type },
       });
       if (!response.success) {
-        throw new Error(response.error?.message || 'Erreur lors du chargement des prestataires');
+        throw new Error(response.error?.message || 'Erreur lors du chargement des praticiens');
       }
-      return response.data;
+      // apiClient returns { success, data: [...], meta: {...} }
+      const rawData = Array.isArray(response.data) ? response.data : [];
+      const meta = (response as unknown as { meta?: { total: number } }).meta;
+      const providers = rawData.map((p) => ({
+        ...p,
+        type: BACKEND_TO_FRONTEND_TYPE[p.type] || p.type,
+      }));
+      return { providers, total: meta?.total || providers.length };
     },
   });
 }
@@ -55,7 +74,7 @@ export function useProvider(id: string) {
     queryFn: async () => {
       const response = await apiClient.get<Provider>(`/providers/${id}`);
       if (!response.success) {
-        throw new Error(response.error?.message || 'Erreur lors du chargement du prestataire');
+        throw new Error(response.error?.message || 'Erreur lors du chargement du praticien');
       }
       return response.data;
     },
@@ -70,7 +89,7 @@ export function useCreateProvider() {
     mutationFn: async (data: CreateProviderData) => {
       const response = await apiClient.post<Provider>('/providers', data);
       if (!response.success) {
-        throw new Error(response.error?.message || 'Erreur lors de la création du prestataire');
+        throw new Error(response.error?.message || 'Erreur lors de la création du praticien');
       }
       return response.data;
     },
@@ -87,7 +106,7 @@ export function useUpdateProvider() {
     mutationFn: async ({ id, data }: { id: string; data: Partial<CreateProviderData> & { isActive?: boolean } }) => {
       const response = await apiClient.put<Provider>(`/providers/${id}`, data);
       if (!response.success) {
-        throw new Error(response.error?.message || 'Erreur lors de la mise à jour du prestataire');
+        throw new Error(response.error?.message || 'Erreur lors de la mise à jour du praticien');
       }
       return response.data;
     },
@@ -105,7 +124,7 @@ export function useDeleteProvider() {
     mutationFn: async (id: string) => {
       const response = await apiClient.delete(`/providers/${id}`);
       if (!response.success) {
-        throw new Error(response.error?.message || 'Erreur lors de la suppression du prestataire');
+        throw new Error(response.error?.message || 'Erreur lors de la suppression du praticien');
       }
       return response.data;
     },

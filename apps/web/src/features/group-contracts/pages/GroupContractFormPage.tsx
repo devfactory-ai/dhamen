@@ -46,35 +46,94 @@ import { useToast } from '@/stores/toast';
 
 // ---- Care types ----
 
+// Remplacer CARE_TYPES existant par :
 const CARE_TYPES = [
-  { value: 'consultation', label: 'Soins medicaux (Consultations et Visites)' },
-  { value: 'pharmacy', label: 'Frais pharmaceutiques' },
-  { value: 'laboratory', label: 'Analyses et travaux de laboratoire' },
-  { value: 'optical', label: 'Optique' },
-  { value: 'refractive_surgery', label: 'Chirurgie refractive (laser)' },
-  { value: 'medical_acts', label: 'Actes medicaux courants' },
-  { value: 'transport', label: 'Transport du malade' },
-  { value: 'surgery', label: 'Frais chirurgicaux' },
-  { value: 'orthopedics', label: 'Orthopedie / Protheses' },
-  { value: 'hospitalization', label: 'Hospitalisation' },
-  { value: 'maternity', label: 'Accouchement' },
-  { value: 'ivg', label: 'Interruption involontaire de grossesse' },
-  { value: 'dental', label: 'Soins et protheses dentaires' },
-  { value: 'orthodontics', label: 'Soins orthodontiques' },
-  { value: 'circumcision', label: 'Circoncision' },
-  { value: 'sanatorium', label: 'Sanatorium / Preventorium' },
-  { value: 'thermal_cure', label: 'Cures thermales' },
-  { value: 'funeral', label: 'Frais funeraires' },
+  { value: 'consultation_visite',     label: '1 - Soins Médicaux (Consultations & Visites)' },
+  { value: 'pharmacie',               label: '2 - Frais Pharmaceutiques' },
+  { value: 'laboratoire',             label: '3 - Analyses & Laboratoire' },
+  { value: 'optique',                 label: '4 - Optique' },
+  { value: 'chirurgie_refractive',    label: '5 - Chirurgie Réfractive (Laser)' },
+  { value: 'actes_courants',          label: '6 - Actes Médicaux Courants & Radiologie' },
+  { value: 'transport',               label: '7 - Transport du Malade' },
+  { value: 'chirurgie',               label: '8 - Frais Chirurgicaux' },
+  { value: 'orthopedie',              label: '9 - Orthopédie & Prothèses (non dentaires)' },
+  { value: 'hospitalisation',         label: '10 - Hospitalisation' },
+  { value: 'accouchement',            label: '11 - Accouchement' },
+  { value: 'interruption_grossesse',  label: '12 - Interruption Involontaire de Grossesse' },
+  { value: 'dentaire',                label: '13 - Soins & Prothèses Dentaires' },
+  { value: 'orthodontie',             label: '14 - Soins Orthodontiques (< 20 ans)' },
+  { value: 'circoncision',            label: '15 - Circoncision' },
+  { value: 'sanatorium',              label: '16 - Sanatorium / Préventorium' },
+  { value: 'cures_thermales',         label: '17 - Cures Thermales' },
+  { value: 'frais_funeraires',        label: '18 - Frais Funéraires (Décès)' },
 ] as const;
 
 const COVERED_RISKS_OPTIONS = [
   'Maladie',
   'Accident',
-  'Maternite',
-  'Deces',
-  'Invalidite',
+  'Maternité',
+  'Décès',
+  'Invalidité',
   'Hospitalisation',
 ];
+// Ajouter ces constantes après CARE_TYPES
+const DEFAULT_LETTER_KEYS: Record<string, { key: string; value: number }[]> = {
+  consultation_visite: [
+    { key: 'C1', value: 45000 },   // Consultation généraliste
+    { key: 'C2', value: 55000 },   // Consultation spécialiste
+    { key: 'C3', value: 55000 },   // Consultation professeur
+    { key: 'V1', value: 50000 },   // Visite généraliste
+    { key: 'V2', value: 55000 },   // Visite spécialiste
+    { key: 'V3', value: 55000 },   // Visite professeur
+  ],
+  laboratoire: [
+    { key: 'B', value: 320 },
+    { key: 'P', value: 320 },      // Anatomie/Cytologie
+  ],
+  actes_courants: [
+    { key: 'Z',   value: 2000 },   // Radio diagnostique /unité
+    { key: 'E',   value: 7000 },   // Échographie /unité
+    { key: 'PC',  value: 1500 },   // Pratiques courantes
+    { key: 'AMM', value: 10000 },  // Injection insuline
+  ],
+  chirurgie: [
+    { key: 'KC', value: 10000 },
+  ],
+};
+
+const DEFAULT_CEILINGS: Record<string, {
+  rate?: number;
+  annual_ceiling?: number;
+  per_act_ceiling?: number;
+  per_day_ceiling?: number;
+  conditions?: string;
+  requires_prescription?: boolean;
+  requires_cnam_complement?: boolean;
+}> = {
+  consultation_visite:    { rate: 100 },
+  pharmacie:              { rate: 90,  annual_ceiling: 1000000, requires_prescription: true },
+  laboratoire:            { rate: 100, requires_prescription: true },
+  optique:                { rate: 100, annual_ceiling: 300000 },   // monture
+  chirurgie_refractive:   { rate: 100, annual_ceiling: 350000 },
+  actes_courants:         { rate: 100 },
+  transport:              { rate: 100, annual_ceiling: 100000,  requires_prescription: true },
+  chirurgie:              { rate: 80,  per_act_ceiling: 300000,  requires_cnam_complement: true },
+  orthopedie:             { rate: 100, annual_ceiling: 600000,  requires_prescription: true },
+  hospitalisation:        { rate: 100, per_day_ceiling: 120000, requires_cnam_complement: true },
+  accouchement:           { rate: 100, per_act_ceiling: 200000 },
+  interruption_grossesse: { rate: 100, per_act_ceiling: 100000, requires_prescription: true },
+  dentaire:               { rate: 80,  annual_ceiling: 1200000 },
+  orthodontie:            { rate: 80,  annual_ceiling: 600000,
+                            conditions: 'Pour les enfants de moins de 20 ans' },
+  circoncision:           { rate: 100, per_act_ceiling: 200000 },
+  sanatorium:             { rate: 100, per_day_ceiling: 30000,
+                            conditions: 'Maximum 21 jours. Après prise en charge CNAM',
+                            requires_cnam_complement: true },
+  cures_thermales:        { rate: 100, per_day_ceiling: 30000,
+                            conditions: 'Maximum 21 jours. Prescrit par spécialiste. Après CNAM',
+                            requires_prescription: true, requires_cnam_complement: true },
+  frais_funeraires:       { rate: 100, per_act_ceiling: 200000 },
+};
 
 // ---- Schemas ----
 
@@ -412,10 +471,10 @@ export function GroupContractFormPage() {
         const risks: string[] = [];
         if (extracted.riskIllness) {
           risks.push('Maladie');
-          risks.push('Maternite'); // Maladie includes maternite in Tunisian contracts
+          risks.push('Maternité'); // Maladie includes maternite in Tunisian contracts
         }
-        if (extracted.riskDeath) risks.push('Deces');
-        if (extracted.riskDisability) risks.push('Invalidite');
+        if (extracted.riskDeath) risks.push('Décès');
+        if (extracted.riskDisability) risks.push('Invalidité');
         setValue('covered_risks', risks);
 
         // Try to match company by name
@@ -545,8 +604,8 @@ export function GroupContractFormPage() {
         planCategory: data.category || 'standard',
         status: data.status || 'draft',
         riskIllness: data.covered_risks?.includes('Maladie') ?? true,
-        riskDisability: data.covered_risks?.includes('Invalidite') ?? false,
-        riskDeath: data.covered_risks?.includes('Deces') ?? false,
+        riskDisability: data.covered_risks?.includes('Invalidité') ?? false,
+        riskDeath: data.covered_risks?.includes('Décès') ?? false,
         coversSpouse: data.covers_spouse ?? true,
         coversChildren: data.covers_children ?? true,
         childrenMaxAge: data.children_max_age ?? 20,
@@ -587,7 +646,7 @@ export function GroupContractFormPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['group-contracts'] });
       toast({
-        title: isEditing ? 'Contrat modifie avec succes' : 'Contrat cree avec succes',
+        title: isEditing ? 'Contrat modifié avec succès' : 'Contrat créé avec succès',
         variant: 'success',
       });
       navigate('/group-contracts');
@@ -666,7 +725,7 @@ export function GroupContractFormPage() {
     setPdfConfidence(null);
     setExpandedGuarantees({});
     setShowResetDialog(false);
-    toast({ title: 'Formulaire reinitialise', variant: 'success' });
+    toast({ title: 'Formulaire réinitialisé', variant: 'success' });
   };
 
   if (isEditing && contractLoading) {
@@ -685,7 +744,7 @@ export function GroupContractFormPage() {
           description={
             isEditing
               ? `Modifier ${existingContract?.contract_number || ''}`
-              : 'Creer un nouveau contrat d\'assurance groupe'
+              : 'Créer un nouveau contrat d\'assurance groupe'
           }
         />
       </div>
@@ -704,7 +763,7 @@ export function GroupContractFormPage() {
               <div className="mb-4 flex items-center justify-between rounded-lg bg-green-50 p-3 text-green-800 border border-green-200">
                 <div className="flex items-center gap-2">
                   <Check className="h-5 w-5" />
-                  <span className="font-medium">Donnees extraites du PDF</span>
+                  <span className="font-medium">Données extraites du PDF</span>
                   {pdfConfidence != null && (
                     <Badge variant="secondary" className="ml-2">
                       Confiance : {Math.round(pdfConfidence * 100)}%
@@ -719,7 +778,7 @@ export function GroupContractFormPage() {
                   onClick={() => setShowResetDialog(true)}
                 >
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                  Reinitialiser
+                  Réinitialiser
                 </Button>
               </div>
             )}
@@ -817,7 +876,7 @@ export function GroupContractFormPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="category">Categorie</Label>
+                <Label htmlFor="category">Catégorie</Label>
                 <Input
                   id="category"
                   {...register('category')}
@@ -852,7 +911,7 @@ export function GroupContractFormPage() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="intermediary_name">Intermediaire</Label>
+                <Label htmlFor="intermediary_name">Intermédiaire</Label>
                 <Input
                   id="intermediary_name"
                   {...register('intermediary_name')}
@@ -956,10 +1015,10 @@ export function GroupContractFormPage() {
           </CardContent>
         </Card>
 
-        {/* Beneficiaires et Risques */}
+        {/* Bénéficiaires et Risques */}
         <Card>
           <CardHeader>
-            <CardTitle>Beneficiaires et risques garantis</CardTitle>
+            <CardTitle>Bénéficiaires et risques garantis</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Risques garantis */}
@@ -987,7 +1046,7 @@ export function GroupContractFormPage() {
               </div>
             </div>
 
-            {/* Beneficiaires toggles */}
+            {/* Bénéficiaires toggles */}
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="flex items-center gap-2">
                 <Switch
@@ -1067,10 +1126,7 @@ export function GroupContractFormPage() {
                 CARE_TYPES.find((ct) => ct.value === careTypeValue)?.label || careTypeValue || `Garantie ${index + 1}`;
 
               return (
-                <div
-                  key={field.id}
-                  className="rounded-lg border bg-card"
-                >
+                <div key={field.id} className="rounded-lg border bg-card">
                   {/* Guarantee header */}
                   <div
                     className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-muted/50 transition-colors"
@@ -1121,8 +1177,60 @@ export function GroupContractFormPage() {
                             value={careTypeValue || undefined}
                             onValueChange={(val) => {
                               setValue(`guarantees.${index}.care_type`, val);
-                              const label = CARE_TYPES.find((ct) => ct.value === val)?.label || '';
+
+                              // Auto-label
+                              const label =
+                                CARE_TYPES.find((ct) => ct.value === val)
+                                  ?.label || "";
                               setValue(`guarantees.${index}.label`, label);
+
+                              // Auto-populate letter keys
+                              const defaultKeys =
+                                DEFAULT_LETTER_KEYS[val] || [];
+                              setValue(
+                                `guarantees.${index}.letter_keys`,
+                                defaultKeys,
+                              );
+
+                              // Auto-populate ceilings and options
+                              const defaults = DEFAULT_CEILINGS[val];
+                              if (defaults) {
+                                if (defaults.rate != null)
+                                  setValue(
+                                    `guarantees.${index}.rate`,
+                                    defaults.rate,
+                                  );
+                                if (defaults.annual_ceiling != null)
+                                  setValue(
+                                    `guarantees.${index}.annual_ceiling`,
+                                    defaults.annual_ceiling,
+                                  );
+                                if (defaults.per_act_ceiling != null)
+                                  setValue(
+                                    `guarantees.${index}.per_act_ceiling`,
+                                    defaults.per_act_ceiling,
+                                  );
+                                if (defaults.per_day_ceiling != null)
+                                  setValue(
+                                    `guarantees.${index}.per_day_ceiling`,
+                                    defaults.per_day_ceiling,
+                                  );
+                                if (defaults.conditions)
+                                  setValue(
+                                    `guarantees.${index}.conditions`,
+                                    defaults.conditions,
+                                  );
+                                if (defaults.requires_prescription)
+                                  setValue(
+                                    `guarantees.${index}.requires_prescription`,
+                                    defaults.requires_prescription,
+                                  );
+                                if (defaults.requires_cnam_complement)
+                                  setValue(
+                                    `guarantees.${index}.requires_cnam_complement`,
+                                    defaults.requires_cnam_complement,
+                                  );
+                              }
                             }}
                           >
                             <SelectTrigger>
@@ -1159,7 +1267,9 @@ export function GroupContractFormPage() {
                             type="number"
                             min="0"
                             max="100"
-                            {...register(`guarantees.${index}.rate`, { valueAsNumber: true })}
+                            {...register(`guarantees.${index}.rate`, {
+                              valueAsNumber: true,
+                            })}
                           />
                         </div>
                         <div className="space-y-2">
@@ -1177,9 +1287,12 @@ export function GroupContractFormPage() {
                           <Input
                             type="number"
                             min="0"
-                            {...register(`guarantees.${index}.per_act_ceiling`, {
-                              valueAsNumber: true,
-                            })}
+                            {...register(
+                              `guarantees.${index}.per_act_ceiling`,
+                              {
+                                valueAsNumber: true,
+                              },
+                            )}
                           />
                         </div>
                         <div className="space-y-2">
@@ -1187,9 +1300,12 @@ export function GroupContractFormPage() {
                           <Input
                             type="number"
                             min="0"
-                            {...register(`guarantees.${index}.per_day_ceiling`, {
-                              valueAsNumber: true,
-                            })}
+                            {...register(
+                              `guarantees.${index}.per_day_ceiling`,
+                              {
+                                valueAsNumber: true,
+                              },
+                            )}
                           />
                         </div>
                       </div>
@@ -1203,10 +1319,11 @@ export function GroupContractFormPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-                              const current = watch(`guarantees.${index}.letter_keys`) || [];
+                              const current =
+                                watch(`guarantees.${index}.letter_keys`) || [];
                               setValue(`guarantees.${index}.letter_keys`, [
                                 ...current,
-                                { key: '', value: 0 },
+                                { key: "", value: 0 },
                               ]);
                             }}
                           >
@@ -1214,39 +1331,51 @@ export function GroupContractFormPage() {
                             Ajouter
                           </Button>
                         </div>
-                        {(watch(`guarantees.${index}.letter_keys`) || []).map((_, lkIdx) => (
-                          <div key={lkIdx} className="flex items-center gap-2">
-                            <Input
-                              placeholder="Cle (ex: C, CS, V)"
-                              {...register(`guarantees.${index}.letter_keys.${lkIdx}.key`)}
-                              className="w-32"
-                            />
-                            <Input
-                              type="number"
-                              min="0"
-                              placeholder="Valeur"
-                              {...register(`guarantees.${index}.letter_keys.${lkIdx}.value`, {
-                                valueAsNumber: true,
-                              })}
-                              className="w-32"
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => {
-                                const current = watch(`guarantees.${index}.letter_keys`) || [];
-                                setValue(
-                                  `guarantees.${index}.letter_keys`,
-                                  current.filter((_, i) => i !== lkIdx)
-                                );
-                              }}
+                        {(watch(`guarantees.${index}.letter_keys`) || []).map(
+                          (_, lkIdx) => (
+                            <div
+                              key={lkIdx}
+                              className="flex items-center gap-2"
                             >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ))}
+                              <Input
+                                placeholder="Cle (ex: C, CS, V)"
+                                {...register(
+                                  `guarantees.${index}.letter_keys.${lkIdx}.key`,
+                                )}
+                                className="w-32"
+                              />
+                              <Input
+                                type="float"
+                                min="0"
+                                placeholder="Valeur"
+                                {...register(
+                                  `guarantees.${index}.letter_keys.${lkIdx}.value`,
+                                  {
+                                    valueAsNumber: true,
+                                  },
+                                )}
+                                className="w-32"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => {
+                                  const current =
+                                    watch(`guarantees.${index}.letter_keys`) ||
+                                    [];
+                                  setValue(
+                                    `guarantees.${index}.letter_keys`,
+                                    current.filter((_, i) => i !== lkIdx),
+                                  );
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ),
+                        )}
                       </div>
 
                       {/* Row 4: Sub-limits */}
@@ -1258,10 +1387,11 @@ export function GroupContractFormPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => {
-                              const current = watch(`guarantees.${index}.sub_limits`) || [];
+                              const current =
+                                watch(`guarantees.${index}.sub_limits`) || [];
                               setValue(`guarantees.${index}.sub_limits`, [
                                 ...current,
-                                { key: '', value: 0 },
+                                { key: "", value: 0 },
                               ]);
                             }}
                           >
@@ -1269,39 +1399,51 @@ export function GroupContractFormPage() {
                             Ajouter
                           </Button>
                         </div>
-                        {(watch(`guarantees.${index}.sub_limits`) || []).map((_, slIdx) => (
-                          <div key={slIdx} className="flex items-center gap-2">
-                            <Input
-                              placeholder="Description"
-                              {...register(`guarantees.${index}.sub_limits.${slIdx}.key`)}
-                              className="flex-1"
-                            />
-                            <Input
-                              type="number"
-                              min="0"
-                              placeholder="Montant"
-                              {...register(`guarantees.${index}.sub_limits.${slIdx}.value`, {
-                                valueAsNumber: true,
-                              })}
-                              className="w-32"
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => {
-                                const current = watch(`guarantees.${index}.sub_limits`) || [];
-                                setValue(
-                                  `guarantees.${index}.sub_limits`,
-                                  current.filter((_, i) => i !== slIdx)
-                                );
-                              }}
+                        {(watch(`guarantees.${index}.sub_limits`) || []).map(
+                          (_, slIdx) => (
+                            <div
+                              key={slIdx}
+                              className="flex items-center gap-2"
                             >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ))}
+                              <Input
+                                placeholder="Description"
+                                {...register(
+                                  `guarantees.${index}.sub_limits.${slIdx}.key`,
+                                )}
+                                className="flex-1"
+                              />
+                              <Input
+                                type="number"
+                                min="0"
+                                placeholder="Montant"
+                                {...register(
+                                  `guarantees.${index}.sub_limits.${slIdx}.value`,
+                                  {
+                                    valueAsNumber: true,
+                                  },
+                                )}
+                                className="w-32"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => {
+                                  const current =
+                                    watch(`guarantees.${index}.sub_limits`) ||
+                                    [];
+                                  setValue(
+                                    `guarantees.${index}.sub_limits`,
+                                    current.filter((_, i) => i !== slIdx),
+                                  );
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ),
+                        )}
                       </div>
 
                       {/* Row 5: Conditions + options */}
@@ -1316,28 +1458,50 @@ export function GroupContractFormPage() {
                       <div className="grid gap-4 sm:grid-cols-4">
                         <div className="flex items-center gap-2">
                           <Switch
-                            checked={watch(`guarantees.${index}.requires_prescription`) || false}
+                            checked={
+                              watch(
+                                `guarantees.${index}.requires_prescription`,
+                              ) || false
+                            }
                             onCheckedChange={(checked) =>
-                              setValue(`guarantees.${index}.requires_prescription`, checked, { shouldDirty: true })
+                              setValue(
+                                `guarantees.${index}.requires_prescription`,
+                                checked,
+                                { shouldDirty: true },
+                              )
                             }
                           />
                           <Label className="text-sm">Ordonnance requise</Label>
                         </div>
                         <div className="flex items-center gap-2">
                           <Switch
-                            checked={watch(`guarantees.${index}.requires_cnam_complement`) || false}
+                            checked={
+                              watch(
+                                `guarantees.${index}.requires_cnam_complement`,
+                              ) || false
+                            }
                             onCheckedChange={(checked) =>
-                              setValue(`guarantees.${index}.requires_cnam_complement`, checked, { shouldDirty: true })
+                              setValue(
+                                `guarantees.${index}.requires_cnam_complement`,
+                                checked,
+                                { shouldDirty: true },
+                              )
                             }
                           />
                           <Label className="text-sm">Complement CNAM</Label>
                         </div>
                         <div className="space-y-2">
-                          <Label>Periode renouvellement</Label>
+                          <Label>Période renouvellement</Label>
                           <Select
-                            value={watch(`guarantees.${index}.renewal_period`) || undefined}
+                            value={
+                              watch(`guarantees.${index}.renewal_period`) ||
+                              undefined
+                            }
                             onValueChange={(val) =>
-                              setValue(`guarantees.${index}.renewal_period`, val)
+                              setValue(
+                                `guarantees.${index}.renewal_period`,
+                                val,
+                              )
                             }
                           >
                             <SelectTrigger>
@@ -1345,9 +1509,15 @@ export function GroupContractFormPage() {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="annual">Annuel</SelectItem>
-                              <SelectItem value="biennial">Bisannuel</SelectItem>
-                              <SelectItem value="triennial">Triennal</SelectItem>
-                              <SelectItem value="per_event">Par evenement</SelectItem>
+                              <SelectItem value="biennial">
+                                Bisannuel
+                              </SelectItem>
+                              <SelectItem value="triennial">
+                                Triennal
+                              </SelectItem>
+                              <SelectItem value="per_event">
+                                Par evenement
+                              </SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -1377,7 +1547,7 @@ export function GroupContractFormPage() {
             Annuler
           </Button>
           <Button type="submit" disabled={mutation.isPending}>
-            {mutation.isPending ? 'Enregistrement...' : isEditing ? 'Enregistrer' : 'Creer le contrat'}
+            {mutation.isPending ? 'Enregistrement...' : isEditing ? 'Enregistrer' : 'Créer le contrat'}
           </Button>
         </div>
       </form>
@@ -1386,7 +1556,7 @@ export function GroupContractFormPage() {
       <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reinitialiser le formulaire ?</AlertDialogTitle>
+            <AlertDialogTitle>Réinitialiser le formulaire ?</AlertDialogTitle>
             <AlertDialogDescription>
               Voulez-vous reinitialiser tous les champs du formulaire ? Toutes les donnees
               saisies et extraites du PDF (garanties, informations du contrat, beneficiaires)

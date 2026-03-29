@@ -13,6 +13,7 @@ import { generateId } from '../lib/ulid';
 import { logAudit } from '../middleware/audit-trail';
 import type { Bindings, Variables } from '../types';
 import { getDb } from '../lib/db';
+import { validerMatriculeFiscal, formaterMatriculeFiscal } from '@dhamen/shared';
 
 const mfVerification = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -36,6 +37,213 @@ const updateVerificationSchema = z.object({
 });
 
 /**
+ * POST /lookup
+ * Lookup practitioner by MF number
+ * Returns existing provider if found, or auto-registers a new one
+ * Used during bulletin creation for instant MF validation
+ */
+const lookupMFSchema = z.object({
+  mfNumber: z.string().min(7).max(20),
+  providerName: z.string().optional(),
+  providerType: z.enum(['pharmacist', 'doctor', 'lab', 'clinic']).optional(),
+  speciality: z.string().optional(),
+  address: z.string().optional(),
+  city: z.string().optional(),
+});
+
+mfVerification.post(
+  '/lookup',
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  zValidator('json', lookupMFSchema),
+  async (c) => {
+    const data = c.req.valid('json');
+    const user = c.get('user');
+    const db = getDb(c);
+
+    // Validate MF format using Tunisian matricule fiscal rules
+    const mfValidation = validerMatriculeFiscal(
+      data.mfNumber,
+      data.providerType as 'pharmacist' | 'doctor' | 'lab' | 'clinic' | undefined
+    );
+
+    if (!mfValidation.valid) {
+      return badRequest(c, `Matricule fiscal invalide : ${mfValidation.errors.join('. ')}`);
+    }
+
+    // Use normalized form for DB lookups
+    const normalizedMf = mfValidation.normalized!;
+    const formattedMf = formaterMatriculeFiscal(normalizedMf);
+
+    // Search for existing provider with this MF (try both normalized and formatted)
+    const existingProvider = await db.prepare(
+      `SELECT p.id, p.name, p.type, p.speciality, p.address, p.city,
+              p.phone, p.email, p.mf_number, p.mf_verified,
+              p.license_no
+       FROM providers p
+       WHERE p.mf_number = ? AND p.deleted_at IS NULL AND p.is_active = 1`
+    )
+      .bind(normalizedMf)
+      .first();
+
+    if (existingProvider) {
+      // Found existing provider
+      return success(c, {
+        status: 'found',
+        provider: existingProvider,
+        mfVerified: existingProvider.mf_verified === 1,
+        mfFormatted: formattedMf,
+        validation: { warnings: mfValidation.warnings },
+      });
+    }
+
+    // Also check in MF verifications table (may be pending/verified for a provider)
+    const existingVerification = await db.prepare(
+      `SELECT pv.*, p.id as provider_id, p.name as provider_name,
+              p.type as provider_type, p.speciality, p.address, p.city
+       FROM practitioner_mf_verifications pv
+       JOIN providers p ON pv.provider_id = p.id
+       WHERE pv.mf_number = ? AND p.deleted_at IS NULL
+       ORDER BY pv.created_at DESC
+       LIMIT 1`
+    )
+      .bind(normalizedMf)
+      .first();
+
+    if (existingVerification) {
+      return success(c, {
+        status: 'found',
+        provider: {
+          id: existingVerification.provider_id,
+          name: existingVerification.provider_name,
+          type: existingVerification.provider_type,
+          speciality: existingVerification.speciality,
+          address: existingVerification.address,
+          city: existingVerification.city,
+          mf_number: normalizedMf,
+          mf_verified: existingVerification.verification_status === 'verified',
+        },
+        mfVerified: existingVerification.verification_status === 'verified',
+        verificationStatus: existingVerification.verification_status,
+        mfFormatted: formattedMf,
+        validation: { warnings: mfValidation.warnings },
+      });
+    }
+
+    // MF not found — if enough info provided, auto-register
+    if (!data.providerName) {
+      return success(c, {
+        status: 'not_found',
+        mfNumber: normalizedMf,
+        mfFormatted: formattedMf,
+        validation: { warnings: mfValidation.warnings },
+        message: 'MF non trouvé. Fournir providerName pour auto-enregistrer.',
+      });
+    }
+
+    // Auto-register new provider
+    const providerId = generateId();
+    const now = new Date().toISOString();
+    const licenseNo = `MF-${normalizedMf}`;
+    const provType = data.providerType || 'doctor';
+
+    await db.prepare(
+      `INSERT INTO providers
+       (id, type, name, license_no, speciality, address, city,
+        mf_number, mf_verified, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`
+    )
+      .bind(
+        providerId,
+        provType,
+        data.providerName,
+        licenseNo,
+        data.speciality || null,
+        data.address || 'À compléter',
+        data.city || 'À compléter',
+        normalizedMf,
+        now,
+        now
+      )
+      .run();
+
+    // Also insert into sante_praticiens (annuaire praticiens)
+    const santePraticienId = generateId();
+    const santeType = provType === 'pharmacist' ? 'pharmacien'
+      : provType === 'lab' ? 'laborantin'
+      : provType === 'clinic' ? 'autre'
+      : 'medecin';
+    const santeSpecialite = provType === 'pharmacist' ? 'Pharmacie'
+      : provType === 'lab' ? 'Laboratoire'
+      : provType === 'clinic' ? 'Hospitalisation'
+      : data.speciality || 'Médecine générale';
+
+    await db.prepare(
+      `INSERT INTO sante_praticiens
+       (id, provider_id, nom, specialite, type_praticien, adresse, ville,
+        est_conventionne, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`
+    )
+      .bind(
+        santePraticienId,
+        providerId,
+        data.providerName,
+        santeSpecialite,
+        santeType,
+        data.address || null,
+        data.city || null,
+        now,
+        now
+      )
+      .run();
+
+    // Create a pending MF verification
+    const verificationId = generateId();
+    await db.prepare(
+      `INSERT INTO practitioner_mf_verifications
+       (id, provider_id, mf_number, verification_status, created_at, updated_at)
+       VALUES (?, ?, ?, 'pending', ?, ?)`
+    )
+      .bind(verificationId, providerId, normalizedMf, now, now)
+      .run();
+
+    // Audit log
+    await logAudit(db, {
+      userId: user?.sub,
+      action: 'mf.auto_register',
+      entityType: 'provider',
+      entityId: providerId,
+      changes: {
+        mfNumber: normalizedMf,
+        mfFormatted: formattedMf,
+        providerName: data.providerName,
+        providerType: provType,
+        categorie: mfValidation.parts?.categorie,
+        santePraticienId,
+      },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return success(c, {
+      status: 'created',
+      provider: {
+        id: providerId,
+        name: data.providerName,
+        type: data.providerType || 'doctor',
+        speciality: data.speciality || null,
+        address: data.address || 'À compléter',
+        city: data.city || 'À compléter',
+        mf_number: normalizedMf,
+        mf_verified: false,
+      },
+      mfVerified: false,
+      verificationId,
+      message: 'Nouveau praticien enregistré automatiquement. Vérification MF en attente.',
+    });
+  }
+);
+
+/**
  * POST /verify
  * Submit MF for verification
  */
@@ -55,7 +263,7 @@ mfVerification.post(
       .first();
 
     if (!provider) {
-      return notFound(c, 'Prestataire non trouvé');
+      return notFound(c, 'Praticien non trouvé');
     }
 
     // Check if MF already verified for another provider
@@ -69,7 +277,7 @@ mfVerification.post(
       .first();
 
     if (existingMF) {
-      return badRequest(c, `Ce MF est déjà attribué au prestataire: ${existingMF.provider_name}`);
+      return badRequest(c, `Ce MF est déjà attribué au praticien: ${existingMF.provider_name}`);
     }
 
     // Create verification record

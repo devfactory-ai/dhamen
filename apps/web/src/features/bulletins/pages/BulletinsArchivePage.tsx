@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { apiClient } from '@/lib/api-client';
+import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { toast } from 'sonner';
 import {
   FileText,
@@ -90,6 +91,7 @@ interface UploadResult {
 
 function BulletinsArchivePage() {
   const queryClient = useQueryClient();
+  const { selectedCompany } = useAgentContext();
   const csvInputRef = useRef<HTMLInputElement>(null);
   const scansInputRef = useRef<HTMLInputElement>(null);
 
@@ -110,25 +112,29 @@ function BulletinsArchivePage() {
 
   // Fetch archive stats
   const { data: stats, isLoading: statsLoading } = useQuery({
-    queryKey: ['archive-stats'],
+    queryKey: ['archive-stats', selectedCompany?.id],
     queryFn: async () => {
-      const response = await apiClient.get('/bulletins-soins/archive/stats');
+      const params = new URLSearchParams();
+      if (selectedCompany) params.append('companyId', selectedCompany.id);
+      const response = await apiClient.get(`/bulletins-soins/archive/stats?${params}`);
       return response.data as ArchiveStats;
     },
   });
 
   // Search archived bulletins
   const { data: searchResults, isLoading: searchLoading, refetch: doSearch } = useQuery({
-    queryKey: ['archive-search', searchQuery, searchYear, hasScans, currentPage],
+    queryKey: ['archive-search', searchQuery, searchYear, hasScans, currentPage, selectedCompany?.id],
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (searchQuery) params.set('q', searchQuery);
-      if (searchYear) params.set('year', searchYear);
-      if (hasScans) params.set('hasScans', hasScans);
-      params.set('page', String(currentPage));
-      params.set('limit', '20');
-
-      const response = await apiClient.get(`/bulletins-soins/archive/search?${params}`);
+      const response = await apiClient.get('/bulletins-soins/archive/search', {
+        params: {
+          q: searchQuery || undefined,
+          year: searchYear || undefined,
+          hasScans: hasScans || undefined,
+          companyId: selectedCompany?.id || undefined,
+          page: currentPage,
+          limit: 20,
+        },
+      });
       return response;
     },
     enabled: activeTab === 'search',
@@ -143,11 +149,10 @@ function BulletinsArchivePage() {
       formData.append('file', csvFile);
       formData.append('batchName', batchName);
       formData.append('year', importYear);
+      if (selectedCompany) formData.append('companyId', selectedCompany.id);
 
-      const response = await apiClient.post('/bulletins-soins/archive/import-csv', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      return response.data as ImportResult;
+      const response = await apiClient.upload('/bulletins-soins/archive/import-csv', formData);
+      return response?.data as ImportResult;
     },
     onSuccess: (data) => {
       toast.success(`Import terminé: ${data.imported} bulletins importés sur ${data.total}`);
@@ -177,10 +182,8 @@ function BulletinsArchivePage() {
         formData.append('batchId', targetBatchId);
       }
 
-      const response = await apiClient.post('/bulletins-soins/archive/upload-scans', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      return response.data as UploadResult;
+      const response = await apiClient.upload('/bulletins-soins/archive/upload-scans', formData);
+      return response?.data as UploadResult;
     },
     onSuccess: (data) => {
       toast.success(`Upload terminé: ${data.uploaded} fichiers, ${data.matched} associés`);
@@ -506,10 +509,11 @@ function BulletinsArchivePage() {
                     <SelectValue placeholder="Tous les bulletins archivés" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Tous les lots</SelectItem>
+                    <SelectItem value="all
+                    ">Tous les lots</SelectItem>
                     {stats?.recentBatches.map((batch) => (
-                      <SelectItem key={batch.id} value={batch.id}>
-                        {batch.name}
+                      <SelectItem key={batch?.id} value={batch?.id}>
+                        {batch?.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -632,7 +636,7 @@ function BulletinsArchivePage() {
                     <SelectValue placeholder="Année" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Toutes</SelectItem>
+                    <SelectItem value="all">Toutes</SelectItem>
                     <SelectItem value="2023">2023</SelectItem>
                     <SelectItem value="2024">2024</SelectItem>
                     <SelectItem value="2025">2025</SelectItem>
@@ -644,7 +648,7 @@ function BulletinsArchivePage() {
                     <SelectValue placeholder="Scans" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Tous</SelectItem>
+                    <SelectItem value="all">Tous</SelectItem>
                     <SelectItem value="true">Avec scan</SelectItem>
                     <SelectItem value="false">Sans scan</SelectItem>
                   </SelectContent>

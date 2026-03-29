@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Building2, Users, FileText, Activity, Pencil } from 'lucide-react';
+import { Building2, Users, FileText, Activity, Pencil } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -78,16 +78,14 @@ export function CompanyDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/companies')}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Retour
-          </Button>
-          <PageHeader
-            title={company.name}
-            description={company.matricule_fiscal ? `MF: ${company.matricule_fiscal}` : 'Fiche entreprise'}
-          />
-        </div>
+        <PageHeader
+          title={company.name}
+          description={company.matricule_fiscal ? `MF: ${company.matricule_fiscal}` : 'Fiche entreprise'}
+          breadcrumb={[
+            { label: 'Entreprises', href: '/companies' },
+            { label: company.name },
+          ]}
+        />
         <Button onClick={() => navigate(`/companies/${id}/edit`)}>
           <Pencil className="mr-2 h-4 w-4" />
           Modifier

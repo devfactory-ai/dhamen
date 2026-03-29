@@ -2,7 +2,7 @@
  * Healthcare provider types
  */
 
-export const PROVIDER_TYPES = ['pharmacist', 'doctor', 'lab', 'clinic'] as const;
+export const PROVIDER_TYPES = ['pharmacist', 'doctor', 'lab', 'clinic', 'dentist', 'optician', 'kinesitherapeute', 'hospital'] as const;
 
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
@@ -12,6 +12,7 @@ export interface Provider {
   name: string;
   licenseNo: string;
   speciality: string | null;
+  mfNumber: string | null;
   address: string;
   city: string;
   lat: number | null;
@@ -29,6 +30,7 @@ export interface ProviderCreate {
   name: string;
   licenseNo: string;
   speciality?: string;
+  mfNumber?: string;
   address: string;
   city: string;
   lat?: number;
@@ -40,6 +42,7 @@ export interface ProviderCreate {
 export interface ProviderUpdate {
   name?: string;
   speciality?: string;
+  mfNumber?: string;
   address?: string;
   city?: string;
   lat?: number;

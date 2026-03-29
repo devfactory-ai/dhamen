@@ -224,7 +224,7 @@ export function BordereauDetailsPage() {
                 <p className="font-medium">{bordereau.insurerName}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Prestataire</p>
+                <p className="text-sm text-muted-foreground">Praticien</p>
                 <p className="font-medium">{bordereau.providerName}</p>
               </div>
               <div>

@@ -214,7 +214,7 @@ export function AdherentFormPage() {
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="dateOfBirth">Date de naissance *</Label>
-                <Input id="dateOfBirth" type="date" {...register('dateOfBirth')} />
+                <Input id="dateOfBirth" type="date" max={new Date().toISOString().split('T')[0]} {...register('dateOfBirth')} />
                 {errors.dateOfBirth && (
                   <p className="text-destructive text-sm">{errors.dateOfBirth.message}</p>
                 )}

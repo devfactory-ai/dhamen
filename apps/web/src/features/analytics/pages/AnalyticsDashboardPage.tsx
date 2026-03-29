@@ -446,7 +446,7 @@ export function AnalyticsDashboardPage() {
         {/* Top Providers */}
         <Card>
           <CardHeader>
-            <CardTitle>Top Prestataires</CardTitle>
+            <CardTitle>Top Praticiens</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">

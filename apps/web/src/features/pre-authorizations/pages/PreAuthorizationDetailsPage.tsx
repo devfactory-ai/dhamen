@@ -531,7 +531,7 @@ export function PreAuthorizationDetailsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Building2 className="h-5 w-5" />
-                Prestataire
+                Praticien
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">

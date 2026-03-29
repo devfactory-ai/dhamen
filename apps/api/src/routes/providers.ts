@@ -58,16 +58,25 @@ const providers = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 providers.use('*', authMiddleware());
 
 // Map frontend type names to backend type names
-const typeMapping: Record<string, 'pharmacist' | 'doctor' | 'lab' | 'clinic'> = {
+const typeMapping: Record<string, string> = {
   PHARMACY: 'pharmacist',
+  PHARMACIST: 'pharmacist',
   DOCTOR: 'doctor',
   CLINIC: 'clinic',
   LABORATORY: 'lab',
-  HOSPITAL: 'clinic',
+  LAB: 'lab',
+  HOSPITAL: 'hospital',
+  DENTIST: 'dentist',
+  OPTICIAN: 'optician',
+  KINESITHERAPEUTE: 'kinesitherapeute',
   pharmacist: 'pharmacist',
   doctor: 'doctor',
   lab: 'lab',
   clinic: 'clinic',
+  hospital: 'hospital',
+  dentist: 'dentist',
+  optician: 'optician',
+  kinesitherapeute: 'kinesitherapeute',
 };
 
 /**
@@ -106,12 +115,18 @@ providers.get('/public', async (c) => {
 providers.get(
   '/',
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
-  zValidator('query', providerFiltersSchema.merge(paginationSchema)),
   async (c) => {
-    const { type, city, isActive, search, page, limit } = c.req.valid('query');
+    const query = c.req.query();
+    const rawType = query.type;
+    const type = rawType ? (typeMapping[rawType] || rawType) : undefined;
+    const city = query.city || undefined;
+    const isActive = query.isActive === 'true' ? true : query.isActive === 'false' ? false : undefined;
+    const search = query.search || undefined;
+    const page = Number(query.page) || 1;
+    const limit = Math.min(Number(query.limit) || 20, 100);
 
     const { data, total } = await listProviders(getDb(c), {
-      type,
+      type: type as 'pharmacist' | 'doctor' | 'lab' | 'clinic' | undefined,
       city,
       isActive,
       search,

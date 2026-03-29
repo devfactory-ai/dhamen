@@ -283,7 +283,7 @@ export default function VirtualCardScreen() {
       <View style={styles.qrSection}>
         <Text style={styles.sectionTitle}>Code QR de vérification</Text>
         <Text style={styles.qrDescription}>
-          Présentez ce code au prestataire pour vérifier votre éligibilité
+          Présentez ce code au praticien pour vérifier votre éligibilité
         </Text>
 
         <View style={styles.qrContainer}>

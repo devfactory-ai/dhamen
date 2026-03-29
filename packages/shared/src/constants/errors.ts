@@ -84,7 +84,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   [ERROR_CODES.ELIGIBILITY_WAITING_PERIOD]: 'Période de carence en cours',
   [ERROR_CODES.ELIGIBILITY_LIMIT_REACHED]: 'Plafond annuel atteint',
   [ERROR_CODES.ELIGIBILITY_EXCLUDED_SERVICE]: 'Service exclu du contrat',
-  [ERROR_CODES.ELIGIBILITY_PROVIDER_NOT_CONTRACTED]: 'Prestataire non conventionné',
+  [ERROR_CODES.ELIGIBILITY_PROVIDER_NOT_CONTRACTED]: 'Praticien non conventionné',
   [ERROR_CODES.ELIGIBILITY_SERVICE_NOT_COVERED]: 'Type de soin non couvert',
 
   [ERROR_CODES.TARIFF_NOT_FOUND]: 'Tarif non trouvé',

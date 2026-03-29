@@ -563,6 +563,63 @@ medications.post(
 );
 
 /**
+ * GET /search
+ * Fast autocomplete endpoint for medication lookup
+ * Returns lightweight results for instant search (max 15)
+ * Searches: brand_name, dci, code_pct, code_amm
+ */
+medications.get(
+  '/search',
+  async (c) => {
+    const q = c.req.query('q')?.trim();
+    const limit = Math.min(parseInt(c.req.query('limit') || '15'), 50);
+    const familyId = c.req.query('familyId');
+
+    if (!q || q.length < 2) {
+      return success(c, { results: [] });
+    }
+
+    const searchTerm = `%${q}%`;
+
+    let query = `
+      SELECT m.id, m.code_pct, m.code_amm, m.dci, m.brand_name,
+             m.dosage, m.form, m.packaging,
+             m.price_public, m.price_hospital, m.price_reference,
+             m.reimbursement_rate, m.is_generic, m.gpb,
+             m.family_id, mf.name as family_name, mf.code as family_code
+      FROM medications m
+      LEFT JOIN medication_families mf ON m.family_id = mf.id
+      WHERE m.deleted_at IS NULL AND m.is_active = 1
+        AND (m.brand_name LIKE ? OR m.dci LIKE ? OR m.code_pct LIKE ? OR m.code_amm LIKE ?)
+    `;
+    const params: (string | number)[] = [searchTerm, searchTerm, searchTerm, searchTerm];
+
+    if (familyId) {
+      query += ' AND m.family_id = ?';
+      params.push(familyId);
+    }
+
+    // Prioritize exact code matches, then brand_name starts-with, then the rest
+    query += `
+      ORDER BY
+        CASE
+          WHEN m.code_pct = ? OR m.code_amm = ? THEN 0
+          WHEN m.brand_name LIKE ? THEN 1
+          WHEN m.dci LIKE ? THEN 2
+          ELSE 3
+        END,
+        m.brand_name ASC
+      LIMIT ?
+    `;
+    params.push(q, q, `${q}%`, `${q}%`, limit);
+
+    const results = await getDb(c).prepare(query).bind(...params).all();
+
+    return success(c, { results: results.results });
+  }
+);
+
+/**
  * GET /
  * List medications with search and filters
  */

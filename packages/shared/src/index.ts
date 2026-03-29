@@ -13,5 +13,8 @@ export * from './schemas';
 // Constants
 export * from './constants';
 
+// Validation
+export * from './validation/matricule-fiscal';
+
 // Permissions
 export * from './permissions';

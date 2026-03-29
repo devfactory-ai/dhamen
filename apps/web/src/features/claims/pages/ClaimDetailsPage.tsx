@@ -222,7 +222,7 @@ export function ClaimDetailsPage() {
                 </span>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Prestataire</p>
+                <p className="text-sm text-muted-foreground">Praticien</p>
                 <p className="font-medium">{claim.providerName || '-'}</p>
               </div>
               <div>

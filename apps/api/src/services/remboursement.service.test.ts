@@ -185,7 +185,7 @@ describe('calculerRemboursement', () => {
         plafond_acte: null,
         plafond_famille_annuel: null,
       },
-      plafonds_prestataire: null,
+      plafonds_beneficiaire: null,
     });
 
     const result = await calculerRemboursement(db as never, {
@@ -222,7 +222,7 @@ describe('calculerRemboursement', () => {
         plafond_acte: null,
         plafond_famille_annuel: null,
       },
-      plafonds_prestataire: null,
+      plafonds_beneficiaire: null,
     });
 
     const result = await calculerRemboursement(db as never, {
@@ -256,7 +256,7 @@ describe('calculerRemboursement', () => {
         plafond_acte: 50000,
         plafond_famille_annuel: null,
       },
-      plafonds_prestataire: null,
+      plafonds_beneficiaire: null,
     });
 
     const result = await calculerRemboursement(db as never, {
@@ -320,7 +320,7 @@ describe('calculerRemboursement', () => {
     });
     // No bareme and no famille plafond
     queryResponses.set('contrat_baremes', null);
-    queryResponses.set('plafonds_prestataire', null);
+    queryResponses.set('plafonds_beneficiaire', null);
 
     const db = {
       prepare: (query: string) => {
@@ -378,7 +378,7 @@ describe('calculerRemboursement', () => {
         plafond_acte: null,
         plafond_famille_annuel: null,
       },
-      plafonds_prestataire: null,
+      plafonds_beneficiaire: null,
     });
 
     const result = await calculerRemboursement(db as never, {

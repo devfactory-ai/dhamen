@@ -184,7 +184,7 @@ preAuthorizations.get(
     const db = getDb(c);
 
     if (!user.providerId) {
-      return forbidden(c, 'Prestataire non associé');
+      return forbidden(c, 'Praticien non associé');
     }
 
     const page = filters.page ?? 1;
@@ -393,7 +393,7 @@ preAuthorizations.post(
     `).bind(data.providerId).first();
 
     if (!provider) {
-      return notFound(c, 'Prestataire non trouvé');
+      return notFound(c, 'Praticien non trouvé');
     }
 
     // Create pre-authorization

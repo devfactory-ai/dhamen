@@ -32,6 +32,7 @@ bulletinsArchive.post('/import-csv', async (c) => {
     const csvFile = formData.get('file') as File | null;
     const batchName = formData.get('batchName') as string || 'Import Archive';
     const year = formData.get('year') as string || '2024';
+    const companyId = formData.get('companyId') as string || null;
 
     if (!csvFile) {
       return c.json({
@@ -75,12 +76,12 @@ bulletinsArchive.post('/import-csv', async (c) => {
       'Montant TND': 'total_amount',
     };
 
-    // Create archive batch
+    // Create archive batch ('closed' is a valid status for archived batches)
     const batchId = generateId();
     await db.prepare(`
-      INSERT INTO bulletin_batches (id, name, status, created_by, created_at)
-      VALUES (?, ?, 'archived', ?, datetime('now'))
-    `).bind(batchId, `Archive ${year} - ${batchName}`, user.id).run();
+      INSERT INTO bulletin_batches (id, name, status, company_id, created_by, created_at)
+      VALUES (?, ?, 'closed', ?, ?, datetime('now'))
+    `).bind(batchId, `Archive ${year} - ${batchName}`, companyId, user.id).run();
 
     // Parse and insert bulletins
     let imported = 0;
@@ -106,18 +107,28 @@ bulletinsArchive.post('/import-csv', async (c) => {
           }
         });
 
+        // Try to find adherent by matricule to link
+        let adherentId: string | null = null;
+        if (bulletinData.adherent_matricule) {
+          const adherent = await db.prepare(
+            'SELECT id FROM adherents WHERE matricule = ? AND deleted_at IS NULL LIMIT 1'
+          ).bind(bulletinData.adherent_matricule).first<{ id: string }>();
+          if (adherent) adherentId = adherent.id;
+        }
+
         // Generate ID and insert
         const id = generateId();
         await db.prepare(`
           INSERT INTO bulletins_soins (
-            id, batch_id, bulletin_number, bulletin_date,
+            id, adherent_id, batch_id, bulletin_number, bulletin_date,
             adherent_matricule, adherent_last_name, adherent_first_name, adherent_national_id,
             beneficiary_name, beneficiary_relationship,
             provider_name, provider_specialty, care_type, care_description,
-            total_amount, status, submission_date, created_by, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'archived', datetime('now'), ?, datetime('now'))
+            total_amount, company_id, status, submission_date, created_by, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'archived', datetime('now'), ?, datetime('now'))
         `).bind(
-          id, batchId,
+          id, adherentId || 'ARCHIVE_UNKNOWN',
+          batchId,
           bulletinData.bulletin_number,
           bulletinData.bulletin_date,
           bulletinData.adherent_matricule,
@@ -131,6 +142,7 @@ bulletinsArchive.post('/import-csv', async (c) => {
           bulletinData.care_type || 'consultation',
           bulletinData.care_description,
           bulletinData.total_amount || 0,
+          companyId,
           user.id
         ).run();
 
@@ -286,22 +298,22 @@ bulletinsArchive.get('/search', async (c) => {
     const query = c.req.query('q') || '';
     const year = c.req.query('year');
     const hasScans = c.req.query('hasScans');
+    const companyId = c.req.query('companyId');
     const page = parseInt(c.req.query('page') || '1');
     const limit = parseInt(c.req.query('limit') || '50');
     const offset = (page - 1) * limit;
 
-    let sql = `
-      SELECT
-        bs.*,
-        bb.name as batch_name
-      FROM bulletins_soins bs
-      LEFT JOIN bulletin_batches bb ON bs.batch_id = bb.id
-      WHERE bs.status = 'archived'
-    `;
+    const fromClause = `FROM bulletins_soins bs LEFT JOIN bulletin_batches bb ON bs.batch_id = bb.id`;
+    let whereClause = `WHERE bs.status = 'archived'`;
     const params: (string | number)[] = [];
 
+    if (companyId) {
+      whereClause += ` AND bs.company_id = ?`;
+      params.push(companyId);
+    }
+
     if (query) {
-      sql += ` AND (
+      whereClause += ` AND (
         bs.bulletin_number LIKE ? OR
         bs.adherent_matricule LIKE ? OR
         bs.adherent_last_name LIKE ? OR
@@ -313,25 +325,25 @@ bulletinsArchive.get('/search', async (c) => {
     }
 
     if (year) {
-      sql += ` AND bs.bulletin_date LIKE ?`;
+      whereClause += ` AND bs.bulletin_date LIKE ?`;
       params.push(`${year}%`);
     }
 
     if (hasScans === 'true') {
-      sql += ` AND bs.scan_url IS NOT NULL`;
+      whereClause += ` AND bs.scan_url IS NOT NULL`;
     } else if (hasScans === 'false') {
-      sql += ` AND bs.scan_url IS NULL`;
+      whereClause += ` AND bs.scan_url IS NULL`;
     }
 
     // Count total
-    const countSql = sql.replace('SELECT \n        bs.*,\n        bb.name as batch_name', 'SELECT COUNT(*) as total');
+    const countSql = `SELECT COUNT(*) as total ${fromClause} ${whereClause}`;
     const countResult = await db.prepare(countSql).bind(...params).first<{ total: number }>();
 
     // Get results
-    sql += ` ORDER BY bs.bulletin_date DESC LIMIT ? OFFSET ?`;
+    const dataSql = `SELECT bs.*, bb.name as batch_name ${fromClause} ${whereClause} ORDER BY bs.bulletin_date DESC LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
-    const results = await db.prepare(sql).bind(...params).all();
+    const results = await db.prepare(dataSql).bind(...params).all();
 
     return c.json({
       success: true,
@@ -366,17 +378,21 @@ bulletinsArchive.get('/stats', async (c) => {
   }
 
   const db = c.get('tenantDb') ?? c.env.DB;
+  const companyId = c.req.query('companyId');
 
   try {
+    const companyFilter = companyId ? ' AND company_id = ?' : '';
+    const companyParams = companyId ? [companyId] : [];
+
     // Total archived bulletins
     const total = await db.prepare(`
-      SELECT COUNT(*) as count FROM bulletins_soins WHERE status = 'archived'
-    `).first<{ count: number }>();
+      SELECT COUNT(*) as count FROM bulletins_soins WHERE status = 'archived'${companyFilter}
+    `).bind(...companyParams).first<{ count: number }>();
 
     // With scans
     const withScans = await db.prepare(`
-      SELECT COUNT(*) as count FROM bulletins_soins WHERE status = 'archived' AND scan_url IS NOT NULL
-    `).first<{ count: number }>();
+      SELECT COUNT(*) as count FROM bulletins_soins WHERE status = 'archived' AND scan_url IS NOT NULL${companyFilter}
+    `).bind(...companyParams).first<{ count: number }>();
 
     // By year
     const byYear = await db.prepare(`
@@ -385,10 +401,10 @@ bulletinsArchive.get('/stats', async (c) => {
         COUNT(*) as count,
         SUM(CASE WHEN scan_url IS NOT NULL THEN 1 ELSE 0 END) as with_scans
       FROM bulletins_soins
-      WHERE status = 'archived'
+      WHERE status = 'archived'${companyFilter}
       GROUP BY substr(bulletin_date, 1, 4)
       ORDER BY year DESC
-    `).all();
+    `).bind(...companyParams).all();
 
     return c.json({
       success: true,

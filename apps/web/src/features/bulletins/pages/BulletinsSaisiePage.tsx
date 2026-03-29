@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, useFieldArray } from 'react-hook-form';
@@ -172,6 +172,7 @@ const acteFormSchema = z.object({
   amount: z.number().positive('Montant > 0'),
   ref_prof_sant: z.string().optional().or(z.literal('')),
   nom_prof_sant: z.string().optional().or(z.literal('')),
+  provider_id: z.string().optional(),
   care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']),
   care_description: z.string().optional(),
   cod_msgr: z.string().optional(),
@@ -234,7 +235,7 @@ function mapNatureActeToCode(natureActe: string): { code: string; label: string 
 export function BulletinsSaisiePage() {
   const queryClient = useQueryClient();
   const { selectedCompany, selectedBatch, setBatch } = useAgentContext();
-  const [activeTab, setActiveTab] = useState('saisie');
+  const [activeTab, setActiveTab] = useState("saisie");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedBulletins, setSelectedBulletins] = useState<string[]>([]);
@@ -242,19 +243,21 @@ export function BulletinsSaisiePage() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showExportDetailDialog, setShowExportDetailDialog] = useState(false);
   const [exportBatch, setExportBatch] = useState<Batch | null>(null);
-  const [newBatchName, setNewBatchName] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [batchSearch, setBatchSearch] = useState('');
-  const [batchStatusFilter, setBatchStatusFilter] = useState('all');
+  const [newBatchName, setNewBatchName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [batchSearch, setBatchSearch] = useState("");
+  const [batchStatusFilter, setBatchStatusFilter] = useState("all");
   const [batchPage, setBatchPage] = useState(1);
   const BATCH_PAGE_SIZE = 10;
-  const [adherentSearch, setAdherentSearch] = useState('');
+  const [adherentSearch, setAdherentSearch] = useState("");
   const [showAdherentDropdown, setShowAdherentDropdown] = useState(false);
-  const [selectedAdherentInfo, setSelectedAdherentInfo] = useState<AdherentSearchResult | null>(null);
+  const [selectedAdherentInfo, setSelectedAdherentInfo] =
+    useState<AdherentSearchResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showValidateDialog, setShowValidateDialog] = useState(false);
-  const [validateBulletinTarget, setValidateBulletinTarget] = useState<BulletinDetail | null>(null);
-  const [validateNotes, setValidateNotes] = useState('');
+  const [validateBulletinTarget, setValidateBulletinTarget] =
+    useState<BulletinDetail | null>(null);
+  const [validateNotes, setValidateNotes] = useState("");
   const validateMutation = useBulletinValidation();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [bulletinNumberFromOcr, setBulletinNumberFromOcr] = useState(false);
@@ -262,36 +265,73 @@ export function BulletinsSaisiePage() {
   const [ocrFeedback, setOcrFeedback] = useState<OcrFeedbackState | null>(null);
   const [isSendingFeedback, setIsSendingFeedback] = useState(false);
   const [feedbackErrors, setFeedbackErrors] = useState<string[]>([]);
-  const [feedbackComment, setFeedbackComment] = useState('');
+  const [feedbackComment, setFeedbackComment] = useState("");
 
   const { data: adherentResults } = useSearchAdherents(adherentSearch);
   const { data: familleData } = useAdherentFamille(selectedAdherentInfo?.id);
   const { data: plafondsData } = useAdherentPlafonds(selectedAdherentInfo?.id);
 
+  // Auto-select adherent when search results contain an exact matricule match
+  useEffect(() => {
+    if (!adherentResults || selectedAdherentInfo) return;
+    const matricule = watch("adherent_matricule");
+    if (!matricule) return;
+    const match = (adherentResults as AdherentSearchResult[] | undefined)?.find(
+      (a) => a.matricule === matricule,
+    );
+    if (match) {
+      setSelectedAdherentInfo(match);
+      setValue("adherent_first_name", match.firstName || "");
+      setValue("adherent_last_name", match.lastName || "");
+      if (match.email) setValue("adherent_email", match.email);
+      setShowAdherentDropdown(false);
+    }
+  }, [adherentResults]);
+
   // Extract pharmacy plafond (FA0003 = Frais pharmaceutiques) from adherent plafonds
   const plafondPharma = plafondsData?.parFamille?.find(
-    (p) => p.familleCode === 'FA0003'
+    (p) => p.familleCode === "FA0003",
   );
   const plafondPharmaChronique = plafondsData?.parFamille?.find(
-    (p) => p.familleCode === 'FA0003' && p.typeMaladie === 'chronique'
+    (p) => p.familleCode === "FA0003" && p.typeMaladie === "chronique",
   );
   const plafondPharmaOrdinaire = plafondsData?.parFamille?.find(
-    (p) => p.familleCode === 'FA0003' && p.typeMaladie === 'ordinaire'
+    (p) => p.familleCode === "FA0003" && p.typeMaladie === "ordinaire",
   );
-  const [selectedMedicationFamily, setSelectedMedicationFamily] = useState<string>('');
-  const [mfStatuses, setMfStatuses] = useState<Record<number, import('@/features/bulletins/components/mf-lookup-input').MfStatus>>({});
+  const [selectedMedicationFamily, setSelectedMedicationFamily] =
+    useState<string>("");
+  const [mfStatuses, setMfStatuses] = useState<
+    Record<
+      number,
+      import("@/features/bulletins/components/mf-lookup-input").MfStatus
+    >
+  >({});
 
   // State for inline adherent registration
   const [isRegisteringAdherent, setIsRegisteringAdherent] = useState(false);
 
   // State for newly registered practitioners popup
   const [newPractitioners, setNewPractitioners] = useState<string[]>([]);
-  const [showNewPractitionersDialog, setShowNewPractitionersDialog] = useState(false);
+  const [showNewPractitionersDialog, setShowNewPractitionersDialog] =
+    useState(false);
 
   // OCR-extracted praticien info per acte (from tampon/stamp analysis)
-  const [ocrPraticienInfos, setOcrPraticienInfos] = useState<Record<number, { nom: string; mf: string; specialite?: string; adresse?: string; telephone?: string }>>({});
+  const [ocrPraticienInfos, setOcrPraticienInfos] = useState<
+    Record<
+      number,
+      {
+        nom: string;
+        mf: string;
+        specialite?: string;
+        adresse?: string;
+        telephone?: string;
+      }
+    >
+  >({});
   // Checkbox: auto-register new praticien on submit (per acte index)
-  const [autoRegisterPraticien, setAutoRegisterPraticien] = useState<Record<number, boolean>>({});
+  const [autoRegisterPraticien, setAutoRegisterPraticien] = useState<
+    Record<number, boolean>
+  >({});
 
   const {
     register,
@@ -304,93 +344,161 @@ export function BulletinsSaisiePage() {
   } = useForm<BulletinFormData>({
     resolver: zodResolver(bulletinFormSchema),
     defaultValues: {
-      bulletin_date: new Date().toISOString().split('T')[0],
-      actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_type: 'consultation' as const, care_description: '', cod_msgr: '', lib_msgr: '' }],
+      bulletin_date: new Date().toISOString().split("T")[0],
+      actes: [
+        {
+          code: "",
+          label: "",
+          amount: 0,
+          ref_prof_sant: "",
+          nom_prof_sant: "",
+          care_type: "consultation" as const,
+          care_description: "",
+          cod_msgr: "",
+          lib_msgr: "",
+        },
+      ],
     },
   });
 
-  const { fields: actesFields, append: appendActe, remove: removeActe } = useFieldArray({
+  const {
+    fields: actesFields,
+    append: appendActe,
+    remove: removeActe,
+  } = useFieldArray({
     control,
-    name: 'actes',
+    name: "actes",
   });
 
-  const watchedActes = watch('actes');
-  const actesTotal = (watchedActes || []).reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+  const watchedActes = watch("actes");
+  const actesTotal = (watchedActes || []).reduce(
+    (sum, a) => sum + (Number(a.amount) || 0),
+    0,
+  );
   // care_type is now per-acte; derive "primary" care type from first acte for medication families query
-  const selectedCareType = watchedActes?.[0]?.care_type || 'consultation';
+  const selectedCareType = watchedActes?.[0]?.care_type || "consultation";
   // Check if any acte is pharmacy type (for medication families fetch)
-  const hasPharmacyActe = watchedActes?.some(a => a.care_type === 'pharmacy');
+  const hasPharmacyActe = watchedActes?.some((a) => a.care_type === "pharmacy");
 
   // Check if any MF is invalid or errored — blocks submit
   // Allowed (non-blocking) statuses: 'found', 'registered', 'not_found', 'forced', 'idle' (not yet checked)
   // Blocking statuses: 'loading' (in progress), 'invalid', 'error'
-  const MF_BLOCKING_STATUSES: import('@/features/bulletins/components/mf-lookup-input').MfStatus[] = ['loading', 'invalid', 'error'];
-  const hasMfBlocking = watchedActes?.length > 0 && (
+  const MF_BLOCKING_STATUSES: import("@/features/bulletins/components/mf-lookup-input").MfStatus[] =
+    ["loading", "invalid", "error"];
+  const hasMfBlocking =
+    watchedActes?.length > 0 &&
     watchedActes.some((_a, idx) => {
       const status = mfStatuses[idx];
       return status && MF_BLOCKING_STATUSES.includes(status);
-    })
-  );
+    });
   const mfBlockingReason = (() => {
     if (!hasMfBlocking) return null;
     const statuses = watchedActes?.map((_a, idx) => mfStatuses[idx]);
-    if (statuses?.some(s => s === 'invalid')) return 'Matricule fiscale invalide';
-    if (statuses?.some(s => s === 'error')) return 'Erreur de vérification MF';
-    if (statuses?.some(s => s === 'loading')) return 'Vérification MF en cours...';
-    return 'Matricule fiscale requis';
+    if (statuses?.some((s) => s === "invalid"))
+      return "Matricule fiscale invalide";
+    if (statuses?.some((s) => s === "error"))
+      return "Erreur de vérification MF";
+    if (statuses?.some((s) => s === "loading"))
+      return "Vérification MF en cours...";
+    return "Matricule fiscale requis";
   })();
 
   // Check if beneficiary selection is invalid (conjoint/enfant selected but not registered)
   // Only block when adherent IS identified but family member is missing
-  const watchedBeneficiaryRel = watch('beneficiary_relationship');
+  const watchedBeneficiaryRel = watch("beneficiary_relationship");
   const hasBeneficiaryBlocking = (() => {
     if (!selectedAdherentInfo) return false; // Don't block when adherent not identified
-    if (watchedBeneficiaryRel === 'spouse' && !familleData?.conjoint) return true;
-    if (watchedBeneficiaryRel === 'child' && (!familleData?.enfants || familleData.enfants.length === 0)) return true;
+    if (watchedBeneficiaryRel === "spouse" && !familleData?.conjoint)
+      return true;
+    if (
+      watchedBeneficiaryRel === "child" &&
+      (!familleData?.enfants || familleData.enfants.length === 0)
+    )
+      return true;
     return false;
   })();
 
   // Fetch medication families for pharmacy care type
   const { data: medicationFamilies } = useQuery({
-    queryKey: ['medication-families'],
+    queryKey: ["medication-families"],
     queryFn: async () => {
-      const response = await apiClient.get<{ families: { id: string; code: string; name: string }[] }>('/medications/families');
+      const response = await apiClient.get<{
+        families: { id: string; code: string; name: string }[];
+      }>("/medications/families");
       if (!response.success) return [];
       return response.data?.families || [];
     },
     enabled: !!hasPharmacyActe,
   });
 
-  // Fetch bulletins (drafts and in_batch) for current batch
+  // Fetch bulletins (drafts and in_batch) for current batch & company
   const { data: bulletinsData, isLoading: loadingBulletins } = useQuery({
-    queryKey: ['agent-bulletins', selectedBatch?.id, searchQuery],
+    queryKey: ["agent-bulletins", selectedCompany?.id, selectedBatch?.id, searchQuery],
     queryFn: async () => {
       const params = new URLSearchParams();
-      params.append('status', 'draft,in_batch,approved,rejected');
-      if (selectedBatch) params.append('batchId', selectedBatch.id);
-      if (searchQuery) params.append('search', searchQuery);
+      params.append("status", "draft,in_batch,approved,rejected");
+      if (selectedCompany) params.append("companyId", selectedCompany.id);
+      if (selectedBatch) params.append("batchId", selectedBatch.id);
+      if (searchQuery) params.append("search", searchQuery);
 
-      const response = await apiClient.get<BulletinSaisie[]>(`/bulletins-soins/agent?${params}`);
+      const response = await apiClient.get<BulletinSaisie[]>(
+        `/bulletins-soins/agent?${params}`,
+      );
       if (!response.success) throw new Error(response.error?.message);
       return response.data || [];
     },
+    enabled: !!selectedCompany,
   });
 
   // Fetch batches for the selected company (paginated)
   const { data: batchesResponse, isLoading: loadingBatches } = useQuery({
-    queryKey: ['agent-batches', selectedCompany?.id, batchStatusFilter, batchSearch, batchPage],
+    queryKey: [
+      "agent-batches",
+      selectedCompany?.id,
+      batchStatusFilter,
+      batchSearch,
+      batchPage,
+    ],
     queryFn: async () => {
-      if (!selectedCompany) return { data: [] as Batch[], meta: { page: 1, limit: BATCH_PAGE_SIZE, total: 0, totalPages: 1 } };
-      const params = new URLSearchParams({ companyId: selectedCompany.id, status: batchStatusFilter, page: String(batchPage), limit: String(BATCH_PAGE_SIZE) });
-      if (batchSearch) params.append('search', batchSearch);
-      const response = await apiClient.get<Batch[]>(`/bulletins-soins/agent/batches?${params.toString()}`);
+      if (!selectedCompany)
+        return {
+          data: [] as Batch[],
+          meta: { page: 1, limit: BATCH_PAGE_SIZE, total: 0, totalPages: 1 },
+        };
+      const params = new URLSearchParams({
+        companyId: selectedCompany.id,
+        status: batchStatusFilter,
+        page: String(batchPage),
+        limit: String(BATCH_PAGE_SIZE),
+      });
+      if (batchSearch) params.append("search", batchSearch);
+      const response = await apiClient.get<Batch[]>(
+        `/bulletins-soins/agent/batches?${params.toString()}`,
+      );
       if (!response.success) throw new Error(response.error?.message);
-      return { data: (response.data || []) as Batch[], meta: (response as unknown as { meta?: { page: number; limit: number; total: number; totalPages: number } }).meta || { page: 1, limit: BATCH_PAGE_SIZE, total: 0, totalPages: 1 } };
+      return {
+        data: (response.data || []) as Batch[],
+        meta: (
+          response as unknown as {
+            meta?: {
+              page: number;
+              limit: number;
+              total: number;
+              totalPages: number;
+            };
+          }
+        ).meta || { page: 1, limit: BATCH_PAGE_SIZE, total: 0, totalPages: 1 },
+      };
     },
     enabled: !!selectedCompany,
   });
   const batchesData = batchesResponse?.data || [];
-  const batchesMeta = batchesResponse?.meta || { page: 1, limit: BATCH_PAGE_SIZE, total: 0, totalPages: 1 };
+  const batchesMeta = batchesResponse?.meta || {
+    page: 1,
+    limit: BATCH_PAGE_SIZE,
+    total: 0,
+    totalPages: 1,
+  };
 
   // Submit bulletin mutation
   const submitMutation = useMutation({
@@ -398,114 +506,152 @@ export function BulletinsSaisiePage() {
       const form = new FormData();
 
       Object.entries(data.formData).forEach(([key, value]) => {
-        if (key === 'actes') return; // handled separately
-        if (value !== undefined && value !== '') {
+        if (key === "actes") return; // handled separately
+        if (value !== undefined && value !== "") {
           form.append(key, String(value));
         }
       });
 
       // Send actes as JSON array
-      form.append('actes', JSON.stringify(data.formData.actes));
+      form.append("actes", JSON.stringify(data.formData.actes));
 
-      // Attach batch_id from agent context
+      // Attach batch_id and company_id from agent context
       if (selectedBatch) {
-        form.append('batch_id', selectedBatch.id);
+        form.append("batch_id", selectedBatch.id);
+      }
+      if (selectedCompany) {
+        form.append("company_id", selectedCompany.id);
       }
 
       data.files.forEach((file, index) => {
         form.append(`scan_${index}`, file);
       });
 
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem("accessToken");
       const response = await fetch(
         `${API_BASE_URL}/bulletins-soins/agent/create`,
         {
-          method: 'POST',
+          method: "POST",
           body: form,
-          credentials: 'include',
+          credentials: "include",
           headers: {
             ...getTenantHeader(),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-        }
+        },
       );
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error?.message || 'Erreur lors de la saisie');
+        throw new Error(error.error?.message || "Erreur lors de la saisie");
       }
 
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
-      toast.success('Bulletin saisi avec succes!');
+      queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
+      toast.success("Bulletin saisi avec succes!");
       reset();
       setSelectedFiles([]);
       setSelectedAdherentInfo(null);
-      setAdherentSearch('');
+      setAdherentSearch("");
       setShowAdherentDropdown(false);
-      setSelectedMedicationFamily('');
+      setSelectedMedicationFamily("");
       setOcrFeedback(null);
       setMfStatuses({});
       setOcrPraticienInfos({});
       setAutoRegisterPraticien({});
       setFeedbackErrors([]);
-      setFeedbackComment('');
-      setActiveTab('liste');
+      setFeedbackComment("");
+      setActiveTab("liste");
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Erreur lors de la saisie');
+      toast.error(error.message || "Erreur lors de la saisie");
     },
   });
 
   // Create batch mutation
   const createBatchMutation = useMutation({
-    mutationFn: async (data: { name: string; bulletinIds: string[]; companyId: string }): Promise<{ id: string; name: string; companyId: string; status: string }> => {
-      const response = await apiClient.post('/bulletins-soins/agent/batches', data);
+    mutationFn: async (data: {
+      name: string;
+      bulletinIds: string[];
+      companyId: string;
+    }): Promise<{
+      id: string;
+      name: string;
+      companyId: string;
+      status: string;
+    }> => {
+      const response = await apiClient.post(
+        "/bulletins-soins/agent/batches",
+        data,
+      );
       if (!response.success) throw new Error(response.error?.message);
-      return response.data as { id: string; name: string; companyId: string; status: string };
+      return response.data as {
+        id: string;
+        name: string;
+        companyId: string;
+        status: string;
+      };
     },
-    onSuccess: (data: { id: string; name: string; companyId: string; status: string }) => {
-      queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
-      queryClient.invalidateQueries({ queryKey: ['agent-batches'] });
+    onSuccess: (data: {
+      id: string;
+      name: string;
+      companyId: string;
+      status: string;
+    }) => {
+      queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
+      queryClient.invalidateQueries({ queryKey: ["agent-batches"] });
       // Set the newly created batch as active and switch to saisie tab
-      setBatch({ id: data.id, name: data.name, companyId: data.companyId, status: data.status });
-      toast.success('Lot créé avec succès ! Vous pouvez maintenant saisir des bulletins.');
+      setBatch({
+        id: data.id,
+        name: data.name,
+        companyId: data.companyId,
+        status: data.status,
+      });
+      toast.success(
+        "Lot créé avec succès ! Vous pouvez maintenant saisir des bulletins.",
+      );
       setShowBatchDialog(false);
       setSelectedBulletins([]);
-      setNewBatchName('');
-      setActiveTab('saisie');
+      setNewBatchName("");
+      setActiveTab("saisie");
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Erreur lors de la creation du lot');
+      toast.error(error.message || "Erreur lors de la creation du lot");
     },
   });
 
   // Export batch mutation
   const exportBatchMutation = useMutation({
-    mutationFn: async ({ batchId, force = false }: { batchId: string; force?: boolean }) => {
-      const token = localStorage.getItem('accessToken');
-      const qs = force ? '?force=true' : '';
+    mutationFn: async ({
+      batchId,
+      force = false,
+    }: {
+      batchId: string;
+      force?: boolean;
+    }) => {
+      const token = localStorage.getItem("accessToken");
+      const qs = force ? "?force=true" : "";
       const response = await fetch(
         `${API_BASE_URL}/bulletins-soins/agent/batches/${batchId}/export${qs}`,
         {
-          method: 'GET',
-          credentials: 'include',
+          method: "GET",
+          credentials: "include",
           headers: {
             ...getTenantHeader(),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-        }
+        },
       );
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error?.message || 'Erreur lors de l\'export');
+        throw new Error(error.error?.message || "Erreur lors de l'export");
       }
 
       // Extract filename from Content-Disposition
-      const disposition = response.headers.get('Content-Disposition');
+      const disposition = response.headers.get("Content-Disposition");
       let filename = `dhamen_lot_${batchId}_${new Date().toISOString().slice(0, 10)}.csv`;
       if (disposition) {
         const match = disposition.match(/filename="?([^"]+)"?/);
@@ -518,51 +664,53 @@ export function BulletinsSaisiePage() {
       return { csvContent, filename };
     },
     onSuccess: ({ csvContent, filename }) => {
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', filename);
-      link.style.visibility = 'hidden';
+      link.setAttribute("href", url);
+      link.setAttribute("download", filename);
+      link.style.visibility = "hidden";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      queryClient.invalidateQueries({ queryKey: ['agent-batches'] });
-      queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
-      toast.success('Export CSV telecharge!');
+      queryClient.invalidateQueries({ queryKey: ["agent-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
+      toast.success("Export CSV telecharge!");
       setShowExportDialog(false);
       setExportBatch(null);
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Erreur lors de l\'export');
+      toast.error(error.message || "Erreur lors de l'export");
     },
   });
 
   // Export batch detail mutation (bordereau detaille)
   const exportDetailMutation = useMutation({
     mutationFn: async ({ batchId }: { batchId: string }) => {
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem("accessToken");
       const response = await fetch(
         `${API_BASE_URL}/bulletins-soins/agent/batches/${batchId}/export-detail`,
         {
-          method: 'GET',
-          credentials: 'include',
+          method: "GET",
+          credentials: "include",
           headers: {
             ...getTenantHeader(),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-        }
+        },
       );
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error?.message || 'Erreur lors de l\'export detaille');
+        throw new Error(
+          error.error?.message || "Erreur lors de l'export detaille",
+        );
       }
 
       // Extract filename from Content-Disposition
-      const disposition = response.headers.get('Content-Disposition');
+      const disposition = response.headers.get("Content-Disposition");
       let filename = `dhamen_detail_${batchId}_${new Date().toISOString().slice(0, 10)}.csv`;
       if (disposition) {
         const match = disposition.match(/filename="?([^"]+)"?/);
@@ -575,40 +723,81 @@ export function BulletinsSaisiePage() {
       return { csvContent, filename };
     },
     onSuccess: ({ csvContent, filename }) => {
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
       const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', filename);
-      link.style.visibility = 'hidden';
+      link.setAttribute("href", url);
+      link.setAttribute("download", filename);
+      link.style.visibility = "hidden";
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      toast.success('Export detaille telecharge!');
+      toast.success("Export detaille telecharge!");
       setShowExportDetailDialog(false);
       setExportBatch(null);
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Erreur lors de l\'export detaille');
+      toast.error(error.message || "Erreur lors de l'export detaille");
     },
   });
 
   // Delete bulletin mutation
   const deleteMutation = useMutation({
     mutationFn: async (bulletinId: string) => {
-      const response = await apiClient.delete(`/bulletins-soins/agent/${bulletinId}`);
+      const response = await apiClient.delete(
+        `/bulletins-soins/agent/${bulletinId}`,
+      );
       if (!response.success) throw new Error(response.error?.message);
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
-      toast.success('Bulletin supprime');
+      queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
+      toast.success("Bulletin supprime");
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Erreur lors de la suppression');
+      toast.error(error.message || "Erreur lors de la suppression");
     },
+  });
+
+  // Bulk delete bulletins
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const response = await apiClient.post<{ deleted: number }>(
+        "/bulletins-soins/agent/bulk-delete",
+        { ids },
+      );
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
+      toast.success(`${data?.deleted || 0} bulletin(s) supprimé(s)`);
+      setSelectedBulletins([]);
+    },
+    onError: (error: Error) =>
+      toast.error(error.message || "Erreur lors de la suppression"),
+  });
+
+  // Bulk delete batches
+  const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
+  const bulkDeleteBatchesMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const response = await apiClient.post<{ deleted: number }>(
+        "/bulletins-soins/agent/bulk-delete-batches",
+        { ids },
+      );
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["agent-batches"] });
+      toast.success(`${data?.deleted || 0} lot(s) supprimé(s)`);
+      setSelectedBatches([]);
+    },
+    onError: (error: Error) =>
+      toast.error(error.message || "Erreur lors de la suppression"),
   });
 
   // View bulletin detail
@@ -616,7 +805,9 @@ export function BulletinsSaisiePage() {
   const [deleteBulletinId, setDeleteBulletinId] = useState<string | null>(null);
 
   const fetchBulletinDetail = async (id: string) => {
-    const response = await apiClient.get<BulletinDetail>(`/bulletins-soins/agent/${id}`);
+    const response = await apiClient.get<BulletinDetail>(
+      `/bulletins-soins/agent/${id}`,
+    );
     if (response.success) {
       setViewBulletin(response.data);
     }
@@ -624,30 +815,48 @@ export function BulletinsSaisiePage() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const validFiles = files.filter(file => {
-      const isValidType = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'].includes(file.type);
+    const validFiles = files.filter((file) => {
+      const isValidType = [
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "image/jpg",
+      ].includes(file.type);
       const isValidSize = file.size <= 10 * 1024 * 1024;
       return isValidType && isValidSize;
     });
 
     if (validFiles.length !== files.length) {
-      toast.error('Certains fichiers ont ete ignores (format ou taille invalide)');
+      toast.error(
+        "Certains fichiers ont ete ignores (format ou taille invalide)",
+      );
     }
 
     // Reset form fields when uploading new files
     reset({
-      care_type: watch('care_type'),
-      bulletin_date: new Date().toISOString().split('T')[0],
-      bulletin_number: '',
-      adherent_matricule: '',
-      adherent_first_name: '',
-      adherent_last_name: '',
-      adherent_national_id: '',
-      adherent_contract_number: '',
-      adherent_email: '',
-      adherent_address: '',
-      beneficiary_name: '',
-      actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_description: '', cod_msgr: '', lib_msgr: '' }],
+      care_type: watch("care_type"),
+      bulletin_date: new Date().toISOString().split("T")[0],
+      bulletin_number: "",
+      adherent_matricule: "",
+      adherent_first_name: "",
+      adherent_last_name: "",
+      adherent_national_id: "",
+      adherent_contract_number: "",
+      adherent_email: "",
+      adherent_address: "",
+      beneficiary_name: "",
+      actes: [
+        {
+          code: "",
+          label: "",
+          amount: 0,
+          ref_prof_sant: "",
+          nom_prof_sant: "",
+          care_description: "",
+          cod_msgr: "",
+          lib_msgr: "",
+        },
+      ],
     });
     setSelectedAdherentInfo(null);
     setOcrFeedback(null);
@@ -656,7 +865,7 @@ export function BulletinsSaisiePage() {
     setMfStatuses({});
     setSelectedFiles(validFiles);
     // Reset input value so re-selecting the same files triggers onChange
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleRemoveFile = (index: number) => {
@@ -665,25 +874,36 @@ export function BulletinsSaisiePage() {
     // Reset form fields when all files are removed
     if (remaining.length === 0) {
       reset({
-        care_type: watch('care_type'),
-        bulletin_date: new Date().toISOString().split('T')[0],
-        bulletin_number: '',
-        adherent_matricule: '',
-        adherent_first_name: '',
-        adherent_last_name: '',
-        adherent_national_id: '',
-        adherent_contract_number: '',
-        adherent_email: '',
-        adherent_address: '',
-        beneficiary_name: '',
-        actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_description: '', cod_msgr: '', lib_msgr: '' }],
+        care_type: watch("care_type"),
+        bulletin_date: new Date().toISOString().split("T")[0],
+        bulletin_number: "",
+        adherent_matricule: "",
+        adherent_first_name: "",
+        adherent_last_name: "",
+        adherent_national_id: "",
+        adherent_contract_number: "",
+        adherent_email: "",
+        adherent_address: "",
+        beneficiary_name: "",
+        actes: [
+          {
+            code: "",
+            label: "",
+            amount: 0,
+            ref_prof_sant: "",
+            nom_prof_sant: "",
+            care_description: "",
+            cod_msgr: "",
+            lib_msgr: "",
+          },
+        ],
       });
       setSelectedAdherentInfo(null);
       setOcrFeedback(null);
       setOcrPraticienInfos({});
       setAutoRegisterPraticien({});
       setMfStatuses({});
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -693,34 +913,38 @@ export function BulletinsSaisiePage() {
     try {
       const formData = new FormData();
       for (const file of selectedFiles) {
-        formData.append('files', file);
+        formData.append("files", file);
       }
 
       // OCR API: Cloudflare Worker endpoint
       const ocrBase = (
-        import.meta.env.VITE_OCR_API_URL || "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev"
+        import.meta.env.VITE_OCR_API_URL ||
+        "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev"
       ).replace(/\/+$/, "");
       const ocrApiUrl = `${ocrBase}/analyse-bulletin`;
       const res = await fetch(ocrApiUrl, {
-        method: 'POST',
-        headers: { 'accept': 'application/json' },
+        method: "POST",
+        headers: { accept: "application/json" },
         body: formData,
       });
 
       if (!res.ok) throw new Error(`Erreur OCR: ${res.status}`);
 
       const result = await res.json();
-      console.log('[OCR] Raw API response:', JSON.stringify(result, null, 2));
+      console.log("[OCR] Raw API response:", JSON.stringify(result, null, 2));
 
       // Handle multiple response formats:
       // New API: { success, donnees_ia: { infos_adherent, volet_medical } }
       // Alt API: { success, resultat: { infos_adherent, volet_medical } }
       // Old API: { raw_response: "```json\n{...}\n```" }
       // Backend proxy: { success, data: { infos_adherent, volet_medical } }
-      let parsed = result.donnees_ia || result.resultat || result.data || result;
+      let parsed =
+        result.donnees_ia || result.resultat || result.data || result;
 
-      if (typeof result.raw_response === 'string') {
-        const jsonMatch = result.raw_response.match(/```json\s*([\s\S]*?)\s*```/);
+      if (typeof result.raw_response === "string") {
+        const jsonMatch = result.raw_response.match(
+          /```json\s*([\s\S]*?)\s*```/,
+        );
         if (jsonMatch?.[1]) {
           parsed = JSON.parse(jsonMatch[1]);
         }
@@ -735,12 +959,12 @@ export function BulletinsSaisiePage() {
         visible: true,
       });
       setFeedbackErrors([]);
-      setFeedbackComment('');
+      setFeedbackComment("");
 
       // Auto-fill bulletin number (can be at top level or in infos_adherent)
       const numeroBulletin = parsed?.numero_bulletin || info?.numero_bulletin;
       if (numeroBulletin) {
-        setValue('bulletin_number', numeroBulletin);
+        setValue("bulletin_number", numeroBulletin);
         setBulletinNumberFromOcr(true);
       } else {
         setBulletinNumberFromOcr(false);
@@ -751,61 +975,89 @@ export function BulletinsSaisiePage() {
         if (info.nom_prenom) {
           const parts = info.nom_prenom.trim().split(/\s+/);
           if (parts.length >= 2) {
-            setValue('adherent_last_name', parts[0]!);
-            setValue('adherent_first_name', parts.slice(1).join(' '));
+            setValue("adherent_last_name", parts[0]!);
+            setValue("adherent_first_name", parts.slice(1).join(" "));
           }
         }
-        const matriculeRaw = [info.numero_adherent, info.numero_contrat]
-          .find((v) => v && v !== 'illisible');
+        const matriculeRaw = [info.numero_adherent, info.numero_contrat].find(
+          (v) => v && v !== "illisible",
+        );
         if (matriculeRaw) {
-          const matricule = matriculeRaw.replace(/\s+/g, '');
-          setValue('adherent_matricule', matricule);
+          const matricule = matriculeRaw.replace(/\s+/g, "");
+          setValue("adherent_matricule", matricule);
           setAdherentSearch(matricule);
         }
-        if (info.numero_contrat && info.numero_contrat !== 'illisible') {
-          setValue('adherent_contract_number', info.numero_contrat.replace(/\s+/g, ''));
+        if (info.numero_contrat && info.numero_contrat !== "illisible") {
+          setValue(
+            "adherent_contract_number",
+            info.numero_contrat.replace(/\s+/g, ""),
+          );
         }
         if (info.date_signature) {
           const dateParts = info.date_signature.split(/[.\/]/);
           if (dateParts.length === 3) {
-            const year = dateParts[2]!.length === 2 ? `20${dateParts[2]}` : dateParts[2];
-            setValue('bulletin_date', `${year}-${dateParts[1]}-${dateParts[0]}`);
+            const year =
+              dateParts[2]!.length === 2 ? `20${dateParts[2]}` : dateParts[2];
+            setValue(
+              "bulletin_date",
+              `${year}-${dateParts[1]}-${dateParts[0]}`,
+            );
           }
         }
         if (info.adresse) {
-          setValue('adherent_address', info.adresse);
+          setValue("adherent_address", info.adresse);
         }
         // Map beneficiaire_coche -> lien de parente (TASK-006)
         if (info.beneficiaire_coche) {
           const benef = info.beneficiaire_coche.toLowerCase().trim();
-          if (benef.includes('conjoint')) {
-            setValue('beneficiary_relationship' as keyof BulletinFormData, 'spouse');
-          } else if (benef.includes('enfant')) {
-            setValue('beneficiary_relationship' as keyof BulletinFormData, 'child');
-          } else if (benef.includes('parent') || benef.includes('ascendant')) {
-            setValue('beneficiary_relationship' as keyof BulletinFormData, 'parent');
+          if (benef.includes("conjoint")) {
+            setValue(
+              "beneficiary_relationship" as keyof BulletinFormData,
+              "spouse",
+            );
+          } else if (benef.includes("enfant")) {
+            setValue(
+              "beneficiary_relationship" as keyof BulletinFormData,
+              "child",
+            );
+          } else if (benef.includes("parent") || benef.includes("ascendant")) {
+            setValue(
+              "beneficiary_relationship" as keyof BulletinFormData,
+              "parent",
+            );
           }
         }
       }
 
       // Helper: detect care_type from OCR type_soin string
-      const detectCareType = (typeSoin?: string | null): 'consultation' | 'pharmacy' | 'lab' | 'hospital' => {
-        if (!typeSoin) return 'consultation';
-        const ts = typeSoin.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        if (ts.includes('pharmac') || ts.includes('medicament')) return 'pharmacy';
-        if (ts.includes('labo') || ts.includes('analyse') || ts.includes('biolog')) return 'lab';
-        if (ts.includes('hosp') || ts.includes('clinique')) return 'hospital';
-        return 'consultation';
+      const detectCareType = (
+        typeSoin?: string | null,
+      ): "consultation" | "pharmacy" | "lab" | "hospital" => {
+        if (!typeSoin) return "consultation";
+        const ts = typeSoin
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "");
+        if (ts.includes("pharmac") || ts.includes("medicament"))
+          return "pharmacy";
+        if (
+          ts.includes("labo") ||
+          ts.includes("analyse") ||
+          ts.includes("biolog")
+        )
+          return "lab";
+        if (ts.includes("hosp") || ts.includes("clinique")) return "hospital";
+        return "consultation";
       };
 
       // Auto-fill global care type from first acte's type_soin
       if (Array.isArray(actes) && actes.length > 0 && actes[0]?.type_soin) {
-        setValue('care_type', detectCareType(actes[0].type_soin));
+        setValue("care_type", detectCareType(actes[0].type_soin));
       }
 
       // Auto-fill actes with enriched codes from backend (TASK-003)
       if (Array.isArray(actes) && actes.length > 0) {
-        const currentActes = watch('actes');
+        const currentActes = watch("actes");
         while (currentActes.length > 1) {
           removeActe(currentActes.length - 1);
         }
@@ -813,72 +1065,102 @@ export function BulletinsSaisiePage() {
         actes.forEach((acte: Record<string, string | null>, i: number) => {
           // Detect care_type per acte from its own type_soin
           const acteCareType = detectCareType(acte.type_soin);
-          const isPharmacy = acteCareType === 'pharmacy';
-          const rawMontant = (acte.montant_facture || acte.montant_honoraires || '0')
-            .replace(/[^\d.,]/g, '')
-            .replace(',', '.');
+          const isPharmacy = acteCareType === "pharmacy";
+          const rawMontant = (
+            acte.montant_facture ||
+            acte.montant_honoraires ||
+            "0"
+          )
+            .replace(/[^\d.,]/g, "")
+            .replace(",", ".");
           const montant = parseFloat(rawMontant) || 0;
 
           // For pharmacy: use OCR-matched medication if available, otherwise leave empty
           // For other types: use backend-enriched codes or local mapping
-          const mapped = acte.nature_acte ? mapNatureActeToCode(acte.nature_acte) : null;
-          const matchedMed = acte.matched_medication as { code_pct?: string; brand_name?: string; dci?: string; dosage?: string; form?: string; price_public?: number; reimbursement_rate?: number } | undefined;
+          const mapped = acte.nature_acte
+            ? mapNatureActeToCode(acte.nature_acte)
+            : null;
+          const matchedMed = acte.matched_medication as
+            | {
+                code_pct?: string;
+                brand_name?: string;
+                dci?: string;
+                dosage?: string;
+                form?: string;
+                price_public?: number;
+                reimbursement_rate?: number;
+              }
+            | undefined;
 
           let code: string;
           let label: string;
           let autoAmount: number | null = null;
 
           if (isPharmacy && matchedMed) {
-            code = matchedMed.code_pct || '';
-            const reimbLabel = matchedMed.reimbursement_rate ? `[R ${Math.round(matchedMed.reimbursement_rate * 100)}%]` : '[NR]';
-            label = `${matchedMed.brand_name || ''} - ${matchedMed.dci || ''} ${matchedMed.dosage || ''} ${matchedMed.form || ''} ${reimbLabel}`.trim();
+            code = matchedMed.code_pct || "";
+            const reimbLabel = matchedMed.reimbursement_rate
+              ? `[R ${Math.round(matchedMed.reimbursement_rate * 100)}%]`
+              : "[NR]";
+            label =
+              `${matchedMed.brand_name || ""} - ${matchedMed.dci || ""} ${matchedMed.dosage || ""} ${matchedMed.form || ""} ${reimbLabel}`.trim();
             if (matchedMed.price_public) {
               autoAmount = matchedMed.price_public / 1000;
             }
           } else if (isPharmacy) {
-            code = '';
-            label = acte.nature_acte || '';
+            code = "";
+            label = acte.nature_acte || "";
           } else {
-            code = acte.matched_code || mapped?.code || '';
-            label = acte.matched_label || mapped?.label || acte.nature_acte || '';
+            code = acte.matched_code || mapped?.code || "";
+            label =
+              acte.matched_label || mapped?.label || acte.nature_acte || "";
           }
 
           // Keep nature_acte from OCR as care_description (e.g. "Psychiatrie")
-          const natureActeOriginal = acte.nature_acte || '';
+          const natureActeOriginal = acte.nature_acte || "";
 
           // Use OCR-matched amount or fallback to extracted montant
-          const finalAmount = (isPharmacy && autoAmount) ? autoAmount : montant;
+          const finalAmount = isPharmacy && autoAmount ? autoAmount : montant;
 
           // MF: use enriched provider name if available, fallback to OCR raw
-          const mfProvider = acte.mf_provider as { name?: string; speciality?: string; address?: string } | undefined;
-          const nomPraticien = mfProvider?.name || acte.nom_praticien || '';
-          const refProfSant = (acte.mf_extracted as string) || acte.matricule_fiscale || '';
+          const mfProvider = acte.mf_provider as
+            | { name?: string; speciality?: string; address?: string }
+            | undefined;
+          const nomPraticien = mfProvider?.name || acte.nom_praticien || "";
+          const refProfSant =
+            (acte.mf_extracted as string) || acte.matricule_fiscale || "";
 
           // Store OCR-extracted praticien info for display when MF not found in DB
           if (refProfSant || nomPraticien) {
-            setOcrPraticienInfos(prev => ({
+            setOcrPraticienInfos((prev) => ({
               ...prev,
               [i]: {
                 nom: nomPraticien,
                 mf: refProfSant,
-                specialite: mfProvider?.speciality || (acte.specialite as string) || natureActeOriginal || undefined,
-                adresse: (acte.adresse_praticien as string) || mfProvider?.address || undefined,
+                specialite:
+                  mfProvider?.speciality ||
+                  (acte.specialite as string) ||
+                  natureActeOriginal ||
+                  undefined,
+                adresse:
+                  (acte.adresse_praticien as string) ||
+                  mfProvider?.address ||
+                  undefined,
                 telephone: (acte.telephone_praticien as string) || undefined,
               },
             }));
             // Auto-register checkbox: checked by default when MF exists but provider not in DB
-            setAutoRegisterPraticien(prev => ({ ...prev, [i]: true }));
+            setAutoRegisterPraticien((prev) => ({ ...prev, [i]: true }));
           }
 
           if (i === 0) {
-            setValue('actes.0.code', code);
-            setValue('actes.0.label', label);
-            setValue('actes.0.amount', finalAmount);
-            setValue('actes.0.nom_prof_sant', nomPraticien);
-            setValue('actes.0.ref_prof_sant', refProfSant);
-            setValue('actes.0.care_type', acteCareType);
+            setValue("actes.0.code", code);
+            setValue("actes.0.label", label);
+            setValue("actes.0.amount", finalAmount);
+            setValue("actes.0.nom_prof_sant", nomPraticien);
+            setValue("actes.0.ref_prof_sant", refProfSant);
+            setValue("actes.0.care_type", acteCareType);
             if (natureActeOriginal && !isPharmacy) {
-              setValue('actes.0.care_description', natureActeOriginal);
+              setValue("actes.0.care_description", natureActeOriginal);
             }
           } else {
             appendActe({
@@ -888,32 +1170,42 @@ export function BulletinsSaisiePage() {
               nom_prof_sant: nomPraticien,
               ref_prof_sant: refProfSant,
               care_type: acteCareType,
-              cod_msgr: '',
-              lib_msgr: '',
-              care_description: !isPharmacy ? natureActeOriginal : '',
+              cod_msgr: "",
+              lib_msgr: "",
+              care_description: !isPharmacy ? natureActeOriginal : "",
             });
           }
         });
       }
 
-      toast.success('Analyse terminee — champs remplis automatiquement. Verifiez puis envoyez votre feedback.');
+      toast.success(
+        "Analyse terminee — champs remplis automatiquement. Verifiez puis envoyez votre feedback.",
+      );
     } catch (error) {
-      console.error('OCR analysis error:', error);
-      toast.error('Erreur lors de l\'analyse du bulletin');
+      console.error("OCR analysis error:", error);
+      toast.error("Erreur lors de l'analyse du bulletin");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
   // --- OCR Feedback handlers ---
-  const sendOcrFeedback = async (statut: 'valide' | 'invalide' | 'partiellement_valide') => {
+  const sendOcrFeedback = async (
+    statut: "valide" | "invalide" | "partiellement_valide",
+  ) => {
     if (!ocrFeedback) return;
     setIsSendingFeedback(true);
-    const ocrBase = (import.meta.env.VITE_OCR_API_URL || "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev").replace(/\/+$/, "");
+    const ocrBase = (
+      import.meta.env.VITE_OCR_API_URL ||
+      "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev"
+    ).replace(/\/+$/, "");
     try {
       const res = await fetch(`${ocrBase}/valider-bulletin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'accept': 'application/json' },
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          accept: "application/json",
+        },
         body: JSON.stringify({
           donnees_ia: ocrFeedback.donneesIa,
           metadata_validation: {
@@ -924,67 +1216,76 @@ export function BulletinsSaisiePage() {
         }),
       });
       if (res.ok) {
-        toast.success('Feedback OCR envoye avec succes');
+        toast.success("Feedback OCR envoye avec succes");
       } else {
-        toast.error('Erreur lors de l\'envoi du feedback');
+        toast.error("Erreur lors de l'envoi du feedback");
       }
     } catch {
-      toast.error('Erreur reseau lors de l\'envoi du feedback');
+      toast.error("Erreur reseau lors de l'envoi du feedback");
     } finally {
       setIsSendingFeedback(false);
       setOcrFeedback(null);
       setFeedbackErrors([]);
-      setFeedbackComment('');
+      setFeedbackComment("");
     }
   };
 
   const toggleFeedbackError = (fieldLabel: string) => {
     setFeedbackErrors((prev) =>
-      prev.includes(fieldLabel) ? prev.filter((e) => e !== fieldLabel) : [...prev, fieldLabel]
+      prev.includes(fieldLabel)
+        ? prev.filter((e) => e !== fieldLabel)
+        : [...prev, fieldLabel],
     );
   };
 
   const handleRegisterAdherent = async () => {
-    const matricule = watch('adherent_matricule');
-    const firstName = watch('adherent_first_name');
-    const lastName = watch('adherent_last_name');
-    const dateOfBirth = watch('adherent_date_of_birth');
+    const matricule = watch("adherent_matricule");
+    const firstName = watch("adherent_first_name");
+    const lastName = watch("adherent_last_name");
+    const dateOfBirth = watch("adherent_date_of_birth");
 
     if (!firstName || !lastName) {
-      toast.error('Nom et prénom sont obligatoires pour enregistrer l\'adhérent');
+      toast.error(
+        "Nom et prénom sont obligatoires pour enregistrer l'adhérent",
+      );
       return;
     }
     if (!dateOfBirth) {
-      toast.error('Date de naissance est obligatoire pour enregistrer l\'adhérent');
+      toast.error(
+        "Date de naissance est obligatoire pour enregistrer l'adhérent",
+      );
       return;
     }
 
     setIsRegisteringAdherent(true);
     try {
-      const result = await apiClient.post<{ id: string; matricule?: string }>('/adherents', {
-        firstName,
-        lastName,
-        dateOfBirth,
-        matricule: matricule || undefined,
-        nationalId: watch('adherent_national_id') || undefined,
-        email: watch('adherent_email') || undefined,
-        address: watch('adherent_address') || undefined,
-        companyId: selectedCompany?.id || undefined,
-      });
+      const result = await apiClient.post<{ id: string; matricule?: string }>(
+        "/adherents",
+        {
+          firstName,
+          lastName,
+          dateOfBirth,
+          matricule: matricule || undefined,
+          nationalId: watch("adherent_national_id") || undefined,
+          email: watch("adherent_email") || undefined,
+          address: watch("adherent_address") || undefined,
+          companyId: selectedCompany?.id || undefined,
+        },
+      );
       if (result.success && result.data) {
-        toast.success('Adhérent enregistré avec succès');
+        toast.success("Adhérent enregistré avec succès");
         if (result.data.matricule) {
-          setValue('adherent_matricule', result.data.matricule);
+          setValue("adherent_matricule", result.data.matricule);
         }
         // Refresh adherent search to pick up the new record
         setAdherentSearch(matricule || lastName);
         setShowAdherentDropdown(true);
-        queryClient.invalidateQueries({ queryKey: ['adherents'] });
+        queryClient.invalidateQueries({ queryKey: ["adherents"] });
       } else if (!result.success) {
-        toast.error(result.error?.message || 'Erreur lors de l\'enregistrement');
+        toast.error(result.error?.message || "Erreur lors de l'enregistrement");
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erreur réseau';
+      const msg = err instanceof Error ? err.message : "Erreur réseau";
       toast.error(msg);
     } finally {
       setIsRegisteringAdherent(false);
@@ -992,6 +1293,12 @@ export function BulletinsSaisiePage() {
   };
 
   const onSubmitForm = async (data: BulletinFormData) => {
+    // Company must be selected
+    if (!selectedCompany) {
+      toast.error("Veuillez sélectionner une entreprise avant d'enregistrer un bulletin.");
+      return;
+    }
+
     // Pre-submit business validations
     const validationErrors: string[] = [];
 
@@ -1004,31 +1311,44 @@ export function BulletinsSaisiePage() {
       const today = new Date();
       today.setHours(23, 59, 59, 999);
       if (bulletinDate > today) {
-        validationErrors.push('La date du bulletin ne peut pas être dans le futur.');
+        validationErrors.push(
+          "La date du bulletin ne peut pas être dans le futur.",
+        );
       }
     }
 
     // Total amount must be > 0
-    const total = data.actes.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+    const total = data.actes.reduce(
+      (sum, a) => sum + (Number(a.amount) || 0),
+      0,
+    );
     if (total <= 0) {
-      validationErrors.push('Le montant total doit être supérieur à 0.');
+      validationErrors.push("Le montant total doit être supérieur à 0.");
     }
 
     // Each non-pharmacy acte should have a valid code (pharmacy actes may not have a referentiel code)
     const actesWithoutCode = data.actes
       .map((a, i) => ({ index: i, code: a.code, careType: a.care_type }))
-      .filter((a) => (!a.code || a.code.trim() === '') && a.careType !== 'pharmacy');
+      .filter(
+        (a) => (!a.code || a.code.trim() === "") && a.careType !== "pharmacy",
+      );
     if (actesWithoutCode.length > 0) {
-      validationErrors.push(`Acte(s) ${actesWithoutCode.map(a => a.index + 1).join(', ')} : code acte requis (sélectionnez un acte du référentiel).`);
+      validationErrors.push(
+        `Acte(s) ${actesWithoutCode.map((a) => a.index + 1).join(", ")} : code acte requis (sélectionnez un acte du référentiel).`,
+      );
     }
 
     // If beneficiary is selected (not self), name must not be empty
-    if (data.beneficiary_relationship && data.beneficiary_relationship !== 'self' && !data.beneficiary_name?.trim()) {
-      validationErrors.push('Le nom du bénéficiaire (ayant droit) est requis.');
+    if (
+      data.beneficiary_relationship &&
+      data.beneficiary_relationship !== "self" &&
+      !data.beneficiary_name?.trim()
+    ) {
+      validationErrors.push("Le nom du bénéficiaire (ayant droit) est requis.");
     }
 
     if (validationErrors.length > 0) {
-      validationErrors.forEach(err => toast.error(err));
+      validationErrors.forEach((err) => toast.error(err));
       return;
     }
 
@@ -1037,22 +1357,61 @@ export function BulletinsSaisiePage() {
       // Everything is handled server-side in agent/create:
       // - Auto-create adherent if not found (dossier_complet = 0)
       // - Auto-create praticien for each acte with MF
-      await submitMutation.mutateAsync({ formData: data, files: selectedFiles });
+      await submitMutation.mutateAsync({
+        formData: data,
+        files: selectedFiles,
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleToggleBulletin = (id: string) => {
-    setSelectedBulletins(prev =>
-      prev.includes(id) ? prev.filter(b => b !== id) : [...prev, id]
+    setSelectedBulletins((prev) =>
+      prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id],
     );
   };
 
+  const handleToggleSelectAllBulletins = () => {
+    if (allDraftsSelected) {
+      setSelectedBulletins((prev) =>
+        prev.filter((id) => !draftIdsOnPage.includes(id)),
+      );
+    } else {
+      setSelectedBulletins((prev) => [
+        ...new Set([...prev, ...draftIdsOnPage]),
+      ]);
+    }
+  };
+
+  // Select-all for batches (current page)
+  const batchIdsOnPage = (batchesData || []).map((b: Batch) => b.id);
+  const allBatchesSelected =
+    batchIdsOnPage.length > 0 &&
+    batchIdsOnPage.every((id: string) => selectedBatches.includes(id));
+  const someBatchesSelected = batchIdsOnPage.some((id: string) =>
+    selectedBatches.includes(id),
+  );
+
+  const handleToggleSelectAllBatches = () => {
+    if (allBatchesSelected) {
+      setSelectedBatches((prev) =>
+        prev.filter((id) => !batchIdsOnPage.includes(id)),
+      );
+    } else {
+      setSelectedBatches((prev) => [...new Set([...prev, ...batchIdsOnPage])]);
+    }
+  };
+
+  // Clear selections when company changes
+  useEffect(() => {
+    setSelectedBulletins([]);
+    setSelectedBatches([]);
+  }, [selectedCompany?.id]);
 
   const handleCreateBatch = () => {
     if (!newBatchName.trim()) {
-      toast.error('Veuillez entrer un nom pour le lot');
+      toast.error("Veuillez entrer un nom pour le lot");
       return;
     }
     createBatchMutation.mutate({
@@ -1073,29 +1432,49 @@ export function BulletinsSaisiePage() {
   };
 
   const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat('fr-TN', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    }).format(amount) + ' DT';
+    return (
+      new Intl.NumberFormat("fr-TN", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      }).format(amount) + " DT"
+    );
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('fr-TN', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
+    return new Date(dateString).toLocaleDateString("fr-TN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
     });
   };
 
-  const draftCount = (bulletinsData || []).filter(b => b.status === 'draft').length;
-  const totalAmount = (bulletinsData || []).reduce((sum, b) => sum + b.total_amount, 0);
+  const draftCount = (bulletinsData || []).filter(
+    (b) => b.status === "draft",
+  ).length;
+  const totalAmount = (bulletinsData || []).reduce(
+    (sum, b) => sum + b.total_amount,
+    0,
+  );
 
   // Pagination (liste tab)
   const [listePage, setListePage] = useState(1);
   const listePageSize = 10;
   const filteredBulletins = bulletinsData || [];
-  const paginatedBulletins = filteredBulletins.slice((listePage - 1) * listePageSize, listePage * listePageSize);
-
+  const paginatedBulletins = filteredBulletins.slice(
+    (listePage - 1) * listePageSize,
+    listePage * listePageSize,
+  );
+  // Select-all for bulletins (draft only, current page)
+  const draftBulletinsOnPage = paginatedBulletins?.filter(
+    (b: BulletinSaisie) => b.status === "draft",
+  );
+  const draftIdsOnPage = draftBulletinsOnPage.map((b: BulletinSaisie) => b.id);
+  const allDraftsSelected =
+    draftIdsOnPage.length > 0 &&
+    draftIdsOnPage.every((id: string) => selectedBulletins.includes(id));
+  const someDraftsSelected = draftIdsOnPage.some((id: string) =>
+    selectedBulletins.includes(id),
+  );
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -1224,35 +1603,122 @@ export function BulletinsSaisiePage() {
 
         {/* Tab: Saisie */}
         <TabsContent value="saisie">
-          {!selectedBatch || selectedBatch.status === "exported" ? (
-            <Card className="border-amber-200 bg-amber-50">
-              <CardContent className="pt-6">
-                <div className="flex flex-col items-center gap-4 py-8 text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-100">
-                    <AlertTriangle className="h-7 w-7 text-amber-600" />
+          {/* Batch selector bar — always visible */}
+          {selectedCompany && (
+            <div className="mb-4 flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+              {selectedBatch && selectedBatch.status !== "exported" ? (
+                <>
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100">
+                    <Package className="h-4 w-4 text-emerald-600" />
                   </div>
-                  <div className="space-y-2">
-                    <h3 className="text-lg font-semibold text-amber-900">
-                      {selectedBatch?.status === "exported"
-                        ? "Lot deja exporte"
-                        : "Aucun lot selectionne"}
-                    </h3>
-                    <p className="text-sm text-amber-700 max-w-md">
-                      {selectedBatch?.status === "exported"
-                        ? "Le lot actuel a ete exporte. Veuillez creer un nouveau lot pour continuer la saisie."
-                        : "Vous devez selectionner une entreprise et creer un lot avant de pouvoir saisir un bulletin."}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
+                      Lot actif
+                    </p>
+                    <p className="text-sm font-semibold text-gray-900 truncate">
+                      {selectedBatch.name}
                     </p>
                   </div>
+                  <Badge
+                    variant="default"
+                    className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
+                  >
+                    Ouvert
+                  </Badge>
                   <Button
-                    className="mt-2"
+                    variant="ghost"
+                    size="sm"
+                    className="text-gray-400 hover:text-gray-600"
+                    onClick={() => setBatch(null)}
+                    title="Changer de lot"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">
+                      Lot
+                    </p>
+                    <p className="text-sm font-medium text-amber-700">
+                      {selectedBatch?.status === "exported"
+                        ? "Lot exporté — choisissez ou créez un nouveau lot"
+                        : "Aucun lot sélectionné"}
+                    </p>
+                  </div>
+                  {/* Open batches quick-select */}
+                  {(() => {
+                    const openBatches = (batchesData || []).filter(
+                      (b) => b.status === "open",
+                    );
+                    if (openBatches.length > 0) {
+                      return (
+                        <Select
+                          onValueChange={(batchId) => {
+                            const batch = openBatches.find(
+                              (b) => b.id === batchId,
+                            );
+                            if (batch) {
+                              setBatch({
+                                id: batch.id,
+                                name: batch.name,
+                                companyId: selectedCompany!.id,
+                                status: batch.status,
+                              });
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="w-[220px] rounded-xl">
+                            <SelectValue placeholder="Choisir un lot ouvert" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {openBatches.map((batch) => (
+                              <SelectItem key={batch.id} value={batch.id}>
+                                <span className="flex items-center gap-2">
+                                  <Package className="h-3.5 w-3.5 text-emerald-500" />
+                                  {batch.name}
+                                  <span className="text-xs text-gray-400">
+                                    ({batch.bulletins_count || 0})
+                                  </span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      );
+                    }
+                    return null;
+                  })()}
+                  <Button
+                    size="sm"
+                    className="rounded-xl"
                     onClick={() => {
-                      setActiveTab("lots");
+                      setNewBatchName("");
                       setShowBatchDialog(true);
                     }}
                   >
-                    <FolderPlus className="mr-2 h-4 w-4" />
-                    Creer un nouveau lot
+                    <FolderPlus className="mr-1.5 h-3.5 w-3.5" />
+                    Nouveau lot
                   </Button>
+                </>
+              )}
+            </div>
+          )}
+
+          {!selectedBatch || selectedBatch.status === "exported" ? (
+            <Card className="border-gray-200 bg-gray-50">
+              <CardContent className="pt-6">
+                <div className="flex flex-col items-center gap-3 py-6 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
+                    <Package className="h-6 w-6 text-gray-400" />
+                  </div>
+                  <p className="text-sm text-gray-500 max-w-md">
+                    Sélectionnez un lot ouvert ou créez-en un nouveau pour commencer la saisie de bulletins.
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -1290,7 +1756,10 @@ export function BulletinsSaisiePage() {
                 }
               })}
             >
-              <fieldset disabled={isSubmitting || isRegisteringAdherent} className="contents">
+              <fieldset
+                disabled={isSubmitting || isRegisteringAdherent}
+                className="contents"
+              >
                 <div className="grid gap-6 lg:grid-cols-3">
                   {/* ===== LEFT 2 COLUMNS ===== */}
                   <div className="lg:col-span-2 space-y-6">
@@ -1652,7 +2121,7 @@ export function BulletinsSaisiePage() {
                         </div>
                       </div>
 
-                      {/* Section 03: Recherche Adhérent */}
+                      {/* Section 03: don */}
                       <div className="rounded-2xl border border-gray-200 bg-white p-6">
                         <div className="flex items-center gap-3 mb-5">
                           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
@@ -1897,19 +2366,33 @@ export function BulletinsSaisiePage() {
                             </div>
 
                             {/* === ADHÉRENT sélectionné === */}
-                            {(!watch("beneficiary_relationship") || watch("beneficiary_relationship") === "self") && (
-                              selectedAdherentInfo ? (
+                            {(!watch("beneficiary_relationship") ||
+                              watch("beneficiary_relationship") === "self") &&
+                              (selectedAdherentInfo ? (
                                 <div className="rounded-xl border border-blue-200 bg-blue-50/30 p-4 space-y-3">
                                   <div className="flex items-center gap-3">
                                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
-                                      {(selectedAdherentInfo.firstName?.[0] || "").toUpperCase()}
-                                      {(selectedAdherentInfo.lastName?.[0] || "").toUpperCase()}
+                                      {(
+                                        selectedAdherentInfo.firstName?.[0] ||
+                                        ""
+                                      ).toUpperCase()}
+                                      {(
+                                        selectedAdherentInfo.lastName?.[0] || ""
+                                      ).toUpperCase()}
                                     </div>
                                     <div className="flex-1">
-                                      <p className="font-semibold text-sm text-gray-900">{selectedAdherentInfo.firstName} {selectedAdherentInfo.lastName}</p>
-                                      <p className="text-xs text-gray-500 font-mono">{selectedAdherentInfo.matricule}</p>
+                                      <p className="font-semibold text-sm text-gray-900">
+                                        {selectedAdherentInfo.firstName}{" "}
+                                        {selectedAdherentInfo.lastName}
+                                      </p>
+                                      <p className="text-xs text-gray-500 font-mono">
+                                        {selectedAdherentInfo.matricule}
+                                      </p>
                                     </div>
-                                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 border-green-200 text-green-700">
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] px-1.5 py-0 bg-green-50 border-green-200 text-green-700"
+                                    >
                                       <Check className="w-2.5 h-2.5 mr-0.5" />
                                       Actif
                                     </Badge>
@@ -1918,16 +2401,28 @@ export function BulletinsSaisiePage() {
                                     {selectedAdherentInfo.email && (
                                       <div>
                                         <p className="text-gray-500">Email</p>
-                                        <p className="text-gray-700">{selectedAdherentInfo.email}</p>
+                                        <p className="text-gray-700">
+                                          {selectedAdherentInfo.email}
+                                        </p>
                                       </div>
                                     )}
-                                    {selectedAdherentInfo.plafondGlobal != null && (
+                                    {selectedAdherentInfo.plafondGlobal !=
+                                      null && (
                                       <div>
-                                        <p className="text-gray-500">Plafond restant</p>
+                                        <p className="text-gray-500">
+                                          Plafond restant
+                                        </p>
                                         <p className="font-medium text-gray-700">
-                                          {new Intl.NumberFormat("fr-TN", { maximumFractionDigits: 0 }).format(
-                                            ((selectedAdherentInfo.plafondGlobal || 0) - (selectedAdherentInfo.plafondConsomme || 0)) / 1000
-                                          )} DT
+                                          {new Intl.NumberFormat("fr-TN", {
+                                            maximumFractionDigits: 0,
+                                          }).format(
+                                            ((selectedAdherentInfo.plafondGlobal ||
+                                              0) -
+                                              (selectedAdherentInfo.plafondConsomme ||
+                                                0)) /
+                                              1000,
+                                          )}{" "}
+                                          DT
                                         </p>
                                       </div>
                                     )}
@@ -1937,96 +2432,192 @@ export function BulletinsSaisiePage() {
                                 <div className="rounded-xl border border-amber-200 bg-amber-50/30 p-4 space-y-3">
                                   <div className="flex items-center gap-2">
                                     <AlertTriangle className="h-4 w-4 text-amber-600" />
-                                    <p className="text-sm font-medium text-amber-800">Adhérent non identifié</p>
+                                    <p className="text-sm font-medium text-amber-800">
+                                      Adhérent non identifié
+                                    </p>
                                   </div>
                                   <div className="grid gap-3 sm:grid-cols-2">
                                     <div className="space-y-1">
-                                      <Label className="text-xs text-gray-500">Nom</Label>
-                                      <Input {...register("adherent_last_name")} placeholder="Nom" className="rounded-xl text-sm" />
+                                      <Label className="text-xs text-gray-500">
+                                        Nom
+                                      </Label>
+                                      <Input
+                                        {...register("adherent_last_name")}
+                                        placeholder="Nom"
+                                        className="rounded-xl text-sm"
+                                      />
                                     </div>
                                     <div className="space-y-1">
-                                      <Label className="text-xs text-gray-500">Prénom</Label>
-                                      <Input {...register("adherent_first_name")} placeholder="Prénom" className="rounded-xl text-sm" />
+                                      <Label className="text-xs text-gray-500">
+                                        Prénom
+                                      </Label>
+                                      <Input
+                                        {...register("adherent_first_name")}
+                                        placeholder="Prénom"
+                                        className="rounded-xl text-sm"
+                                      />
                                     </div>
                                     <div className="space-y-1">
-                                      <Label className="text-xs text-gray-500">Date de naissance *</Label>
-                                      <Input type="date" {...register("adherent_date_of_birth")} className="rounded-xl text-sm" />
+                                      <Label className="text-xs text-gray-500">
+                                        Date de naissance *
+                                      </Label>
+                                      <Input
+                                        type="date"
+                                        {...register("adherent_date_of_birth")}
+                                        className="rounded-xl text-sm"
+                                      />
                                     </div>
                                     <div className="space-y-1">
-                                      <Label className="text-xs text-gray-500">N° Contrat</Label>
-                                      <Input {...register("adherent_contract_number")} placeholder="N° Contrat" className="rounded-xl text-sm" />
+                                      <Label className="text-xs text-gray-500">
+                                        N° Contrat
+                                      </Label>
+                                      <Input
+                                        {...register(
+                                          "adherent_contract_number",
+                                        )}
+                                        placeholder="N° Contrat"
+                                        className="rounded-xl text-sm"
+                                      />
                                     </div>
                                     <div className="space-y-1 sm:col-span-2">
-                                      <Label className="text-xs text-gray-500">Email</Label>
-                                      <Input type="email" {...register("adherent_email")} placeholder="email@exemple.com" className="rounded-xl text-sm" />
+                                      <Label className="text-xs text-gray-500">
+                                        Email
+                                      </Label>
+                                      <Input
+                                        type="email"
+                                        {...register("adherent_email")}
+                                        placeholder="email@exemple.com"
+                                        className="rounded-xl text-sm"
+                                      />
                                     </div>
                                   </div>
                                   <div className="flex items-center justify-end pt-1">
-                                    <Button type="button" size="sm" onClick={handleRegisterAdherent} disabled={isRegisteringAdherent} className="gap-1.5">
-                                      {isRegisteringAdherent ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
-                                      {isRegisteringAdherent ? "Enregistrement..." : "Enregistrer l'adhérent"}
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={handleRegisterAdherent}
+                                      disabled={isRegisteringAdherent}
+                                      className="gap-1.5"
+                                    >
+                                      {isRegisteringAdherent ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <UserPlus className="h-3.5 w-3.5" />
+                                      )}
+                                      {isRegisteringAdherent
+                                        ? "Enregistrement..."
+                                        : "Enregistrer l'adhérent"}
                                     </Button>
                                   </div>
                                 </div>
-                              ) : null
-                            )}
+                              ) : null)}
 
                             {/* === CONJOINT === */}
-                            {watch("beneficiary_relationship") === "spouse" && (
-                              selectedAdherentInfo && familleData?.conjoint ? (
+                            {watch("beneficiary_relationship") === "spouse" &&
+                              (selectedAdherentInfo && familleData?.conjoint ? (
                                 <div className="rounded-xl border border-purple-200 bg-purple-50/30 p-4 space-y-3">
                                   <div className="flex items-center gap-3">
                                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-600 text-sm font-bold text-white">
-                                      {(familleData.conjoint.firstName?.[0] || "").toUpperCase()}
-                                      {(familleData.conjoint.lastName?.[0] || "").toUpperCase()}
+                                      {(
+                                        familleData.conjoint.firstName?.[0] ||
+                                        ""
+                                      ).toUpperCase()}
+                                      {(
+                                        familleData.conjoint.lastName?.[0] || ""
+                                      ).toUpperCase()}
                                     </div>
                                     <div className="flex-1">
-                                      <p className="font-semibold text-sm text-gray-900">{familleData.conjoint.firstName} {familleData.conjoint.lastName}</p>
-                                      <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">Conjoint(e)</span>
+                                      <p className="font-semibold text-sm text-gray-900">
+                                        {familleData.conjoint.firstName}{" "}
+                                        {familleData.conjoint.lastName}
+                                      </p>
+                                      <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">
+                                        Conjoint(e)
+                                      </span>
                                     </div>
                                   </div>
                                   <div className="grid grid-cols-2 gap-2 text-xs">
                                     {familleData.conjoint.dateOfBirth && (
                                       <div>
-                                        <p className="text-gray-500">Date de naissance</p>
-                                        <p className="text-gray-700">{new Date(familleData.conjoint.dateOfBirth).toLocaleDateString("fr-TN")}</p>
+                                        <p className="text-gray-500">
+                                          Date de naissance
+                                        </p>
+                                        <p className="text-gray-700">
+                                          {new Date(
+                                            familleData.conjoint.dateOfBirth,
+                                          ).toLocaleDateString("fr-TN")}
+                                        </p>
                                       </div>
                                     )}
                                     {familleData.conjoint.email && (
                                       <div>
                                         <p className="text-gray-500">Email</p>
-                                        <p className="text-gray-700">{familleData.conjoint.email}</p>
+                                        <p className="text-gray-700">
+                                          {familleData.conjoint.email}
+                                        </p>
                                       </div>
                                     )}
                                   </div>
                                 </div>
                               ) : (
                                 <div className="rounded-xl border border-purple-200 bg-purple-50/30 p-4 space-y-3">
-                                  <p className="text-sm font-medium text-purple-800">Saisir les informations du/de la conjoint(e)</p>
+                                  <p className="text-sm font-medium text-purple-800">
+                                    Saisir les informations du/de la conjoint(e)
+                                  </p>
                                   <div className="grid gap-3 sm:grid-cols-2">
                                     <div className="space-y-1">
-                                      <Label className="text-xs text-gray-500">Nom et prénom</Label>
-                                      <Input placeholder="Nom et prénom" className="rounded-xl text-sm" value={watch("beneficiary_name") || ""} onChange={(e) => setValue("beneficiary_name", e.target.value)} />
+                                      <Label className="text-xs text-gray-500">
+                                        Nom et prénom
+                                      </Label>
+                                      <Input
+                                        placeholder="Nom et prénom"
+                                        className="rounded-xl text-sm"
+                                        value={watch("beneficiary_name") || ""}
+                                        onChange={(e) =>
+                                          setValue(
+                                            "beneficiary_name",
+                                            e.target.value,
+                                          )
+                                        }
+                                      />
                                     </div>
                                     <div className="space-y-1">
-                                      <Label className="text-xs text-gray-500">Date de naissance</Label>
-                                      <Input type="date" className="rounded-xl text-sm" {...register("beneficiary_date_of_birth")} />
+                                      <Label className="text-xs text-gray-500">
+                                        Date de naissance
+                                      </Label>
+                                      <Input
+                                        type="date"
+                                        className="rounded-xl text-sm"
+                                        {...register(
+                                          "beneficiary_date_of_birth",
+                                        )}
+                                      />
                                     </div>
                                     <div className="space-y-1">
-                                      <Label className="text-xs text-gray-500">Email</Label>
-                                      <Input type="email" placeholder="email@exemple.com" className="rounded-xl text-sm" {...register("beneficiary_email")} />
+                                      <Label className="text-xs text-gray-500">
+                                        Email
+                                      </Label>
+                                      <Input
+                                        type="email"
+                                        placeholder="email@exemple.com"
+                                        className="rounded-xl text-sm"
+                                        {...register("beneficiary_email")}
+                                      />
                                     </div>
                                   </div>
                                 </div>
-                              )
-                            )}
+                              ))}
 
                             {/* === ENFANT === */}
-                            {watch("beneficiary_relationship") === "child" && (
-                              selectedAdherentInfo && familleData?.enfants && familleData.enfants.length > 0 ? (
+                            {watch("beneficiary_relationship") === "child" &&
+                              (selectedAdherentInfo &&
+                              familleData?.enfants &&
+                              familleData.enfants.length > 0 ? (
                                 <div className="space-y-2">
                                   {familleData.enfants.length > 1 && (
-                                    <Label className="text-xs text-gray-500">Sélectionnez l'enfant concerné</Label>
+                                    <Label className="text-xs text-gray-500">
+                                      Sélectionnez l'enfant concerné
+                                    </Label>
                                   )}
                                   <div className="grid gap-2">
                                     {familleData.enfants.map((enfant) => (
@@ -2034,18 +2625,53 @@ export function BulletinsSaisiePage() {
                                         key={enfant.id}
                                         className={cn(
                                           "flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors",
-                                          watch("beneficiary_id") === enfant.id ? "border-emerald-500 bg-emerald-50/50" : "border-gray-200 hover:bg-gray-50",
+                                          watch("beneficiary_id") === enfant.id
+                                            ? "border-emerald-500 bg-emerald-50/50"
+                                            : "border-gray-200 hover:bg-gray-50",
                                         )}
                                       >
-                                        <input type="radio" name="child_selection" className="h-4 w-4 text-emerald-600 border-gray-300" checked={watch("beneficiary_id") === enfant.id} onChange={() => { setValue("beneficiary_name", `${enfant.firstName} ${enfant.lastName}`); setValue("beneficiary_id", enfant.id); }} />
+                                        <input
+                                          type="radio"
+                                          name="child_selection"
+                                          className="h-4 w-4 text-emerald-600 border-gray-300"
+                                          checked={
+                                            watch("beneficiary_id") ===
+                                            enfant.id
+                                          }
+                                          onChange={() => {
+                                            setValue(
+                                              "beneficiary_name",
+                                              `${enfant.firstName} ${enfant.lastName}`,
+                                            );
+                                            setValue(
+                                              "beneficiary_id",
+                                              enfant.id,
+                                            );
+                                          }}
+                                        />
                                         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">
-                                          {(enfant.firstName?.[0] || "").toUpperCase()}{(enfant.lastName?.[0] || "").toUpperCase()}
+                                          {(
+                                            enfant.firstName?.[0] || ""
+                                          ).toUpperCase()}
+                                          {(
+                                            enfant.lastName?.[0] || ""
+                                          ).toUpperCase()}
                                         </div>
                                         <div className="flex-1">
-                                          <p className="text-sm font-medium text-gray-900">{enfant.firstName} {enfant.lastName}</p>
+                                          <p className="text-sm font-medium text-gray-900">
+                                            {enfant.firstName} {enfant.lastName}
+                                          </p>
                                           <div className="flex items-center gap-3 text-[11px] text-gray-500 mt-0.5">
-                                            {enfant.dateOfBirth && <span>{new Date(enfant.dateOfBirth).toLocaleDateString("fr-TN")}</span>}
-                                            {enfant.email && <span>{enfant.email}</span>}
+                                            {enfant.dateOfBirth && (
+                                              <span>
+                                                {new Date(
+                                                  enfant.dateOfBirth,
+                                                ).toLocaleDateString("fr-TN")}
+                                              </span>
+                                            )}
+                                            {enfant.email && (
+                                              <span>{enfant.email}</span>
+                                            )}
                                           </div>
                                         </div>
                                       </label>
@@ -2054,24 +2680,52 @@ export function BulletinsSaisiePage() {
                                 </div>
                               ) : (
                                 <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-4 space-y-3">
-                                  <p className="text-sm font-medium text-emerald-800">Saisir les informations de l'enfant</p>
+                                  <p className="text-sm font-medium text-emerald-800">
+                                    Saisir les informations de l'enfant
+                                  </p>
                                   <div className="grid gap-3 sm:grid-cols-2">
                                     <div className="space-y-1">
-                                      <Label className="text-xs text-gray-500">Nom et prénom</Label>
-                                      <Input placeholder="Nom et prénom" className="rounded-xl text-sm" value={watch("beneficiary_name") || ""} onChange={(e) => setValue("beneficiary_name", e.target.value)} />
+                                      <Label className="text-xs text-gray-500">
+                                        Nom et prénom
+                                      </Label>
+                                      <Input
+                                        placeholder="Nom et prénom"
+                                        className="rounded-xl text-sm"
+                                        value={watch("beneficiary_name") || ""}
+                                        onChange={(e) =>
+                                          setValue(
+                                            "beneficiary_name",
+                                            e.target.value,
+                                          )
+                                        }
+                                      />
                                     </div>
                                     <div className="space-y-1">
-                                      <Label className="text-xs text-gray-500">Date de naissance</Label>
-                                      <Input type="date" className="rounded-xl text-sm" {...register("beneficiary_date_of_birth")} />
+                                      <Label className="text-xs text-gray-500">
+                                        Date de naissance
+                                      </Label>
+                                      <Input
+                                        type="date"
+                                        className="rounded-xl text-sm"
+                                        {...register(
+                                          "beneficiary_date_of_birth",
+                                        )}
+                                      />
                                     </div>
                                     <div className="space-y-1">
-                                      <Label className="text-xs text-gray-500">Email</Label>
-                                      <Input type="email" placeholder="email@exemple.com" className="rounded-xl text-sm" {...register("beneficiary_email")} />
+                                      <Label className="text-xs text-gray-500">
+                                        Email
+                                      </Label>
+                                      <Input
+                                        type="email"
+                                        placeholder="email@exemple.com"
+                                        className="rounded-xl text-sm"
+                                        {...register("beneficiary_email")}
+                                      />
                                     </div>
                                   </div>
                                 </div>
-                              )
-                            )}
+                              ))}
                           </div>
                         </div>
                       </div>
@@ -2100,6 +2754,7 @@ export function BulletinsSaisiePage() {
                               amount: 0,
                               ref_prof_sant: lastActe?.ref_prof_sant || "",
                               nom_prof_sant: lastActe?.nom_prof_sant || "",
+                              provider_id: lastActe?.provider_id || undefined,
                               care_type: lastActe?.care_type || "consultation",
                               care_description: "",
                               cod_msgr: "",
@@ -2144,7 +2799,9 @@ export function BulletinsSaisiePage() {
                                 </span>
                                 <Select
                                   value={acteCareType}
-                                  disabled={isSubmitting || isRegisteringAdherent}
+                                  disabled={
+                                    isSubmitting || isRegisteringAdherent
+                                  }
                                   onValueChange={(v) =>
                                     setValue(
                                       `actes.${index}.care_type`,
@@ -2377,8 +3034,16 @@ export function BulletinsSaisiePage() {
                                           `actes.${index}.nom_prof_sant`,
                                           provider.name,
                                         );
+                                        setValue(
+                                          `actes.${index}.provider_id`,
+                                          provider.id,
+                                        );
                                       }}
                                       onStatusChange={(status) => {
+                                        // Clear provider_id when MF changes and provider is not found
+                                        if (status !== 'found' && status !== 'registered') {
+                                          setValue(`actes.${index}.provider_id`, undefined);
+                                        }
                                         setMfStatuses((prev) => ({
                                           ...prev,
                                           [index]: status,
@@ -2442,7 +3107,10 @@ export function BulletinsSaisiePage() {
                                           value={
                                             watch(`actes.${index}.code`) || ""
                                           }
-                                          disabled={isSubmitting || isRegisteringAdherent}
+                                          disabled={
+                                            isSubmitting ||
+                                            isRegisteringAdherent
+                                          }
                                           onChange={(code, acte) => {
                                             setValue(
                                               `actes.${index}.code`,
@@ -2877,23 +3545,64 @@ export function BulletinsSaisiePage() {
                   />
                 </div>
                 {selectedBulletins.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowBatchDialog(true)}
-                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2.5 text-sm font-medium text-white hover:from-blue-700 hover:to-blue-800 shadow-lg shadow-blue-600/25"
-                  >
-                    <FolderPlus className="h-4 w-4" />
-                    Créer un lot ({selectedBulletins.length})
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">
+                      {selectedBulletins.length} sélectionné(s)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBulletins([])}
+                      className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      Désélectionner
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowBatchDialog(true)}
+                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2.5 text-sm font-medium text-white hover:from-blue-700 hover:to-blue-800 shadow-lg shadow-blue-600/25"
+                    >
+                      <FolderPlus className="h-4 w-4" />
+                      Créer un lot ({selectedBulletins.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (
+                          confirm(
+                            `Supprimer ${selectedBulletins.length} bulletin(s) ?`,
+                          )
+                        )
+                          bulkDeleteMutation.mutate(selectedBulletins);
+                      }}
+                      disabled={bulkDeleteMutation.isPending}
+                      className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Supprimer ({selectedBulletins.length})
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
 
             <DataTable
               columns={[
-                {
+                ...(filteredBulletins.length > 2 ? [{
                   key: "checkbox",
-                  header: "",
+                  header: (
+                    <input
+                      type="checkbox"
+                      checked={allDraftsSelected}
+                      ref={(el: HTMLInputElement | null) => {
+                        if (el)
+                          el.indeterminate =
+                            someDraftsSelected && !allDraftsSelected;
+                      }}
+                      onChange={handleToggleSelectAllBulletins}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      title="Sélectionner tous les brouillons"
+                    />
+                  ),
                   className: "w-10",
                   render: (row: BulletinSaisie) =>
                     row.status === "draft" ? (
@@ -2901,13 +3610,13 @@ export function BulletinsSaisiePage() {
                         type="checkbox"
                         checked={selectedBulletins.includes(row.id)}
                         onChange={() => handleToggleBulletin(row.id)}
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
                         className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                     ) : (
                       <div className="w-4" />
                     ),
-                },
+                }] : []),
                 {
                   key: "bulletin_number",
                   header: "Bulletin",
@@ -3100,10 +3809,73 @@ export function BulletinsSaisiePage() {
               <option value="closed">Fermé</option>
               <option value="exported">Exporté</option>
             </select>
+            {selectedBatches.length > 0 && (
+              <>
+                {/* <span className="text-sm text-gray-500">
+                  {selectedBatches.length} lot(s) sélectionné(s)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedBatches([])}
+                  className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Désélectionner
+                </button> */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (
+                      confirm(
+                        `Supprimer ${selectedBatches.length} lot(s) et leurs bulletins ?`,
+                      )
+                    )
+                      bulkDeleteBatchesMutation.mutate(selectedBatches);
+                  }}
+                  disabled={bulkDeleteBatchesMutation.isPending}
+                  className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Supprimer ({selectedBatches.length})
+                </button>
+              </>
+            )}
           </div>
 
           <DataTable
             columns={[
+              ...(batchesData.length > 2 ? [{
+                key: "checkbox",
+                header: (
+                  <input
+                    type="checkbox"
+                    checked={allBatchesSelected}
+                    ref={(el: HTMLInputElement | null) => {
+                      if (el)
+                        el.indeterminate =
+                          someBatchesSelected && !allBatchesSelected;
+                    }}
+                    onChange={handleToggleSelectAllBatches}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                    title="Sélectionner tous les lots"
+                  />
+                ),
+                className: "w-10",
+                render: (batch: Batch) => (
+                  <input
+                    type="checkbox"
+                    checked={selectedBatches.includes(batch.id)}
+                    onChange={() =>
+                      setSelectedBatches((prev) =>
+                        prev.includes(batch.id)
+                          ? prev.filter((b) => b !== batch.id)
+                          : [...prev, batch.id],
+                      )
+                    }
+                    onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                  />
+                ),
+              }] : []),
               {
                 key: "name",
                 header: "Nom du lot",
@@ -3231,19 +4003,27 @@ export function BulletinsSaisiePage() {
                 placeholder={`Lot_${new Date().toISOString().split("T")[0]}`}
               />
             </div>
-            <div className="p-3 rounded-lg bg-muted">
-              <p className="text-sm font-medium">
-                {selectedBulletins.length} bulletins selectionnes
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Montant total:{" "}
-                {formatAmount(
-                  (bulletinsData || [])
-                    .filter((b) => selectedBulletins.includes(b.id))
-                    .reduce((sum, b) => sum + b.total_amount, 0),
-                )}
-              </p>
-            </div>
+            {selectedBulletins.length > 0 ? (
+              <div className="p-3 rounded-lg bg-muted">
+                <p className="text-sm font-medium">
+                  {selectedBulletins.length} bulletins seront ajoutés au lot
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Montant total:{" "}
+                  {formatAmount(
+                    (bulletinsData || [])
+                      .filter((b) => selectedBulletins.includes(b.id))
+                      .reduce((sum, b) => sum + b.total_amount, 0),
+                  )}
+                </p>
+              </div>
+            ) : (
+              <div className="p-3 rounded-lg bg-blue-50 border border-blue-100">
+                <p className="text-sm text-blue-700">
+                  Le lot sera créé vide. Les prochains bulletins saisis y seront ajoutés automatiquement.
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBatchDialog(false)}>

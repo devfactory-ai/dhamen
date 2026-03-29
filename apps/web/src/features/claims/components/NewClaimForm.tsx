@@ -136,7 +136,7 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
       {/* Service Date */}
       <div className="space-y-2">
         <Label htmlFor="dateSoin">Date du soin</Label>
-        <Input id="dateSoin" type="date" {...register('dateSoin', { required: true })} />
+        <Input id="dateSoin" type="date" max={new Date().toISOString().split('T')[0]} {...register('dateSoin', { required: true })} />
       </div>
 
       {/* Items */}

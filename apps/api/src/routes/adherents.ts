@@ -1173,6 +1173,75 @@ adherents.put(
       userAgent: c.req.header('User-Agent'),
     });
 
+    // --- Update ayants droit if provided ---
+    if (data.ayantsDroit !== undefined) {
+      const conjoints = (data.ayantsDroit || []).filter((a) => a.lienParente === 'C');
+      if (conjoints.length > 1) {
+        return conflict(c, 'Un seul conjoint est autorisé par adhérent');
+      }
+
+      // Soft-delete existing ayants droit
+      await db
+        .prepare('UPDATE adherents SET deleted_at = datetime(\'now\') WHERE parent_adherent_id = ? AND deleted_at IS NULL')
+        .bind(id)
+        .run();
+
+      // Re-create from payload
+      const principalMatricule = (await db.prepare('SELECT matricule FROM adherents WHERE id = ?').bind(id).first<{ matricule: string }>())?.matricule || '0000';
+      let rangCounter = 1;
+
+      for (const ad of data.ayantsDroit || []) {
+        const adId = generateId();
+        const adEncryptedNationalId = await encrypt(ad.nationalId || '', encryptionKey);
+        const adNationalIdHash = ad.nationalId ? await hashForIndex(ad.nationalId, encryptionKey) : null;
+        const adEncryptedPhone = ad.phone ? await encrypt(ad.phone, encryptionKey) : null;
+
+        const suffix = ad.lienParente === 'C'
+          ? 'C1'
+          : `E${(data.ayantsDroit || []).filter((x, i) => x.lienParente === 'E' && i <= (data.ayantsDroit || []).indexOf(ad)).length}`;
+        const adMatricule = `${principalMatricule}-${suffix}`;
+
+        await db
+          .prepare(
+            `INSERT INTO adherents (
+              id, national_id_encrypted, national_id_hash, first_name, last_name,
+              date_of_birth, gender,
+              phone_encrypted, email,
+              company_id, matricule,
+              is_active, code_type, parent_adherent_id, rang_pres,
+              type_piece_identite, etat_fiche,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+          )
+          .bind(
+            adId, adEncryptedNationalId, adNationalIdHash, ad.firstName, ad.lastName,
+            ad.dateOfBirth, ad.gender ?? null,
+            adEncryptedPhone, ad.email || null,
+            existing.company_id, adMatricule,
+            ad.lienParente, id, rangCounter,
+            ad.typePieceIdentite ?? 'CIN', 'NON_TEMPORAIRE'
+          )
+          .run();
+
+        await logAudit(db, {
+          userId: user?.sub,
+          action: 'adherent.update_ayant_droit',
+          entityType: 'adherent',
+          entityId: adId,
+          changes: { parentId: id, codeType: ad.lienParente, firstName: ad.firstName, lastName: ad.lastName },
+          ipAddress: c.req.header('CF-Connecting-IP'),
+          userAgent: c.req.header('User-Agent'),
+        });
+
+        rangCounter++;
+      }
+
+      // Update principal code_type
+      if ((data.ayantsDroit || []).length > 0) {
+        await db.prepare('UPDATE adherents SET code_type = ? WHERE id = ?').bind('A', id).run();
+      }
+    }
+
     // Return updated adherent
     const updated = await db
       .prepare(`SELECT a.*, co.name as company_name FROM adherents a LEFT JOIN companies co ON a.company_id = co.id WHERE a.id = ?`)
@@ -1351,6 +1420,49 @@ adherents.delete('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   });
 
   return noContent(c);
+});
+
+/**
+ * POST /api/v1/adherents/bulk-delete
+ * Soft delete multiple adherents
+ */
+adherents.post('/bulk-delete', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
+  const user = c.get('user');
+  const db = getDb(c);
+  const body = await c.req.json<{ ids: string[] }>();
+  const ids = body.ids;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Liste d\'IDs requise' } }, 400);
+  }
+
+  if (ids.length > 100) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Maximum 100 adhérents à la fois' } }, 400);
+  }
+
+  try {
+    const now = new Date().toISOString();
+    const placeholders = ids.map(() => '?').join(',');
+    await db
+      .prepare(`UPDATE adherents SET deleted_at = ?, updated_at = ? WHERE id IN (${placeholders}) AND deleted_at IS NULL`)
+      .bind(now, now, ...ids)
+      .run();
+
+    await logAudit(db, {
+      userId: user?.sub,
+      action: 'adherent.bulk_delete',
+      entityType: 'adherent',
+      entityId: ids.join(','),
+      changes: { count: ids.length },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return c.json({ success: true, data: { deleted: ids.length } });
+  } catch (error) {
+    console.error('Error bulk deleting adherents:', error);
+    return c.json({ success: false, error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la suppression' } }, 500);
+  }
 });
 
 export { adherents };
