@@ -3,9 +3,9 @@
  *
  * Dedicated page for viewing reconciliation details
  */
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle, Loader2, FileText, CreditCard, Building, Calendar } from 'lucide-react';
+import { ChevronRight, CheckCircle, Loader2, FileText, CreditCard, Building, Calendar } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -102,16 +102,16 @@ export function ReconciliationDetailsPage() {
 
   return (
     <div className="space-y-6">
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/reconciliation" className="hover:text-gray-900 transition-colors">Réconciliation</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Détails</span>
+      </nav>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/reconciliation')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <PageHeader
-            title={`Reconciliation - ${item.bordereauNumber}`}
-            description={`Période: ${item.period}`}
-          />
-        </div>
+        <PageHeader
+          title={`Reconciliation - ${item.bordereauNumber}`}
+          description={`Période: ${item.period}`}
+        />
         <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
       </div>
 

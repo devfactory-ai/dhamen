@@ -4,8 +4,8 @@
  * Dedicated page for batch processing multiple payments
  */
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CreditCard, CheckCircle } from 'lucide-react';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { ChevronRight, CreditCard, CheckCircle } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -75,15 +75,15 @@ export function SantePaiementsBatchPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/sante/paiements')}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <PageHeader
-          title="Traitement par lot"
-          description={`${selectedIds.length} paiement(s) sélectionné(s)`}
-        />
-      </div>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/sante/paiements" className="hover:text-gray-900 transition-colors">Paiements</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Traitement par lot</span>
+      </nav>
+      <PageHeader
+        title="Traitement par lot"
+        description={`${selectedIds.length} paiement(s) sélectionné(s)`}
+      />
 
       {/* Summary */}
       <Card>

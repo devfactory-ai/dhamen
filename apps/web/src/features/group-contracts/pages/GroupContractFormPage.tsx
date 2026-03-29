@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowLeft,
+  ChevronRight,
   Upload,
   FileText,
   Loader2,
@@ -734,20 +734,19 @@ export function GroupContractFormPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/group-contracts')}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Retour
-        </Button>
-        <PageHeader
-          title={isEditing ? 'Modifier le contrat groupe' : 'Nouveau contrat groupe'}
-          description={
-            isEditing
-              ? `Modifier ${existingContract?.contract_number || ''}`
-              : 'Créer un nouveau contrat d\'assurance groupe'
-          }
-        />
-      </div>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/group-contracts" className="hover:text-gray-900 transition-colors">Contrats Groupe</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">{isEditing ? 'Modifier' : 'Nouveau'}</span>
+      </nav>
+      <PageHeader
+        title={isEditing ? 'Modifier le contrat groupe' : 'Nouveau contrat groupe'}
+        description={
+          isEditing
+            ? `Modifier ${existingContract?.contract_number || ''}`
+            : 'Créer un nouveau contrat d\'assurance groupe'
+        }
+      />
 
       {/* PDF Upload Zone */}
       {!isEditing && (

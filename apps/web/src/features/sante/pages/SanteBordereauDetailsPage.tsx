@@ -3,8 +3,8 @@
  *
  * Dedicated page for viewing bordereau details (replaces dialog)
  */
-import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, FileText, Calendar, CreditCard, Download } from 'lucide-react';
+import { useNavigate, useParams, Link } from 'react-router-dom';
+import { ChevronRight, FileText, Calendar, CreditCard, Download } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -104,21 +104,19 @@ export function SanteBordereauDetailsPage() {
 
   return (
     <div className="space-y-6">
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/sante/bordereaux" className="hover:text-gray-900 transition-colors">Bordereaux</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Détails</span>
+      </nav>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/sante/bordereaux')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <PageHeader
-            title={`Bordereau ${bordereau.numéroBordereau}`}
-            description={`Période: ${formatDate(bordereau.périodeDebut)} - ${formatDate(bordereau.périodeFin)}`}
-          />
-        </div>
-        <div className="flex items-center gap-3">
-          <span className={`rounded-full px-3 py-1 text-sm ${BORDEREAU_STATUTS_COLORS[bordereau.statut]}`}>
-            {BORDEREAU_STATUTS_LABELS[bordereau.statut]}
-          </span>
-        </div>
+        <PageHeader
+          title={`Bordereau ${bordereau.numéroBordereau}`}
+          description={`Période: ${formatDate(bordereau.périodeDebut)} - ${formatDate(bordereau.périodeFin)}`}
+        />
+        <span className={`rounded-full px-3 py-1 text-sm ${BORDEREAU_STATUTS_COLORS[bordereau.statut]}`}>
+          {BORDEREAU_STATUTS_LABELS[bordereau.statut]}
+        </span>
       </div>
 
       <div className="grid gap-6 md:grid-cols-4">

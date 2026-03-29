@@ -3,9 +3,9 @@
  *
  * Dedicated page for viewing health claim details (replaces dialog)
  */
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, FileText, User, Calendar, CreditCard, AlertTriangle } from 'lucide-react';
+import { ChevronRight, FileText, User, Calendar, CreditCard, AlertTriangle } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -69,16 +69,16 @@ export function SanteDemandeDetailsPage() {
 
   return (
     <div className="space-y-6">
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/sante/demandes" className="hover:text-gray-900 transition-colors">Demandes</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Détails</span>
+      </nav>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/sante/demandes')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <PageHeader
-            title={`Demande ${demande.numéroDemande}`}
-            description={`${SANTE_TYPE_SOINS_LABELS[demande.typeSoin]} - ${formatDate(demande.dateSoin)}`}
-          />
-        </div>
+        <PageHeader
+          title={`Demande ${demande.numéroDemande}`}
+          description={`${SANTE_TYPE_SOINS_LABELS[demande.typeSoin]} - ${formatDate(demande.dateSoin)}`}
+        />
         <div className="flex items-center gap-3">
           <span className={`rounded-full px-3 py-1 text-sm ${SANTE_STATUTS_COLORS[demande.statut]}`}>
             {SANTE_STATUTS_LABELS[demande.statut]}

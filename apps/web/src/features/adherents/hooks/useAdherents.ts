@@ -82,12 +82,12 @@ export interface CreateAdherentData {
 
 export type UpdateAdherentData = Partial<Omit<CreateAdherentData, 'nationalId' | 'companyId'>>;
 
-export function useAdherents(page = 1, limit = 20, search?: string, companyId?: string) {
+export function useAdherents(page = 1, limit = 20, search?: string, companyId?: string, isActive?: 'true' | 'false', dossierComplet?: 'true' | 'false') {
   return useQuery({
-    queryKey: ['adherents', page, limit, search, companyId],
+    queryKey: ['adherents', page, limit, search, companyId, isActive, dossierComplet],
     queryFn: async () => {
       const response = await apiClient.get<Adherent[]>('/adherents', {
-        params: { page, limit, search, companyId },
+        params: { page, limit, search, companyId, isActive, dossierComplet },
       });
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors du chargement des adhérents');

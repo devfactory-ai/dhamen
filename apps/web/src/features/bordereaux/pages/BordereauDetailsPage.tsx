@@ -4,9 +4,9 @@
  * Dedicated page for viewing bordereau details
  */
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download, Send, Loader2, FileText, CreditCard, Calendar, Building } from 'lucide-react';
+import { ChevronRight, Download, Send, Loader2, FileText, CreditCard, Calendar, Building } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -135,16 +135,16 @@ export function BordereauDetailsPage() {
 
   return (
     <div className="space-y-6">
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/bordereaux" className="hover:text-gray-900 transition-colors">Bordereaux</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Détails</span>
+      </nav>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/bordereaux')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <PageHeader
-            title={`Bordereau ${bordereau.bordereauNumber}`}
-            description={`Période: ${formatDate(bordereau.periodStart)} - ${formatDate(bordereau.periodEnd)}`}
-          />
-        </div>
+        <PageHeader
+          title={`Bordereau ${bordereau.bordereauNumber}`}
+          description={`Période: ${formatDate(bordereau.periodStart)} - ${formatDate(bordereau.periodEnd)}`}
+        />
         <Badge variant={BORDEREAU_STATUS[bordereau.status].variant}>
           {BORDEREAU_STATUS[bordereau.status].label}
         </Badge>

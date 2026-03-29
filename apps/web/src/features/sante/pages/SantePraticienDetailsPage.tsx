@@ -3,8 +3,8 @@
  *
  * Dedicated page for viewing practitioner details
  */
-import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, MapPin, Phone, Mail, Clock, Building, Activity } from 'lucide-react';
+import { useNavigate, useParams, Link } from 'react-router-dom';
+import { ChevronRight, MapPin, Phone, Mail, Clock, Building, Activity } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,16 +42,16 @@ export function SantePraticienDetailsPage() {
 
   return (
     <div className="space-y-6">
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/sante/praticiens" className="hover:text-gray-900 transition-colors">Praticiens</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Détails</span>
+      </nav>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/sante/praticiens')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <PageHeader
-            title={fullName}
-            description={praticien.spécialité}
-          />
-        </div>
+        <PageHeader
+          title={fullName}
+          description={praticien.spécialité}
+        />
         <div className="flex items-center gap-3">
           <Badge className={CONVENTIONNEMENT_COLORS[praticien.conventionnement]}>
             {CONVENTIONNEMENT_LABELS[praticien.conventionnement]}

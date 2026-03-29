@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
@@ -41,6 +42,7 @@ import {
   FileArchive,
   FolderOpen,
   Settings2,
+  ChevronRight,
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -821,6 +823,11 @@ export default function BulletinsImportPage() {
 
   return (
     <div className="space-y-6">
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/bulletins" className="hover:text-gray-900 transition-colors">Bulletins</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Importer un lot</span>
+      </nav>
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>

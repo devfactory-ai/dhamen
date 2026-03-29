@@ -1,6 +1,6 @@
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, FileText, Building2, Shield, Users, Pencil, Check } from 'lucide-react';
+import { ChevronRight, FileText, Building2, Shield, Users, Pencil, Check } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -127,17 +127,16 @@ export function GroupContractDetailPage() {
 
   return (
     <div className="space-y-6">
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/group-contracts" className="hover:text-gray-900 transition-colors">Contrats Groupe</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Détails</span>
+      </nav>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/group-contracts')}>
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Retour
-          </Button>
-          <PageHeader
-            title={`Contrat ${contract.contract_number}`}
-            description={contract.company_name}
-          />
-        </div>
+        <PageHeader
+          title={`Contrat ${contract.contract_number}`}
+          description={contract.company_name}
+        />
         <div className="flex items-center gap-2">
           <Button
             variant="outline"

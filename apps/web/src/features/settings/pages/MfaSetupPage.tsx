@@ -4,9 +4,9 @@
  * Dedicated page for setting up two-factor authentication
  */
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowLeft, Shield, Loader2, Copy, Check } from 'lucide-react';
+import { ChevronRight, Shield, Loader2, Copy, Check } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -88,15 +88,15 @@ export function MfaSetupPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/settings')}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <PageHeader
-          title="Configurer l'authentification a deux facteurs"
-          description="Ajoutez le code secret dans votre application d'authentification"
-        />
-      </div>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/settings" className="hover:text-gray-900 transition-colors">Paramètres</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Authentification à deux facteurs</span>
+      </nav>
+      <PageHeader
+        title="Configurer l'authentification a deux facteurs"
+        description="Ajoutez le code secret dans votre application d'authentification"
+      />
 
       <Card className="max-w-md mx-auto">
         <CardHeader>

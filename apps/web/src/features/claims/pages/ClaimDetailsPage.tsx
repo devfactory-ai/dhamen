@@ -3,9 +3,9 @@
  *
  * Dedicated page for viewing claim/PEC details (replaces dialog)
  */
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, FileText, User, Calendar, CreditCard, AlertTriangle } from 'lucide-react';
+import { ChevronRight, FileText, User, Calendar, CreditCard, AlertTriangle } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -106,16 +106,16 @@ export function ClaimDetailsPage() {
 
   return (
     <div className="space-y-6">
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/claims" className="hover:text-gray-900 transition-colors">Demandes PEC</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Détails</span>
+      </nav>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/claims')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <PageHeader
-            title={`PEC ${claim.claimNumber}`}
-            description={`${typeInfo.label} - ${formatDate(claim.serviceDate)}`}
-          />
-        </div>
+        <PageHeader
+          title={`PEC ${claim.claimNumber}`}
+          description={`${typeInfo.label} - ${formatDate(claim.serviceDate)}`}
+        />
         <Badge variant={statusInfo.variant} className="text-sm px-3 py-1">
           {statusInfo.label}
         </Badge>

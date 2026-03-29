@@ -4,9 +4,9 @@
  * Dedicated page for processing a single payment
  */
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, CreditCard } from 'lucide-react';
+import { ChevronRight, CreditCard } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -111,15 +111,15 @@ export function SantePaiementProcessPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/sante/paiements')}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <PageHeader
-          title={`Paiement ${paiement.numéroPaiement}`}
-          description="Effectuér le paiement"
-        />
-      </div>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/sante/paiements" className="hover:text-gray-900 transition-colors">Paiements</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Traitement</span>
+      </nav>
+      <PageHeader
+        title={`Paiement ${paiement.numéroPaiement}`}
+        description="Effectuér le paiement"
+      />
 
       {/* Payment Summary */}
       <Card>

@@ -2,9 +2,9 @@
  * UsersImportPage - Bulk import users from CSV file
  */
 import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowLeft, Upload, CheckCircle2, XCircle, AlertTriangle, Download } from 'lucide-react';
+import { Upload, CheckCircle2, XCircle, AlertTriangle, Download, ChevronRight } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { FilePreview } from '@/components/ui/file-preview';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -147,12 +147,12 @@ export function UsersImportPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/users')}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <PageHeader title="Import d'utilisateurs" description="Importer des utilisateurs en masse depuis un fichier CSV" />
-      </div>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/users" className="hover:text-gray-900 transition-colors">Utilisateurs</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Importer</span>
+      </nav>
+      <PageHeader title="Import d'utilisateurs" description="Importer des utilisateurs en masse depuis un fichier CSV" />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

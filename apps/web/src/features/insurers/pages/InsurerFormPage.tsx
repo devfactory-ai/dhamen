@@ -4,11 +4,11 @@
  * Dedicated page for insurer creation and editing (replaces dialog)
  */
 import { useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ArrowLeft } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -130,15 +130,15 @@ export function InsurerFormPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/insurers')}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <PageHeader
-          title={isEditing ? 'Modifier l\'assureur' : 'Nouvel assureur'}
-          description={isEditing ? 'Modifier les informations de l\'assureur' : 'Ajouter un nouvel assureur ou mutuelle'}
-        />
-      </div>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/insurers" className="hover:text-gray-900 transition-colors">Assureurs</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">{isEditing ? 'Modifier' : 'Nouvel Assureur'}</span>
+      </nav>
+      <PageHeader
+        title={isEditing ? 'Modifier l\'assureur' : 'Nouvel assureur'}
+        description={isEditing ? 'Modifier les informations de l\'assureur' : 'Ajouter un nouvel assureur ou mutuelle'}
+      />
 
       <Card className="max-w-2xl">
         <CardHeader>

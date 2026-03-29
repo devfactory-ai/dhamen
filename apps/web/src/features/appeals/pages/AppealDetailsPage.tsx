@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -43,7 +43,7 @@ import {
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { useToast } from '@/stores/toast';
 import {
-  ArrowLeft,
+  ChevronRight,
   Clock,
   User,
   FileText,
@@ -168,16 +168,15 @@ export function AppealDetailsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/appeals')}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Retour
-        </Button>
-        <PageHeader
-          title={`Recours #${appeal.id.slice(0, 8)}`}
-          description={`Sinistre: ${appeal.claim_reference || appeal.claim_id}`}
-        />
-      </div>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/appeals" className="hover:text-gray-900 transition-colors">Recours</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Détails</span>
+      </nav>
+      <PageHeader
+        title={`Recours #${appeal.id.slice(0, 8)}`}
+        description={`Sinistre: ${appeal.claim_reference || appeal.claim_id}`}
+      />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Main Content */}

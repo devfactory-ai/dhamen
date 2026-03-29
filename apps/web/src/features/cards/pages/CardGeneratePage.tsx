@@ -4,8 +4,8 @@
  * Dedicated page for generating a new virtual card (replaces dialog)
  */
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CreditCard, Search } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { ChevronRight, CreditCard, Search } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -53,15 +53,15 @@ export function CardGeneratePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/cards')}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <PageHeader
-          title="Générer une carte virtuelle"
-          description="Créer une nouvelle carte virtuelle pour un adhérent"
-        />
-      </div>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/cards" className="hover:text-gray-900 transition-colors">Cartes</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Générer</span>
+      </nav>
+      <PageHeader
+        title="Générer une carte virtuelle"
+        description="Créer une nouvelle carte virtuelle pour un adhérent"
+      />
 
       <Card className="max-w-2xl">
         <CardHeader>

@@ -4,9 +4,9 @@
  * Dedicated page for configuring notification préférences
  */
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowLeft, Bell, Loader2 } from 'lucide-react';
+import { ChevronRight, Bell, Loader2 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -49,15 +49,15 @@ export function NotificationsSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/settings')}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <PageHeader
-          title="Préférences de notification"
-          description="Configurez les notifications que vous souhaitez recevoir"
-        />
-      </div>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/settings" className="hover:text-gray-900 transition-colors">Paramètres</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Notifications</span>
+      </nav>
+      <PageHeader
+        title="Préférences de notification"
+        description="Configurez les notifications que vous souhaitez recevoir"
+      />
 
       <Card className="max-w-md mx-auto">
         <CardHeader>

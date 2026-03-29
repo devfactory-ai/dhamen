@@ -4,9 +4,9 @@
  * Dedicated page for processing (approve/reject) a health claim (replaces dialog)
  */
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, FileText, CheckCircle, XCircle } from 'lucide-react';
+import { ChevronRight, FileText, CheckCircle, XCircle } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -119,15 +119,15 @@ export function SanteDemandeProcessPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/sante/demandes')}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <PageHeader
-          title={`Traiter la demande ${demande.numéroDemande}`}
-          description="Approuver ou rejeter cette demande de remboursement"
-        />
-      </div>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/sante/demandes" className="hover:text-gray-900 transition-colors">Demandes</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Traitement</span>
+      </nav>
+      <PageHeader
+        title={`Traiter la demande ${demande.numéroDemande}`}
+        description="Approuver ou rejeter cette demande de remboursement"
+      />
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Demande Info Card */}

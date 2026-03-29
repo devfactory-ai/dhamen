@@ -3,9 +3,9 @@
  *
  * Dedicated page for viewing payment details
  */
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, CreditCard, User, Calendar, FileText } from 'lucide-react';
+import { ChevronRight, CreditCard, User, Calendar, FileText } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -67,16 +67,16 @@ export function SantePaiementDetailsPage() {
 
   return (
     <div className="space-y-6">
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/sante/paiements" className="hover:text-gray-900 transition-colors">Paiements</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Détails</span>
+      </nav>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/sante/paiements')}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <PageHeader
-            title={`Paiement ${paiement.numéroPaiement}`}
-            description={`Créé le ${formatDate(paiement.createdAt)}`}
-          />
-        </div>
+        <PageHeader
+          title={`Paiement ${paiement.numéroPaiement}`}
+          description={`Créé le ${formatDate(paiement.createdAt)}`}
+        />
         <div className="flex items-center gap-3">
           <span className={`rounded-full px-3 py-1 text-sm ${PAIEMENT_STATUTS_COLORS[paiement.statut]}`}>
             {PAIEMENT_STATUTS_LABELS[paiement.statut]}

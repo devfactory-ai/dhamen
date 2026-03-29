@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/page-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -43,7 +43,7 @@ import {
 } from '../hooks/usePreAuthorizations';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import {
-  ArrowLeft,
+  ChevronRight,
   CheckCircle,
   XCircle,
   Clock,
@@ -208,15 +208,17 @@ export function PreAuthorizationDetailsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/pre-authorizations')}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/pre-authorizations" className="hover:text-gray-900 transition-colors">Accords préalables</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Détails</span>
+      </nav>
+      <div className="flex items-center justify-between">
         <PageHeader
           title={`Accord préalable ${preAuth.authorization_number || preAuth.id.slice(0, 8)}`}
           description={`${getCareTypeLabel(preAuth.care_type)} - ${preAuth.procedure_description}`}
         />
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center gap-2">
           {preAuth.is_emergency === 1 && (
             <Badge variant="destructive">
               <AlertTriangle className="mr-1 h-3 w-3" />

@@ -4,9 +4,9 @@
  * Dedicated page for contract creation and editing (replaces dialog)
  */
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -178,15 +178,15 @@ export function ContractFormPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/contracts')}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <PageHeader
-          title={isEditing ? 'Modifier le contrat' : 'Nouveau contrat'}
-          description={isEditing ? 'Modifier les informations du contrat' : 'Créer un nouveau contrat d\'assurance sante'}
-        />
-      </div>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/contracts" className="hover:text-gray-900 transition-colors">Contrats</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">{isEditing ? 'Modifier' : 'Nouveau Contrat'}</span>
+      </nav>
+      <PageHeader
+        title={isEditing ? 'Modifier le contrat' : 'Nouveau contrat'}
+        description={isEditing ? 'Modifier les informations du contrat' : 'Créer un nouveau contrat d\'assurance santé'}
+      />
 
       <Card className="max-w-3xl">
         <CardHeader>

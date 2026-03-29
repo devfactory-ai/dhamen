@@ -1,9 +1,9 @@
 /**
  * SanteContreVisiteDetailsPage - View and manage contre-visite details
  */
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Calendar, User, FileText, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { ChevronRight, Calendar, User, FileText, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -301,16 +301,16 @@ export function SanteContreVisiteDetailsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/sante/contre-visites')}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div className="flex-1">
-          <PageHeader
-            title={`Contre-visite ${cv.numéroContreVisite}`}
-            description={`Demande ${cv.demande.numéroDemande}`}
-          />
-        </div>
+      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+        <Link to="/sante/contre-visites" className="hover:text-gray-900 transition-colors">Contre-visites</Link>
+        <ChevronRight className="w-4 h-4" />
+        <span className="text-gray-900 font-medium">Détails</span>
+      </nav>
+      <div className="flex items-center justify-between">
+        <PageHeader
+          title={`Contre-visite ${cv.numéroContreVisite}`}
+          description={`Demande ${cv.demande.numéroDemande}`}
+        />
         <Badge variant={STATUT_VARIANTS[cv.statut]} className="text-base px-3 py-1">
           {STATUT_LABELS[cv.statut]}
         </Badge>

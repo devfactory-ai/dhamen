@@ -477,6 +477,8 @@ adherents.get(
     const search = c.req.query('search') || undefined;
     const city = c.req.query('city') || undefined;
     const companyId = c.req.query('companyId') || undefined;
+    const isActiveParam = c.req.query('isActive');
+    const dossierCompletParam = c.req.query('dossierComplet');
     const user = c.get('user');
     const db = getDb(c);
     const offset = (page - 1) * limit;
@@ -487,6 +489,18 @@ adherents.get(
     if (companyId) {
       whereClause += ' AND a.company_id = ?';
       params.push(companyId);
+    }
+
+    if (isActiveParam === 'true') {
+      whereClause += ' AND a.is_active = 1';
+    } else if (isActiveParam === 'false') {
+      whereClause += ' AND a.is_active = 0';
+    }
+
+    if (dossierCompletParam === 'false') {
+      whereClause += ' AND (a.dossier_complet = 0 OR a.dossier_complet IS NULL)';
+    } else if (dossierCompletParam === 'true') {
+      whereClause += ' AND a.dossier_complet = 1';
     }
 
     if (user.insurerId) {
