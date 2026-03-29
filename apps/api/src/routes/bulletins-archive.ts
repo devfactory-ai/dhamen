@@ -377,7 +377,7 @@ bulletinsArchive.get('/stats', async (c) => {
     }, 403);
   }
 
-  const db = c.get('tenantDb') ?? c.env.DB;
+  const db = c.env.DB;
   const companyId = c.req.query('companyId');
 
   try {
@@ -406,7 +406,7 @@ bulletinsArchive.get('/stats', async (c) => {
       ORDER BY year DESC
     `).bind(...companyParams).all();
 
-    // Recent batches
+    // Recent batches — filter via bulletins_soins.company_id for compatibility
     const recentBatches = await db.prepare(`
       SELECT
         bb.id, bb.name, bb.created_at,
@@ -414,7 +414,7 @@ bulletinsArchive.get('/stats', async (c) => {
         SUM(CASE WHEN bs.scan_url IS NOT NULL THEN 1 ELSE 0 END) as with_scans
       FROM bulletin_batches bb
       LEFT JOIN bulletins_soins bs ON bs.batch_id = bb.id
-      ${companyId ? 'WHERE bb.company_id = ?' : ''}
+      ${companyId ? 'WHERE bs.company_id = ?' : ''}
       GROUP BY bb.id
       ORDER BY bb.created_at DESC
       LIMIT 5
@@ -434,7 +434,7 @@ bulletinsArchive.get('/stats', async (c) => {
     console.error('Error getting archive stats:', error);
     return c.json({
       success: false,
-      error: { code: 'DATABASE_ERROR', message: 'Erreur lors du chargement' },
+      error: { code: 'DATABASE_ERROR', message: String(error) },
     }, 500);
   }
 });
