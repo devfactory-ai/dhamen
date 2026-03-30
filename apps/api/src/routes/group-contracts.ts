@@ -20,10 +20,18 @@ import type { Bindings, Variables } from '../types';
 // ---------------------------------------------------------------------------
 
 const CARE_TYPES = [
-  'consultation', 'pharmacy', 'laboratory', 'optical', 'refractive_surgery',
-  'medical_acts', 'transport', 'surgery', 'orthopedics', 'hospitalization',
-  'maternity', 'ivg', 'dental', 'orthodontics', 'circumcision',
-  'sanatorium', 'thermal_cure', 'funeral',
+  'consultation', 'consultation_visite', 'pharmacy', 'pharmacie',
+  'laboratory', 'laboratoire', 'optical', 'optique',
+  'refractive_surgery', 'chirurgie_refractive',
+  'medical_acts', 'actes_courants', 'transport',
+  'surgery', 'chirurgie', 'orthopedics', 'orthopedie',
+  'hospitalization', 'hospitalisation',
+  'maternity', 'accouchement',
+  'ivg', 'interruption_grossesse',
+  'dental', 'dentaire', 'orthodontics', 'orthodontie',
+  'circumcision', 'circoncision',
+  'sanatorium', 'thermal_cure', 'cures_thermales',
+  'funeral', 'frais_funeraires',
 ] as const;
 
 const PLAN_CATEGORIES = ['basic', 'standard', 'premium', 'vip'] as const;
@@ -91,7 +99,7 @@ const groupContractFiltersSchema = z.object({
   planCategory: z.enum(PLAN_CATEGORIES).optional(),
   contractType: z.enum([...CONTRACT_TYPES, 'all']).optional(),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+  limit: z.coerce.number().int().min(1).max(500).default(20),
 });
 
 // ---------------------------------------------------------------------------
@@ -275,7 +283,7 @@ groupContracts.post(
 
     // Check for duplicate contract number
     const existing = await db
-      .prepare('SELECT id FROM group_contracts WHERE contract_number = ?')
+      .prepare('SELECT id FROM group_contracts WHERE contract_number = ? AND deleted_at IS NULL')
       .bind(data.contractNumber)
       .first();
     if (existing) {
@@ -382,6 +390,56 @@ groupContracts.post(
       }
     }
 
+    // For individual contracts, auto-create the individual `contracts` record
+    // since there's only one adherent — no need for a separate "apply-to-adherents" step
+    let individualContractId: string | null = null;
+    if (isIndividual && data.adherentId) {
+      individualContractId = generateId();
+      const indContractNumber = `${data.contractNumber}-IND`;
+
+      // Build coverage from guarantees
+      const coverageMap: Record<string, unknown> = {};
+      if (data.guarantees) {
+        for (const g of data.guarantees) {
+          coverageMap[g.careType] = {
+            enabled: true,
+            reimbursementRate: g.reimbursementRate ? Number(g.reimbursementRate) * 100 : null,
+            annualLimit: g.annualLimit ?? null,
+            perEventLimit: g.perEventLimit ?? null,
+          };
+        }
+      }
+
+      const endDate = data.endDate
+        ?? data.annualRenewalDate
+        ?? new Date(new Date(data.effectiveDate).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+      await db
+        .prepare(
+          `INSERT INTO contracts (
+            id, contract_number, adherent_id, insurer_id,
+            plan_type, status, coverage_json,
+            start_date, end_date,
+            group_contract_id,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          individualContractId,
+          indContractNumber,
+          data.adherentId,
+          effectiveInsurerId,
+          data.planCategory ?? 'individual',
+          JSON.stringify(coverageMap),
+          data.effectiveDate,
+          endDate,
+          contractId, // link to the group_contract
+          now,
+          now
+        )
+        .run();
+    }
+
     // Audit log
     await logAudit(getDb(c), {
       userId: user?.sub,
@@ -393,6 +451,8 @@ groupContracts.post(
         companyId: data.companyId,
         insurerId: effectiveInsurerId,
         guaranteesCount: data.guarantees?.length ?? 0,
+        contractType: data.contractType,
+        individualContractCreated: !!individualContractId,
       },
       ipAddress: c.req.header('CF-Connecting-IP'),
       userAgent: c.req.header('User-Agent'),
@@ -409,7 +469,7 @@ groupContracts.post(
       .bind(contractId)
       .all();
 
-    return created(c, { ...result, guarantees: guarantees.results ?? [] });
+    return created(c, { ...result, guarantees: guarantees.results ?? [], individualContractId });
   }
 );
 
@@ -1642,19 +1702,35 @@ groupContracts.post(
       return errorResponse(c, 'CONTRACT_NOT_ACTIVE', 'Le contrat groupe doit être actif pour être appliqué', 400);
     }
 
-    // Get all active adherents for the company
-    const adherents = await db
-      .prepare(
-        `SELECT id, first_name, last_name FROM adherents
-         WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL`
-      )
-      .bind(groupContract.company_id)
-      .all<{ id: string; first_name: string; last_name: string }>();
+    // Get adherents based on contract type
+    let adherentList: { id: string; first_name: string; last_name: string }[];
 
-    const adherentList = adherents.results ?? [];
+    if (groupContract.contract_type === 'individual' && groupContract.adherent_id) {
+      // Individual contract: single adherent
+      const adherent = await db
+        .prepare(
+          `SELECT id, first_name, last_name FROM adherents
+           WHERE id = ? AND status = 'active' AND deleted_at IS NULL`
+        )
+        .bind(groupContract.adherent_id)
+        .first<{ id: string; first_name: string; last_name: string }>();
+
+      adherentList = adherent ? [adherent] : [];
+    } else {
+      // Group contract: all active adherents for the company
+      const adherents = await db
+        .prepare(
+          `SELECT id, first_name, last_name FROM adherents
+           WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL`
+        )
+        .bind(groupContract.company_id)
+        .all<{ id: string; first_name: string; last_name: string }>();
+
+      adherentList = adherents.results ?? [];
+    }
 
     if (adherentList.length === 0) {
-      return errorResponse(c, 'NO_ADHERENTS', 'Aucun adhérent actif trouvé pour cette entreprise', 400);
+      return errorResponse(c, 'NO_ADHERENTS', 'Aucun adhérent actif trouvé', 400);
     }
 
     // Fetch guarantees for building coverage JSON
@@ -1736,6 +1812,74 @@ groupContracts.post(
       createdCount++;
     }
 
+    // Initialize plafonds_beneficiaire for each adherent from group contract baremes
+    // This ensures the 3-level ceiling system works during reimbursement calculation
+    let plafondsCreated = 0;
+    const currentYear = new Date().getFullYear();
+    const years = [currentYear, currentYear + 1]; // Current + next year
+
+    // Get all distinct family plafonds from contrat_baremes
+    const baremes = await db
+      .prepare(
+        `SELECT DISTINCT cb.famille_id, cb.plafond_famille_annuel
+         FROM contrat_baremes cb
+         JOIN contrat_periodes cp ON cb.periode_id = cp.id
+         WHERE cp.contract_id = ? AND cb.plafond_famille_annuel IS NOT NULL AND cb.famille_id IS NOT NULL`
+      )
+      .bind(id)
+      .all<{ famille_id: string; plafond_famille_annuel: number }>();
+
+    // Get global plafond from group_contracts
+    const globalLimit = groupContract.annual_global_limit as number | null;
+
+    for (const adherent of adherentList) {
+      for (const year of years) {
+        // Create family-level plafonds for each bareme famille
+        for (const b of (baremes.results ?? [])) {
+          for (const maladie of ['ordinaire', 'chronique'] as const) {
+            try {
+              await db
+                .prepare(
+                  `INSERT OR IGNORE INTO plafonds_beneficiaire
+                   (id, adherent_id, contract_id, annee, famille_acte_id, type_maladie, montant_plafond, montant_consomme, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))`
+                )
+                .bind(
+                  generateId(),
+                  adherent.id,
+                  id, // group_contract_id — baremes are at this level
+                  year,
+                  b.famille_id,
+                  maladie,
+                  b.plafond_famille_annuel
+                )
+                .run();
+              plafondsCreated++;
+            } catch {
+              // Ignore duplicates
+            }
+          }
+        }
+
+        // Create global plafond (famille_acte_id IS NULL)
+        if (globalLimit) {
+          try {
+            await db
+              .prepare(
+                `INSERT OR IGNORE INTO plafonds_beneficiaire
+                 (id, adherent_id, contract_id, annee, famille_acte_id, type_maladie, montant_plafond, montant_consomme, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, NULL, 'ordinaire', ?, 0, datetime('now'), datetime('now'))`
+              )
+              .bind(generateId(), adherent.id, id, year, globalLimit)
+              .run();
+            plafondsCreated++;
+          } catch {
+            // Ignore duplicates
+          }
+        }
+      }
+    }
+
     // Audit log
     await logAudit(getDb(c), {
       userId: user?.sub,
@@ -1747,6 +1891,7 @@ groupContracts.post(
         totalAdherents: adherentList.length,
         contractsCreated: createdCount,
         contractsSkipped: skippedCount,
+        plafondsCreated,
       },
       ipAddress: c.req.header('CF-Connecting-IP'),
       userAgent: c.req.header('User-Agent'),
@@ -1757,8 +1902,69 @@ groupContracts.post(
       totalAdherents: adherentList.length,
       contractsCreated: createdCount,
       contractsSkipped: skippedCount,
-      message: `${createdCount} contrats individuels créés, ${skippedCount} adhérents déjà couverts.`,
+      plafondsCreated,
+      message: `${createdCount} contrats individuels créés, ${skippedCount} adhérents déjà couverts, ${plafondsCreated} plafonds initialisés.`,
     });
+  }
+);
+
+// ---------------------------------------------------------------------------
+// DELETE /:id — Soft-delete a group contract
+// ---------------------------------------------------------------------------
+groupContracts.delete(
+  '/:id',
+  requireRole('ADMIN', 'INSURER_ADMIN'),
+  async (c) => {
+    const id = c.req.param('id');
+    const user = c.get('user');
+    const db = getDb(c);
+
+    const existing = await db
+      .prepare('SELECT id, contract_number, insurer_id, status FROM group_contracts WHERE id = ? AND deleted_at IS NULL')
+      .bind(id)
+      .first<{ id: string; contract_number: string; insurer_id: string; status: string }>();
+
+    if (!existing) {
+      return notFound(c, 'Contrat groupe non trouvé');
+    }
+
+    if (
+      user?.insurerId &&
+      user.role === 'INSURER_ADMIN' &&
+      existing.insurer_id !== user.insurerId
+    ) {
+      return notFound(c, 'Contrat groupe non trouvé');
+    }
+
+    // Soft-delete the contract
+    await db
+      .prepare("UPDATE group_contracts SET deleted_at = datetime('now'), status = 'cancelled', updated_at = datetime('now') WHERE id = ?")
+      .bind(id)
+      .run();
+
+    // Also soft-delete associated individual contracts
+    await db
+      .prepare("UPDATE contracts SET status = 'cancelled', updated_at = datetime('now') WHERE group_contract_id = ?")
+      .bind(id)
+      .run();
+
+    // Deactivate guarantees
+    await db
+      .prepare("UPDATE contract_guarantees SET is_active = 0, updated_at = datetime('now') WHERE group_contract_id = ?")
+      .bind(id)
+      .run();
+
+    await logAudit(getDb(c), {
+      userId: user?.sub,
+      action: 'group_contract.delete',
+      entityType: 'group_contract',
+      entityId: id,
+      changes: { contractNumber: existing.contract_number, previousStatus: existing.status },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return success(c, { message: 'Contrat supprimé avec succès' });
   }
 );
 

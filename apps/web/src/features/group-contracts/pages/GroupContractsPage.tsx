@@ -1,12 +1,23 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Plus, FileText, Building2, Shield, Eye, Pencil, User } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Plus, FileText, Building2, Shield, Eye, Pencil, User, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
+import { useToast } from '@/stores/toast';
 import { DataTable } from '@/components/ui/data-table';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface GroupContract {
   id: string;
@@ -36,6 +47,8 @@ const STATUS_LABELS: Record<string, { label: string; variant: 'success' | 'secon
 
 export function GroupContractsPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const toast = useToast();
   const { selectedCompany } = useAgentContext();
   const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
   const typeFilter = isIndividualMode ? 'individual' : 'all';
@@ -44,6 +57,22 @@ export function GroupContractsPage() {
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 10;
+  const [deleteTarget, setDeleteTarget] = useState<GroupContract | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (contractId: string) => {
+      const response = await apiClient.delete(`/group-contracts/${contractId}`);
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['group-contracts'] });
+      toast.success('Contrat supprimé avec succès');
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Erreur lors de la suppression');
+    },
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ['group-contracts', statusFilter, typeFilter],
@@ -180,6 +209,14 @@ export function GroupContractsPage() {
             title="Modifier"
           >
             <Pencil className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setDeleteTarget(contract)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+            title="Supprimer"
+          >
+            <Trash2 className="h-4 w-4" />
           </button>
         </div>
       ),
@@ -428,6 +465,30 @@ export function GroupContractsPage() {
           onPageChange: setPage,
         }}
       />
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer le contrat</AlertDialogTitle>
+            <AlertDialogDescription>
+              Êtes-vous sûr de vouloir supprimer le contrat <strong>{deleteTarget?.contract_number}</strong> ? Les contrats individuels et garanties associés seront également désactivés. Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteTarget) deleteMutation.mutate(deleteTarget.id);
+                setDeleteTarget(null);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

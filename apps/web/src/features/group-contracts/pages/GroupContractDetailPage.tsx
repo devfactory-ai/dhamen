@@ -1,10 +1,21 @@
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, FileText, Building2, Shield, Users, Pencil, Check } from 'lucide-react';
+import { ChevronRight, FileText, Building2, Shield, Users, Pencil, Check, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/stores/toast';
 
@@ -29,6 +40,7 @@ interface Guarantee {
 interface GroupContract {
   id: string;
   contract_number: string;
+  contract_type: 'group' | 'individual';
   company_id: string;
   company_name: string;
   insurer_id: string | null;
@@ -97,6 +109,22 @@ export function GroupContractDetailPage() {
     enabled: !!id,
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiClient.delete(`/group-contracts/${id}`);
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: () => {
+      toast({ title: 'Contrat supprimé avec succès', variant: 'success' });
+      queryClient.invalidateQueries({ queryKey: ['group-contracts'] });
+      navigate('/group-contracts');
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Erreur', description: err.message, variant: 'destructive' });
+    },
+  });
+
   const applyMutation = useMutation({
     mutationFn: async () => {
       const response = await apiClient.post(`/group-contracts/${id}/apply-to-adherents`);
@@ -138,18 +166,47 @@ export function GroupContractDetailPage() {
           description={contract.company_name}
         />
         <div className="flex items-center gap-2">
+          {contract.status === 'active' && (
           <Button
             variant="outline"
             onClick={() => applyMutation.mutate()}
             disabled={applyMutation.isPending}
           >
             <Users className="mr-2 h-4 w-4" />
-            {applyMutation.isPending ? 'Application...' : 'Appliquer aux adherents'}
+            {applyMutation.isPending ? 'Application...' : contract.contract_type === 'individual' ? 'Créer contrat individuel' : 'Appliquer aux adhérents'}
           </Button>
+          )}
+
           <Button onClick={() => navigate(`/group-contracts/${id}/edit`)}>
             <Pencil className="mr-2 h-4 w-4" />
             Modifier
           </Button>
+
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" disabled={deleteMutation.isPending}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                {deleteMutation.isPending ? 'Suppression...' : 'Supprimer'}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Supprimer le contrat</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Êtes-vous sûr de vouloir supprimer le contrat <strong>{contract.contract_number}</strong> ? Les contrats individuels et garanties associés seront également désactivés. Cette action est irréversible.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Annuler</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => deleteMutation.mutate()}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Supprimer
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 

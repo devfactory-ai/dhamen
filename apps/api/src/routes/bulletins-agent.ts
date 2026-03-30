@@ -512,10 +512,15 @@ bulletinsAgent.get('/batches/:id/export', async (c) => {
   const db = c.get('tenantDb') ?? c.env.DB;
 
   try {
-    // Verify batch ownership — INSURER_ADMIN can export any batch from their insurer
+    // Verify batch ownership — ADMIN can access any, INSURER roles can access their insurer's batches
     let batch: Record<string, unknown> | null = null;
 
-    if (user.role === 'INSURER_ADMIN' && user.insurerId) {
+    if (user.role === 'ADMIN') {
+      batch = await db
+        .prepare('SELECT * FROM bulletin_batches WHERE id = ?')
+        .bind(batchId)
+        .first();
+    } else if (user.insurerId) {
       batch = await db
         .prepare(`
         SELECT bb.* FROM bulletin_batches bb
@@ -687,10 +692,15 @@ bulletinsAgent.get('/batches/:id/export-detail', async (c) => {
   const db = c.get('tenantDb') ?? c.env.DB;
 
   try {
-    // Verify batch ownership
+    // Verify batch ownership — ADMIN can access any, INSURER roles can access their insurer's batches
     let batch: Record<string, unknown> | null = null;
 
-    if (user.role === 'INSURER_ADMIN' && user.insurerId) {
+    if (user.role === 'ADMIN') {
+      batch = await db
+        .prepare('SELECT * FROM bulletin_batches WHERE id = ?')
+        .bind(batchId)
+        .first();
+    } else if (user.insurerId) {
       batch = await db
         .prepare(`
         SELECT bb.* FROM bulletin_batches bb
@@ -1226,12 +1236,15 @@ bulletinsAgent.post('/create', async (c) => {
   try {
     // Validate batch if provided
     if (batchId) {
-      // INSURER_ADMIN can use any batch from their insurer's companies
-      // INSURER_AGENT can only use their own batches
+      // ADMIN can access any batch
+      // INSURER_ADMIN / INSURER_AGENT can use any batch from their insurer's companies
       let batchQuery: string;
       const batchParams: string[] = [batchId];
 
-      if (user.role === 'INSURER_ADMIN' && user.insurerId) {
+      if (user.role === 'ADMIN') {
+        batchQuery =
+          'SELECT id, status, created_by FROM bulletin_batches WHERE id = ?';
+      } else if (user.insurerId) {
         batchQuery =
           'SELECT bb.id, bb.status, bb.created_by FROM bulletin_batches bb JOIN companies co ON bb.company_id = co.id WHERE bb.id = ? AND co.insurer_id = ?';
         batchParams.push(user.insurerId);
@@ -1360,6 +1373,52 @@ bulletinsAgent.post('/create', async (c) => {
 
       adherentId = newAdherentId;
       adherentAutoCreated = true;
+
+      // Auto-create individual contract linked to active group contract
+      try {
+        const effectiveCompanyId = adherentCompanyId;
+        if (effectiveCompanyId) {
+          const activeGroupContract = await db
+            .prepare(
+              `SELECT id, insurer_id, effective_date, annual_renewal_date, annual_global_limit
+               FROM group_contracts
+               WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL
+               ORDER BY created_at DESC LIMIT 1`
+            )
+            .bind(effectiveCompanyId)
+            .first<{ id: string; insurer_id: string; effective_date: string; annual_renewal_date: string | null; annual_global_limit: number | null }>();
+
+          if (activeGroupContract) {
+            const indContractId = generateId();
+            // Compute end_date: use annual_renewal_date, or default to effective_date + 1 year
+            let indEndDate = activeGroupContract.annual_renewal_date;
+            if (!indEndDate) {
+              const d = new Date(activeGroupContract.effective_date);
+              d.setFullYear(d.getFullYear() + 1);
+              indEndDate = d.toISOString().split('T')[0]!;
+            }
+            await db
+              .prepare(
+                `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, created_at, updated_at, group_contract_id)
+                 VALUES (?, ?, ?, ?, 'corporate', ?, ?, 0, ?, '{}', 'active', datetime('now'), datetime('now'), ?)`
+              )
+              .bind(
+                indContractId,
+                activeGroupContract.insurer_id,
+                newAdherentId,
+                `${adherentMatricule}-IND`,
+                activeGroupContract.effective_date,
+                indEndDate,
+                activeGroupContract.annual_global_limit ? activeGroupContract.annual_global_limit * 1000 : null,
+                activeGroupContract.id
+              )
+              .run();
+            console.log('[SAISIE] Auto-created individual contract for new adherent:', newAdherentId, '→ group:', activeGroupContract.id);
+          }
+        }
+      } catch (contractErr) {
+        console.error('[SAISIE] Failed to auto-create contract:', contractErr instanceof Error ? contractErr.message : contractErr);
+      }
     } else {
       // Verify identity coherence: matricule must match the name or CIN provided
       const dbFirstName = adherentResult.first_name as string | null;
@@ -1503,7 +1562,7 @@ bulletinsAgent.post('/create', async (c) => {
             `INSERT INTO providers (id, type, name, license_no, mf_number, mf_verified, is_active, address, city, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, 0, 1, 'À compléter', 'À compléter', datetime('now'), datetime('now'))`
           )
-          .bind(newProviderId, provType, effectiveName, licenseNo, normalizedMf)
+          .bind(newProviderId, provType, effectiveName, licenseNo, rawMf)
           .run();
         console.log('[PROVIDER-LOOKUP] Inserted into providers table:', newProviderId);
 
@@ -1539,7 +1598,7 @@ bulletinsAgent.post('/create', async (c) => {
               `INSERT INTO practitioner_mf_verifications (id, provider_id, mf_number, verification_status, created_at, updated_at)
                VALUES (?, ?, ?, 'pending', datetime('now'), datetime('now'))`
             )
-            .bind(verificationId, newProviderId, normalizedMf)
+            .bind(verificationId, newProviderId, rawMf)
             .run();
         } catch (mfvError) {
           console.error('[PROVIDER-LOOKUP] MF verification INSERT failed:', mfvError instanceof Error ? mfvError.message : mfvError);
@@ -1622,6 +1681,7 @@ bulletinsAgent.post('/create', async (c) => {
 
     // Insert actes and calculate reimbursement
     let reimbursedAmount: number | null = null;
+    const warnings: string[] = [];
 
     if (actes.length > 0) {
       // Try contract-bareme-aware calculation first, fallback to legacy
@@ -1848,6 +1908,9 @@ bulletinsAgent.post('/create', async (c) => {
         }
       } else {
         // Legacy calculation fallback (no contract found)
+        if (!contractId) {
+          warnings.push('Aucun contrat actif trouvé pour cet adhérent. Le remboursement a été calculé avec les taux par défaut, sans barèmes contractuels ni plafonds. Veuillez créer et appliquer un contrat pour un calcul précis.');
+        }
         const actesInput: ActeInput[] = [];
         for (let i = 0; i < actes.length; i++) {
           const acte = actes[i]!;
@@ -1939,6 +2002,7 @@ bulletinsAgent.post('/create', async (c) => {
           reimbursed_amount: reimbursedAmount,
           adherent_auto_created: adherentAutoCreated || undefined,
           newlyRegisteredProviders: newlyRegisteredProviders.length > 0 ? newlyRegisteredProviders : undefined,
+          warnings: warnings.length > 0 ? warnings : undefined,
         },
       },
       201
@@ -2171,6 +2235,49 @@ bulletinsAgent.post('/import-lot', async (c) => {
           .run();
         adherentId = newAdherentId;
         adherentAutoCreated = true;
+
+        // Auto-create individual contract linked to active group contract for this company
+        try {
+          const activeGroupContract = await db
+            .prepare(
+              `SELECT id, insurer_id, effective_date, annual_renewal_date, annual_global_limit
+               FROM group_contracts
+               WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL
+               ORDER BY created_at DESC LIMIT 1`
+            )
+            .bind(companyId)
+            .first<{ id: string; insurer_id: string; effective_date: string; annual_renewal_date: string | null; annual_global_limit: number | null }>();
+
+          if (activeGroupContract) {
+            const indContractId = generateId();
+            // Compute end_date: use annual_renewal_date, or default to effective_date + 1 year
+            let indEndDate = activeGroupContract.annual_renewal_date;
+            if (!indEndDate) {
+              const d = new Date(activeGroupContract.effective_date);
+              d.setFullYear(d.getFullYear() + 1);
+              indEndDate = d.toISOString().split('T')[0]!;
+            }
+            await db
+              .prepare(
+                `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, created_at, updated_at, group_contract_id)
+                 VALUES (?, ?, ?, ?, 'corporate', ?, ?, 0, ?, '{}', 'active', datetime('now'), datetime('now'), ?)`
+              )
+              .bind(
+                indContractId,
+                activeGroupContract.insurer_id,
+                newAdherentId,
+                `${bulletin.adherent_matricule}-IND`,
+                activeGroupContract.effective_date,
+                indEndDate,
+                activeGroupContract.annual_global_limit ? activeGroupContract.annual_global_limit * 1000 : null,
+                activeGroupContract.id
+              )
+              .run();
+            console.log('[IMPORT] Auto-created individual contract for new adherent:', newAdherentId, '→ group:', activeGroupContract.id);
+          }
+        } catch (contractErr) {
+          console.error('[IMPORT] Failed to auto-create contract for adherent:', contractErr instanceof Error ? contractErr.message : contractErr);
+        }
       }
 
       // Insert bulletin

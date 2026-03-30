@@ -174,13 +174,14 @@ const formSchema = z.object({
   company_name_extracted: z.string().optional(),
   company_address: z.string().optional(),
   matricule_fiscale: z.string().optional(),
-  insurer_id: z.string().optional(),
+  insurer_id: z.string().min(1, 'Assureur requis'),
   insurer_name_extracted: z.string().optional(),
   intermediary_name: z.string().optional(),
   intermediary_code: z.string().optional(),
   effective_date: z.string().min(1, 'Date d\'effet requise'),
   expiry_date: z.string().optional(),
   global_ceiling: z.number().min(0).nullable().optional(),
+  carence_days: z.number().min(0).nullable().optional(),
   covered_risks: z.array(z.string()).optional(),
   covers_spouse: z.boolean().optional(),
   covers_children: z.boolean().optional(),
@@ -325,8 +326,9 @@ export function GroupContractFormPage() {
     watch,
     reset,
     control,
-    formState: { errors },
+    formState: { errors, isValid },
   } = useForm<FormData>({
+    mode: 'onChange',
     resolver: zodResolver(formSchema),
     defaultValues: {
       contract_type: 'group',
@@ -343,6 +345,7 @@ export function GroupContractFormPage() {
       effective_date: '',
       expiry_date: '',
       global_ceiling: null,
+      carence_days: null,
       covered_risks: [],
       covers_spouse: true,
       covers_children: true,
@@ -421,10 +424,11 @@ export function GroupContractFormPage() {
         contract_number: existingContract.contract_number,
         company_id: existingContract.company_id,
         insurer_id: existingContract.insurer_id || '',
-        intermediary: existingContract.intermediary || '',
+        intermediary_name: existingContract.intermediary || '',
         effective_date: existingContract.effective_date || '',
         expiry_date: existingContract.expiry_date || '',
         global_ceiling: existingContract.global_ceiling,
+        carence_days: (existingContract as unknown as { carence_days?: number | null }).carence_days ?? null,
         covered_risks: coveredRisks,
         category: existingContract.category || '',
         status: existingContract.status,
@@ -457,6 +461,21 @@ export function GroupContractFormPage() {
       setValue('contract_type', urlContractType as 'group' | 'individual');
     }
   }, [urlContractType, isEditing, setValue]);
+
+  // Auto-select BH Assurance as default insurer when insurers load
+  useEffect(() => {
+    if (!isEditing && insurers && insurers.length > 0 && !watch('insurer_id')) {
+      const bh = insurers.find((ins) => ins.name.toLowerCase().includes('bh'));
+      if (bh) {
+        setValue('insurer_id', bh.id);
+      } else {
+        // If only one insurer, select it by default
+        if (insurers.length === 1) {
+          setValue('insurer_id', insurers[0]!.id);
+        }
+      }
+    }
+  }, [insurers, isEditing, setValue, watch]);
 
   // ---- PDF Upload ----
 
@@ -540,6 +559,81 @@ export function GroupContractFormPage() {
 
         // Pre-fill guarantees from Gemini extracted data
         const geminiGuarantees = extracted.guarantees || [];
+
+        // Normalize careType from AI/API values to frontend CARE_TYPES values
+        // Handles case-insensitive matching + alias mapping
+        const CARE_TYPE_ALIASES: Record<string, string> = {
+          consultation: 'consultation_visite',
+          consultation_visite: 'consultation_visite',
+          consultations_visites: 'consultation_visite',
+          'soins medicaux': 'consultation_visite',
+          'soins médicaux': 'consultation_visite',
+          pharmacy: 'pharmacie',
+          pharmacie: 'pharmacie',
+          'frais pharmaceutiques': 'pharmacie',
+          laboratory: 'laboratoire',
+          laboratoire: 'laboratoire',
+          analyses: 'laboratoire',
+          'analyses et travaux de laboratoire': 'laboratoire',
+          optical: 'optique',
+          optique: 'optique',
+          refractive_surgery: 'chirurgie_refractive',
+          chirurgie_refractive: 'chirurgie_refractive',
+          'chirurgie refractive': 'chirurgie_refractive',
+          medical_acts: 'actes_courants',
+          actes_courants: 'actes_courants',
+          'actes medicaux courants': 'actes_courants',
+          'actes médicaux courants': 'actes_courants',
+          transport: 'transport',
+          'transport du malade': 'transport',
+          surgery: 'chirurgie',
+          chirurgie: 'chirurgie',
+          'frais chirurgicaux': 'chirurgie',
+          orthopedics: 'orthopedie',
+          orthopedie: 'orthopedie',
+          'orthopédie': 'orthopedie',
+          'orthopedie protheses': 'orthopedie',
+          hospitalization: 'hospitalisation',
+          hospitalisation: 'hospitalisation',
+          maternity: 'accouchement',
+          accouchement: 'accouchement',
+          ivg: 'interruption_grossesse',
+          interruption_grossesse: 'interruption_grossesse',
+          'interruption involontaire de grossesse': 'interruption_grossesse',
+          dental: 'dentaire',
+          dentaire: 'dentaire',
+          'soins et protheses dentaires': 'dentaire',
+          'soins et prothèses dentaires': 'dentaire',
+          orthodontics: 'orthodontie',
+          orthodontie: 'orthodontie',
+          'soins orthodontiques': 'orthodontie',
+          circumcision: 'circoncision',
+          circoncision: 'circoncision',
+          sanatorium: 'sanatorium',
+          'sanatorium preventorium': 'sanatorium',
+          thermal_cure: 'cures_thermales',
+          cures_thermales: 'cures_thermales',
+          'cures thermales': 'cures_thermales',
+          funeral: 'frais_funeraires',
+          frais_funeraires: 'frais_funeraires',
+          'frais funeraires': 'frais_funeraires',
+          'frais funéraires': 'frais_funeraires',
+        };
+
+        const normalizeCareType = (raw: string): string => {
+          const key = raw.toLowerCase().trim()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents
+            .replace(/[^a-z0-9_ ]/g, '');                    // strip special chars
+          // Try exact match first
+          if (CARE_TYPE_ALIASES[key]) return CARE_TYPE_ALIASES[key]!;
+          // Try partial match
+          for (const [alias, value] of Object.entries(CARE_TYPE_ALIASES)) {
+            if (key.includes(alias) || alias.includes(key)) return value;
+          }
+          // Fallback: return as-is (will show in form for manual correction)
+          return raw;
+        };
+
         if (geminiGuarantees.length > 0) {
           const mappedGuarantees = geminiGuarantees.map((g) => {
             // Convert reimbursementRate (0-1 decimal) to percentage (0-100)
@@ -560,9 +654,11 @@ export function GroupContractFormPage() {
             if (g.conditionsText) conditionParts.push(g.conditionsText);
             if (g.exclusionsText) conditionParts.push(`Exclusions: ${g.exclusionsText}`);
 
+            const normalizedCareType = normalizeCareType(g.careType || g.label || '');
+
             return {
-              care_type: g.careType,
-              label: g.label || CARE_TYPES.find((ct) => ct.value === g.careType)?.label || '',
+              care_type: normalizedCareType,
+              label: g.label || CARE_TYPES.find((ct) => ct.value === normalizedCareType)?.label || '',
               rate: ratePercent,
               annual_ceiling: g.annualLimit ?? null,
               per_act_ceiling: g.perEventLimit ?? null,
@@ -647,6 +743,7 @@ export function GroupContractFormPage() {
         effectiveDate: data.effective_date,
         annualRenewalDate: data.expiry_date || undefined,
         annualGlobalLimit: data.global_ceiling ?? undefined,
+        carenceDays: data.carence_days ?? 0,
         planCategory: data.category || 'standard',
         status: data.status || 'draft',
         riskIllness: data.covered_risks?.includes('Maladie') ?? true,
@@ -684,10 +781,13 @@ export function GroupContractFormPage() {
         })),
       };
 
-      if (isEditing) {
-        return apiClient.put(`/group-contracts/${id}`, payload);
+      const response = isEditing
+        ? await apiClient.put(`/group-contracts/${id}`, payload)
+        : await apiClient.post('/group-contracts', payload);
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur lors de la sauvegarde');
       }
-      return apiClient.post('/group-contracts', payload);
+      return response;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['group-contracts'] });
@@ -1126,6 +1226,19 @@ export function GroupContractFormPage() {
                   {...register('global_ceiling', { valueAsNumber: true })}
                   placeholder="Ex: 6000"
                 />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="carence_days">Jours de carence</Label>
+                <Input
+                  id="carence_days"
+                  type="number"
+                  min="0"
+                  {...register('carence_days', { valueAsNumber: true })}
+                  placeholder="Ex: 0"
+                />
+                <p className="text-xs text-muted-foreground">Délai avant prise en charge</p>
               </div>
             </div>
           </CardContent>
@@ -1662,7 +1775,7 @@ export function GroupContractFormPage() {
           <Button type="button" variant="outline" onClick={() => navigate('/group-contracts')}>
             Annuler
           </Button>
-          <Button type="submit" disabled={mutation.isPending}>
+          <Button type="submit" disabled={mutation.isPending || (!isValid && !isEditing)}>
             {mutation.isPending ? 'Enregistrement...' : isEditing ? 'Enregistrer' : 'Créer le contrat'}
           </Button>
         </div>

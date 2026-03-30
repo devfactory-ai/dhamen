@@ -170,7 +170,7 @@ const acteFormSchema = z.object({
   code: z.string().optional().or(z.literal('')),
   label: z.string().min(1, 'Libelle requis'),
   amount: z.number().positive('Montant > 0'),
-  ref_prof_sant: z.string().optional().or(z.literal('')),
+  ref_prof_sant: z.string().min(1, 'Matricule fiscale du praticien requis'),
   nom_prof_sant: z.string().optional().or(z.literal('')),
   provider_id: z.string().optional(),
   care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']),
@@ -285,6 +285,10 @@ export function BulletinsSaisiePage() {
       setValue("adherent_first_name", match.firstName || "");
       setValue("adherent_last_name", match.lastName || "");
       if (match.email) setValue("adherent_email", match.email);
+      // Auto-select "self" as default bénéficiaire when adherent is found
+      if (!watch("beneficiary_relationship")) {
+        setValue("beneficiary_relationship", "self");
+      }
       setShowAdherentDropdown(false);
     }
   }, [adherentResults]);
@@ -389,11 +393,16 @@ export function BulletinsSaisiePage() {
   const hasMfBlocking =
     watchedActes?.length > 0 &&
     watchedActes.some((_a, idx) => {
+      const mfValue = _a?.ref_prof_sant?.trim();
+      if (!mfValue) return true; // MF vide = bloquant
       const status = mfStatuses[idx];
       return status && MF_BLOCKING_STATUSES.includes(status);
     });
   const mfBlockingReason = (() => {
     if (!hasMfBlocking) return null;
+    // Check if any acte has empty MF
+    if (watchedActes?.some((_a) => !_a?.ref_prof_sant?.trim()))
+      return "Matricule fiscale du praticien requis";
     const statuses = watchedActes?.map((_a, idx) => mfStatuses[idx]);
     if (statuses?.some((s) => s === "invalid"))
       return "Matricule fiscale invalide";
@@ -549,9 +558,14 @@ export function BulletinsSaisiePage() {
 
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (result: { success: boolean; data?: { warnings?: string[] } }) => {
       queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
-      toast.success("Bulletin saisi avec succes!");
+      const responseWarnings = result?.data?.warnings;
+      if (responseWarnings && responseWarnings.length > 0) {
+        toast.warning(responseWarnings[0] || "Attention: remboursement approximatif");
+      } else {
+        toast.success("Bulletin saisi avec succès!");
+      }
       reset();
       setSelectedFiles([]);
       setSelectedAdherentInfo(null);
@@ -1026,7 +1040,16 @@ export function BulletinsSaisiePage() {
               "beneficiary_relationship" as keyof BulletinFormData,
               "parent",
             );
+          } else if (benef.includes("adh") || benef.includes("assur") || benef.includes("lui-m") || benef.includes("elle-m")) {
+            setValue(
+              "beneficiary_relationship" as keyof BulletinFormData,
+              "self",
+            );
           }
+        }
+        // Default to "self" if no beneficiaire detected from OCR
+        if (!info.beneficiaire_coche) {
+          setValue("beneficiary_relationship" as keyof BulletinFormData, "self");
         }
       }
 
@@ -2225,6 +2248,8 @@ export function BulletinsSaisiePage() {
                                           "adherent_email",
                                           a.email || "",
                                         );
+                                        // Auto-select "self" as default bénéficiaire
+                                        setValue("beneficiary_relationship", "self");
                                         setAdherentSearch("");
                                         setShowAdherentDropdown(false);
                                         setSelectedAdherentInfo(a);

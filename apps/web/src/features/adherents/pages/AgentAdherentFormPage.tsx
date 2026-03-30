@@ -13,8 +13,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { UserPlus, Pencil, Save, Plus, Trash2, Users, User } from 'lucide-react';
+import { UserPlus, Pencil, Save, Plus, Trash2, Users, User, Search, Import, Loader2 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogFooter,
+  AlertDialogCancel,
+} from '@/components/ui/alert-dialog';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
+import { apiClient } from '@/lib/api-client';
 import { useAdherentFamille } from '@/features/agent/hooks/use-adherent-famille';
 import {
   useAdherent,
@@ -128,6 +137,65 @@ export function AgentAdherentFormPage() {
   const [form, setForm] = useState<AdherentFormState>(emptyForm);
   const [ayantsDroit, setAyantsDroit] = useState<AyantDroitFormState[]>([]);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Import existing adherent as ayant droit
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importSearchQuery, setImportSearchQuery] = useState('');
+  const [importSearchResults, setImportSearchResults] = useState<Array<{
+    id: string; matricule: string; first_name: string; last_name: string;
+    date_of_birth: string | null; gender: string | null; national_id: string | null;
+    phone: string | null; email: string | null;
+  }>>([]);
+  const [importSearching, setImportSearching] = useState(false);
+  const [importType, setImportType] = useState<'C' | 'E'>('E');
+
+  const searchExistingAdherents = async (query: string) => {
+    if (query.length < 2) { setImportSearchResults([]); return; }
+    setImportSearching(true);
+    try {
+      const params = new URLSearchParams({ search: query, limit: '10' });
+      if (selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__') {
+        params.set('companyId', selectedCompany.id);
+      }
+      const res = await apiClient.get<Array<{
+        id: string; matricule: string; firstName: string; lastName: string;
+        dateOfBirth: string | null; gender: string | null; nationalId: string | null;
+        phone: string | null; email: string | null;
+      }>>(`/adherents?${params.toString()}`);
+      if (res.success && Array.isArray(res.data)) {
+        setImportSearchResults(res.data.map((a: Record<string, unknown>) => ({
+          id: (a.id || '') as string,
+          matricule: (a.matricule || '') as string,
+          first_name: (a.firstName || a.first_name || '') as string,
+          last_name: (a.lastName || a.last_name || '') as string,
+          date_of_birth: (a.dateOfBirth || a.date_of_birth || null) as string | null,
+          gender: (a.gender || null) as string | null,
+          national_id: (a.nationalId || a.national_id || null) as string | null,
+          phone: (a.phone || null) as string | null,
+          email: (a.email || null) as string | null,
+        })));
+      }
+    } catch { setImportSearchResults([]); }
+    setImportSearching(false);
+  };
+
+  const importAdherentAsAyantDroit = (adherent: typeof importSearchResults[0]) => {
+    const newAd: AyantDroitFormState = {
+      lienParente: importType,
+      nationalId: adherent.national_id || '',
+      typePieceIdentite: 'CIN',
+      firstName: adherent.first_name,
+      lastName: adherent.last_name,
+      dateOfBirth: adherent.date_of_birth || '',
+      gender: adherent.gender || '',
+      phone: adherent.phone || '',
+      email: adherent.email || '',
+    };
+    setAyantsDroit([...ayantsDroit, newAd]);
+    setShowImportDialog(false);
+    setImportSearchQuery('');
+    setImportSearchResults([]);
+  };
 
   const { data: nextMatricule } = useNextMatricule(selectedCompany?.id);
   const createMutation = useCreateAdherent();
@@ -706,6 +774,16 @@ export function AgentAdherentFormPage() {
                       <Plus className="w-3.5 h-3.5" />
                       Enfant
                     </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setImportType('E'); setShowImportDialog(true); }}
+                      className="gap-1 border-blue-200 text-blue-700 hover:bg-blue-50"
+                    >
+                      <Import className="w-3.5 h-3.5" />
+                      Importer existant
+                    </Button>
                   </div>
                 </div>
 
@@ -855,6 +933,86 @@ export function AgentAdherentFormPage() {
                 : 'Enregistrer'}
         </Button>
       </div>
+
+      {/* Import existing adherent dialog */}
+      <AlertDialog open={showImportDialog} onOpenChange={(open) => { if (!open) { setShowImportDialog(false); setImportSearchQuery(''); setImportSearchResults([]); } }}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Importer un adhérent existant</AlertDialogTitle>
+          </AlertDialogHeader>
+
+          <div className="space-y-3">
+            {/* Type selector */}
+            <div className="flex gap-2">
+              {!hasConjoint && (
+                <button
+                  type="button"
+                  onClick={() => setImportType('C')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${importType === 'C' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                >
+                  Conjoint
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setImportType('E')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${importType === 'E' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+              >
+                Enfant
+              </button>
+            </div>
+
+            {/* Search input */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Input
+                placeholder="Rechercher par nom, prénom ou matricule..."
+                value={importSearchQuery}
+                onChange={(e) => {
+                  setImportSearchQuery(e.target.value);
+                  searchExistingAdherents(e.target.value);
+                }}
+                className="pl-9"
+                autoFocus
+              />
+              {importSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />}
+            </div>
+
+            {/* Results */}
+            <div className="max-h-64 overflow-y-auto border rounded-lg">
+              {importSearchResults.length === 0 && importSearchQuery.length >= 2 && !importSearching && (
+                <div className="py-6 text-center text-sm text-gray-400">Aucun adhérent trouvé</div>
+              )}
+              {importSearchResults.length === 0 && importSearchQuery.length < 2 && (
+                <div className="py-6 text-center text-sm text-gray-400">Saisissez au moins 2 caractères</div>
+              )}
+              {importSearchResults.map((adherent) => (
+                <button
+                  key={adherent.id}
+                  type="button"
+                  onClick={() => importAdherentAsAyantDroit(adherent)}
+                  className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors border-b last:border-b-0 flex items-center justify-between"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {adherent.last_name} {adherent.first_name}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Mat. {adherent.matricule}
+                      {adherent.date_of_birth && ` · Né(e) le ${new Date(adherent.date_of_birth).toLocaleDateString('fr-TN')}`}
+                    </p>
+                  </div>
+                  <Import className="w-4 h-4 text-blue-500 shrink-0" />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Fermer</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
