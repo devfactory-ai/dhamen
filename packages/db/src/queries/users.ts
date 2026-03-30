@@ -152,6 +152,7 @@ export async function createUser(
     firstName: string;
     lastName: string;
     phone?: string;
+    mfaEnabled?: boolean;
   }
 ): Promise<User> {
   const now = new Date().toISOString();
@@ -159,7 +160,7 @@ export async function createUser(
   await db
     .prepare(
       `INSERT INTO users (id, email, password_hash, role, provider_id, insurer_id, first_name, last_name, phone, mfa_enabled, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     )
     .bind(
       id,
@@ -171,6 +172,7 @@ export async function createUser(
       data.firstName,
       data.lastName,
       data.phone ?? null,
+      data.mfaEnabled ? 1 : 0,
       now,
       now
     )

@@ -42,7 +42,8 @@ import {
   FileArchive,
   FolderOpen,
   Settings2,
-  
+  UserPlus,
+  ExternalLink,
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -578,7 +579,7 @@ export default function BulletinsImportPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Phase state
-  const [phase, setPhase] = useState<'upload' | 'confirm' | 'validate'>('upload');
+  const [phase, setPhase] = useState<'upload' | 'confirm' | 'review' | 'validate'>('upload');
 
   // Phase 1: Upload
   const [parsedBulletins, setParsedBulletins] = useState<ParsedBulletin[]>([]);
@@ -652,7 +653,7 @@ export default function BulletinsImportPage() {
       queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
       queryClient.invalidateQueries({ queryKey: ['agent-batches'] });
       toast.success(`${data.total_imported} bulletins importés avec succès`);
-      setPhase('validate');
+      setPhase('review');
     },
     onError: (error: Error) => {
       toast.error(error.message || "Erreur lors de l'import");
@@ -848,6 +849,7 @@ export default function BulletinsImportPage() {
           <p className="mt-1 text-sm text-gray-500">
             {phase === 'upload' && 'Importez un fichier CSV, Excel ou ZIP contenant vos bulletins de soins.'}
             {phase === 'confirm' && 'Vérifiez les données et lancez l\'import.'}
+            {phase === 'review' && 'Vérifiez les adhérents créés automatiquement avant de continuer.'}
             {phase === 'validate' && 'Validez chaque bulletin un par un.'}
           </p>
         </div>
@@ -869,28 +871,34 @@ export default function BulletinsImportPage() {
         {[
           { step: 1, label: 'Upload', phase: 'upload' as const },
           { step: 2, label: 'Prévisualisation', phase: 'confirm' as const },
-          { step: 3, label: 'Validation', phase: 'validate' as const },
-        ].map((s, i) => (
+          { step: 3, label: 'Revue adhérents', phase: 'review' as const },
+          { step: 4, label: 'Validation', phase: 'validate' as const },
+        ].map((s, i) => {
+          const phases: typeof phase[] = ['upload', 'confirm', 'review', 'validate'];
+          const currentIdx = phases.indexOf(phase);
+          const stepIdx = phases.indexOf(s.phase);
+          return (
           <div key={s.step} className="flex items-center gap-3">
             {i > 0 && <div className="w-12 h-px bg-gray-200" />}
             <div className="flex items-center gap-2">
               <div className={cn(
                 'flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold',
-                phase === s.phase ? 'bg-blue-600 text-white' :
-                (['upload', 'confirm', 'validate'].indexOf(phase) > ['upload', 'confirm', 'validate'].indexOf(s.phase))
+                currentIdx === stepIdx ? 'bg-blue-600 text-white' :
+                currentIdx > stepIdx
                   ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
               )}>
-                {['upload', 'confirm', 'validate'].indexOf(phase) > ['upload', 'confirm', 'validate'].indexOf(s.phase)
+                {currentIdx > stepIdx
                   ? <Check className="h-4 w-4" />
                   : s.step}
               </div>
               <span className={cn(
                 'text-sm font-medium',
-                phase === s.phase ? 'text-gray-900' : 'text-gray-400'
+                currentIdx === stepIdx ? 'text-gray-900' : 'text-gray-400'
               )}>{s.label}</span>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* ═══ Phase 1: Upload ═══ */}
@@ -1316,7 +1324,133 @@ export default function BulletinsImportPage() {
         </div>
       )}
 
-      {/* ═══ Phase 3: Validation Queue ═══ */}
+      {/* ═══ Phase 3: Review adherents before validation ═══ */}
+      {phase === 'review' && importResult && (() => {
+        const autoCreatedBulletins = importResult.bulletins?.filter(b => b.adherent_auto_created && !b.skipped) || [];
+        const existingBulletins = importResult.bulletins?.filter(b => !b.adherent_auto_created && !b.skipped) || [];
+        const hasAutoCreated = autoCreatedBulletins.length > 0;
+        return (
+        <div className="max-w-3xl mx-auto space-y-6">
+          {/* Import success summary */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-green-50">
+                <Check className="h-6 w-6 text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Import réussi</h3>
+                <p className="text-sm text-gray-500">
+                  Lot : <strong>{importResult.batch_name}</strong> — {importResult.total_imported} bulletin(s) importés
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="rounded-xl bg-green-50 p-4 text-center">
+                <p className="text-2xl font-bold text-green-700">{existingBulletins.length}</p>
+                <p className="text-xs text-green-600">Adhérents existants</p>
+              </div>
+              <div className="rounded-xl bg-amber-50 p-4 text-center">
+                <p className="text-2xl font-bold text-amber-700">{autoCreatedBulletins.length}</p>
+                <p className="text-xs text-amber-600">Adhérents créés auto.</p>
+              </div>
+              <div className="rounded-xl bg-gray-50 p-4 text-center">
+                <p className="text-2xl font-bold text-gray-700">{importResult.skipped}</p>
+                <p className="text-xs text-gray-500">Ignorés</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Auto-created adherents warning */}
+          {hasAutoCreated && (
+            <div className="rounded-2xl border border-amber-200 bg-white p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50">
+                  <UserPlus className="h-5 w-5 text-amber-600" />
+                </div>
+                <div>
+                  <h4 className="text-base font-bold text-gray-900">Adhérents créés automatiquement</h4>
+                  <p className="text-sm text-gray-500">
+                    {autoCreatedBulletins.length} adhérent(s) n'existaient pas et ont été créés automatiquement.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3 rounded-xl bg-amber-50 border border-amber-200 p-4">
+                <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-amber-800">Vérifiez ces adhérents avant de continuer</p>
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    Vous pouvez modifier leurs informations dans la page Adhérents avant de passer à la validation.
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100">
+                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase text-gray-500">Matricule</th>
+                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase text-gray-500">Nom</th>
+                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase text-gray-500">N° Bulletin</th>
+                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase text-gray-500">Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {autoCreatedBulletins.map((b) => (
+                      <tr key={b.id} className="hover:bg-gray-50/50">
+                        <td className="px-4 py-2.5 font-mono text-gray-700">{b.adherent_matricule}</td>
+                        <td className="px-4 py-2.5 text-gray-900">{b.adherent_name || '—'}</td>
+                        <td className="px-4 py-2.5 font-mono text-gray-600">{b.bulletin_number}</td>
+                        <td className="px-4 py-2.5">
+                          <Badge className="bg-amber-100 text-amber-700 text-[10px]">Créé automatiquement</Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* No auto-created: all adherents found */}
+          {!hasAutoCreated && (
+            <div className="flex items-start gap-3 rounded-2xl bg-green-50 border border-green-200 p-5">
+              <Check className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-green-800">Tous les adhérents existent dans la base</p>
+                <p className="text-xs text-green-600 mt-0.5">Vous pouvez passer directement à la validation des bulletins.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-3">
+            {hasAutoCreated && (
+              <a
+                href="/adherents"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex-1"
+              >
+                <ExternalLink className="h-4 w-4" />
+                Modifier les adhérents
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => setPhase('validate')}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-2.5 text-sm font-medium text-white hover:from-blue-700 hover:to-blue-800 shadow-lg shadow-blue-600/25 flex-1"
+            >
+              Continuer vers la validation
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ═══ Phase 4: Validation Queue ═══ */}
       {phase === 'validate' && (
         <div className="space-y-4">
           {/* Import result summary */}

@@ -47,6 +47,7 @@ export const userCreateSchema = z.object({
   firstName: z.string().min(1, 'Prenom requis'),
   lastName: z.string().min(1, 'Nom requis'),
   phone: z.string().optional(),
+  mfaEnabled: z.boolean().optional(),
 });
 
 export const userUpdateSchema = z.object({

@@ -1692,7 +1692,7 @@ groupContracts.post(
 
     if (
       user?.insurerId &&
-      user.role === 'INSURER_ADMIN' &&
+      ['INSURER_ADMIN', 'INSURER_AGENT'].includes(user.role) &&
       groupContract.insurer_id !== user.insurerId
     ) {
       return notFound(c, 'Contrat groupe non trouvé');
@@ -1710,7 +1710,7 @@ groupContracts.post(
       const adherent = await db
         .prepare(
           `SELECT id, first_name, last_name FROM adherents
-           WHERE id = ? AND status = 'active' AND deleted_at IS NULL`
+           WHERE id = ? AND is_active = 1 AND deleted_at IS NULL`
         )
         .bind(groupContract.adherent_id)
         .first<{ id: string; first_name: string; last_name: string }>();
@@ -1721,7 +1721,7 @@ groupContracts.post(
       const adherents = await db
         .prepare(
           `SELECT id, first_name, last_name FROM adherents
-           WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL`
+           WHERE company_id = ? AND is_active = 1 AND deleted_at IS NULL`
         )
         .bind(groupContract.company_id)
         .all<{ id: string; first_name: string; last_name: string }>();
@@ -1799,7 +1799,7 @@ groupContracts.post(
           contractNumber,
           adherent.id,
           groupContract.insurer_id,
-          groupContract.plan_category ?? 'corporate',
+          groupContract.contract_type === 'individual' ? 'individual' : 'corporate',
           JSON.stringify(coverage),
           groupContract.effective_date,
           endDate,

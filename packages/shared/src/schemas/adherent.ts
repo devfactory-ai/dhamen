@@ -74,6 +74,8 @@ export const adherentCreateSchema = z.object({
   contreVisiteObligatoire: z.boolean().optional(),
   etatFiche: etatFicheSchema.optional(),
   credit: z.number().min(0).optional(),
+  // Numéro de contrat (optionnel, utilisé en mode individuel)
+  contractNumber: z.string().optional(),
   // Ayants droit (conjoint + enfants) créés avec l'adhérent principal
   ayantsDroit: z.array(ayantDroitSchema).max(10).optional(),
 });
@@ -124,6 +126,8 @@ export const adherentUpdateSchema = z.object({
   contreVisiteObligatoire: z.boolean().optional(),
   etatFiche: etatFicheSchema.optional(),
   credit: z.number().min(0).optional(),
+  // Contrat
+  contractNumber: z.string().optional(),
   // Ayants droit
   ayantsDroit: z.array(ayantDroitSchema).max(10).optional(),
 });

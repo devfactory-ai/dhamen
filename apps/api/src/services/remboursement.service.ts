@@ -99,6 +99,7 @@ async function calculerViaContractGuarantees(
   contractId: string,
   annee: number,
   typeMaladie: 'ordinaire' | 'chronique',
+  acteCode?: string,
 ): Promise<CalculRemboursementResult | null> {
   if (!familleId) return null;
 
@@ -139,8 +140,24 @@ async function calculerViaContractGuarantees(
   let valeur: number;
   let montantBrut: number;
 
-  if (isFixed && guarantee.per_event_limit) {
-    // Fixed amount (forfait) — e.g., circoncision 200DT, consultation C1=45DT
+  // Resolve letter_keys: e.g., {"C1":45,"C2":55} → forfait based on acte code
+  let letterKeyValue: number | null = null;
+  if (guarantee.letter_keys_json && acteCode) {
+    try {
+      const letterKeys = JSON.parse(guarantee.letter_keys_json) as Record<string, number>;
+      if (letterKeys[acteCode] !== undefined) {
+        letterKeyValue = letterKeys[acteCode]!;
+      }
+    } catch { /* ignore parse errors */ }
+  }
+
+  if (letterKeyValue !== null) {
+    // Letter-key based forfait — e.g., C1=45DT
+    typeCalcul = 'forfait';
+    valeur = letterKeyValue;
+    montantBrut = Math.min(fraisEngages, letterKeyValue);
+  } else if (isFixed && guarantee.per_event_limit) {
+    // Fixed amount (forfait) — e.g., circoncision 200DT
     typeCalcul = 'forfait';
     valeur = guarantee.per_event_limit;
     montantBrut = Math.min(fraisEngages, guarantee.per_event_limit);
@@ -308,11 +325,12 @@ export async function calculerRemboursement(
   // 2. Get the acte info (to know famille_id and defaults)
   const acte = await db
     .prepare(
-      'SELECT id, famille_id, type_calcul, valeur_base, taux_remboursement, plafond_acte FROM actes_referentiel WHERE id = ?'
+      'SELECT id, code, famille_id, type_calcul, valeur_base, taux_remboursement, plafond_acte FROM actes_referentiel WHERE id = ?'
     )
     .bind(acteRefId)
     .first<{
       id: string;
+      code: string;
       famille_id: string | null;
       type_calcul: string;
       valeur_base: number | null;
@@ -329,7 +347,7 @@ export async function calculerRemboursement(
   // -----------------------------------------------------------------------
   if (!periode) {
     const guaranteeResult = await calculerViaContractGuarantees(
-      db, baremeContractId, acte.famille_id, fraisEngages, adherentId, contractId, annee, typeMaladie
+      db, baremeContractId, acte.famille_id, fraisEngages, adherentId, contractId, annee, typeMaladie, acte.code
     );
     if (guaranteeResult) return guaranteeResult;
     // If no guarantee found either, throw

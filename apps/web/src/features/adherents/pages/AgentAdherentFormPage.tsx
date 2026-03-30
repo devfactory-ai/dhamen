@@ -88,6 +88,7 @@ interface AdherentFormState {
   fonction: string;
   maladiChronique: boolean;
   matriculeConjoint: string;
+  contractNumber: string;
   credit: string;
 }
 
@@ -112,7 +113,7 @@ const emptyForm: AdherentFormState = {
   phone: '', mobile: '', email: '',
   rue: '', address: '', city: '', postalCode: '',
   banque: '', rib: '', regimeSocial: '', handicap: false, fonction: '', maladiChronique: false, matriculeConjoint: '',
-  credit: '',
+  contractNumber: '', credit: '',
 };
 
 const emptyAyantDroit: AyantDroitFormState = {
@@ -274,6 +275,7 @@ export function AgentAdherentFormPage() {
         fonction: (a.fonction as string) || '',
         maladiChronique: !!(a.maladiChronique || a.maladi_chronique),
         matriculeConjoint: (a.matriculeConjoint as string) || (a.matricule_conjoint as string) || '',
+        contractNumber: (a.contractNumber as string) || (a.contract_number as string) || '',
         credit: a.credit ? String(a.credit) : '',
       });
     } else if (!isEdit) {
@@ -418,6 +420,7 @@ export function AgentAdherentFormPage() {
         postalCode: form.postalCode || undefined,
         companyId: isIndividualMode ? '__INDIVIDUAL__' : selectedCompany!.id,
         matricule: form.matricule || undefined,
+        contractNumber: form.contractNumber || undefined,
         plafondGlobal: form.plafondGlobal ? Number(form.plafondGlobal) * 1000 : undefined,
         dateDebutAdhesion: form.dateDebutAdhesion || undefined,
         dateFinAdhesion: form.dateFinAdhesion || undefined,
@@ -590,11 +593,15 @@ export function AgentAdherentFormPage() {
                 </div>
               </div>
 
-              {/* Matricule / Plafond */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Matricule / N° Contrat / Plafond */}
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <Label htmlFor="matricule">Matricule</Label>
                   <Input id="matricule" placeholder="001" value={form.matricule} onChange={(e) => setForm({ ...form, matricule: e.target.value })} />
+                </div>
+                <div>
+                  <Label htmlFor="contractNumber">N° Contrat</Label>
+                  <Input id="contractNumber" placeholder="CT-2024-001" value={form.contractNumber} onChange={(e) => setForm({ ...form, contractNumber: e.target.value })} />
                 </div>
                 <div>
                   <Label htmlFor="plafondGlobal">Plafond (DT)</Label>

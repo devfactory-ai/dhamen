@@ -127,6 +127,7 @@ users.post('/', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), zValidat
     firstName: data.firstName,
     lastName: data.lastName,
     phone: data.phone,
+    mfaEnabled: data.mfaEnabled,
   });
 
   // Audit log
@@ -219,6 +220,43 @@ users.delete('/:id', requireRole('ADMIN'), async (c) => {
   });
 
   return success(c, { deleted: true });
+});
+
+/**
+ * POST /api/v1/users/bulk-delete
+ * Deactivate multiple users (soft delete)
+ */
+users.post('/bulk-delete', requireRole('ADMIN'), async (c) => {
+  const currentUser = c.get('user');
+  const { ids } = await c.req.json<{ ids: string[] }>();
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return error(c, 'VALIDATION_ERROR', 'Liste d\'identifiants requise', 400);
+  }
+
+  // Filter out self
+  const filteredIds = ids.filter((id) => id !== currentUser?.sub);
+  let deletedCount = 0;
+
+  for (const id of filteredIds) {
+    const existing = await findUserById(getDb(c), id);
+    if (existing) {
+      await updateUser(getDb(c), id, { isActive: false });
+      deletedCount++;
+    }
+  }
+
+  await logAudit(getDb(c), {
+    userId: currentUser?.sub,
+    action: 'user.bulk_deleted',
+    entityType: 'user',
+    entityId: 'bulk',
+    changes: { ids: filteredIds, count: deletedCount },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, { deleted: deletedCount });
 });
 
 /**

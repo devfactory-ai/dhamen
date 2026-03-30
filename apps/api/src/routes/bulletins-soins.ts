@@ -1955,12 +1955,30 @@ bulletinsSoins.get('/history/stats', async (c) => {
   const periodParams: string[] = [];
 
   // Filter by insurer
+  const isIndividualStats = companyId === '__INDIVIDUAL__';
   if (user.insurerId) {
-    periodClause += ' AND COALESCE(co.insurer_id, bb_co.insurer_id) = ?';
-    periodParams.push(user.insurerId);
+    if (isIndividualStats) {
+      periodClause += ` AND (
+        EXISTS (
+          SELECT 1 FROM contracts ct
+          LEFT JOIN group_contracts gc ON ct.group_contract_id = gc.id
+          LEFT JOIN companies gc_co ON gc.company_id = gc_co.id
+          WHERE ct.adherent_id = a.id AND (ct.insurer_id = ? OR gc_co.insurer_id = ?)
+        )
+        OR EXISTS (
+          SELECT 1 FROM users u WHERE u.id = bs.created_by AND u.insurer_id = ?
+        )
+      )`;
+      periodParams.push(user.insurerId, user.insurerId, user.insurerId);
+    } else {
+      periodClause += ' AND COALESCE(co.insurer_id, bb_co.insurer_id) = ?';
+      periodParams.push(user.insurerId);
+    }
   }
-  // Filter by company — use adherent's company_id as primary filter
-  if (companyId) {
+  // Filter by company
+  if (isIndividualStats) {
+    periodClause += ' AND a.company_id IS NULL';
+  } else if (companyId) {
     periodClause += ' AND a.company_id = ?';
     periodParams.push(companyId);
   }
@@ -2355,13 +2373,36 @@ bulletinsSoins.get('/history', async (c) => {
   let whereClause = "WHERE bs.status IN ('approved', 'reimbursed', 'rejected')";
   const params: (string | number)[] = [];
 
+  // Filter by company — use adherent's company_id as primary filter
+  const contractType = c.req.query('contractType');
+  const isIndividualMode = companyId === '__INDIVIDUAL__' || contractType === 'individual';
+
   // Filter by insurer
   if (user.insurerId) {
-    whereClause += ' AND COALESCE(co.insurer_id, bb_co.insurer_id) = ?';
-    params.push(user.insurerId);
+    if (isIndividualMode) {
+      // Individual mode: insurer linked via contract, or bulletin created by an agent of this insurer
+      whereClause += ` AND (
+        EXISTS (
+          SELECT 1 FROM contracts ct
+          LEFT JOIN group_contracts gc ON ct.group_contract_id = gc.id
+          LEFT JOIN companies gc_co ON gc.company_id = gc_co.id
+          WHERE ct.adherent_id = a.id AND (ct.insurer_id = ? OR gc_co.insurer_id = ?)
+        )
+        OR EXISTS (
+          SELECT 1 FROM users u WHERE u.id = bs.created_by AND u.insurer_id = ?
+        )
+      )`;
+      params.push(user.insurerId, user.insurerId, user.insurerId);
+    } else {
+      whereClause += ' AND COALESCE(co.insurer_id, bb_co.insurer_id) = ?';
+      params.push(user.insurerId);
+    }
   }
-  // Filter by company — use adherent's company_id as primary filter (always populated)
-  if (companyId) {
+
+  if (isIndividualMode) {
+    // Individual mode: adherents with NULL company_id
+    whereClause += ' AND a.company_id IS NULL';
+  } else if (companyId) {
     whereClause += ' AND a.company_id = ?';
     params.push(companyId);
   }

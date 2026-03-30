@@ -48,38 +48,31 @@ export function UserFormPage() {
     handleSubmit,
     setValue,
     watch,
-    reset,
     formState: { errors },
   } = useForm<UserFormData>({
     resolver: zodResolver(userFormSchema),
     defaultValues: {
-      email: '',
-      firstName: '',
-      lastName: '',
-      phone: '',
-      role: 'PHARMACIST',
-      isActive: true,
+      email: isEditing && user ? user.email : '',
+      firstName: isEditing && user ? user.firstName || '' : '',
+      lastName: isEditing && user ? user.lastName || '' : '',
+      phone: isEditing && user ? user.phone || '' : '',
+      role: isEditing && user ? user.role : 'PHARMACIST',
+      isActive: isEditing && user ? user.isActive : true,
+      mfaEnabled: isEditing && user ? user.mfaEnabled : true,
     },
   });
-
-  // Populate form when user data is loaded
-  useEffect(() => {
-    if (user) {
-      reset({
-        email: user.email,
-        firstName: user.firstName || '',
-        lastName: user.lastName || '',
-        phone: user.phone || '',
-        role: user.role,
-        isActive: user.isActive,
-        mfaEnabled: user.mfaEnabled,
-      });
-    }
-  }, [user, reset]);
 
   const selectedRole = watch('role');
   const isActive = watch('isActive');
   const mfaEnabled = watch('mfaEnabled');
+
+  // MFA activé par défaut pour les rôles non-admin
+  const isAdminRole = selectedRole === 'ADMIN';
+  useEffect(() => {
+    if (!isEditing) {
+      setValue('mfaEnabled', !isAdminRole);
+    }
+  }, [isAdminRole, isEditing, setValue]);
 
   const onSubmit = async (data: UserFormData) => {
     try {
@@ -222,21 +215,19 @@ export function UserFormPage() {
               </div>
             )}
 
-            {/* MFA - only for editing */}
-            {isEditing && (
-              <div className="flex items-center justify-between rounded-lg border p-4">
-                <div className="space-y-0.5">
-                  <Label>Double authentification (MFA)</Label>
-                  <p className="text-muted-foreground text-sm">
-                    Exiger un code de vérification par email à chaque connexion
-                  </p>
-                </div>
-                <Switch
-                  checked={mfaEnabled}
-                  onCheckedChange={(checked) => setValue('mfaEnabled', checked)}
-                />
+            {/* MFA */}
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label>Double authentification (MFA)</Label>
+                <p className="text-muted-foreground text-sm">
+                  Exiger un code de vérification par email à chaque connexion
+                </p>
               </div>
-            )}
+              <Switch
+                checked={mfaEnabled}
+                onCheckedChange={(checked) => setValue('mfaEnabled', checked)}
+              />
+            </div>
 
             {/* Actions */}
             <div className="flex justify-end gap-3 pt-4 border-t">

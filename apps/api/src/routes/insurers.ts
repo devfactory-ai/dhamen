@@ -32,7 +32,7 @@ insurers.use('*', authMiddleware());
  */
 insurers.get(
   '/',
-  requireRole('ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('query', insurerFiltersSchema.merge(paginationSchema)),
   async (c) => {
     const { isActive, search, page, limit } = c.req.valid('query');

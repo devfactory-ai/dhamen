@@ -382,6 +382,7 @@ export function GroupContractFormPage() {
     queryKey: ['insurers-list'],
     queryFn: async () => {
       const response = await apiClient.get<Insurer[]>('/insurers?limit=100');
+      console.log("reponse", response);
       if (!response.success) return [];
       const raw = response as unknown as { data: Insurer[] };
       return Array.isArray(raw.data) ? raw.data : [];
@@ -463,19 +464,17 @@ export function GroupContractFormPage() {
   }, [urlContractType, isEditing, setValue]);
 
   // Auto-select BH Assurance as default insurer when insurers load
+  const currentInsurerId = watch('insurer_id');
   useEffect(() => {
-    if (!isEditing && insurers && insurers.length > 0 && !watch('insurer_id')) {
+    if (!isEditing && insurers && insurers.length > 0 && !currentInsurerId) {
       const bh = insurers.find((ins) => ins.name.toLowerCase().includes('bh'));
       if (bh) {
         setValue('insurer_id', bh.id);
-      } else {
-        // If only one insurer, select it by default
-        if (insurers.length === 1) {
-          setValue('insurer_id', insurers[0]!.id);
-        }
+      } else if (insurers.length === 1) {
+        setValue('insurer_id', insurers[0]!.id);
       }
     }
-  }, [insurers, isEditing, setValue, watch]);
+  }, [insurers, isEditing, currentInsurerId, setValue]);
 
   // ---- PDF Upload ----
 

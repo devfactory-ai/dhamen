@@ -13,6 +13,7 @@ interface CreateUserData {
   phone?: string;
   providerId?: string;
   insurerId?: string;
+  mfaEnabled?: boolean;
 }
 
 interface UpdateUserData {
@@ -24,12 +25,15 @@ interface UpdateUserData {
   mfaEnabled?: boolean;
 }
 
-export function useUsers(page = 1, limit = 20) {
+export function useUsers(page = 1, limit = 20, search?: string, role?: string) {
   return useQuery({
-    queryKey: ['users', page, limit],
+    queryKey: ['users', page, limit, search, role],
     queryFn: async () => {
+      const params: Record<string, string | number> = { page, limit };
+      if (search) params.search = search;
+      if (role) params.role = role;
       const response = await apiClient.get<{ data: UserPublic[]; meta: { total: number } }>('/users', {
-        params: { page, limit },
+        params,
       });
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors du chargement des utilisateurs');
@@ -99,6 +103,23 @@ export function useDeleteUser() {
       const response = await apiClient.delete(`/users/${id}`);
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors de la suppression de l\'utilisateur');
+      }
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+  });
+}
+
+export function useBulkDeleteUsers() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      const response = await apiClient.post<{ deleted: number }>('/users/bulk-delete', { ids });
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur lors de la suppression');
       }
       return response.data;
     },

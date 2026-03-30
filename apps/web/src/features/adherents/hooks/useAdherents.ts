@@ -76,6 +76,8 @@ export interface CreateAdherentData {
   contreVisiteObligatoire?: boolean;
   etatFiche?: string;
   credit?: number;
+  // Contrat
+  contractNumber?: string;
   // Ayants droit
   ayantsDroit?: AyantDroitData[];
 }

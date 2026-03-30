@@ -688,8 +688,8 @@ export function Sidebar() {
         )}
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-4 flex justify-between flex-col ">
-          <div className="flex-1 overflow-y-auto space-y-4">
+        <nav className="flex-1 min-h-0 flex flex-col">
+          <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
             {filteredSections.map((section) => (
               <div key={section.title}>
                 {!sidebarCollapsed && (
@@ -777,14 +777,24 @@ export function Sidebar() {
                                     <NavLink
                                       key={child.href}
                                       to={child.href}
-                                      end={child.href.includes("/import")}
+                                      end
                                       className={({ isActive }) => {
+                                        // For list routes (not /import), also match sub-paths
+                                        // but exclude sibling child routes
+                                        const siblingPaths = filteredChildren
+                                          .filter((c) => c.href !== child.href)
+                                          .map((c) => c.href);
                                         const isListRoute =
                                           !child.href.includes("/import");
                                         const pathMatches = isListRoute
-                                          ? location.pathname === child.href ||
-                                            location.pathname.startsWith(
-                                              child.href + "/",
+                                          ? (location.pathname === child.href ||
+                                              location.pathname.startsWith(
+                                                child.href + "/",
+                                              )) &&
+                                            !siblingPaths.some(
+                                              (s) =>
+                                                location.pathname === s ||
+                                                location.pathname.startsWith(s + "/"),
                                             )
                                           : isActive;
                                         return cn(

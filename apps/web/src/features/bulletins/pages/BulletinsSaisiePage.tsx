@@ -180,7 +180,7 @@ const acteFormSchema = z.object({
 });
 
 const bulletinFormSchema = z.object({
-  bulletin_number: z.string().optional().or(z.literal('')),
+  bulletin_number: z.string().min(1, 'Numéro de bulletin requis'),
   bulletin_date: z.string().min(1, 'Date requise'),
   adherent_matricule: z.string().min(1, 'Matricule requis'),
   adherent_first_name: z.string().optional().or(z.literal('')),
@@ -239,6 +239,7 @@ export function BulletinsSaisiePage() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedBulletins, setSelectedBulletins] = useState<string[]>([]);
+  const [bulkDeleteBulletinConfirm, setBulkDeleteBulletinConfirm] = useState(false);
   const [showBatchDialog, setShowBatchDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showExportDetailDialog, setShowExportDetailDialog] = useState(false);
@@ -380,6 +381,28 @@ export function BulletinsSaisiePage() {
     (sum, a) => sum + (Number(a.amount) || 0),
     0,
   );
+
+  // Estimate reimbursement in real-time
+  const watchedMatricule = watch("adherent_matricule");
+  const watchedBulletinDate = watch("bulletin_date");
+  const estimateKey = JSON.stringify((watchedActes || []).map(a => ({ code: a.code, amount: Number(a.amount) || 0, care_type: a.care_type })));
+  const { data: estimateData } = useQuery({
+    queryKey: ['estimate-reimbursement', watchedMatricule, watchedBulletinDate, estimateKey],
+    queryFn: async () => {
+      const actes = (watchedActes || []).filter(a => a.code && Number(a.amount) > 0).map(a => ({ code: a.code, amount: Number(a.amount), care_type: a.care_type }));
+      if (!actes.length) return null;
+      const res = await apiClient.post<{ reimbursed_amount: number | null; details: Array<{ code: string; reimbursed: number }>; warning?: string }>('/bulletins-soins/agent/estimate', {
+        adherent_matricule: watchedMatricule,
+        bulletin_date: watchedBulletinDate,
+        actes,
+      });
+      return res.success ? res.data : null;
+    },
+    enabled: !!watchedMatricule && watchedMatricule.length >= 2 && actesTotal > 0 && !!watchedBulletinDate,
+    staleTime: 5000,
+  });
+  const estimatedReimbursement = estimateData?.reimbursed_amount;
+
   // care_type is now per-acte; derive "primary" care type from first acte for medication families query
   const selectedCareType = watchedActes?.[0]?.care_type || "consultation";
   // Check if any acte is pharmacy type (for medication families fetch)
@@ -769,7 +792,8 @@ export function BulletinsSaisiePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
-      toast.success("Bulletin supprime");
+      queryClient.invalidateQueries({ queryKey: ["agent-batches"] });
+      toast.success("Bulletin supprimé");
     },
     onError: (error: Error) => {
       toast.error(error.message || "Erreur lors de la suppression");
@@ -788,6 +812,7 @@ export function BulletinsSaisiePage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
+      queryClient.invalidateQueries({ queryKey: ["agent-batches"] });
       toast.success(`${data?.deleted || 0} bulletin(s) supprimé(s)`);
       setSelectedBulletins([]);
     },
@@ -1399,11 +1424,11 @@ export function BulletinsSaisiePage() {
   const handleToggleSelectAllBulletins = () => {
     if (allDraftsSelected) {
       setSelectedBulletins((prev) =>
-        prev.filter((id) => !draftIdsOnPage.includes(id)),
+        prev.filter((id) => !bulletinIdsOnPage.includes(id)),
       );
     } else {
       setSelectedBulletins((prev) => [
-        ...new Set([...prev, ...draftIdsOnPage]),
+        ...new Set([...prev, ...bulletinIdsOnPage]),
       ]);
     }
   };
@@ -1427,11 +1452,11 @@ export function BulletinsSaisiePage() {
     }
   };
 
-  // Clear selections when company changes
+  // Clear selections when company or batch changes
   useEffect(() => {
     setSelectedBulletins([]);
     setSelectedBatches([]);
-  }, [selectedCompany?.id]);
+  }, [selectedCompany?.id, selectedBatch?.id]);
 
   const handleCreateBatch = () => {
     if (!newBatchName.trim()) {
@@ -1488,15 +1513,12 @@ export function BulletinsSaisiePage() {
     (listePage - 1) * listePageSize,
     listePage * listePageSize,
   );
-  // Select-all for bulletins (draft only, current page)
-  const draftBulletinsOnPage = paginatedBulletins?.filter(
-    (b: BulletinSaisie) => b.status === "draft",
-  );
-  const draftIdsOnPage = draftBulletinsOnPage.map((b: BulletinSaisie) => b.id);
+  // Select-all for bulletins (current page)
+  const bulletinIdsOnPage = paginatedBulletins.map((b: BulletinSaisie) => b.id);
   const allDraftsSelected =
-    draftIdsOnPage.length > 0 &&
-    draftIdsOnPage.every((id: string) => selectedBulletins.includes(id));
-  const someDraftsSelected = draftIdsOnPage.some((id: string) =>
+    bulletinIdsOnPage.length > 0 &&
+    bulletinIdsOnPage.every((id: string) => selectedBulletins.includes(id));
+  const someDraftsSelected = bulletinIdsOnPage.some((id: string) =>
     selectedBulletins.includes(id),
   );
   return (
@@ -2111,12 +2133,12 @@ export function BulletinsSaisiePage() {
                         <div className="space-y-4">
                           <div className="space-y-2">
                             <Label className="text-sm text-gray-700">
-                              Numéro du bulletin
+                              Numéro du bulletin *
                             </Label>
                             <div className="relative">
                               <Input
                                 {...register("bulletin_number")}
-                                placeholder="Auto-généré si vide"
+                                placeholder="Ex: BS-2026-001"
                                 className="rounded-xl pr-24"
                               />
                               {watch("bulletin_number") &&
@@ -2124,10 +2146,6 @@ export function BulletinsSaisiePage() {
                                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded flex items-center gap-1">
                                   <ScanSearch className="h-3 w-3" />
                                   Détecté par IA
-                                </span>
-                              ) : !watch("bulletin_number") ? (
-                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">
-                                  Auto-généré
                                 </span>
                               ) : null}
                             </div>
@@ -2496,7 +2514,7 @@ export function BulletinsSaisiePage() {
                                     </div>
                                     <div className="space-y-1">
                                       <Label className="text-xs text-gray-500">
-                                        Date de naissance *
+                                        Date de naissance
                                       </Label>
                                       <Input
                                         type="date"
@@ -3474,24 +3492,24 @@ export function BulletinsSaisiePage() {
                       </DialogContent>
                     </Dialog>
 
-                    {/* Total amount */}
-                    <div className="rounded-2xl border border-gray-200 bg-white p-5 text-center">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
-                        Total à rembourser
-                      </p>
-                      <p className="text-3xl font-bold text-gray-900">
-                        {formatAmount(actesTotal)}{" "}
-                        <span className="text-base font-medium text-gray-500">
-                          TND
+                    {/* Total amount + reimbursement estimate */}
+                    <div className="rounded-2xl border border-gray-200 bg-white p-5">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Montant déclaré</span>
+                        <span className="text-lg font-bold text-gray-900">{formatAmount(actesTotal)} TND</span>
+                      </div>
+                      <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-green-600">Total à rembourser</span>
+                        <span className="text-2xl font-bold text-green-600">
+                          {estimatedReimbursement != null ? formatAmount(estimatedReimbursement) : '—'}{" "}
+                          <span className="text-sm font-medium text-green-500">TND</span>
                         </span>
-                      </p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        Calculé sur la base de{" "}
-                        {
-                          (watchedActes || []).filter((a) => a.amount > 0)
-                            .length
-                        }{" "}
-                        acte(s) médical(aux)
+                      </div>
+                      {estimateData?.warning && (
+                        <p className="text-[10px] text-amber-600 mt-1">{estimateData.warning}</p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1 text-center">
+                        {(watchedActes || []).filter((a) => a.amount > 0).length} acte(s) médical(aux)
                       </p>
                     </div>
 
@@ -3601,40 +3619,32 @@ export function BulletinsSaisiePage() {
                 </div>
                 {selectedBulletins.length > 0 && (
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-500">
+                    {/* <span className="text-sm text-gray-500">
                       {selectedBulletins.length} sélectionné(s)
-                    </span>
-                    <button
-                      type="button"
+                    </span> */}
+                    {/* <Button
+                      variant="outline"
                       onClick={() => setSelectedBulletins([])}
-                      className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                      className="gap-2"
                     >
                       Désélectionner
-                    </button>
-                    <button
-                      type="button"
+                    </Button>
+                    <Button
                       onClick={() => setShowBatchDialog(true)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2.5 text-sm font-medium text-white hover:from-blue-700 hover:to-blue-800 shadow-lg shadow-blue-600/25"
+                      className="gap-2 bg-slate-900 hover:bg-[#19355d]"
                     >
                       <FolderPlus className="h-4 w-4" />
                       Créer un lot ({selectedBulletins.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Supprimer ${selectedBulletins.length} bulletin(s) ?`,
-                          )
-                        )
-                          bulkDeleteMutation.mutate(selectedBulletins);
-                      }}
+                    </Button> */}
+                    <Button
+                      variant="outline"
+                      className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
+                      onClick={() => setBulkDeleteBulletinConfirm(true)}
                       disabled={bulkDeleteMutation.isPending}
-                      className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
                     >
                       <Trash2 className="h-4 w-4" />
                       Supprimer ({selectedBulletins.length})
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>
@@ -3642,7 +3652,7 @@ export function BulletinsSaisiePage() {
 
             <DataTable
               columns={[
-                ...(filteredBulletins.length > 2 ? [{
+                {
                   key: "checkbox",
                   header: (
                     <input
@@ -3659,19 +3669,16 @@ export function BulletinsSaisiePage() {
                     />
                   ),
                   className: "w-10",
-                  render: (row: BulletinSaisie) =>
-                    row.status === "draft" ? (
-                      <input
-                        type="checkbox"
-                        checked={selectedBulletins.includes(row.id)}
-                        onChange={() => handleToggleBulletin(row.id)}
-                        onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                    ) : (
-                      <div className="w-4" />
-                    ),
-                }] : []),
+                  render: (row: BulletinSaisie) => (
+                    <input
+                      type="checkbox"
+                      checked={selectedBulletins.includes(row.id)}
+                      onChange={() => handleToggleBulletin(row.id)}
+                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                  ),
+                },
                 {
                   key: "bulletin_number",
                   header: "Bulletin",
@@ -4755,7 +4762,7 @@ export function BulletinsSaisiePage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-red-600 hover:bg-red-700"
               onClick={() => {
                 if (deleteBulletinId) {
                   deleteMutation.mutate(deleteBulletinId);
@@ -4763,7 +4770,37 @@ export function BulletinsSaisiePage() {
                 }
               }}
             >
-              Supprimer
+              {deleteMutation.isPending ? "Suppression..." : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk delete confirmation popup */}
+      <AlertDialog
+        open={bulkDeleteBulletinConfirm}
+        onOpenChange={() => setBulkDeleteBulletinConfirm(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Suppression multiple</AlertDialogTitle>
+            <AlertDialogDescription>
+              Voulez-vous vraiment supprimer <strong>{selectedBulletins.length}</strong>{" "}
+              bulletin(s) sélectionné(s) ? Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                bulkDeleteMutation.mutate(selectedBulletins);
+                setBulkDeleteBulletinConfirm(false);
+              }}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {bulkDeleteMutation.isPending
+                ? "Suppression..."
+                : `Supprimer (${selectedBulletins.length})`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

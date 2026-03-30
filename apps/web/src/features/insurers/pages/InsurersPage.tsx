@@ -176,7 +176,7 @@ export function InsurersPage() {
         columns={columns}
         data={data?.insurers || []}
         isLoading={isLoading}
-        emptyMessage="Aucun adhérent trouvé"
+        emptyMessage="Aucun assureur trouvé"
         pagination={
           data
             ? {
