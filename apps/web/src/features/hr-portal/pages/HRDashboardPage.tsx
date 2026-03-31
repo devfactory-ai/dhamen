@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Users, FileText, CreditCard, TrendingUp, UserPlus, AlertCircle } from 'lucide-react';
+import { Users, FileText, CreditCard, TrendingUp, UserPlus } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { apiClient } from '@/lib/api-client';
 import { useNavigate } from 'react-router-dom';
+import { NoEntrepriseGuard } from '../components/NoEntrepriseGuard';
 
 interface CompanyStats {
   totalAdherents: number;
@@ -50,19 +51,8 @@ export function HRDashboardPage() {
 
   const isLoading = companyLoading || statsLoading;
 
-  if (!user?.companyId) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12">
-        <AlertCircle className="h-12 w-12 text-muted-foreground" />
-        <h2 className="mt-4 text-lg font-semibold">Aucune entreprise associée</h2>
-        <p className="mt-2 text-muted-foreground">
-          Votre compte n'est pas associé à une entreprise. Contactez l'administrateur.
-        </p>
-      </div>
-    );
-  }
-
   return (
+    <NoEntrepriseGuard>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <PageHeader
@@ -198,6 +188,7 @@ export function HRDashboardPage() {
         </Card>
       </div>
     </div>
+    </NoEntrepriseGuard>
   );
 }
 

@@ -11,6 +11,7 @@ import { useAuth } from '@/features/auth/hooks/useAuth';
 import { apiClient } from '@/lib/api-client';
 import { toCSV, downloadCSV, type ExportColumn } from '@/lib/export-utils';
 import { useToast } from '@/stores/toast';
+import { NoEntrepriseGuard } from '../components/NoEntrepriseGuard';
 
 interface Claim {
   id: string;
@@ -156,6 +157,7 @@ export function HRClaimsPage() {
   ];
 
   return (
+    <NoEntrepriseGuard>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <PageHeader
@@ -240,6 +242,7 @@ export function HRClaimsPage() {
         emptyMessage="Aucune demande de remboursement"
       />
     </div>
+    </NoEntrepriseGuard>
   );
 }
 

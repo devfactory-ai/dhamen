@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { apiClient } from '@/lib/api-client';
+import { NoEntrepriseGuard } from '../components/NoEntrepriseGuard';
 
 interface Contract {
   id: string;
@@ -126,6 +127,7 @@ export function HRContractsPage() {
   ];
 
   return (
+    <NoEntrepriseGuard>
     <div className="space-y-6">
       <PageHeader
         title="Contrats d'assurance"
@@ -171,6 +173,7 @@ export function HRContractsPage() {
         emptyMessage="Aucun contrat trouvé"
       />
     </div>
+    </NoEntrepriseGuard>
   );
 }
 

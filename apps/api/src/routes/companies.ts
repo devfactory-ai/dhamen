@@ -343,31 +343,125 @@ companies.get('/:id/stats', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT
     return notFound(c, 'Entreprise non trouvee');
   }
 
+  // Verify company exists first — return empty stats immediately if not
+  const companyExists = await getDb(c).prepare('SELECT id FROM companies WHERE id = ?').bind(id).first();
+  if (!companyExists) {
+    return success(c, { totalAdherents: 0, activeContracts: 0, totalClaims: 0, pendingClaims: 0 });
+  }
+
+  // Use try/catch per query to handle missing tables gracefully
+  const safeCount = async (query: string, ...params: unknown[]): Promise<number> => {
+    try {
+      const result = await getDb(c).prepare(query).bind(...params).first<{ count: number }>();
+      return result?.count || 0;
+    } catch {
+      return 0;
+    }
+  };
+
   const [totalAdherents, activeContracts, totalClaims, pendingClaims] = await Promise.all([
-    getDb(c).prepare('SELECT COUNT(*) as count FROM adherents WHERE company_id = ?').bind(id).first<{ count: number }>(),
-    getDb(c).prepare(
-      `SELECT COUNT(*) as count FROM contracts WHERE adherent_id IN (SELECT id FROM adherents WHERE company_id = ?) AND status = 'active'`
-    )
-      .bind(id)
-      .first<{ count: number }>(),
-    getDb(c).prepare(
-      `SELECT COUNT(*) as count FROM claims WHERE adherent_id IN (SELECT id FROM adherents WHERE company_id = ?)`
-    )
-      .bind(id)
-      .first<{ count: number }>(),
-    getDb(c).prepare(
-      `SELECT COUNT(*) as count FROM claims WHERE adherent_id IN (SELECT id FROM adherents WHERE company_id = ?) AND status = 'pending'`
-    )
-      .bind(id)
-      .first<{ count: number }>(),
+    safeCount('SELECT COUNT(*) as count FROM adherents WHERE company_id = ?', id),
+    safeCount(
+      `SELECT COUNT(*) as count FROM group_contracts WHERE company_id = ? AND status = 'ACTIVE'`,
+      id
+    ),
+    safeCount(
+      `SELECT COUNT(*) as count FROM sante_demandes WHERE adherent_id IN (SELECT id FROM adherents WHERE company_id = ?)`,
+      id
+    ),
+    safeCount(
+      `SELECT COUNT(*) as count FROM sante_demandes WHERE adherent_id IN (SELECT id FROM adherents WHERE company_id = ?) AND statut IN ('soumise', 'en_examen')`,
+      id
+    ),
   ]);
 
-  return success(c, {
-    totalAdherents: totalAdherents?.count || 0,
-    activeContracts: activeContracts?.count || 0,
-    totalClaims: totalClaims?.count || 0,
-    pendingClaims: pendingClaims?.count || 0,
-  });
+  return success(c, { totalAdherents, activeContracts, totalClaims, pendingClaims });
+});
+
+/**
+ * GET /api/v1/companies/:id/contracts
+ * Get contracts for a company (group contracts linked via adherents)
+ */
+companies.get('/:id/contracts', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'), async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
+
+  // HR can only view their own company's contracts
+  if (user?.role === 'HR' && user?.companyId !== id) {
+    return notFound(c, 'Entreprise non trouvee');
+  }
+
+  try {
+    const { results } = await getDb(c).prepare(
+      `SELECT gc.id, gc.policy_number as contract_number, gc.type,
+              gc.start_date, gc.end_date, gc.status,
+              i.name as insurer_name,
+              (SELECT COUNT(*) FROM adherents a WHERE a.company_id = ?) as employee_count,
+              COALESCE(gc.monthly_premium, 0) as monthly_premium,
+              gc.coverage_details
+       FROM group_contracts gc
+       LEFT JOIN insurers i ON gc.insurer_id = i.id
+       WHERE gc.company_id = ?
+       ORDER BY gc.created_at DESC`
+    )
+      .bind(id, id)
+      .all();
+
+    return success(c, results || []);
+  } catch {
+    // Table may not exist or query fails — return empty
+    return success(c, []);
+  }
+});
+
+/**
+ * GET /api/v1/companies/:id/claims
+ * Get claims/PEC for a company's adherents
+ */
+companies.get('/:id/claims', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'), async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
+
+  // HR can only view their own company's claims
+  if (user?.role === 'HR' && user?.companyId !== id) {
+    return notFound(c, 'Entreprise non trouvee');
+  }
+
+  try {
+    // Try sante_demandes first (active PEC system)
+    const { results } = await getDb(c).prepare(
+      `SELECT sd.id, sd.numero_demande as reference,
+              a.first_name || ' ' || a.last_name as adherent_name,
+              sd.adherent_id,
+              sd.type_soin as type,
+              COALESCE(p.nom, '') as provider_name,
+              COALESCE(sd.montant_demande, 0) as amount,
+              COALESCE(sd.montant_rembourse, 0) as covered_amount,
+              CASE sd.statut
+                WHEN 'soumise' THEN 'PENDING'
+                WHEN 'en_examen' THEN 'PENDING'
+                WHEN 'approuvee' THEN 'APPROVED'
+                WHEN 'payee' THEN 'PAID'
+                WHEN 'rejetee' THEN 'REJECTED'
+                ELSE 'PENDING'
+              END as status,
+              sd.created_at,
+              sd.updated_at as processed_at
+       FROM sante_demandes sd
+       LEFT JOIN adherents a ON sd.adherent_id = a.id
+       LEFT JOIN praticiens p ON sd.praticien_id = p.id
+       WHERE a.company_id = ?
+       ORDER BY sd.created_at DESC
+       LIMIT 100`
+    )
+      .bind(id)
+      .all();
+
+    return success(c, results || []);
+  } catch {
+    // Table may not exist — return empty
+    return success(c, []);
+  }
 });
 
 export { companies };

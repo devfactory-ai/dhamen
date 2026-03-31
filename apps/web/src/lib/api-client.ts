@@ -13,7 +13,7 @@ function resolveApiUrl(): string {
 }
 
 export const API_BASE_URL = resolveApiUrl();
-const REQUEST_TIMEOUT_MS = 30000;
+const REQUEST_TIMEOUT_MS = 10000;
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;

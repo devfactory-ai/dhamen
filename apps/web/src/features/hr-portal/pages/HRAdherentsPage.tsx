@@ -12,6 +12,7 @@ import { useAuth } from '@/features/auth/hooks/useAuth';
 import { apiClient } from '@/lib/api-client';
 import { toCSV, downloadCSV, type ExportColumn } from '@/lib/export-utils';
 import { useToast } from '@/stores/toast';
+import { NoEntrepriseGuard } from '../components/NoEntrepriseGuard';
 
 interface Adherent {
   id: string;
@@ -135,6 +136,7 @@ export function HRAdherentsPage() {
   ];
 
   return (
+    <NoEntrepriseGuard>
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <PageHeader
@@ -193,6 +195,7 @@ export function HRAdherentsPage() {
         emptyMessage="Aucun adhérent trouvé"
       />
     </div>
+    </NoEntrepriseGuard>
   );
 }
 
