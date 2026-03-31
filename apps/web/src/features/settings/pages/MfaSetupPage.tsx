@@ -157,7 +157,7 @@ export function MfaSetupPage() {
                 <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
                   <p className="font-medium text-sm text-yellow-800">Codes de secours</p>
                   <p className="text-xs text-yellow-700 mb-2">
-                    Conservez ces codes en lieu sur. Ils vous permettront de vous connecter si vous perdez l'acces a votre application.
+                    Conservez ces codes en lieu sûr. Ils vous permettront de vous connecter si vous perdez l'accès à votre application.
                   </p>
                   <div className="grid grid-cols-2 gap-1">
                     {mfaSetupData.backupCodes.map((code, i) => (

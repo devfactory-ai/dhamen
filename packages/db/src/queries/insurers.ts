@@ -21,12 +21,27 @@ interface InsurerRow {
   email: string | null;
   config_json: string;
   is_active: number;
+  type_assureur: string | null;
+  matricule_fiscal: string | null;
+  matricule_valide: number;
+  date_debut_convention: string | null;
+  date_fin_convention: string | null;
+  taux_couverture: number | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
 }
 
+function isConventionExpiringSoon(dateFinConvention: string | null): boolean {
+  if (!dateFinConvention) return false;
+  const fin = new Date(dateFinConvention);
+  const dans30j = new Date();
+  dans30j.setDate(dans30j.getDate() + 30);
+  return fin <= dans30j && fin >= new Date();
+}
+
 function rowToInsurer(row: InsurerRow): Insurer {
+  const typeAssureur = (row.type_assureur || 'autre') as Insurer['typeAssureur'];
   return {
     id: row.id,
     name: row.name,
@@ -37,6 +52,13 @@ function rowToInsurer(row: InsurerRow): Insurer {
     email: row.email,
     configJson: JSON.parse(row.config_json) as InsurerConfig,
     isActive: row.is_active === 1,
+    typeAssureur,
+    matriculeFiscal: row.matricule_fiscal,
+    matriculeValide: row.matricule_valide === 1,
+    dateDebutConvention: row.date_debut_convention,
+    dateFinConvention: row.date_fin_convention,
+    tauxCouverture: row.taux_couverture,
+    conventionExpireBientot: isConventionExpiringSoon(row.date_fin_convention),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
@@ -63,9 +85,9 @@ export async function findInsurerByCode(db: D1Database, code: string): Promise<I
 
 export async function listInsurers(
   db: D1Database,
-  options: { isActive?: boolean; search?: string; page?: number; limit?: number } = {}
+  options: { isActive?: boolean; search?: string; typeAssureur?: string; page?: number; limit?: number } = {}
 ): Promise<{ data: Insurer[]; total: number }> {
-  const { isActive, search, page = 1, limit = 20 } = options;
+  const { isActive, search, typeAssureur, page = 1, limit = 20 } = options;
   const offset = (page - 1) * limit;
 
   let whereClause = 'deleted_at IS NULL';
@@ -77,8 +99,13 @@ export async function listInsurers(
   }
 
   if (search) {
-    whereClause += ' AND (name LIKE ? OR code LIKE ?)';
-    params.push(`%${search}%`, `%${search}%`);
+    whereClause += ' AND (name LIKE ? OR code LIKE ? OR matricule_fiscal LIKE ?)';
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+
+  if (typeAssureur) {
+    whereClause += ' AND type_assureur = ?';
+    params.push(typeAssureur);
   }
 
   const countResult = await db
@@ -122,8 +149,10 @@ export async function createInsurer(
 
   await db
     .prepare(
-      `INSERT INTO insurers (id, name, code, tax_id, address, phone, email, config_json, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+      `INSERT INTO insurers (id, name, code, tax_id, address, phone, email, config_json, is_active,
+       type_assureur, matricule_fiscal, matricule_valide, date_debut_convention, date_fin_convention, taux_couverture,
+       created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       id,
@@ -134,6 +163,12 @@ export async function createInsurer(
       data.phone ?? null,
       data.email ?? null,
       JSON.stringify(config),
+      data.typeAssureur ?? 'autre',
+      data.matriculeFiscal ?? null,
+      data.matriculeFiscal ? 1 : 0,
+      data.dateDebutConvention ?? null,
+      data.dateFinConvention ?? null,
+      data.tauxCouverture ?? null,
       now,
       now
     )
@@ -187,6 +222,30 @@ export async function updateInsurer(
   if (data.isActive !== undefined) {
     updates.push('is_active = ?');
     params.push(data.isActive ? 1 : 0);
+  }
+  if (data.typeAssureur !== undefined) {
+    updates.push('type_assureur = ?');
+    params.push(data.typeAssureur);
+  }
+  if (data.matriculeFiscal !== undefined) {
+    updates.push('matricule_fiscal = ?');
+    params.push(data.matriculeFiscal || null);
+  }
+  if ('matriculeValide' in (data as Record<string, unknown>)) {
+    updates.push('matricule_valide = ?');
+    params.push((data as Record<string, unknown>).matriculeValide ? 1 : 0);
+  }
+  if (data.dateDebutConvention !== undefined) {
+    updates.push('date_debut_convention = ?');
+    params.push(data.dateDebutConvention || null);
+  }
+  if (data.dateFinConvention !== undefined) {
+    updates.push('date_fin_convention = ?');
+    params.push(data.dateFinConvention || null);
+  }
+  if (data.tauxCouverture !== undefined) {
+    updates.push('taux_couverture = ?');
+    params.push(data.tauxCouverture);
   }
 
   if (updates.length === 0) {

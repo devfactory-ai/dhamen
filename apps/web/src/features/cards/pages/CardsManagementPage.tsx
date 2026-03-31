@@ -227,11 +227,10 @@ export default function CardsManagementPage() {
         description="Gerez les cartes virtuelles des adhérents"
       >
         <Button
-          className="bg-cyan-600 hover:bg-cyan-700"
+          className="gap-2 bg-slate-900 hover:bg-[#19355d]"
           onClick={() => navigate('/cards/generate')}
         >
-          <Plus className="mr-2 h-4 w-4" />
-          Générer une carte
+          <Plus className="w-4 h-4" /> Générer une carte
         </Button>
       </PageHeader>
 
@@ -439,7 +438,7 @@ export default function CardsManagementPage() {
             <AlertDialogTitle>Revoquer la carte</AlertDialogTitle>
             <AlertDialogDescription>
               Cette action est irréversible. La carte <strong>{selectedCard?.cardNumber}</strong> sera
-              definitivement désactivée et ne pourra plus etre utilisee.
+              définitivement désactivée et ne pourra plus être utilisée.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

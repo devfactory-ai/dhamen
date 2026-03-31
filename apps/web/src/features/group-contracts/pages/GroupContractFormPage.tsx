@@ -691,7 +691,7 @@ export function GroupContractFormPage() {
 
         const guaranteeCount = geminiGuarantees.length;
         toast({
-          title: 'PDF analyse avec succes',
+          title: 'PDF analysé avec succès',
           description: `${guaranteeCount} garantie${guaranteeCount > 1 ? 's' : ''} extraite${guaranteeCount > 1 ? 's' : ''} automatiquement`,
           variant: 'success',
         });
@@ -1744,7 +1744,7 @@ export function GroupContractFormPage() {
                                 Triennal
                               </SelectItem>
                               <SelectItem value="per_event">
-                                Par evenement
+                                Par événement
                               </SelectItem>
                             </SelectContent>
                           </Select>

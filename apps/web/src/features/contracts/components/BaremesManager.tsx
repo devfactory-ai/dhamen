@@ -359,7 +359,7 @@ export function BaremesManager({
                 </Button>
                 <Button type="submit" disabled={isLoading}>
                   {isLoading
-                    ? 'Enregistrément...'
+                    ? 'Enregistrement...'
                     : editingBareme
                       ? 'Mettre à jour'
                       : 'Ajouter'}

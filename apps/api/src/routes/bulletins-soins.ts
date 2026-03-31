@@ -874,8 +874,8 @@ bulletinsSoins.get('/manage', async (c) => {
   const user = c.get('user');
   const db = getDb(c);
 
-  // Check if user is an insurer agent or admin
-  if (!['INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
+  // Check if user is an insurer agent, insurer admin, or platform admin
+  if (!['ADMIN', 'INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
     return c.json({
       success: false,
       error: { code: 'FORBIDDEN', message: 'Accès réservé aux agents assureur' },
@@ -978,7 +978,7 @@ bulletinsSoins.get('/manage/stats', async (c) => {
   const user = c.get('user');
   const db = getDb(c);
 
-  if (!['INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
+  if (!['ADMIN', 'INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
     return c.json({
       success: false,
       error: { code: 'FORBIDDEN', message: 'Accès réservé aux agents assureur' },
@@ -1087,7 +1087,7 @@ bulletinsSoins.get('/manage/:id', async (c) => {
   const bulletinId = c.req.param('id');
   const db = getDb(c);
 
-  if (!['INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
+  if (!['ADMIN', 'INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
     return c.json({
       success: false,
       error: { code: 'FORBIDDEN', message: 'Accès réservé aux agents assureur' },
@@ -1145,7 +1145,7 @@ bulletinsSoins.put('/manage/:id/status', async (c) => {
   const bulletinId = c.req.param('id');
   const db = getDb(c);
 
-  if (!['INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
+  if (!['ADMIN', 'INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
     return c.json({
       success: false,
       error: { code: 'FORBIDDEN', message: 'Accès réservé aux agents assureur' },
@@ -1277,7 +1277,7 @@ bulletinsSoins.post('/manage/:id/approve', async (c) => {
   const bulletinId = c.req.param('id');
   const db = getDb(c);
 
-  if (!['INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
+  if (!['ADMIN', 'INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
     return c.json({
       success: false,
       error: { code: 'FORBIDDEN', message: 'Accès réservé aux agents assureur' },
@@ -1338,7 +1338,7 @@ bulletinsSoins.post('/manage/:id/approve', async (c) => {
   const bulletinNumber = bulletin.bulletin_number as string;
   const careType = bulletin.care_type as string || 'soin';
   const formatAmount = (v: number) => (v / 1000).toFixed(3);
-  const notifBody = `Votre bulletin ${bulletinNumber} (${careType}) a ete approuve. Montant rembourse : ${formatAmount(approved_amount)} TND.`;
+  const notifBody = `Votre bulletin ${bulletinNumber} (${careType}) a été approuvé. Montant remboursé : ${formatAmount(approved_amount)} TND.`;
 
   // Find the user account linked to this adherent (via email)
   // Write notification to both tenant DB and platform DB (mobile may read from either)
@@ -1417,7 +1417,7 @@ bulletinsSoins.post('/manage/:id/reject', async (c) => {
   const bulletinId = c.req.param('id');
   const db = getDb(c);
 
-  if (!['INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
+  if (!['ADMIN', 'INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
     return c.json({
       success: false,
       error: { code: 'FORBIDDEN', message: 'Accès réservé aux agents assureur' },
@@ -1475,7 +1475,7 @@ bulletinsSoins.post('/manage/:id/reject', async (c) => {
   // Fire-and-forget: notify adherent
   const bulletinNumber = bulletin.bulletin_number as string;
   const careType = bulletin.care_type as string || 'soin';
-  const notifBody = `Votre bulletin ${bulletinNumber} (${careType}) a ete rejete. Motif : ${reason}.`;
+  const notifBody = `Votre bulletin ${bulletinNumber} (${careType}) a été rejeté. Motif : ${reason}.`;
 
   // Find the user account linked to this adherent (via email)
   // Write notification to both tenant DB and platform DB (mobile may read from either)
@@ -2237,9 +2237,9 @@ bulletinsSoins.get('/history/:id', async (c) => {
       }, 404);
     }
 
-    // Only show bulletins with final status
+    // Non-admin users can only view bulletins with final status
     const finalStatuses = ['approved', 'reimbursed', 'rejected'];
-    if (!finalStatuses.includes(bulletin.status as string)) {
+    if (user.role !== 'ADMIN' && !finalStatuses.includes(bulletin.status as string)) {
       return c.json({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Ce bulletin n\'est pas encore dans un statut final' },
@@ -2496,6 +2496,191 @@ bulletinsSoins.get('/history', async (c) => {
     return c.json({
       success: false,
       error: { code: 'DATABASE_ERROR', message: `Erreur historique: ${err instanceof Error ? err.message : String(err)}` },
+    }, 500);
+  }
+});
+
+// ================================================================
+// ADMIN — Vue globale tous les bulletins
+// ================================================================
+
+/**
+ * GET /admin/all — Liste tous les bulletins (ADMIN uniquement)
+ */
+bulletinsSoins.get('/admin/all', async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'ADMIN') {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès réservé aux administrateurs' } }, 403);
+  }
+
+  const db = getDb(c);
+  const url = new URL(c.req.url);
+  const page = parseInt(url.searchParams.get('page') || '1');
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 100);
+  const offset = (page - 1) * limit;
+  const status = url.searchParams.get('status');
+  const search = url.searchParams.get('search');
+  const careType = url.searchParams.get('careType');
+  const dateFrom = url.searchParams.get('dateFrom');
+  const dateTo = url.searchParams.get('dateTo');
+
+  try {
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (status) {
+      conditions.push('bs.status = ?');
+      params.push(status);
+    }
+    if (careType) {
+      conditions.push('bs.care_type = ?');
+      params.push(careType);
+    }
+    if (dateFrom) {
+      conditions.push('DATE(bs.created_at) >= ?');
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      conditions.push('DATE(bs.created_at) <= ?');
+      params.push(dateTo);
+    }
+    if (search) {
+      conditions.push(`(
+        a.first_name LIKE ? OR a.last_name LIKE ? OR
+        bs.bulletin_number LIKE ? OR a.national_id LIKE ?
+      )`);
+      const s = `%${search}%`;
+      params.push(s, s, s, s);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const countResult = await db
+      .prepare(`SELECT COUNT(*) as total FROM bulletins_soins bs LEFT JOIN adherents a ON bs.adherent_id = a.id ${whereClause}`)
+      .bind(...params)
+      .first<{ total: number }>();
+    const total = countResult?.total ?? 0;
+
+    const rows = await db
+      .prepare(`
+        SELECT
+          bs.id, bs.bulletin_number, bs.status, bs.care_type, bs.bulletin_date,
+          bs.total_amount, bs.reimbursed_amount, bs.created_at,
+          a.first_name as adherent_first_name, a.last_name as adherent_last_name,
+          bs.beneficiary_name,
+          u.first_name as agent_first_name, u.last_name as agent_last_name
+        FROM bulletins_soins bs
+        LEFT JOIN adherents a ON bs.adherent_id = a.id
+        LEFT JOIN users u ON bs.created_by = u.id
+        ${whereClause}
+        ORDER BY bs.created_at DESC
+        LIMIT ? OFFSET ?
+      `)
+      .bind(...params, limit, offset)
+      .all();
+
+    const data = (rows.results ?? []).map((r: Record<string, unknown>) => ({
+      id: r.id,
+      bulletinNumber: r.bulletin_number,
+      status: r.status,
+      careType: r.care_type,
+      careDate: r.bulletin_date,
+      totalAmount: r.total_amount,
+      reimbursedAmount: r.reimbursed_amount,
+      createdAt: r.created_at,
+      adherentFirstName: r.adherent_first_name,
+      adherentLastName: r.adherent_last_name,
+      adherentName: `${r.adherent_first_name || ''} ${r.adherent_last_name || ''}`.trim(),
+      beneficiaryName: r.beneficiary_name,
+      agentName: `${r.agent_first_name || ''} ${r.agent_last_name || ''}`.trim(),
+    }));
+
+    return c.json({
+      success: true,
+      data: {
+        data,
+        meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      },
+    });
+  } catch (err) {
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: `Erreur: ${err instanceof Error ? err.message : String(err)}` },
+    }, 500);
+  }
+});
+
+/**
+ * GET /admin/export — Export CSV de tous les bulletins (ADMIN uniquement)
+ */
+bulletinsSoins.get('/admin/export', async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'ADMIN') {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès réservé aux administrateurs' } }, 403);
+  }
+
+  const db = getDb(c);
+  const url = new URL(c.req.url);
+  const status = url.searchParams.get('status');
+  const search = url.searchParams.get('search');
+  const careType = url.searchParams.get('careType');
+  const dateFrom = url.searchParams.get('dateFrom');
+  const dateTo = url.searchParams.get('dateTo');
+
+  try {
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (status) { conditions.push('bs.status = ?'); params.push(status); }
+    if (careType) { conditions.push('bs.care_type = ?'); params.push(careType); }
+    if (dateFrom) { conditions.push('bs.bulletin_date >= ?'); params.push(dateFrom); }
+    if (dateTo) { conditions.push('bs.bulletin_date <= ?'); params.push(dateTo); }
+    if (search) {
+      conditions.push(`(a.first_name LIKE ? OR a.last_name LIKE ? OR bs.bulletin_number LIKE ?)`);
+      const s = `%${search}%`;
+      params.push(s, s, s);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const rows = await db
+      .prepare(`
+        SELECT
+          bs.bulletin_number, a.first_name || ' ' || a.last_name as adherent_name,
+          bs.beneficiary_name, bs.status, bs.care_type, bs.bulletin_date,
+          bs.total_amount, bs.reimbursed_amount,
+          COALESCE(bs.total_amount, 0) - COALESCE(bs.reimbursed_amount, 0) as reste_a_charge,
+          u.first_name || ' ' || u.last_name as agent_name
+        FROM bulletins_soins bs
+        LEFT JOIN adherents a ON bs.adherent_id = a.id
+        LEFT JOIN users u ON bs.created_by = u.id
+        ${whereClause}
+        ORDER BY bs.created_at DESC
+      `)
+      .bind(...params)
+      .all();
+
+    const BOM = '\uFEFF';
+    const headers = 'Numéro bulletin;Adhérent;Bénéficiaire;Statut;Type acte;Date soins;Montant facturé;Montant remboursé;Reste à charge;Agent';
+    const csvRows = (rows.results ?? []).map((r: Record<string, unknown>) =>
+      [
+        r.bulletin_number, r.adherent_name, r.beneficiary_name, r.status,
+        r.care_type, r.bulletin_date, r.total_amount, r.reimbursed_amount,
+        r.reste_a_charge, r.agent_name,
+      ].join(';')
+    );
+    const csv = BOM + headers + '\n' + csvRows.join('\n');
+
+    return new Response(csv, {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="bulletins-globaux-${new Date().toISOString().split('T')[0]}.csv"`,
+      },
+    });
+  } catch (err) {
+    return c.json({
+      success: false,
+      error: { code: 'EXPORT_ERROR', message: `Erreur export: ${err instanceof Error ? err.message : String(err)}` },
     }, 500);
   }
 });

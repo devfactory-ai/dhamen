@@ -245,7 +245,7 @@ auth.post('/mfa/setup/verify', authMiddleware(), zValidator('json', mfaSetupSche
   // Get temporary secret from cache
   const secret = await c.env.CACHE.get(`mfa_setup:${user.id}`);
   if (!secret) {
-    return error(c, 'MFA_SETUP_EXPIRED', 'Session de configuration MFA expiree', 400);
+    return error(c, 'MFA_SETUP_EXPIRED', 'Session de configuration MFA expirée', 400);
   }
 
   // Verify the OTP code
@@ -285,7 +285,7 @@ auth.post('/mfa/setup/verify', authMiddleware(), zValidator('json', mfaSetupSche
   return success(c, {
     enabled: true,
     backupCodes, // Show these once, user must save them
-    message: 'MFA active. Conservez vos codes de secours en lieu sur.',
+    message: 'MFA active. Conservez vos codes de secours en lieu sûr.',
   });
 });
 
@@ -1002,7 +1002,7 @@ auth.post('/mfa/email/enable/verify', authMiddleware(), zValidator('json', mfaSe
     userAgent: c.req.header('User-Agent'),
   });
 
-  return success(c, { enabled: true, message: 'MFA par email active avec succes' });
+  return success(c, { enabled: true, message: 'MFA par email activé avec succès' });
 });
 
 /**
@@ -1082,7 +1082,7 @@ auth.post('/password-reset/request', zValidator('json', passwordResetRequestSche
     await notifService.sendPasswordResetEmail(user.email, resetUrl, user.firstName || 'Utilisateur');
   }
 
-  return success(c, { sent: true, message: 'Si un compte existe avec cet email, un lien de reinitialisation a ete envoye.' });
+  return success(c, { sent: true, message: 'Si un compte existe avec cet email, un lien de réinitialisation a été envoyé.' });
 });
 
 /**
@@ -1094,13 +1094,13 @@ auth.post('/password-reset/confirm', zValidator('json', passwordResetConfirmSche
 
   const payload = await verifyJWT(token, c.env.JWT_SECRET);
   if (!payload || payload.purpose !== 'password_reset') {
-    return error(c, 'INVALID_TOKEN', 'Lien de reinitialisation invalide ou expire', 400);
+    return error(c, 'INVALID_TOKEN', 'Lien de réinitialisation invalide ou expire', 400);
   }
 
   // Verify token exists in KV
   const storedToken = await c.env.CACHE.get(`password_reset:${payload.sub}`);
   if (storedToken !== token) {
-    return error(c, 'TOKEN_USED', 'Ce lien a deja ete utilise', 400);
+    return error(c, 'TOKEN_USED', 'Ce lien a déjà été utilisé', 400);
   }
 
   const user = await findUserById(getDb(c), payload.sub);
@@ -1125,7 +1125,7 @@ auth.post('/password-reset/confirm', zValidator('json', passwordResetConfirmSche
     userAgent: c.req.header('User-Agent'),
   });
 
-  return success(c, { reset: true, message: 'Mot de passe reinitialise avec succes' });
+  return success(c, { reset: true, message: 'Mot de passe réinitialisé avec succès' });
 });
 
 /**
@@ -1172,7 +1172,7 @@ auth.post('/magic-link/send', zValidator('json', magicLinkSendSchema, validation
     await notifService.sendMagicLinkEmail(user.email, loginUrl, user.firstName || 'Utilisateur');
   }
 
-  return success(c, { sent: true, message: 'Si un compte existe avec cet email, un lien de connexion a ete envoye.' });
+  return success(c, { sent: true, message: 'Si un compte existe avec cet email, un lien de connexion a été envoyé.' });
 });
 
 /**
@@ -1190,7 +1190,7 @@ auth.post('/magic-link/verify', zValidator('json', magicLinkVerifySchema, valida
   // Verify token exists in KV (single use)
   const storedToken = await c.env.CACHE.get(`magic_link:${payload.sub}`);
   if (storedToken !== token) {
-    return error(c, 'TOKEN_USED', 'Ce lien a deja ete utilise', 400);
+    return error(c, 'TOKEN_USED', 'Ce lien a déjà été utilisé', 400);
   }
 
   const user = await findUserById(getDb(c), payload.sub);

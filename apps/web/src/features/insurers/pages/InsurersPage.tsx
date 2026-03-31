@@ -17,12 +17,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { useInsurers, useDeleteInsurer, type Insurer } from '../hooks/useInsurers';
+import { useInsurers, useDeleteInsurer, useToggleInsurerStatus, type Insurer } from '../hooks/useInsurers';
 import { useToast } from '@/stores/toast';
 
-const INSURER_TYPES = {
+const INSURER_TYPES: Record<string, { label: string; color: string }> = {
   INSURANCE: { label: 'Assurance', color: 'bg-blue-100 text-blue-800' },
   MUTUAL: { label: 'Mutuelle', color: 'bg-green-100 text-green-800' },
+  cnam: { label: 'CNAM', color: 'bg-red-100 text-red-800' },
+  mutuelle: { label: 'Mutuelle', color: 'bg-green-100 text-green-800' },
+  compagnie: { label: 'Compagnie', color: 'bg-blue-100 text-blue-800' },
+  reassureur: { label: 'Réassureur', color: 'bg-purple-100 text-purple-800' },
+  autre: { label: 'Autre', color: 'bg-gray-100 text-gray-800' },
 };
 
 export function InsurersPage() {
@@ -34,6 +39,7 @@ export function InsurersPage() {
 
   const { data, isLoading } = useInsurers(page);
   const deleteInsurer = useDeleteInsurer();
+  const toggleStatus = useToggleInsurerStatus();
 
   const exportColumns: ExportColumn<Insurer>[] = [
     { key: 'code', header: 'Code' },
@@ -75,10 +81,20 @@ export function InsurersPage() {
     }
   };
 
+  const handleToggleStatus = async (insurer: Insurer) => {
+    const newStatus = insurer.isActive ? 'suspended' : 'active';
+    try {
+      await toggleStatus.mutateAsync({ id: insurer.id, status: newStatus as 'active' | 'suspended' });
+      toast({ title: `Compagnie ${newStatus === 'active' ? 'activée' : 'suspendue'}`, variant: 'success' });
+    } catch {
+      toast({ title: 'Erreur lors du changement de statut', variant: 'destructive' });
+    }
+  };
+
   const columns = [
     {
       key: 'name',
-      header: 'Assureur',
+      header: 'Compagnie',
       render: (insurer: Insurer) => (
         <div className="flex items-center gap-3">
           <div className='flex h-10 w-10 items-center justify-center rounded-lg bg-muted font-bold text-sm'>
@@ -95,7 +111,8 @@ export function InsurersPage() {
       key: 'type',
       header: 'Type',
       render: (insurer: Insurer) => {
-        const typeInfo = INSURER_TYPES[insurer.type];
+        const typeKey = insurer.typeAssureur || insurer.type;
+        const typeInfo = INSURER_TYPES[typeKey] || INSURER_TYPES.autre;
         return (
           <span className={`rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>
             {typeInfo.label}
@@ -104,11 +121,38 @@ export function InsurersPage() {
       },
     },
     {
-      key: 'location',
-      header: 'Localisation',
+      key: 'matriculeFiscal',
+      header: 'Matricule Fiscal',
       render: (insurer: Insurer) => (
         <div>
-          <p className="text-sm">{insurer.city}</p>
+          {insurer.matriculeFiscal ? (
+            <div>
+              <span className="font-mono text-sm">{insurer.matriculeFiscal}</span>
+              {!insurer.matriculeValide && (
+                <p className="text-xs text-amber-600 mt-0.5">⚠ MF invalide</p>
+              )}
+            </div>
+          ) : (
+            <span className="text-muted-foreground text-sm">—</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'convention',
+      header: 'Convention',
+      render: (insurer: Insurer) => (
+        <div>
+          {insurer.dateFinConvention ? (
+            <div>
+              <span className="text-sm">{new Date(insurer.dateFinConvention).toLocaleDateString('fr-TN')}</span>
+              {insurer.conventionExpireBientot && (
+                <p className="text-xs text-amber-600 mt-0.5">⚠ Expire bientôt</p>
+              )}
+            </div>
+          ) : (
+            <span className="text-muted-foreground text-sm">—</span>
+          )}
         </div>
       ),
     },
@@ -127,7 +171,7 @@ export function InsurersPage() {
       header: 'Statut',
       render: (insurer: Insurer) => (
         <Badge variant={insurer.isActive ? 'success' : 'destructive'}>
-          {insurer.isActive ? 'Actif' : 'Inactif'}
+          {insurer.isActive ? 'Actif' : 'Suspendu'}
         </Badge>
       ),
     },
@@ -139,6 +183,14 @@ export function InsurersPage() {
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => navigate(`/insurers/${insurer.id}/edit`)}>
             Modifier
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleToggleStatus(insurer)}
+            disabled={toggleStatus.isPending}
+          >
+            {insurer.isActive ? 'Suspendre' : 'Activer'}
           </Button>
           <Button
             variant="ghost"
@@ -157,17 +209,16 @@ export function InsurersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <PageHeader
-          title="Assureurs"
-          description="Gérer les assureurs et mutuelles partenaires"
+          title="Compagnies Partenaires"
+          description="Gérer les organismes partenaires et conventions de remboursement"
         />
         <div className="flex gap-2">
           <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
             <Download className="mr-2 h-4 w-4" />
             {isExporting ? 'Export...' : 'Exporter'}
           </Button>
-          <Button onClick={() => navigate('/insurers/new')}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nouvel assureur
+          <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => navigate('/insurers/new')}>
+            <Plus className="w-4 h-4" /> Nouvelle compagnie
           </Button>
         </div>
       </div>
@@ -176,7 +227,7 @@ export function InsurersPage() {
         columns={columns}
         data={data?.insurers || []}
         isLoading={isLoading}
-        emptyMessage="Aucun assureur trouvé"
+        emptyMessage="Aucune compagnie partenaire enregistrée"
         pagination={
           data
             ? {
@@ -197,7 +248,7 @@ export function InsurersPage() {
             <AlertDialogDescription>
               Êtes-vous sûr de vouloir supprimer l'assureur{' '}
               <strong>{deleteConfirm?.name}</strong> ?
-              Cette action est irreversible et supprimera tous les contrats associés.
+              Cette action est irréversible et supprimera tous les contrats associés.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

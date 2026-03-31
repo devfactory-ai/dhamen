@@ -67,7 +67,7 @@ export function useExportBatchCSV() {
 
       if (!response.ok) {
         if (response.status === 409) {
-          throw new Error('Lot deja exporte');
+          throw new Error('Lot déjà exporté');
         }
         if (response.status === 404) {
           throw new Error('Lot non trouve');

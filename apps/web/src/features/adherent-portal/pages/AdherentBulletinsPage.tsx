@@ -144,7 +144,7 @@ const statusConfig: Record<BulletinStatus, {
     icon: AlertCircle,
     variant: 'warning',
     color: 'text-orange-600',
-    description: 'Documents manquants - delai 15 jours',
+    description: 'Documents manquants - délai 15 jours',
     step: 2
   },
   paper_complete: {
@@ -152,7 +152,7 @@ const statusConfig: Record<BulletinStatus, {
     icon: CheckCircle,
     variant: 'success',
     color: 'text-green-600',
-    description: 'Dossier complet - delai 2 jours',
+    description: 'Dossier complet - délai 2 jours',
     step: 3
   },
   processing: {
@@ -570,7 +570,7 @@ export function AdhérentBulletinsPage() {
     });
 
     if (validFiles.length !== files.length) {
-      toast.error('Certains fichiers ont ete ignores (format ou taille invalide)');
+      toast.error('Certains fichiers ont été ignorés (format ou taille invalide)');
     }
 
     setSelectedFiles(prev => [...prev, ...validFiles]);

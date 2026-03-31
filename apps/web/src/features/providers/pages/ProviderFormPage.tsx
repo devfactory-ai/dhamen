@@ -148,10 +148,10 @@ export function ProviderFormPage() {
 
       if (isEditing && id) {
         await updateProvider.mutateAsync({ id, data: apiData });
-        toast({ title: 'Praticien modifie avec succes', variant: 'success' });
+        toast({ title: 'Praticien modifié avec succès', variant: 'success' });
       } else {
         await createProvider.mutateAsync(apiData);
-        toast({ title: 'Praticien cree avec succes', variant: 'success' });
+        toast({ title: 'Praticien créé avec succès', variant: 'success' });
       }
       navigate('/providers');
     } catch {
@@ -325,7 +325,7 @@ export function ProviderFormPage() {
                 <div className="space-y-0.5">
                   <Label>Praticien actif</Label>
                   <p className="text-muted-foreground text-sm">
-                    Desactiver le praticien suspendra son acces a la plateforme
+                    Désactiver le praticien suspendra son accès à la plateforme
                   </p>
                 </div>
                 <Switch

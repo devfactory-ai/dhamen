@@ -138,7 +138,7 @@ demandes.get(
  */
 demandes.get(
   '/:id',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
     const user = c.get('user');
@@ -330,12 +330,12 @@ demandes.patch(
 
       // Build notification body text from push template
       const notifBodyMap: Record<string, string> = {
-        SANTE_DEMANDE_APPROUVEE: `Votre demande de ${notifData.typeSoin} du ${notifData.dateSoin} a ete approuvee. Montant rembourse : ${notifData.montantRembourse} TND.`,
-        SANTE_DEMANDE_REJETEE: `Votre demande de ${notifData.typeSoin} du ${notifData.dateSoin} a ete rejetee. Motif : ${notifData.motifRejet || 'Non precise'}.`,
+        SANTE_DEMANDE_APPROUVEE: `Votre demande de ${notifData.typeSoin} du ${notifData.dateSoin} a été approuvée. Montant remboursé : ${notifData.montantRembourse} TND.`,
+        SANTE_DEMANDE_REJETEE: `Votre demande de ${notifData.typeSoin} du ${notifData.dateSoin} a été rejetée. Motif : ${notifData.motifRejet || 'Non précisé'}.`,
         SANTE_DEMANDE_EN_EXAMEN: `Votre demande de ${notifData.typeSoin} est en cours de traitement par votre assureur.`,
         SANTE_INFO_REQUISE: `Votre assureur a besoin d'informations supplementaires pour votre demande de ${notifData.typeSoin}. ${notifData.notes}`.trim(),
         SANTE_DEMANDE_EN_PAIEMENT: `Le remboursement de ${notifData.montantRembourse} TND pour votre demande de ${notifData.typeSoin} est en cours.`,
-        SANTE_PAIEMENT_EFFECTUE: `Le montant de ${notifData.montantRembourse} TND a ete verse pour votre demande de ${notifData.typeSoin}.`,
+        SANTE_PAIEMENT_EFFECTUE: `Le montant de ${notifData.montantRembourse} TND a été versé pour votre demande de ${notifData.typeSoin}.`,
       };
       const notifBody = notifBodyMap[notifType] || `Statut mis a jour : ${data.statut}`;
 

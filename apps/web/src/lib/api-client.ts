@@ -173,8 +173,8 @@ class ApiClient {
         };
       }
 
-      // Handle 401 - token expired
-      if (response.status === 401 && token) {
+      // Handle 401 (token expired) or 403 (stale role in JWT) - try refresh
+      if ((response.status === 401 || response.status === 403) && token) {
         const refreshed = await this.refreshTokenWithLocking();
         if (refreshed) {
           // Retry the request with new token
@@ -195,19 +195,28 @@ class ApiClient {
               signal: retryController.signal,
               credentials: 'include', // Send cookies with cross-origin requests
             });
-            return retryResponse.json();
+            const retryData = await retryResponse.json();
+            // If still 403 after refresh, return the error (genuinely forbidden)
+            if (retryResponse.status === 403) {
+              return retryData;
+            }
+            return retryData;
           } finally {
             clearTimeout(retryTimeoutId);
           }
         }
 
-        // Refresh failed, emit logout event
-        this.clearTokens();
-        emitAuthEvent('logout');
-        return {
-          success: false,
-          error: { code: 'SESSION_EXPIRED', message: 'Session expirée, veuillez vous reconnecter' },
-        };
+        // Refresh failed on 401, emit logout event
+        if (response.status === 401) {
+          this.clearTokens();
+          emitAuthEvent('logout');
+          return {
+            success: false,
+            error: { code: 'SESSION_EXPIRED', message: 'Session expirée, veuillez vous reconnecter' },
+          };
+        }
+        // Refresh failed on 403, return original error
+        return data;
       }
 
       return data;

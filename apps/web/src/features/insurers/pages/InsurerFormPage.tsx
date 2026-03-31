@@ -3,9 +3,10 @@
  *
  * Dedicated page for insurer creation and editing (replaces dialog)
  */
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
+import { validerMatriculeFiscal } from '@dhamen/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ChevronRight } from 'lucide-react';
@@ -24,11 +25,19 @@ const INSURER_TYPES = {
   MUTUAL: 'Mutuelle',
 };
 
+const TYPE_ASSUREUR_OPTIONS = [
+  { value: 'cnam', label: 'CNAM' },
+  { value: 'mutuelle', label: 'Mutuelle' },
+  { value: 'compagnie', label: "Compagnie d'assurance" },
+  { value: 'reassureur', label: 'Réassureur' },
+  { value: 'autre', label: 'Autre' },
+];
+
 const insurerFormSchema = z.object({
   name: z.string().min(2, 'Minimum 2 caracteres'),
   code: z.string().min(2, 'Code requis (2-5 caracteres)').max(5),
   type: z.enum(['INSURANCE', 'MUTUAL']),
-  registrationNumber: z.string().min(1, 'Numéro d\'enregistrément requis'),
+  registrationNumber: z.string().min(1, 'Numéro d\'enregistrement requis'),
   taxId: z.string().optional(),
   address: z.string().min(5, 'Adresse requise'),
   city: z.string().min(2, 'Ville requise'),
@@ -37,6 +46,11 @@ const insurerFormSchema = z.object({
   email: z.string().email('Email invalide').optional().or(z.literal('')),
   website: z.string().url('URL invalide').optional().or(z.literal('')),
   isActive: z.boolean().optional(),
+  typeAssureur: z.string().optional(),
+  matriculeFiscal: z.string().optional(),
+  dateDebutConvention: z.string().optional(),
+  dateFinConvention: z.string().optional(),
+  tauxCouverture: z.string().optional(),
 });
 
 type InsurerFormData = z.infer<typeof insurerFormSchema>;
@@ -50,6 +64,7 @@ export function InsurerFormPage() {
   const { data: insurer, isLoading: isLoadingInsurer } = useInsurer(id || '');
   const createInsurer = useCreateInsurer();
   const updateInsurer = useUpdateInsurer();
+  const [mfValidation, setMfValidation] = useState<{ valid?: boolean; message?: string } | null>(null);
 
   const {
     register,
@@ -73,6 +88,11 @@ export function InsurerFormPage() {
       email: '',
       website: '',
       isActive: true,
+      typeAssureur: 'autre',
+      matriculeFiscal: '',
+      dateDebutConvention: '',
+      dateFinConvention: '',
+      tauxCouverture: '',
     },
   });
 
@@ -85,13 +105,18 @@ export function InsurerFormPage() {
         type: insurer.type,
         registrationNumber: insurer.registrationNumber,
         taxId: insurer.taxId || '',
-        address: insurer.address,
-        city: insurer.city,
+        address: insurer.address || '',
+        city: insurer.city || '',
         postalCode: insurer.postalCode || '',
-        phone: insurer.phone,
+        phone: insurer.phone || '',
         email: insurer.email || '',
         website: insurer.website || '',
         isActive: insurer.isActive,
+        typeAssureur: insurer.typeAssureur || 'autre',
+        matriculeFiscal: insurer.matriculeFiscal || '',
+        dateDebutConvention: insurer.dateDebutConvention || '',
+        dateFinConvention: insurer.dateFinConvention || '',
+        tauxCouverture: insurer.tauxCouverture != null ? String(insurer.tauxCouverture) : '',
       });
     }
   }, [insurer, reset]);
@@ -99,20 +124,40 @@ export function InsurerFormPage() {
   const selectedType = watch('type');
   const isActive = watch('isActive');
 
-  const onSubmit = async (data: InsurerFormData) => {
+  const handleMfBlur = (value: string) => {
+    if (!value) {
+      setMfValidation(null);
+      return;
+    }
+    const result = validerMatriculeFiscal(value);
+    if (result.valid) {
+      const details = result.parts
+        ? `MF valide — ${result.parts.codeTva ? `TVA: ${result.parts.codeTva}` : 'Forme courte'}`
+        : 'MF valide';
+      setMfValidation({ valid: true, message: details });
+    } else {
+      setMfValidation({ valid: false, message: result.errors.join(', ') });
+    }
+  };
+
+  const onSubmit = async (formData: InsurerFormData) => {
     try {
+      const payload = {
+        ...formData,
+        tauxCouverture: formData.tauxCouverture ? Number(formData.tauxCouverture) : undefined,
+      };
       if (isEditing && id) {
-        await updateInsurer.mutateAsync({ id, data });
-        toast({ title: 'Assureur modifié avec succès', variant: 'success' });
+        await updateInsurer.mutateAsync({ id, data: payload as Parameters<typeof updateInsurer.mutateAsync>[0]['data'] });
+        toast({ title: 'Compagnie modifiée avec succès', variant: 'success' });
       } else {
-        await createInsurer.mutateAsync(data as Parameters<typeof createInsurer.mutateAsync>[0]);
-        toast({ title: 'Assureur créé avec succès', variant: 'success' });
+        await createInsurer.mutateAsync(payload as Parameters<typeof createInsurer.mutateAsync>[0]);
+        toast({ title: 'Compagnie créée avec succès', variant: 'success' });
       }
       navigate('/insurers');
-    } catch {
+    } catch (err) {
       toast({
         title: 'Erreur',
-        description: 'Une erreur est survenue lors de l\'enregistrément',
+        description: err instanceof Error ? err.message : 'Une erreur est survenue',
         variant: 'destructive',
       });
     }
@@ -131,13 +176,13 @@ export function InsurerFormPage() {
   return (
     <div className="space-y-6">
       <nav className="flex items-center gap-1.5 text-sm text-gray-500">
-        <Link to="/insurers" className="hover:text-gray-900 transition-colors">Assureurs</Link>
+        <Link to="/insurers" className="hover:text-gray-900 transition-colors">Compagnies Partenaires</Link>
         <ChevronRight className="w-4 h-4" />
-        <span className="text-gray-900 font-medium">{isEditing ? 'Modifier' : 'Nouvel Assureur'}</span>
+        <span className="text-gray-900 font-medium">{isEditing ? 'Modifier' : 'Nouvelle compagnie'}</span>
       </nav>
       <PageHeader
-        title={isEditing ? 'Modifier l\'assureur' : 'Nouvel assureur'}
-        description={isEditing ? 'Modifier les informations de l\'assureur' : 'Ajouter un nouvel assureur ou mutuelle'}
+        title={isEditing ? 'Modifier la compagnie' : 'Nouvelle compagnie'}
+        description={isEditing ? 'Modifier les informations de la compagnie' : 'Ajouter une nouvelle compagnie partenaire'}
       />
 
       <Card className="max-w-2xl">
@@ -145,7 +190,7 @@ export function InsurerFormPage() {
           <CardTitle>{isEditing ? 'Informations de l\'assureur' : 'Informations du nouvel assureur'}</CardTitle>
           <CardDescription>
             {isEditing
-              ? 'Modifiez les champs ci-dessous puis cliquez sur Enregistrér'
+              ? 'Modifiez les champs ci-dessous puis cliquez sur Enregistrer'
               : 'Remplissez les informations du nouvel assureur'}
           </CardDescription>
         </CardHeader>
@@ -174,7 +219,7 @@ export function InsurerFormPage() {
                 <Input
                   id="code"
                   {...register('code')}
-                  placeholder="STAR"
+                  placeholder="BH"
                   disabled={isEditing}
                   className="uppercase"
                 />
@@ -190,16 +235,32 @@ export function InsurerFormPage() {
             {/* Name */}
             <div className="space-y-2">
               <Label htmlFor="name">Nom *</Label>
-              <Input id="name" {...register('name')} placeholder="STAR Assurances" />
+              <Input id="name" {...register('name')} placeholder="BH Assurances" />
               {errors.name && (
                 <p className="text-destructive text-sm">{errors.name.message}</p>
               )}
             </div>
 
-            {/* Registration and Tax ID */}
+            {/* Type Assureur */}
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="registrationNumber">N° Enregistrément *</Label>
+                <Label>Type de compagnie</Label>
+                <Select
+                  value={watch('typeAssureur') || 'autre'}
+                  onValueChange={(v) => setValue('typeAssureur', v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner un type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TYPE_ASSUREUR_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="registrationNumber">N° Enregistrement *</Label>
                 <Input
                   id="registrationNumber"
                   {...register('registrationNumber')}
@@ -209,9 +270,45 @@ export function InsurerFormPage() {
                   <p className="text-destructive text-sm">{errors.registrationNumber.message}</p>
                 )}
               </div>
+            </div>
+
+            {/* Matricule Fiscal with onBlur validation */}
+            <div className="space-y-2">
+              <Label htmlFor="matriculeFiscal">Matricule Fiscal</Label>
+              <Input
+                id="matriculeFiscal"
+                {...register('matriculeFiscal')}
+                placeholder="1234567/A/N/P/000"
+                className="font-mono"
+                onBlur={(e) => handleMfBlur(e.target.value)}
+              />
+              {mfValidation && (
+                <p className={`text-sm ${mfValidation.valid ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  {mfValidation.valid ? '✓' : '⚠'} {mfValidation.message}
+                </p>
+              )}
+            </div>
+
+            {/* Convention */}
+            <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="taxId">Matricule Fiscal</Label>
-                <Input id="taxId" {...register('taxId')} placeholder="1234567ABC" />
+                <Label htmlFor="dateDebutConvention">Début convention</Label>
+                <Input id="dateDebutConvention" type="date" {...register('dateDebutConvention')} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="dateFinConvention">Fin convention</Label>
+                <Input id="dateFinConvention" type="date" {...register('dateFinConvention')} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="tauxCouverture">Taux couverture (%)</Label>
+                <Input
+                  id="tauxCouverture"
+                  type="number"
+                  min="0"
+                  max="100"
+                  {...register('tauxCouverture')}
+                  placeholder="80"
+                />
               </div>
             </div>
 
@@ -288,7 +385,7 @@ export function InsurerFormPage() {
                 Annuler
               </Button>
               <Button type="submit" disabled={isLoading}>
-                {isLoading ? 'Enregistrément...' : isEditing ? 'Enregistrér' : 'Créer l\'assureur'}
+                {isLoading ? 'Enregistrement...' : isEditing ? 'Enregistrer' : 'Créer l\'assureur'}
               </Button>
             </div>
           </form>

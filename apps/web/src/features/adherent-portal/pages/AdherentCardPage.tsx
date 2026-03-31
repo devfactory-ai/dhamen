@@ -66,7 +66,7 @@ export function AdhérentCardPage() {
             <CreditCard className="mx-auto h-12 w-12 text-muted-foreground" />
             <h3 className="mt-4 text-lg font-semibold">Aucune carte disponible</h3>
             <p className="mt-2 text-muted-foreground">
-              Votre carte virtuelle n'a pas encore ete générée.
+              Votre carte virtuelle n'a pas encore été générée.
             </p>
           </CardContent>
         </Card>

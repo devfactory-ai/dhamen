@@ -13,7 +13,7 @@ const roleGuides: Record<string, RoleGuide> = {
   ADMIN: {
     title: "Administrateur plateforme",
     description:
-      "Vous avez un acces complet a la plateforme E-Santé. Vous gerez les utilisateurs, les praticiens, les assureurs et supervisez l'ensemble des operations.",
+      "Vous avez un accès complet à la plateforme E-Santé. Vous gérez les utilisateurs, les praticiens, les assureurs et supervisez l'ensemble des opérations.",
     features: [
       "Gestion des utilisateurs et des roles",
       "Configuration des praticiens et assureurs",
@@ -26,9 +26,9 @@ const roleGuides: Record<string, RoleGuide> = {
   INSURER_ADMIN: {
     title: "Administrateur assureur",
     description:
-      "Vous gerez les operations de votre compagnie d'assurance sur E-Santé : adherents, contrats, bulletins de soins et remboursements.",
+      "Vous gérez les opérations de votre compagnie d'assurance sur E-Santé : adhérents, contrats, bulletins de soins et remboursements.",
     features: [
-      "Gestion des adherents et ayants droit",
+      "Gestion des adhérents et ayants droit",
       "Saisie et validation des bulletins de soins",
       "Suivi des remboursements et paiements",
       "Gestion des lots et exports",
@@ -39,9 +39,9 @@ const roleGuides: Record<string, RoleGuide> = {
   INSURER_AGENT: {
     title: "Agent assureur",
     description:
-      "Vous saisissez et traitez les bulletins de soins des adherents. Vous verifiez l'eligibilite et suivez les remboursements.",
+      "Vous saisissez et traitez les bulletins de soins des adhérents. Vous vérifiez l'éligibilité et suivez les remboursements.",
     features: [
-      "Recherche et consultation des adherents",
+      "Recherche et consultation des adhérents",
       "Saisie des bulletins de soins",
       "Validation des bulletins",
       "Historique des remboursements",
@@ -51,9 +51,9 @@ const roleGuides: Record<string, RoleGuide> = {
   PHARMACIST: {
     title: "Pharmacien",
     description:
-      "Vous verifiez l'eligibilite des adherents et soumettez les prises en charge pour les dispensations pharmaceutiques.",
+      "Vous vérifiez l'éligibilité des adhérents et soumettez les prises en charge pour les dispensations pharmaceutiques.",
     features: [
-      "Verification de l'eligibilite des adherents",
+      "Vérification de l'éligibilité des adhérents",
       "Soumission des prises en charge",
       "Verification des cartes virtuelles",
       "Suivi des bordereaux de paiement",
@@ -62,20 +62,20 @@ const roleGuides: Record<string, RoleGuide> = {
   DOCTOR: {
     title: "Medecin",
     description:
-      "Vous verifiez l'eligibilite des patients et soumettez les prises en charge pour les consultations et actes medicaux.",
+      "Vous vérifiez l'éligibilité des patients et soumettez les prises en charge pour les consultations et actes médicaux.",
     features: [
-      "Verification de l'eligibilite des patients",
+      "Vérification de l'éligibilité des patients",
       "Soumission des prises en charge",
-      "Demandes d'accords prealables",
+      "Demandes d'accords préalables",
       "Suivi des bordereaux",
     ],
   },
   LAB_MANAGER: {
     title: "Responsable laboratoire",
     description:
-      "Vous gerez les prises en charge pour les analyses de laboratoire et suivez les remboursements.",
+      "Vous gérez les prises en charge pour les analyses de laboratoire et suivez les remboursements.",
     features: [
-      "Verification de l'eligibilite",
+      "Vérification de l'éligibilité",
       "Soumission des prises en charge analyses",
       "Suivi des bordereaux",
       "Verification des cartes virtuelles",
@@ -84,18 +84,18 @@ const roleGuides: Record<string, RoleGuide> = {
   CLINIC_ADMIN: {
     title: "Administrateur clinique",
     description:
-      "Vous gerez les prises en charge hospitalieres et les demandes d'accords prealables pour votre etablissement.",
+      "Vous gérez les prises en charge hospitalières et les demandes d'accords préalables pour votre établissement.",
     features: [
-      "Verification de l'eligibilite",
-      "Soumission des prises en charge hospitalieres",
-      "Demandes d'accords prealables",
+      "Vérification de l'éligibilité",
+      "Soumission des prises en charge hospitalières",
+      "Demandes d'accords préalables",
       "Suivi des bordereaux",
     ],
   },
   ADHERENT: {
     title: "Adhérent",
     description:
-      "Vous consultez votre contrat d'assurance, suivez vos remboursements et gerez vos informations personnelles.",
+      "Vous consultez votre contrat d'assurance, suivez vos remboursements et gérez vos informations personnelles.",
     features: [
       "Consultation de votre contrat et couverture",
       "Suivi de votre consommation",
@@ -109,10 +109,10 @@ const roleGuides: Record<string, RoleGuide> = {
   HR: {
     title: "Responsable RH",
     description:
-      "Vous gerez les adherents de votre entreprise, suivez les contrats et les remboursements de vos collaborateurs.",
+      "Vous gérez les adhérents de votre entreprise, suivez les contrats et les remboursements de vos collaborateurs.",
     features: [
       "Tableau de bord RH",
-      "Gestion des adherents de l'entreprise",
+      "Gestion des adhérents de l'entreprise",
       "Suivi des contrats",
       "Suivi des remboursements",
     ],
@@ -149,11 +149,11 @@ export function AboutPage() {
               </strong>{" "}
               est une plateforme digitale de gestion du tiers payant sante en
               Tunisie. Elle connecte les assureurs, les praticiens de santé et
-              les adherents pour simplifier le circuit de prise en charge.
+              les adhérents pour simplifier le circuit de prise en charge.
             </p>
             <p>
               La plateforme couvre l'ensemble du parcours : verification
-              d'eligibilite, saisie des bulletins de soins, calcul des
+              d'éligibilité, saisie des bulletins de soins, calcul des
               remboursements, generation des bordereaux et reconciliation
               financiere.
             </p>
@@ -169,7 +169,7 @@ export function AboutPage() {
             <p className="text-sm text-muted-foreground">{guide.description}</p>
             <div>
               <p className="text-sm font-medium mb-2">
-                Fonctionnalites disponibles :
+                Fonctionnalités disponibles :
               </p>
               <ul className="space-y-1.5">
                 {guide.features.map((feature) => (
@@ -220,7 +220,7 @@ export function AboutPage() {
                 },
                 {
                   term: "Bulletin de soins",
-                  def: "Document detaillant les actes medicaux et montants pour remboursement",
+                  def: "Document détaillant les actes médicaux et montants pour remboursement",
                 },
                 {
                   term: "Ayant droit",

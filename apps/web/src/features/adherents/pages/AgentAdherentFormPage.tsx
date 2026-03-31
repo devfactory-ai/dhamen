@@ -23,6 +23,8 @@ import {
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { useCompanies } from '@/features/agent/hooks/use-companies';
 import { apiClient } from '@/lib/api-client';
 import { useAdherentFamille } from '@/features/agent/hooks/use-adherent-famille';
 import {
@@ -132,8 +134,12 @@ export function AgentAdherentFormPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEdit = !!id;
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const { selectedCompany } = useAgentContext();
   const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
+  const [adminCompanyId, setAdminCompanyId] = useState<string>('');
+  const { data: companiesList } = useCompanies();
 
   const [form, setForm] = useState<AdherentFormState>(emptyForm);
   const [ayantsDroit, setAyantsDroit] = useState<AyantDroitFormState[]>([]);
@@ -198,7 +204,8 @@ export function AgentAdherentFormPage() {
     setImportSearchResults([]);
   };
 
-  const { data: nextMatricule } = useNextMatricule(selectedCompany?.id);
+  const effectiveCompanyId = isAdmin ? adminCompanyId : selectedCompany?.id;
+  const { data: nextMatricule } = useNextMatricule(effectiveCompanyId || undefined);
   const createMutation = useCreateAdherent();
   const updateMutation = useUpdateAdherent();
 
@@ -385,7 +392,8 @@ export function AgentAdherentFormPage() {
         navigate('/adherents/agent');
       } catch { /* handled by mutation */ }
     } else {
-      if (!isIndividualMode && !selectedCompany) return;
+      if (!isIndividualMode && !isAdmin && !selectedCompany) return;
+      if (!isIndividualMode && isAdmin && !adminCompanyId) return;
 
       // Build ayants droit payload
       const ayantsDroitPayload: AyantDroitData[] = ayantsDroit
@@ -418,7 +426,7 @@ export function AgentAdherentFormPage() {
         address: form.address || undefined,
         city: form.city || undefined,
         postalCode: form.postalCode || undefined,
-        companyId: isIndividualMode ? '__INDIVIDUAL__' : selectedCompany!.id,
+        companyId: isIndividualMode ? '__INDIVIDUAL__' : (isAdmin ? adminCompanyId : selectedCompany!.id),
         matricule: form.matricule || undefined,
         contractNumber: form.contractNumber || undefined,
         plafondGlobal: form.plafondGlobal ? Number(form.plafondGlobal) * 1000 : undefined,
@@ -453,25 +461,42 @@ export function AgentAdherentFormPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={isEdit ? 'Modifier l\'adherent' : isIndividualMode ? 'Nouvel adherent individuel' : 'Nouvel adherent'}
+        title={isEdit ? 'Modifier l\'adhérent' : isIndividualMode ? 'Nouvel adhérent individuel' : 'Nouvel adhérent'}
         description={
           isEdit
             ? `Modification de ${form.firstName} ${form.lastName}`
             : isIndividualMode
-              ? 'Adherent avec contrat individuel (sans entreprise)'
-              : `Entreprise: ${selectedCompany?.name || '\u2014'}`
+              ? 'Adhérent avec contrat individuel (sans entreprise)'
+              : isAdmin
+                ? 'Sélectionnez une entreprise pour créer un adhérent'
+                : `Entreprise: ${selectedCompany?.name || '\u2014'}`
         }
         icon={isEdit ? <Pencil className="w-6 h-6" /> : isIndividualMode ? <User className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
         breadcrumb={[
-          { label: 'Adherents', href: '/adherents/agent' },
+          { label: 'Adhérents', href: '/adherents/agent' },
           { label: isEdit ? 'Modifier' : isIndividualMode ? 'Individuel' : 'Nouveau' },
         ]}
       />
 
       <Card>
         <CardContent className="pt-6">
-          {/* Entreprise (read-only) - hidden for individual */}
-          {!isIndividualMode && (
+          {/* Entreprise - select for ADMIN, read-only for others */}
+          {!isIndividualMode && isAdmin && (
+            <div className="mb-4">
+              <Label className="text-xs text-gray-500">Entreprise <span className="text-red-500">*</span></Label>
+              <Select value={adminCompanyId} onValueChange={setAdminCompanyId}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Sélectionnez une entreprise" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(companiesList ?? []).map((c: { id: string; name: string }) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {!isIndividualMode && !isAdmin && (
             <div className="mb-4">
               <Label className="text-xs text-gray-500">Entreprise</Label>
               <p className="text-sm font-medium">
@@ -489,7 +514,7 @@ export function AgentAdherentFormPage() {
 
           <Tabs defaultValue="adherent" className="w-full">
             <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="adherent">Adherent</TabsTrigger>
+              <TabsTrigger value="adherent">Adhérent</TabsTrigger>
               <TabsTrigger value="renseignement">Renseignement</TabsTrigger>
               <TabsTrigger value="ayants-droit" className="gap-1">
                 <Users className="w-3.5 h-3.5" />
@@ -507,11 +532,11 @@ export function AgentAdherentFormPage() {
               {/* Type piece identite / N piece / Date edition */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <Label>Type de piece</Label>
+                  <Label>Type de pièce</Label>
                   <Select value={form.typePieceIdentite} onValueChange={(v) => setForm({ ...form, typePieceIdentite: v })}>
                     <SelectTrigger><SelectValue placeholder="CIN" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="CIN">Carte d'Identite Nationale</SelectItem>
+                      <SelectItem value="CIN">Carte d'Identité Nationale</SelectItem>
                       <SelectItem value="PASSEPORT">Passeport</SelectItem>
                       <SelectItem value="CARTE_SEJOUR">Carte de sejour</SelectItem>
                       <SelectItem value="AUTRE">Autre</SelectItem>
@@ -519,7 +544,7 @@ export function AgentAdherentFormPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label htmlFor="nationalId">N° piece</Label>
+                  <Label htmlFor="nationalId">N° pièce</Label>
                   <Input
                     id="nationalId"
                     placeholder="12345678"
@@ -532,7 +557,7 @@ export function AgentAdherentFormPage() {
                   {formErrors.nationalId && <p className="text-xs text-red-500 mt-1">{formErrors.nationalId}</p>}
                 </div>
                 <div>
-                  <Label htmlFor="dateEditionPiece">Date d'edition</Label>
+                  <Label htmlFor="dateEditionPiece">Date d'édition</Label>
                   <Input id="dateEditionPiece" type="date" max={new Date().toISOString().split('T')[0]} value={form.dateEditionPiece} onChange={(e) => setForm({ ...form, dateEditionPiece: e.target.value })} />
                 </div>
               </div>
@@ -545,7 +570,7 @@ export function AgentAdherentFormPage() {
                   {formErrors.lastName && <p className="text-xs text-red-500 mt-1">{formErrors.lastName}</p>}
                 </div>
                 <div>
-                  <Label htmlFor="firstName">Prenom *</Label>
+                  <Label htmlFor="firstName">Prénom *</Label>
                   <Input id="firstName" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} className={formErrors.firstName ? 'border-red-500' : ''} />
                   {formErrors.firstName && <p className="text-xs text-red-500 mt-1">{formErrors.firstName}</p>}
                 </div>
@@ -578,7 +603,7 @@ export function AgentAdherentFormPage() {
                   </Select>
                 </div>
                 <div>
-                  <Label>Etat civil</Label>
+                  <Label>État civil</Label>
                   <Select value={form.etatCivil || 'none'} onValueChange={(v) => setForm({ ...form, etatCivil: v === 'none' ? '' : v })}>
                     <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
                     <SelectContent>
@@ -612,11 +637,11 @@ export function AgentAdherentFormPage() {
               {/* Dates adhesion / Rang / Actif */}
               <div className="grid grid-cols-4 gap-3">
                 <div>
-                  <Label htmlFor="dateDebutAdhesion">Debut adhesion</Label>
+                  <Label htmlFor="dateDebutAdhesion">Debut adhésion</Label>
                   <Input id="dateDebutAdhesion" type="date" max={new Date().toISOString().split('T')[0]} value={form.dateDebutAdhesion} onChange={(e) => setForm({ ...form, dateDebutAdhesion: e.target.value })} />
                 </div>
                 <div>
-                  <Label htmlFor="dateFinAdhesion">Fin adhesion</Label>
+                  <Label htmlFor="dateFinAdhesion">Fin adhésion</Label>
                   <Input id="dateFinAdhesion" type="date" value={form.dateFinAdhesion} onChange={(e) => setForm({ ...form, dateFinAdhesion: e.target.value })} />
                 </div>
                 <div>
@@ -640,7 +665,7 @@ export function AgentAdherentFormPage() {
                   </label>
                 </div>
                 <div>
-                  <Label>Etat de fiche</Label>
+                  <Label>État de fiche</Label>
                   <Select value={form.etatFiche} onValueChange={(v) => setForm({ ...form, etatFiche: v })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -667,9 +692,9 @@ export function AgentAdherentFormPage() {
                 <div>
                   <Label>Gouvernorat</Label>
                   <Select value={form.city || 'none'} onValueChange={(v) => setForm({ ...form, city: v === 'none' ? '' : v })}>
-                    <SelectTrigger><SelectValue placeholder="Selectionner" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Selectionner</SelectItem>
+                      <SelectItem value="none">Sélectionner</SelectItem>
                       {GOUVERNORATS_TUNISIE.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -693,7 +718,7 @@ export function AgentAdherentFormPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label htmlFor="phone">Telephone</Label>
+                    <Label htmlFor="phone">Téléphone</Label>
                     <Input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={formErrors.phone ? 'border-red-500' : ''} />
                     {formErrors.phone && <p className="text-xs text-red-500 mt-1">{formErrors.phone}</p>}
                   </div>
@@ -837,7 +862,7 @@ export function AgentAdherentFormPage() {
                           {formErrors[`ad_${index}_lastName`] && <p className="text-xs text-red-500 mt-1">{formErrors[`ad_${index}_lastName`]}</p>}
                         </div>
                         <div>
-                          <Label>Prenom *</Label>
+                          <Label>Prénom *</Label>
                           <Input
                             value={ad.firstName}
                             onChange={(e) => updateAyantDroit(index, 'firstName', e.target.value)}
@@ -886,7 +911,7 @@ export function AgentAdherentFormPage() {
                       {ad.lienParente === 'C' && (
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <Label>Telephone</Label>
+                            <Label>Téléphone</Label>
                             <Input
                               value={ad.phone}
                               onChange={(e) => updateAyantDroit(index, 'phone', e.target.value)}

@@ -74,9 +74,8 @@ export default function SanteGarantiesPage() {
             <Switch checked={showInactive} onCheckedChange={setShowInactive} />
             Afficher inactives
           </label>
-          <Button onClick={() => setIsCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nouvelle formule
+          <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => setIsCreateOpen(true)}>
+            <Plus className="w-4 h-4" /> Nouvelle formule
           </Button>
         </div>
       </div>
@@ -522,7 +521,7 @@ function EditFormuleDialog({
               Annuler
             </Button>
             <Button type="submit" disabled={updateFormule.isPending}>
-              {updateFormule.isPending ? 'Enregistrément...' : 'Enregistrér'}
+              {updateFormule.isPending ? 'Enregistrement...' : 'Enregistrer'}
             </Button>
           </DialogFooter>
         </form>

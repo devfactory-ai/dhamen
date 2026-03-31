@@ -22,6 +22,8 @@ export const insurerConfigSchema = z.object({
   defaultReimbursementRate: z.number().min(0).max(1),
 });
 
+export const typeAssureurSchema = z.enum(['cnam', 'mutuelle', 'compagnie', 'reassureur', 'autre']);
+
 export const insurerCreateSchema = z.object({
   name: z.string().min(1, 'Nom requis'),
   code: z.string().min(1, 'Code requis').max(10),
@@ -30,6 +32,11 @@ export const insurerCreateSchema = z.object({
   phone: z.string().optional(),
   email: z.string().email().optional(),
   config: insurerConfigSchema.partial().optional(),
+  typeAssureur: typeAssureurSchema.optional(),
+  matriculeFiscal: z.string().optional(),
+  dateDebutConvention: z.string().optional(),
+  dateFinConvention: z.string().optional(),
+  tauxCouverture: z.number().min(0).max(100).optional(),
 });
 
 export const insurerUpdateSchema = z.object({
@@ -40,11 +47,17 @@ export const insurerUpdateSchema = z.object({
   email: z.string().email().optional(),
   config: insurerConfigSchema.partial().optional(),
   isActive: z.boolean().optional(),
+  typeAssureur: typeAssureurSchema.optional(),
+  matriculeFiscal: z.string().optional(),
+  dateDebutConvention: z.string().optional(),
+  dateFinConvention: z.string().optional(),
+  tauxCouverture: z.number().min(0).max(100).optional(),
 });
 
 export const insurerFiltersSchema = z.object({
   isActive: z.boolean().optional(),
   search: z.string().optional(),
+  typeAssureur: typeAssureurSchema.optional(),
 });
 
 export type InsurerCreateInput = z.infer<typeof insurerCreateSchema>;

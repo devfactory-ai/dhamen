@@ -377,7 +377,7 @@ analytics.get(
         `SELECT COUNT(*) as count FROM adherents WHERE deleted_at IS NULL`
       ).first<{ count: number }>();
 
-      // Claims stats from sante_demandes
+      // Claims stats from sante_demandes — this month
       const claimsRow = await db.prepare(`
         SELECT
           COUNT(*) as totalClaims,
@@ -405,9 +405,53 @@ analytics.get(
         WHERE date(created_at) = date('now')
       `).first<{ processedToday: number; rejectedToday: number }>();
 
+      // Previous month stats for trend comparison
+      const prevMonthRow = await db.prepare(`
+        SELECT
+          COUNT(*) as totalClaims,
+          SUM(CASE WHEN statut IN ('approuvee','en_paiement','payee') THEN 1 ELSE 0 END) as approvedClaims,
+          SUM(CASE WHEN statut = 'rejetee' THEN 1 ELSE 0 END) as rejectedClaims,
+          SUM(CASE WHEN statut IN ('soumise','en_examen','info_requise') THEN 1 ELSE 0 END) as pendingClaims
+        FROM sante_demandes
+        WHERE created_at >= date('now', 'start of month', '-1 month')
+          AND created_at < date('now', 'start of month')
+      `).first<{ totalClaims: number; approvedClaims: number; rejectedClaims: number; pendingClaims: number }>();
+
+      const thisMonthRow = await db.prepare(`
+        SELECT
+          COUNT(*) as totalClaims,
+          SUM(CASE WHEN statut IN ('approuvee','en_paiement','payee') THEN 1 ELSE 0 END) as approvedClaims,
+          SUM(CASE WHEN statut = 'rejetee' THEN 1 ELSE 0 END) as rejectedClaims,
+          SUM(CASE WHEN statut IN ('soumise','en_examen','info_requise') THEN 1 ELSE 0 END) as pendingClaims
+        FROM sante_demandes
+        WHERE created_at >= date('now', 'start of month')
+      `).first<{ totalClaims: number; approvedClaims: number; rejectedClaims: number; pendingClaims: number }>();
+
+      // Average processing time in hours (submission → approval)
+      const avgProcRow = await db.prepare(`
+        SELECT AVG((julianday(date_traitement) - julianday(created_at)) * 24) as avg_hours
+        FROM sante_demandes
+        WHERE date_traitement IS NOT NULL AND created_at IS NOT NULL
+      `).first<{ avg_hours: number | null }>();
+
       const totalClaims = Number(claimsRow?.totalClaims) || 0;
       const approvedClaims = Number(claimsRow?.approvedClaims) || 0;
       const approvalRate = totalClaims > 0 ? (approvedClaims / totalClaims) * 100 : 0;
+
+      // Compute trends (% change from previous month)
+      const prevTotal = Number(prevMonthRow?.totalClaims) || 0;
+      const currTotal = Number(thisMonthRow?.totalClaims) || 0;
+      const claimsTrend = prevTotal > 0 ? Math.round(((currTotal - prevTotal) / prevTotal) * 1000) / 10 : 0;
+
+      const prevPending = Number(prevMonthRow?.pendingClaims) || 0;
+      const currPending = Number(thisMonthRow?.pendingClaims) || 0;
+      const pendingTrend = prevPending > 0 ? Math.round(((currPending - prevPending) / prevPending) * 1000) / 10 : 0;
+
+      const prevRejected = Number(prevMonthRow?.rejectedClaims) || 0;
+      const currRejected = Number(thisMonthRow?.rejectedClaims) || 0;
+      const rejectedTrend = prevRejected > 0 ? Math.round(((currRejected - prevRejected) / prevRejected) * 1000) / 10 : 0;
+
+      const avgHours = avgProcRow?.avg_hours != null ? Math.round(avgProcRow.avg_hours * 10) / 10 : null;
 
       return c.json({
         success: true,
@@ -420,11 +464,79 @@ analytics.get(
           totalAmount: Number(claimsRow?.totalAmount) || 0,
           approvalRate: Math.round(approvalRate * 10) / 10,
           processedToday: Number(todayRow?.processedToday) || 0,
-          avgProcessingTime: '< 2 min',
+          avgProcessingTime: avgHours != null ? `${avgHours}` : '—',
           rejectedToday: Number(todayRow?.rejectedToday) || 0,
           uniquePatients: Number(claimsRow?.uniquePatients) || 0,
+          trends: {
+            claimsTrend,
+            pendingTrend,
+            rejectedTrend,
+          },
+          fetchedAt: new Date().toISOString(),
         },
       });
+    } catch (err) {
+      return c.json({
+        success: false,
+        error: { code: 'ANALYTICS_ERROR', message: String(err) },
+      }, 500);
+    }
+  }
+);
+
+/**
+ * GET /analytics/recent-bulletins
+ * Returns the 5 most recent bulletins for the dashboard table
+ */
+analytics.get(
+  '/recent-bulletins',
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN'),
+  async (c) => {
+    const { getDb } = await import('../lib/db');
+    const db = getDb(c);
+    const user = c.get('user');
+
+    try {
+      let whereClause = '';
+      const params: string[] = [];
+
+      // Filter by insurer for non-admin roles
+      if (user.role !== 'ADMIN' && user.insurerId) {
+        whereClause = 'WHERE co.insurer_id = ?';
+        params.push(user.insurerId);
+      }
+
+      const rows = await db
+        .prepare(`
+          SELECT
+            bs.id, bs.bulletin_number, bs.status, bs.care_type, bs.bulletin_date,
+            bs.total_amount, bs.reimbursed_amount, bs.created_at,
+            a.first_name as adherent_first_name, a.last_name as adherent_last_name,
+            co.name as company_name
+          FROM bulletins_soins bs
+          LEFT JOIN adherents a ON bs.adherent_id = a.id
+          LEFT JOIN companies co ON a.company_id = co.id
+          ${whereClause}
+          ORDER BY bs.created_at DESC
+          LIMIT 5
+        `)
+        .bind(...params)
+        .all();
+
+      const data = (rows.results ?? []).map((r: Record<string, unknown>) => ({
+        id: r.id,
+        bulletinNumber: r.bulletin_number,
+        status: r.status,
+        careType: r.care_type,
+        careDate: r.bulletin_date,
+        totalAmount: r.total_amount,
+        reimbursedAmount: r.reimbursed_amount,
+        createdAt: r.created_at,
+        adherentName: `${r.adherent_first_name || ''} ${r.adherent_last_name || ''}`.trim(),
+        companyName: r.company_name || '—',
+      }));
+
+      return c.json({ success: true, data });
     } catch (err) {
       return c.json({
         success: false,

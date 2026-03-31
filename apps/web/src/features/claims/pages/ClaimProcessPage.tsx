@@ -140,7 +140,7 @@ export function ClaimProcessPage() {
   return (
     <div className="space-y-6">
       <nav className="flex items-center gap-1.5 text-sm text-gray-500">
-        <Link to="/claims" className="hover:text-gray-900 transition-colors">Demandes PEC</Link>
+        <Link to="/claims/manage" className="hover:text-gray-900 transition-colors">Gestion PEC</Link>
         <ChevronRight className="w-4 h-4" />
         <span className="text-gray-900 font-medium">Traitement</span>
       </nav>
@@ -261,7 +261,7 @@ export function ClaimProcessPage() {
 
           {processingData.statut === 'approuvee' && (
             <div className="space-y-2">
-              <Label htmlFor="montantRembourse">Montant remboursé (TND)</Label>
+              <Label htmlFor="montantRembourse">Montant remboursé (TND) *</Label>
               <Input
                 id="montantRembourse"
                 type="number"
@@ -296,12 +296,12 @@ export function ClaimProcessPage() {
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={() => navigate('/claims')}>
+            <Button variant="outline" onClick={() => navigate('/claims/manage')}>
               Annuler
             </Button>
             <Button
               onClick={handleProcess}
-              disabled={processClaim.isPending || (processingData.statut === 'rejetee' && !processingData.motifRejet)}
+              disabled={processClaim.isPending || (processingData.statut === 'rejetee' && !processingData.motifRejet) || (processingData.statut === 'approuvee' && !processingData.montantRembourse)}
               variant={processingData.statut === 'rejetee' ? 'destructive' : 'default'}
             >
               {processClaim.isPending ? 'Traitement...' : processingData.statut === 'approuvee' ? 'Approuver la PEC' : 'Rejeter la PEC'}

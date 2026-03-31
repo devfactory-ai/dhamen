@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 
+export type TypeAssureur = 'cnam' | 'mutuelle' | 'compagnie' | 'reassureur' | 'autre';
+
 export interface Insurer {
   id: string;
   name: string;
@@ -16,6 +18,13 @@ export interface Insurer {
   website: string | null;
   logoUrl: string | null;
   isActive: boolean;
+  typeAssureur: TypeAssureur;
+  matriculeFiscal: string | null;
+  matriculeValide: boolean;
+  dateDebutConvention: string | null;
+  dateFinConvention: string | null;
+  tauxCouverture: number | null;
+  conventionExpireBientot: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -116,6 +125,24 @@ export function useDeleteInsurer() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['insurers'] });
+    },
+  });
+}
+
+export function useToggleInsurerStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, status, motif }: { id: string; status: 'active' | 'suspended'; motif?: string }) => {
+      const response = await apiClient.put<Insurer>(`/insurers/${id}/status`, { status, motif });
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur lors du changement de statut');
+      }
+      return response.data;
+    },
+    onSuccess: (_, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['insurers'] });
+      queryClient.invalidateQueries({ queryKey: ['insurers', id] });
     },
   });
 }

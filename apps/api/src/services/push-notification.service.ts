@@ -271,15 +271,15 @@ export class PushNotificationService {
     const templates: Record<string, { title: string; body: string }> = {
       SANTE_DEMANDE_SOUMISE: {
         title: 'Demande soumise',
-        body: `Votre demande ${data.numeroDemande} a ete soumise avec succes.`,
+        body: `Votre demande ${data.numeroDemande} a été soumise avec succès.`,
       },
       SANTE_DEMANDE_APPROUVEE: {
         title: `Demande ${data.numeroDemande} approuvee`,
-        body: `Votre demande de ${data.typeSoin || 'soin'} du ${data.dateSoin || ''} a ete approuvee. Montant rembourse : ${data.montantRembourse || '0'} TND.`,
+        body: `Votre demande de ${data.typeSoin || 'soin'} du ${data.dateSoin || ''} a été approuvée. Montant remboursé : ${data.montantRembourse || '0'} TND.`,
       },
       SANTE_DEMANDE_REJETEE: {
         title: `Demande ${data.numeroDemande} rejetee`,
-        body: `Votre demande de ${data.typeSoin || 'soin'} du ${data.dateSoin || ''} a ete rejetee. Motif : ${data.motifRejet || 'Non precise'}.`,
+        body: `Votre demande de ${data.typeSoin || 'soin'} du ${data.dateSoin || ''} a été rejetée. Motif : ${data.motifRejet || 'Non précisé'}.`,
       },
       SANTE_DEMANDE_EN_EXAMEN: {
         title: `Demande ${data.numeroDemande} en cours d'examen`,
@@ -295,11 +295,11 @@ export class PushNotificationService {
       },
       SANTE_PAIEMENT_EFFECTUE: {
         title: `Paiement effectue pour ${data.numeroDemande}`,
-        body: `Le montant de ${data.montantRembourse || data.montant || '0'} TND a ete verse pour votre demande de ${data.typeSoin || 'soin'} du ${data.dateSoin || ''}.`,
+        body: `Le montant de ${data.montantRembourse || data.montant || '0'} TND a été versé pour votre demande de ${data.typeSoin || 'soin'} du ${data.dateSoin || ''}.`,
       },
       SANTE_BORDEREAU_GENERE: {
         title: 'Bordereau genere',
-        body: `Un nouveau bordereau ${data.numeroBordereau} a ete genere avec ${data.nombreDemandes} demande(s).`,
+        body: `Un nouveau bordereau ${data.numeroBordereau} a été généré avec ${data.nombreDemandes} demande(s).`,
       },
     };
 

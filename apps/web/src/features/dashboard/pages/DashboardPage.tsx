@@ -5,6 +5,10 @@ import { INSURER_ROLES, ADMIN_ROLES } from '@dhamen/shared';
 import type { Role } from '@dhamen/shared';
 import { apiClient } from '@/lib/api-client';
 import { DataTable } from '@/components/ui/data-table';
+import KPICards from '../components/KPICards';
+import EvolutionChart from '../components/EvolutionChart';
+import RepartitionActes from '../components/RepartitionActes';
+import AlertesPanel from '../components/AlertesPanel';
 import {
   ClipboardIcon,
   UsersIcon,
@@ -120,71 +124,81 @@ function ChatBubbleIcon({ className }: IconProps) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Stats config per role                                             */
+/*  Stats config per role (layout only, no hardcoded values)          */
 /* ------------------------------------------------------------------ */
 
-const roleStats: Record<string, { title: string; stats: Array<{ title: string; key: string; unit?: string; icon: React.ComponentType<IconProps>; iconBg: string; iconColor: string; trend?: { value: string; positive: boolean }; badge?: string; alert?: string }> }> = {
+interface StatConfig {
+  title: string;
+  key: string;
+  trendKey?: 'claimsTrend' | 'pendingTrend' | 'rejectedTrend';
+  unit?: string;
+  icon: React.ComponentType<IconProps>;
+  iconBg: string;
+  iconColor: string;
+}
+
+const roleStats: Record<string, { title: string; stats: StatConfig[] }> = {
   ADMIN: {
     title: 'Administration Plateforme',
     stats: [
-      { title: 'PEC traitees', key: 'totalClaims', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', trend: { value: '+12.5%', positive: true } },
-      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
-      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500', alert: '8 critiques' },
-      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500', trend: { value: '-2% ce mois', positive: false } },
+      { title: 'PEC traitees', key: 'totalClaims', trendKey: 'claimsTrend', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600' },
+      { title: 'En attente', key: 'pendingClaims', trendKey: 'pendingTrend', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
+      { title: 'Rejets', key: 'rejectedToday', trendKey: 'rejectedTrend', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
     ],
   },
   INSURER_ADMIN: {
     title: 'Administration Assureur',
     stats: [
-      { title: 'PEC traitees', key: 'totalClaims', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', trend: { value: '+12.5%', positive: true } },
-      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
-      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500', alert: '8 critiques' },
-      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500', trend: { value: '-2% ce mois', positive: false } },
+      { title: 'PEC traitees', key: 'totalClaims', trendKey: 'claimsTrend', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600' },
+      { title: 'En attente', key: 'pendingClaims', trendKey: 'pendingTrend', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
+      { title: 'Rejets', key: 'rejectedToday', trendKey: 'rejectedTrend', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
     ],
   },
   INSURER_AGENT: {
     title: 'Agent Assureur',
     stats: [
-      { title: 'PEC traitees', key: 'processedToday', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', trend: { value: '+12.5%', positive: true } },
-      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
-      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500', alert: '8 critiques' },
-      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500', trend: { value: '-2% ce mois', positive: false } },
+      { title: 'PEC traitees', key: 'processedToday', trendKey: 'claimsTrend', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600' },
+      { title: 'En attente', key: 'pendingClaims', trendKey: 'pendingTrend', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
+      { title: 'Rejets', key: 'rejectedToday', trendKey: 'rejectedTrend', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
     ],
   },
   PHARMACIST: {
     title: 'Pharmacie',
     stats: [
-      { title: 'Dispensations', key: 'totalClaims', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', trend: { value: '+12%', positive: true } },
-      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'min', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
-      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
-      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500', trend: { value: '-3%', positive: false } },
+      { title: 'Dispensations', key: 'totalClaims', trendKey: 'claimsTrend', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'min', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600' },
+      { title: 'En attente', key: 'pendingClaims', trendKey: 'pendingTrend', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
+      { title: 'Rejets', key: 'rejectedToday', trendKey: 'rejectedTrend', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
     ],
   },
   DOCTOR: {
     title: 'Cabinet Medical',
     stats: [
-      { title: 'Consultations', key: 'totalClaims', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', trend: { value: '+8%', positive: true } },
-      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'min', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
-      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
-      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
+      { title: 'Consultations', key: 'totalClaims', trendKey: 'claimsTrend', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'min', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600' },
+      { title: 'En attente', key: 'pendingClaims', trendKey: 'pendingTrend', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
+      { title: 'Rejets', key: 'rejectedToday', trendKey: 'rejectedTrend', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
     ],
   },
   LAB_MANAGER: {
     title: "Laboratoire d'Analyses",
     stats: [
-      { title: 'Analyses', key: 'totalClaims', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600', trend: { value: '+15%', positive: true } },
-      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
-      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
-      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
+      { title: 'Analyses', key: 'totalClaims', trendKey: 'claimsTrend', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600' },
+      { title: 'En attente', key: 'pendingClaims', trendKey: 'pendingTrend', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
+      { title: 'Rejets', key: 'rejectedToday', trendKey: 'rejectedTrend', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
     ],
   },
   CLINIC_ADMIN: {
     title: 'Clinique',
     stats: [
       { title: 'Admissions', key: 'admissionsToday', icon: CheckCircleIcon, iconBg: 'bg-blue-50', iconColor: 'text-blue-600' },
-      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600', badge: 'Optimise' },
-      { title: 'En attente', key: 'pendingClaims', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
-      { title: 'Rejets', key: 'rejectedToday', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
+      { title: 'Temps moyen', key: 'avgProcessingTime', unit: 'hrs', icon: ClockIcon, iconBg: 'bg-gray-100', iconColor: 'text-gray-600' },
+      { title: 'En attente', key: 'pendingClaims', trendKey: 'pendingTrend', icon: ChatBubbleIcon, iconBg: 'bg-amber-50', iconColor: 'text-amber-500' },
+      { title: 'Rejets', key: 'rejectedToday', trendKey: 'rejectedTrend', icon: XCircleIcon, iconBg: 'bg-red-50', iconColor: 'text-red-500' },
     ],
   },
 };
@@ -203,7 +217,7 @@ const quickActionsByRoleType: Record<
   }>
 > = {
   admin: [
-    { title: "Gerer utilisateurs", icon: UsersIcon, href: "/users" },
+    { title: "Gérer utilisateurs", icon: UsersIcon, href: "/users" },
     { title: "Configuration", icon: ClipboardIcon, href: "/settings" },
     {
       title: "Exporter Rapports",
@@ -265,87 +279,125 @@ interface DashboardStats {
   admissionsToday?: number;
   currentPatients?: number;
   dischargeToday?: number;
+  trends?: {
+    claimsTrend: number;
+    pendingTrend: number;
+    rejectedTrend: number;
+  };
+  fetchedAt?: string;
 }
 
-// Sample recent PEC data (placeholder until API is ready)
-interface RecentPEC {
+/* ------------------------------------------------------------------ */
+/*  Recent bulletins types & columns                                  */
+/* ------------------------------------------------------------------ */
+
+interface RecentBulletin {
   id: string;
-  ref: string;
-  adherent: string;
-  contract: string;
-  type: string;
-  date: string;
-  montant: string;
-  statut: string;
-  statutColor: string;
+  bulletinNumber: string;
+  status: string;
+  careType: string;
+  careDate: string;
+  totalAmount: number;
+  reimbursedAmount: number | null;
+  createdAt: string;
+  adherentName: string;
+  companyName: string;
 }
 
-const recentPEC: RecentPEC[] = [
-  { id: '1', ref: 'PEC-2026-001', adherent: 'Mohamed Ben Ali', contract: 'CT-4521', type: 'Pharmacie', date: '23/03/2026', montant: '245.500', statut: 'Approuvee', statutColor: 'bg-emerald-50 text-emerald-700' },
-  { id: '2', ref: 'PEC-2026-002', adherent: 'Fatma Trabelsi', contract: 'CT-3892', type: 'Consultation', date: '23/03/2026', montant: '120.000', statut: 'En attente', statutColor: 'bg-amber-50 text-amber-700' },
-  { id: '3', ref: 'PEC-2026-003', adherent: 'Ahmed Gharbi', contract: 'CT-5104', type: 'Laboratoire', date: '22/03/2026', montant: '380.000', statut: 'Approuvee', statutColor: 'bg-emerald-50 text-emerald-700' },
-  { id: '4', ref: 'PEC-2026-004', adherent: 'Sana Mejri', contract: 'CT-2847', type: 'Pharmacie', date: '22/03/2026', montant: '95.750', statut: 'Rejetee', statutColor: 'bg-red-50 text-red-700' },
-  { id: '5', ref: 'PEC-2026-005', adherent: 'Karim Bouazizi', contract: 'CT-6230', type: 'Hospitalisation', date: '21/03/2026', montant: '1,250.000', statut: 'En attente', statutColor: 'bg-amber-50 text-amber-700' },
-];
+const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  draft: { label: 'Brouillon', color: 'bg-gray-100 text-gray-700' },
+  scan_uploaded: { label: 'Scan envoyé', color: 'bg-blue-50 text-blue-700' },
+  paper_received: { label: 'Reçu', color: 'bg-blue-50 text-blue-700' },
+  paper_incomplete: { label: 'Incomplet', color: 'bg-amber-50 text-amber-700' },
+  paper_complete: { label: 'Complet', color: 'bg-blue-50 text-blue-700' },
+  processing: { label: 'En traitement', color: 'bg-amber-50 text-amber-700' },
+  approved: { label: 'Approuvé', color: 'bg-emerald-50 text-emerald-700' },
+  rejected: { label: 'Rejeté', color: 'bg-red-50 text-red-700' },
+  paid: { label: 'Payé', color: 'bg-emerald-50 text-emerald-700' },
+  submitted: { label: 'Soumis', color: 'bg-blue-50 text-blue-700' },
+  in_batch: { label: 'En lot', color: 'bg-purple-50 text-purple-700' },
+};
 
-const recentPECColumns = [
+const CARE_TYPE_LABELS: Record<string, string> = {
+  pharmacy: 'Pharmacie',
+  consultation: 'Consultation',
+  lab: 'Laboratoire',
+  hospitalization: 'Hospitalisation',
+  dental: 'Dentaire',
+  optical: 'Optique',
+};
+
+const recentBulletinColumns = [
   {
-    key: 'ref',
+    key: 'bulletinNumber',
     header: 'Référence',
-    render: (pec: RecentPEC) => (
-      <span className="text-sm font-medium text-blue-600">{pec.ref}</span>
+    render: (b: RecentBulletin) => (
+      <span className="text-sm font-medium text-blue-600">{b.bulletinNumber || '—'}</span>
     ),
   },
   {
-    key: 'adherent',
+    key: 'adherentName',
     header: 'Adhérent',
-    render: (pec: RecentPEC) => {
-      const initials = pec.adherent.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    render: (b: RecentBulletin) => {
+      const name = b.adherentName || '—';
+      const initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
       const colors = ['bg-blue-500', 'bg-emerald-500', 'bg-purple-500', 'bg-amber-500', 'bg-rose-500'];
-      const colorIdx = pec.id.charCodeAt(0) % colors.length;
+      const colorIdx = (b.id?.charCodeAt(b.id.length - 1) ?? 0) % colors.length;
       return (
         <div className="flex items-center gap-3">
           <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium text-white ${colors[colorIdx]}`}>
             {initials}
           </div>
           <div>
-            <p className="text-sm font-medium text-gray-900">{pec.adherent}</p>
-            <p className="text-xs text-gray-400">{pec.contract}</p>
+            <p className="text-sm font-medium text-gray-900">{name}</p>
+            <p className="text-xs text-gray-400">{b.companyName}</p>
           </div>
         </div>
       );
     },
   },
   {
-    key: 'type',
+    key: 'careType',
     header: 'Type',
-    render: (pec: RecentPEC) => (
-      <span className="text-sm text-gray-600">{pec.type}</span>
+    render: (b: RecentBulletin) => (
+      <span className="text-sm text-gray-600">{CARE_TYPE_LABELS[b.careType] ?? b.careType ?? '—'}</span>
     ),
   },
   {
-    key: 'date',
+    key: 'careDate',
     header: 'Date',
-    render: (pec: RecentPEC) => (
-      <span className="text-sm text-gray-500">{pec.date}</span>
-    ),
+    render: (b: RecentBulletin) => {
+      const d = b.careDate || b.createdAt;
+      if (!d) return <span className="text-sm text-gray-500">—</span>;
+      const date = new Date(d);
+      return (
+        <span className="text-sm text-gray-500">
+          {date.toLocaleDateString('fr-TN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+        </span>
+      );
+    },
   },
   {
-    key: 'montant',
+    key: 'totalAmount',
     header: 'Montant',
     className: 'text-right',
-    render: (pec: RecentPEC) => (
-      <span className="text-sm font-medium text-gray-900">{pec.montant} TND</span>
+    render: (b: RecentBulletin) => (
+      <span className="text-sm font-medium text-gray-900">
+        {b.totalAmount != null ? `${(b.totalAmount / 1000).toFixed(3)} TND` : '—'}
+      </span>
     ),
   },
   {
-    key: 'statut',
+    key: 'status',
     header: 'Statut',
-    render: (pec: RecentPEC) => (
-      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${pec.statutColor}`}>
-        {pec.statut}
-      </span>
-    ),
+    render: (b: RecentBulletin) => {
+      const s = STATUS_LABELS[b.status] ?? { label: b.status, color: 'bg-gray-100 text-gray-700' };
+      return (
+        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${s.color}`}>
+          {s.label}
+        </span>
+      );
+    },
   },
 ];
 
@@ -353,6 +405,16 @@ function formatAmount(amount: number): string {
   if (amount >= 1000000) return `${(amount / 1000000).toFixed(1)}M`;
   if (amount >= 1000) return `${(amount / 1000).toFixed(0)}K`;
   return amount.toLocaleString('fr-TN');
+}
+
+function formatRelativeTime(isoDate: string): string {
+  const diff = Date.now() - new Date(isoDate).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "à l'instant";
+  if (minutes < 60) return `il y a ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `il y a ${hours}h`;
+  return `il y a ${Math.floor(hours / 24)}j`;
 }
 
 
@@ -379,6 +441,80 @@ export function DashboardPage() {
   });
 
   const stats = statsData ?? {};
+  const trends = stats.trends;
+
+  // Recent bulletins
+  const { data: recentBulletins, isLoading: recentLoading } = useQuery({
+    queryKey: ['recent-bulletins'],
+    queryFn: async () => {
+      const response = await apiClient.get<RecentBulletin[]>('/analytics/recent-bulletins');
+      if (!response.success) return [];
+      return response.data;
+    },
+    staleTime: 30000,
+  });
+
+  // Admin-only: bulletins stats, evolution, remboursements, alertes
+  const isAdminRole = role === 'ADMIN';
+  const { data: bulletinsStats, isLoading: bulletinsStatsLoading } = useQuery({
+    queryKey: ['admin-stats', 'bulletins'],
+    queryFn: async () => {
+      const response = await apiClient.get<{
+        thisMonth: number; thisQuarter: number; thisYear: number;
+        byStatus: Record<string, number>;
+        approvalRate: number;
+        avgProcessingDays: number;
+      }>('/admin-stats/bulletins-stats');
+      if (!response.success) return undefined;
+      return response.data;
+    },
+    enabled: isAdminRole,
+    staleTime: 60000,
+  });
+
+  const { data: evolutionData, isLoading: evolutionLoading } = useQuery({
+    queryKey: ['admin-stats', 'evolution'],
+    queryFn: async () => {
+      const response = await apiClient.get<{ months: Array<{ month: string; count: number; total_reimbursed: number }> }>('/admin-stats/evolution-mensuelle');
+      if (!response.success) return undefined;
+      return (response.data?.months ?? []).map((m) => ({
+        mois: m.month,
+        bulletins: m.count,
+        montant_rembourse: m.total_reimbursed,
+      }));
+    },
+    enabled: isAdminRole,
+    staleTime: 60000,
+  });
+
+  const { data: remboursementsStats } = useQuery({
+    queryKey: ['admin-stats', 'remboursements'],
+    queryFn: async () => {
+      const response = await apiClient.get<{
+        thisMonth: number;
+        parTypeActe: Array<{ type_acte: string; count: number; montant: number }>;
+      }>('/admin-stats/remboursements-stats');
+      if (!response.success) return undefined;
+      return response.data;
+    },
+    enabled: isAdminRole,
+    staleTime: 60000,
+  });
+
+  const { data: alertesData, isLoading: alertesLoading } = useQuery({
+    queryKey: ['admin-stats', 'alertes'],
+    queryFn: async () => {
+      const response = await apiClient.get<{
+        bulletinsEnAttente: number;
+        contratsExpirant: number;
+        overrideNonJustifie: number;
+      }>('/admin-stats/alertes');
+      if (!response.success) return undefined;
+      return response.data;
+    },
+    enabled: isAdminRole,
+    staleTime: 60000,
+  });
 
   const formatStatValue = (key: string, value: unknown): string => {
     if (value === undefined || value === null) return '-';
@@ -388,9 +524,19 @@ export function DashboardPage() {
     return String(value).toLocaleString();
   };
 
+  const getTrend = (trendKey?: string): { value: string; positive: boolean } | undefined => {
+    if (!trendKey || !trends) return undefined;
+    const val = trends[trendKey as keyof typeof trends];
+    if (val === 0) return undefined;
+    return {
+      value: `${val > 0 ? '+' : ''}${val}% ce mois`,
+      positive: val > 0,
+    };
+  };
+
   return (
     <div className="space-y-6">
-      {/* Welcome header — simple, white background */}
+      {/* Welcome header */}
       <div>
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
           Bienvenue, {user?.firstName} !
@@ -413,9 +559,7 @@ export function DashboardPage() {
               icon={stat.icon}
               iconBg={stat.iconBg}
               iconColor={stat.iconColor}
-              trend={stat.trend}
-              badge={stat.badge}
-              alert={stat.alert}
+              trend={getTrend(stat.trendKey)}
               isLoading={statsLoading}
             />
           ))}
@@ -432,7 +576,7 @@ export function DashboardPage() {
                   <div
                     key={action.title}
                     className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3.5 opacity-50"
-                    title="Bientot disponible"
+                    title="Bientôt disponible"
                   >
                     <action.icon className="h-5 w-5 text-slate-400" />
                     <span className="flex-1 text-sm font-medium text-slate-300">{action.title}</span>
@@ -459,36 +603,75 @@ export function DashboardPage() {
             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Statut Système</h3>
             <div className="mt-3 space-y-2.5">
               <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                <span className="text-sm text-gray-700">Base de données synchronisées</span>
+                <span className={`h-2 w-2 rounded-full ${statsLoading ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`} />
+                <span className="text-sm text-gray-700">Base de données</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                <span className="text-sm text-gray-700">API Connectivité stable</span>
+                <span className={`h-2 w-2 rounded-full ${statsLoading ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`} />
+                <span className="text-sm text-gray-700">API Connectivité</span>
               </div>
             </div>
             <p className="mt-3 text-xs text-gray-400">
-              Dernière mise à jour effectuée il y a 12 minutes. Aucune interruption prévue.
+              {stats.fetchedAt
+                ? `Dernière mise à jour ${formatRelativeTime(stats.fetchedAt)}.`
+                : 'Chargement...'}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Dernieres PEC */}
+      {/* Derniers bulletins */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900">Dernieres PEC</h2>
-          <span className="text-sm font-medium text-blue-600 hover:text-blue-700 cursor-pointer">
+          <h2 className="text-lg font-semibold text-gray-900">Derniers bulletins</h2>
+          <button
+            type="button"
+            onClick={() => navigate(isAdminRole ? '/admin/bulletins' : '/bulletins/history')}
+            className="text-sm font-medium text-blue-600 hover:text-blue-700 cursor-pointer"
+          >
             Voir tout le registre &rarr;
-          </span>
+          </button>
         </div>
-        <DataTable
-          columns={recentPECColumns}
-          data={recentPEC}
-          emptyMessage="Aucune PEC recente"
-          emptyStateType="claims"
-        />
+        {recentLoading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-14 animate-pulse rounded-lg bg-gray-100" />
+            ))}
+          </div>
+        ) : (
+          <DataTable
+            columns={recentBulletinColumns}
+            data={recentBulletins ?? []}
+            emptyMessage="Aucun bulletin récent"
+            emptyStateType="claims"
+          />
+        )}
       </div>
+
+      {/* Admin-only: enriched dashboard sections */}
+      {isAdminRole && (
+        <>
+          {/* KPI Bulletins */}
+          <KPICards
+            data={bulletinsStats ? {
+              totalBulletins: bulletinsStats.thisMonth,
+              enAttente: (bulletinsStats.byStatus?.submitted ?? 0) + (bulletinsStats.byStatus?.processing ?? 0),
+              tauxApprobation: bulletinsStats.approvalRate,
+              montantRembourse: remboursementsStats?.thisMonth ?? 0,
+            } : undefined}
+            isLoading={bulletinsStatsLoading}
+          />
+
+          {/* Évolution + Répartition */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <EvolutionChart data={evolutionData ?? undefined} isLoading={evolutionLoading} />
+            <RepartitionActes data={remboursementsStats?.parTypeActe ?? undefined} isLoading={false} />
+          </div>
+
+          {/* Alertes */}
+          <AlertesPanel data={alertesData ?? undefined} isLoading={alertesLoading} />
+        </>
+      )}
     </div>
   );
 }

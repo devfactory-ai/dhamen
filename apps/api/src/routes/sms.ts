@@ -218,7 +218,7 @@ sms.post('/otp/send', zValidator('json', sendOtpSchema), async (c) => {
     messageId: result.message.id,
     status: result.message.status,
     expiresIn: 300, // 5 minutes
-    message: 'OTP envoye avec succes',
+    message: 'OTP envoyé avec succès',
   });
 });
 
@@ -238,7 +238,7 @@ sms.post('/otp/verify', zValidator('json', verifyOtpSchema), async (c) => {
 
   return success(c, {
     valid: true,
-    message: 'OTP verifie avec succes',
+    message: 'OTP vérifié avec succès',
   });
 });
 

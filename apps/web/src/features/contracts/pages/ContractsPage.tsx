@@ -217,9 +217,8 @@ export function ContractsPage() {
             <Download className="mr-2 h-4 w-4" />
             {isExporting ? 'Export...' : 'Exporter'}
           </Button>
-          <Button onClick={() => navigate('/contracts/new')}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nouveau contrat
+          <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => navigate('/contracts/new')}>
+            <Plus className="w-4 h-4" /> Nouveau contrat
           </Button>
         </div>
       </div>
@@ -249,7 +248,7 @@ export function ContractsPage() {
             <AlertDialogDescription>
               Êtes-vous sûr de vouloir supprimer le contrat{' '}
               <strong>{deleteConfirm?.name}</strong> ?
-              Cette action est irreversible et affectera tous les adhérents associés.
+              Cette action est irréversible et affectera tous les adhérents associés.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

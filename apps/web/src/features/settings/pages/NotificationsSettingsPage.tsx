@@ -126,7 +126,7 @@ export function NotificationsSettingsPage() {
                 {updateNotificationsMutation.isPending ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : null}
-                Enregistrér
+                Enregistrer
               </Button>
             </div>
           </div>

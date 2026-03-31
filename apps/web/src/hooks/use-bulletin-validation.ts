@@ -23,7 +23,7 @@ export function useBulletinValidation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
       queryClient.invalidateQueries({ queryKey: ['agent-batches'] });
-      toast.success('Bulletin valide avec succes');
+      toast.success('Bulletin validé avec succès');
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Erreur lors de la validation');

@@ -124,7 +124,7 @@ export function CompanyFormPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['companies'] });
-      toast({ title: isEditing ? 'Entreprise modifiee' : 'Entreprise creee', variant: 'success' });
+      toast({ title: isEditing ? 'Entreprise modifiée' : 'Entreprise créée', variant: 'success' });
       navigate('/companies');
     },
     onError: (err: Error) => {

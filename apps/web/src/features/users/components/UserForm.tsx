@@ -109,7 +109,7 @@ export function UserForm({ user, onSubmit, onCancel, isLoading }: UserFormProps)
           Annuler
         </Button>
         <Button type="submit" disabled={isLoading}>
-          {isLoading ? 'Enregistrément...' : isEditing ? 'Mettre à jour' : 'Créer'}
+          {isLoading ? 'Enregistrement...' : isEditing ? 'Mettre à jour' : 'Créer'}
         </Button>
       </div>
     </form>

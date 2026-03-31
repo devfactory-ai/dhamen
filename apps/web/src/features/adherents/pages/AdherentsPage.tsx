@@ -186,9 +186,8 @@ export function AdherentsPage() {
             <Upload className="mr-2 h-4 w-4" />
             Import CSV
           </Button>
-          <Button onClick={() => navigate('/adhérents/new')}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nouvel adhérent
+          <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => navigate('/adhérents/new')}>
+            <Plus className="w-4 h-4" /> Nouvel adhérent
           </Button>
         </div>
       </div>

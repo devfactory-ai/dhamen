@@ -128,7 +128,7 @@ export default function BulletinsPaymentPage() {
       return response.data;
     },
     onSuccess: () => {
-      toast.success('Paiement effectue avec succes');
+      toast.success('Paiement effectué avec succès');
       queryClient.invalidateQueries({ queryKey: ['bulletins-payments'] });
       queryClient.invalidateQueries({ queryKey: ['bulletins-payment-stats'] });
       setPaymentDialogOpen(false);

@@ -87,7 +87,7 @@ export function UserFormPage() {
     } catch {
       toast({
         title: 'Erreur',
-        description: 'Une erreur est survenue lors de l\'enregistrément',
+        description: 'Une erreur est survenue lors de l\'enregistrement',
         variant: 'destructive',
       });
     }
@@ -120,7 +120,7 @@ export function UserFormPage() {
           <CardTitle>{isEditing ? 'Informations de l\'utilisateur' : 'Informations du nouvel utilisateur'}</CardTitle>
           <CardDescription>
             {isEditing
-              ? 'Modifiez les champs ci-dessous puis cliquez sur Enregistrér'
+              ? 'Modifiez les champs ci-dessous puis cliquez sur Enregistrer'
               : 'Remplissez les informations du nouvel utilisateur'}
           </CardDescription>
         </CardHeader>
@@ -235,7 +235,7 @@ export function UserFormPage() {
                 Annuler
               </Button>
               <Button type="submit" disabled={isLoading}>
-                {isLoading ? 'Enregistrément...' : isEditing ? 'Enregistrér' : 'Créer l\'utilisateur'}
+                {isLoading ? 'Enregistrement...' : isEditing ? 'Enregistrer' : 'Créer l\'utilisateur'}
               </Button>
             </div>
           </form>

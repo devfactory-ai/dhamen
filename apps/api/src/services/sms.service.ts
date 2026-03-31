@@ -119,7 +119,7 @@ const SMS_TEMPLATES: Record<string, SmsTemplate> = {
   CLAIM_SUBMITTED: {
     code: 'CLAIM_SUBMITTED',
     name: 'Demande soumise',
-    body: 'E-Santé: Votre demande {numero} a ete soumise. Montant: {montant} TND.',
+    body: 'E-Santé: Votre demande {numero} a été soumise. Montant: {montant} TND.',
     variables: ['numero', 'montant'],
     maxLength: 160,
   },
@@ -160,7 +160,7 @@ const SMS_TEMPLATES: Record<string, SmsTemplate> = {
   },
   ELIGIBILITY_VERIFIED: {
     code: 'ELIGIBILITY_VERIFIED',
-    name: 'Eligibilite verifiee',
+    name: 'Éligibilité vérifiée',
     body: 'E-Santé: {adherent} eligibile. Couverture: {taux}%. Plafond dispo: {plafond} TND.',
     variables: ['adherent', 'taux', 'plafond'],
     maxLength: 160,

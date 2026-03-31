@@ -347,7 +347,7 @@ export function ContractForm({ contract, onSubmit, onCancel, isLoading }: Contra
           Annuler
         </Button>
         <Button type="submit" disabled={isLoading}>
-          {isLoading ? 'Enregistrément...' : isEditing ? 'Mettre à jour' : 'Créer le contrat'}
+          {isLoading ? 'Enregistrement...' : isEditing ? 'Mettre à jour' : 'Créer le contrat'}
         </Button>
       </div>
     </form>

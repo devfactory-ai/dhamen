@@ -21,7 +21,7 @@ export function useBulletinScanUpload() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
-      toast.success('Scan uploade avec succes');
+      toast.success('Scan uploadé avec succès');
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Erreur lors de l\'upload du scan');

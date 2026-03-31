@@ -22,6 +22,8 @@ export interface InsurerConfig {
   defaultReimbursementRate: number;
 }
 
+export type TypeAssureur = 'cnam' | 'mutuelle' | 'compagnie' | 'reassureur' | 'autre';
+
 export interface Insurer {
   id: string;
   name: string;
@@ -32,6 +34,13 @@ export interface Insurer {
   email: string | null;
   configJson: InsurerConfig;
   isActive: boolean;
+  typeAssureur: TypeAssureur;
+  matriculeFiscal: string | null;
+  matriculeValide: boolean;
+  dateDebutConvention: string | null;
+  dateFinConvention: string | null;
+  tauxCouverture: number | null;
+  conventionExpireBientot: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -45,6 +54,11 @@ export interface InsurerCreate {
   phone?: string;
   email?: string;
   config?: Partial<InsurerConfig>;
+  typeAssureur?: TypeAssureur;
+  matriculeFiscal?: string;
+  dateDebutConvention?: string;
+  dateFinConvention?: string;
+  tauxCouverture?: number;
 }
 
 export interface InsurerUpdate {
@@ -55,9 +69,15 @@ export interface InsurerUpdate {
   email?: string;
   config?: Partial<InsurerConfig>;
   isActive?: boolean;
+  typeAssureur?: TypeAssureur;
+  matriculeFiscal?: string;
+  dateDebutConvention?: string;
+  dateFinConvention?: string;
+  tauxCouverture?: number;
 }
 
 export interface InsurerFilters {
   isActive?: boolean;
   search?: string;
+  typeAssureur?: TypeAssureur;
 }

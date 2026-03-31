@@ -289,7 +289,7 @@ export function LoginPage() {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label htmlFor="password" className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-                      Cle d'acces
+                      Clé d'accès
                     </label>
                     <Link
                       to="/auth/reset-password"

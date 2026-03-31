@@ -211,9 +211,8 @@ export function PreAuthorizationsPage() {
           description="Gestion des demandes d'autorisation préalable"
         />
         {isAgent && (
-          <Button onClick={() => navigate('/pre-authorizations/new')}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nouvelle demande
+          <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => navigate('/pre-authorizations/new')}>
+            <Plus className="w-4 h-4" /> Nouvelle demande
           </Button>
         )}
       </div>

@@ -193,7 +193,7 @@ export function ContractFormPage() {
           <CardTitle>{isEditing ? 'Informations du contrat' : 'Informations du nouveau contrat'}</CardTitle>
           <CardDescription>
             {isEditing
-              ? 'Modifiez les champs ci-dessous puis cliquez sur Enregistrér'
+              ? 'Modifiez les champs ci-dessous puis cliquez sur Enregistrer'
               : 'Remplissez les informations du nouveau contrat'}
           </CardDescription>
         </CardHeader>

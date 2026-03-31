@@ -263,9 +263,8 @@ export function UsersPage() {
             <Upload className="mr-2 h-4 w-4" />
             Import CSV
           </Button>
-          <Button onClick={() => navigate("/users/new")}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nouvel utilisateur
+          <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => navigate("/users/new")}>
+            <Plus className="w-4 h-4" /> Nouvel utilisateur
           </Button>
         </div>
       </div>

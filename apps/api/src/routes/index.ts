@@ -111,3 +111,9 @@ export { groupContracts } from './group-contracts';
 
 // Medication Family Baremes (taux remboursement par famille médicament)
 export { medicationFamilyBaremes } from './medication-family-baremes';
+
+// Roles management (admin panel)
+export { roles } from './roles';
+
+// Admin dashboard stats
+export { adminStats } from './admin-stats';

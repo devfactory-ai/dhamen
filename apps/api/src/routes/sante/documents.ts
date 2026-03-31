@@ -421,7 +421,7 @@ documents.post(
       } satisfies OcrCompletedEvent).catch(() => {});
 
       return success(c, {
-        message: 'OCR termine avec succes',
+        message: 'OCR terminé avec succès',
         data: extractedData,
       });
     } catch (error) {

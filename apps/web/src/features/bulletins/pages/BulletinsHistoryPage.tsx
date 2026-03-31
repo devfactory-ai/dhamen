@@ -444,7 +444,7 @@ export default function BulletinsHistoryPage() {
             <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
             <AlertDialogDescription>
               Vous etes sur le point de supprimer {selectedIds.length} bulletin(s) de soins.
-              Cette action est irreversible.
+              Cette action est irréversible.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

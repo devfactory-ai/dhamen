@@ -868,7 +868,7 @@ export function BulletinsSaisiePage() {
 
     if (validFiles.length !== files.length) {
       toast.error(
-        "Certains fichiers ont ete ignores (format ou taille invalide)",
+        "Certains fichiers ont été ignorés (format ou taille invalide)",
       );
     }
 
@@ -4166,7 +4166,7 @@ export function BulletinsSaisiePage() {
             <AlertDialogDescription>
               {exportBatch?.status === "exported" ? (
                 <>
-                  Ce lot a deja ete exporte. Voulez-vous re-exporter "
+                  Ce lot a déjà été exporté. Voulez-vous re-exporter "
                   {exportBatch?.name}" ?
                 </>
               ) : (
@@ -4657,7 +4657,7 @@ export function BulletinsSaisiePage() {
             <AlertDialogDescription>
               Confirmez la validation du bulletin{" "}
               {validateBulletinTarget?.bulletin_number}. Le remboursement sera
-              enregistre definitivement.
+              enregistré définitivement.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {validateBulletinTarget && (

@@ -89,6 +89,10 @@ const AdherentBulletinsPage = lazy(() => import('@/features/adherent-portal/page
 const AdherentConsommationPage = lazy(() => import('@/features/adherent-portal/pages/AdherentConsommationPage').then(m => ({ default: m.default })));
 // Admin pages
 const MFVerificationPage = lazy(() => import('@/features/admin/pages/MFVerificationPage').then(m => ({ default: m.default })));
+const RolesPage = lazy(() => import('@/features/admin/pages/RolesPage').then(m => ({ default: m.default })));
+const BulletinsGlobauxPage = lazy(() => import('@/features/admin/pages/BulletinsGlobauxPage').then(m => ({ default: m.default })));
+const AdminBulletinDetailPage = lazy(() => import('@/features/admin/pages/AdminBulletinDetailPage').then(m => ({ default: m.default })));
+const GarantiesContratPage = lazy(() => import('@/features/admin/pages/GarantiesContratPage').then(m => ({ default: m.default })));
 const MedicationsPage = lazy(() => import('@/features/admin/pages/MedicationsPage').then(m => ({ default: m.default })));
 const MedicationDetailPage = lazy(() => import('@/features/admin/pages/MedicationDetailPage').then(m => ({ default: m.default })));
 const MedicationFamilyFormPage = lazy(() => import('@/features/admin/pages/MedicationFamilyFormPage').then(m => ({ default: m.default })));
@@ -253,6 +257,10 @@ function App() {
                     <Route path="/insurers/new" element={<InsurerFormPage />} />
                     <Route path="/insurers/:id/edit" element={<InsurerFormPage />} />
                     {/* Admin - MF & Medications */}
+                    <Route path="/admin/roles" element={<RolesPage />} />
+                    <Route path="/admin/bulletins" element={<BulletinsGlobauxPage />} />
+                    <Route path="/admin/bulletins/:id" element={<AdminBulletinDetailPage />} />
+                    <Route path="/admin/garanties/:id" element={<GarantiesContratPage />} />
                     <Route path="/admin/mf-verification" element={<MFVerificationPage />} />
                     <Route path="/admin/medications" element={<MedicationsPage />} />
                     <Route path="/admin/medications/families/new" element={<MedicationFamilyFormPage />} />

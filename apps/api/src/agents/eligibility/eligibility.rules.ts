@@ -51,7 +51,7 @@ export function checkContractValidity(
     case 'cancelled':
       reasons.push({
         code: 'CONTRACT_CANCELLED',
-        message: 'Le contrat a ete annule',
+        message: 'Le contrat a été annulé',
         severity: 'error',
       });
       break;

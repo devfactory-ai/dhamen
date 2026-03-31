@@ -202,19 +202,19 @@ export const NotificationTemplates = {
   demandeCreee: (numeroDemande: string) => ({
     type: 'demande_created',
     title: 'Nouvelle demande',
-    message: `Demande ${numeroDemande} creee avec succes`,
+    message: `Demande ${numeroDemande} créée avec succès`,
   }),
 
   demandeApprouvee: (numeroDemande: string, montant: number) => ({
     type: 'demande_approved',
     title: 'Demande approuvee',
-    message: `Votre demande ${numeroDemande} a ete approuvee pour ${(montant / 1000).toFixed(3)} TND`,
+    message: `Votre demande ${numeroDemande} a été approuvée pour ${(montant / 1000).toFixed(3)} TND`,
   }),
 
   demandeRejetee: (numeroDemande: string, motif: string) => ({
     type: 'demande_rejected',
     title: 'Demande rejetee',
-    message: `Votre demande ${numeroDemande} a ete rejetee: ${motif}`,
+    message: `Votre demande ${numeroDemande} a été rejetée: ${motif}`,
   }),
 
   infoRequise: (numeroDemande: string, dueDate: string) => ({

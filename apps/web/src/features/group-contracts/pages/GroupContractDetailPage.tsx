@@ -132,7 +132,7 @@ export function GroupContractDetailPage() {
       return response.data;
     },
     onSuccess: () => {
-      toast({ title: 'Garanties appliquees aux adherents avec succes', variant: 'success' });
+      toast({ title: 'Garanties appliquées aux adhérents avec succès', variant: 'success' });
       queryClient.invalidateQueries({ queryKey: ['group-contract', id] });
     },
     onError: (err: Error) => {

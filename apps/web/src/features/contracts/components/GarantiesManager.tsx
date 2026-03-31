@@ -290,7 +290,7 @@ export function GarantiesManager({
                 </Button>
                 <Button type="submit" disabled={isLoading}>
                   {isLoading
-                    ? 'Enregistrément...'
+                    ? 'Enregistrement...'
                     : editingGarantie
                       ? 'Mettre à jour'
                       : 'Ajouter'}

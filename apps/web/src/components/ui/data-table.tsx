@@ -98,7 +98,7 @@ export function DataTable<T extends { id: string }>({
                 </TableCell>
               </TableRow>
             ) : (
-              data.map((item, index) => (
+              data?.map((item, index) => (
                 <TableRow
                   key={item.id}
                   className={`

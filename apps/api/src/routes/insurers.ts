@@ -11,10 +11,11 @@ import {
   insurerFiltersSchema,
   insurerUpdateSchema,
   paginationSchema,
+  validerMatriculeFiscal,
 } from '@dhamen/shared';
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
-import { conflict, created, noContent, notFound, paginated, success } from '../lib/response';
+import { conflict, created, error, noContent, notFound, paginated, success } from '../lib/response';
 import { generateId } from '../lib/ulid';
 import { logAudit } from '../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../middleware/auth';
@@ -35,11 +36,12 @@ insurers.get(
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('query', insurerFiltersSchema.merge(paginationSchema)),
   async (c) => {
-    const { isActive, search, page, limit } = c.req.valid('query');
+    const { isActive, search, typeAssureur, page, limit } = c.req.valid('query');
 
     const { data, total } = await listInsurers(getDb(c), {
       isActive,
       search,
+      typeAssureur,
       page,
       limit,
     });
@@ -52,6 +54,63 @@ insurers.get(
     });
   }
 );
+
+/**
+ * GET /api/v1/insurers/export/csv
+ * Export insurers as CSV (BR-005) — must be before /:id
+ */
+insurers.get('/export/csv', requireRole('ADMIN'), async (c) => {
+  const user = c.get('user');
+  const db = getDb(c);
+  const typeAssureurParam = c.req.query('typeAssureur');
+  const isActiveParam = c.req.query('isActive');
+  const isActive = isActiveParam === 'true' ? true : isActiveParam === 'false' ? false : undefined;
+
+  const { data: exportData, total } = await listInsurers(db, {
+    typeAssureur: typeAssureurParam || undefined,
+    isActive,
+    limit: 10000,
+  });
+
+  const TYPE_LABELS: Record<string, string> = {
+    cnam: 'CNAM', mutuelle: 'Mutuelle', compagnie: 'Compagnie', reassureur: 'Réassureur', autre: 'Autre',
+  };
+
+  const header = 'Raison Sociale,Type,Code,Matricule Fiscal,Statut,Telephone,Email,Debut Convention,Fin Convention,Taux Couverture';
+  const rows = exportData.map((ins) =>
+    [
+      `"${(ins.name || '').replace(/"/g, '""')}"`,
+      TYPE_LABELS[ins.typeAssureur] || ins.typeAssureur,
+      ins.code,
+      ins.matriculeFiscal || '',
+      ins.isActive ? 'Actif' : 'Suspendu',
+      ins.phone || '',
+      ins.email || '',
+      ins.dateDebutConvention || '',
+      ins.dateFinConvention || '',
+      ins.tauxCouverture != null ? `${ins.tauxCouverture}%` : '',
+    ].join(',')
+  );
+
+  const csv = [header, ...rows].join('\n');
+
+  await logAudit(db, {
+    userId: user?.sub,
+    action: 'assureurs.exported',
+    entityType: 'insurer',
+    entityId: '',
+    changes: { count: total, filters: { typeAssureur: typeAssureurParam, isActive } },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="compagnies-partenaires-${new Date().toISOString().slice(0, 10)}.csv"`,
+    },
+  });
+});
 
 /**
  * GET /api/v1/insurers/:id
@@ -82,25 +141,46 @@ insurers.get('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), asy
 insurers.post('/', requireRole('ADMIN'), zValidator('json', insurerCreateSchema), async (c) => {
   const data = c.req.valid('json');
   const user = c.get('user');
+  const db = getDb(c);
 
   // Check if code already exists
-  const existing = await findInsurerByCode(getDb(c), data.code);
+  const existing = await findInsurerByCode(db, data.code);
   if (existing) {
     return conflict(c, 'Un assureur avec ce code existe déjà');
   }
 
+  // BR-002: CNAM singleton
+  if (data.typeAssureur === 'cnam') {
+    const { data: allInsurers } = await listInsurers(db, { typeAssureur: 'cnam', limit: 1 });
+    if (allInsurers.length > 0) {
+      return error(c, 'CNAM_DUPLICATE', 'La CNAM est déjà enregistrée', 400);
+    }
+  }
+
+  // BR-001: MF validation
+  let matriculeValide = false;
+  if (data.matriculeFiscal) {
+    const mfResult = validerMatriculeFiscal(data.matriculeFiscal);
+    if (!mfResult.valid) {
+      return error(c, 'MF_INVALID', `Matricule fiscal invalide : ${mfResult.errors.join(', ')}`, 400);
+    }
+    matriculeValide = true;
+  }
+
   const id = generateId();
-  const insurer = await createInsurer(getDb(c), id, data);
+  const createData = { ...data, matriculeValide } as Parameters<typeof createInsurer>[2] & { matriculeValide?: boolean };
+  const insurer = await createInsurer(db, id, createData);
 
   // Audit log
-  await logAudit(getDb(c), {
+  await logAudit(db, {
     userId: user?.sub,
-    action: 'insurer.create',
+    action: 'assureur.created',
     entityType: 'insurer',
     entityId: id,
     changes: {
       name: data.name,
       code: data.code,
+      typeAssureur: data.typeAssureur,
     },
     ipAddress: c.req.header('CF-Connecting-IP'),
     userAgent: c.req.header('User-Agent'),
@@ -121,22 +201,51 @@ insurers.put(
     const id = c.req.param('id');
     const data = c.req.valid('json');
     const user = c.get('user');
+    const db = getDb(c);
 
     // Insurer admin can only update their own insurer
     if (user?.role === 'INSURER_ADMIN' && user.insurerId !== id) {
       return notFound(c, 'Assureur non trouvé');
     }
 
-    const insurer = await updateInsurer(getDb(c), id, data);
+    // BR-001: MF re-validation if changed
+    const updateData: Record<string, unknown> = { ...data };
+    if (data.matriculeFiscal !== undefined) {
+      if (data.matriculeFiscal) {
+        const mfResult = validerMatriculeFiscal(data.matriculeFiscal);
+        if (!mfResult.valid) {
+          return error(c, 'MF_INVALID', `Matricule fiscal invalide : ${mfResult.errors.join(', ')}`, 400);
+        }
+        updateData.matriculeValide = true;
+      } else {
+        updateData.matriculeValide = false;
+      }
+    }
+
+    // BR-002: prevent changing type of existing CNAM
+    if (data.typeAssureur) {
+      const existing = await findInsurerById(db, id);
+      if (existing?.typeAssureur === 'cnam' && data.typeAssureur !== 'cnam') {
+        return error(c, 'CNAM_TYPE_LOCKED', 'Impossible de modifier le type d\'une entrée CNAM', 400);
+      }
+      if (data.typeAssureur === 'cnam' && existing?.typeAssureur !== 'cnam') {
+        const { data: cnamList } = await listInsurers(db, { typeAssureur: 'cnam', limit: 1 });
+        if (cnamList.length > 0) {
+          return error(c, 'CNAM_DUPLICATE', 'La CNAM est déjà enregistrée', 400);
+        }
+      }
+    }
+
+    const insurer = await updateInsurer(db, id, updateData as Parameters<typeof updateInsurer>[2]);
 
     if (!insurer) {
       return notFound(c, 'Assureur non trouvé');
     }
 
     // Audit log
-    await logAudit(getDb(c), {
+    await logAudit(db, {
       userId: user?.sub,
-      action: 'insurer.update',
+      action: 'assureur.updated',
       entityType: 'insurer',
       entityId: id,
       changes: data,
@@ -173,6 +282,41 @@ insurers.delete('/:id', requireRole('ADMIN'), async (c) => {
   });
 
   return noContent(c);
+});
+
+/**
+ * PUT /api/v1/insurers/:id/status
+ * Toggle insurer status (BR-004)
+ */
+insurers.put('/:id/status', requireRole('ADMIN'), async (c) => {
+  const id = c.req.param('id');
+  const user = c.get('user');
+  const db = getDb(c);
+  const body = await c.req.json<{ status: 'active' | 'suspended'; motif?: string }>();
+
+  const existing = await findInsurerById(db, id);
+  if (!existing) {
+    return notFound(c, 'Assureur non trouvé');
+  }
+
+  const newIsActive = body.status === 'active';
+  const insurer = await updateInsurer(db, id, { isActive: newIsActive });
+
+  await logAudit(db, {
+    userId: user?.sub,
+    action: 'assureur.statut.changed',
+    entityType: 'insurer',
+    entityId: id,
+    changes: {
+      oldStatus: existing.isActive ? 'active' : 'suspended',
+      newStatus: body.status,
+      motif: body.motif,
+    },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, insurer);
 });
 
 export { insurers };

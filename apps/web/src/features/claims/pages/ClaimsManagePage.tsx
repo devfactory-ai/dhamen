@@ -50,52 +50,60 @@ export function ClaimsManagePage() {
 
   const columns = [
     {
-      key: 'claim',
-      header: 'PEC',
+      key: "claim",
+      header: "PEC",
       render: (claim: Claim) => (
         <div>
           <p className="font-medium">{claim.numeroDemande}</p>
-          <p className='text-muted-foreground text-sm'>{formatDate(claim.createdAt)}</p>
-        </div>
-      ),
-    },
-    {
-      key: 'adherent',
-      header: 'Adhérent',
-      render: (claim: Claim) => (
-        <div>
-          <p className="text-sm">
-            {claim.adherent
-              ? `${claim.adherent.firstName} ${claim.adherent.lastName}`
-              : '-'}
+          <p className="text-muted-foreground text-sm">
+            {formatDate(claim.createdAt)}
           </p>
         </div>
       ),
     },
     {
-      key: 'praticien',
-      header: 'Praticien',
+      key: "adherent",
+      header: "Adhérent",
       render: (claim: Claim) => (
         <div>
-          <p className="text-sm">{claim.praticien?.nom ?? '-'}</p>
+          <p className="text-sm">
+            {claim.adherent
+              ? `${claim.adherent.firstName} ${claim.adherent.lastName}`
+              : "-"}
+          </p>
         </div>
       ),
     },
     {
-      key: 'type',
-      header: 'Type',
+      key: "praticien",
+      header: "Praticien",
+      render: (claim: Claim) => (
+        <div>
+          <p className="text-sm">{claim.praticien?.nom ?? "-"}</p>
+        </div>
+      ),
+    },
+    {
+      key: "type",
+      header: "Type",
       render: (claim: Claim) => {
         const typeInfo = CLAIM_TYPES[claim.typeSoin];
         return typeInfo ? (
-          <span className={`rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>
+          <span
+            className={`rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}
+          >
             {typeInfo.label}
           </span>
-        ) : <span className="text-xs text-muted-foreground">{claim.typeSoin}</span>;
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            {claim.typeSoin}
+          </span>
+        );
       },
     },
     {
-      key: 'amount',
-      header: 'Montant',
+      key: "amount",
+      header: "Montant",
       render: (claim: Claim) => (
         <div className="text-right">
           <p className="font-medium">{formatAmount(claim.montantDemande)}</p>
@@ -103,36 +111,55 @@ export function ClaimsManagePage() {
       ),
     },
     {
-      key: 'fraudScore',
-      header: 'Score',
+      key: "fraudScore",
+      header: "Score",
       render: (claim: Claim) => {
-        if (claim.scoreFraude === null) { return '-'; }
-        const color = claim.scoreFraude > 70 ? 'text-destructive' : claim.scoreFraude > 40 ? 'text-yellow-600' : 'text-green-600';
-        return <span className={`font-medium ${color}`}>{claim.scoreFraude}</span>;
+        if (claim.scoreFraude === null) {
+          return "-";
+        }
+        const color =
+          claim.scoreFraude > 70
+            ? "text-destructive"
+            : claim.scoreFraude > 40
+              ? "text-yellow-600"
+              : "text-green-600";
+        return (
+          <span className={`font-medium ${color}`}>{claim.scoreFraude}</span>
+        );
       },
     },
     {
-      key: 'status',
-      header: 'Statut',
+      key: "status",
+      header: "Statut",
+      className: "text-center",
       render: (claim: Claim) => {
         const statusInfo = CLAIM_STATUS[claim.statut];
-        return statusInfo
-          ? <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
-          : <span className="text-xs">{claim.statut}</span>;
+        return statusInfo ? (
+          <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
+        ) : (
+          <span className="text-xs">{claim.statut}</span>
+        );
       },
     },
     {
-      key: 'actions',
-      header: '',
-      className: 'text-right',
+      key: "actions",
+      header: "Actions",
+      className: "text-center",
       render: (claim: Claim) => (
         <div className="flex justify-end gap-2">
-          {['soumise', 'en_examen'].includes(claim.statut) && (
-            <Button size="sm" onClick={() => navigate(`/claims/manage/${claim.id}/process`)}>
+          {["soumise", "en_examen"].includes(claim.statut) && (
+            <Button
+              size="sm"
+              onClick={() => navigate(`/claims/manage/${claim.id}/process`)}
+            >
               Traiter
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={() => navigate(`/claims/${claim.id}`)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate(`/claims/${claim.id}`)}
+          >
             Détails
           </Button>
         </div>

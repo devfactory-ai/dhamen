@@ -118,7 +118,7 @@ export function AdherentFormPage() {
     } catch {
       toast({
         title: 'Erreur',
-        description: 'Une erreur est survenue lors de l\'enregistrément',
+        description: 'Une erreur est survenue lors de l\'enregistrement',
         variant: 'destructive',
       });
     }
@@ -151,7 +151,7 @@ export function AdherentFormPage() {
           <CardTitle>{isEditing ? 'Informations de l\'adhérent' : 'Informations du nouvel adhérent'}</CardTitle>
           <CardDescription>
             {isEditing
-              ? 'Modifiez les champs ci-dessous puis cliquez sur Enregistrér'
+              ? 'Modifiez les champs ci-dessous puis cliquez sur Enregistrer'
               : 'Remplissez les informations du nouvel adhérent'}
           </CardDescription>
         </CardHeader>
@@ -296,7 +296,7 @@ export function AdherentFormPage() {
                 Annuler
               </Button>
               <Button type="submit" disabled={isLoading}>
-                {isLoading ? 'Enregistrément...' : isEditing ? 'Enregistrér' : 'Créer l\'adhérent'}
+                {isLoading ? 'Enregistrement...' : isEditing ? 'Enregistrer' : 'Créer l\'adhérent'}
               </Button>
             </div>
           </form>

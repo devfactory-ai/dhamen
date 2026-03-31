@@ -1,4 +1,5 @@
 import type { Role } from '../types/user';
+import type { Resource, Action } from '../permissions';
 
 export const ROLE_LABELS: Record<Role, string> = {
   ADMIN: 'Administrateur',
@@ -60,3 +61,43 @@ export const SOINFLOW_INTERNAL_ROLES: Role[] = ['SOIN_GESTIONNAIRE', 'SOIN_AGENT
 
 // Compliance roles
 export const COMPLIANCE_ROLES: Role[] = ['COMPLIANCE_OFFICER'];
+
+// Labels for resources (French)
+export const RESOURCE_LABELS: Record<Resource, string> = {
+  users: 'Utilisateurs',
+  providers: 'Praticiens',
+  adherents: 'Adhérents',
+  insurers: 'Assureurs',
+  contracts: 'Contrats',
+  claims: 'Prises en charge',
+  reconciliations: 'Réconciliations',
+  conventions: 'Conventions',
+  audit_logs: 'Journaux d\'audit',
+  companies: 'Entreprises',
+  bulletins_soins: 'Bulletins de soins',
+  sante_demandes: 'Demandes santé',
+  sante_documents: 'Documents santé',
+  sante_garanties: 'Garanties santé',
+  sante_praticiens: 'Praticiens santé',
+  sante_actes: 'Actes santé',
+  sante_paiements: 'Paiements santé',
+};
+
+// Labels for actions (French)
+export const ACTION_LABELS: Record<Action, string> = {
+  create: 'Créer',
+  read: 'Lire',
+  update: 'Modifier',
+  delete: 'Supprimer',
+  list: 'Lister',
+  approve: 'Approuver',
+  reject: 'Rejeter',
+  validate: 'Valider',
+  upload: 'Téléverser',
+  download: 'Télécharger',
+  initiate: 'Initier',
+  process: 'Traiter',
+};
+
+// Roles that cannot be modified via the admin panel
+export const PROTECTED_ROLES: Role[] = ['ADMIN'];

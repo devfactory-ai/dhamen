@@ -40,7 +40,28 @@ interface AuditEntry {
   result: 'success' | 'failure';
   errorMessage?: string;
   duration?: number;
+  criticality?: string;
 }
+
+// Criticality badge config
+const CRITICALITY_CONFIG: Record<string, { label: string; className: string }> = {
+  critique: { label: 'Critique', className: 'bg-red-100 text-red-700 border-red-200' },
+  haute: { label: 'Haute', className: 'bg-orange-100 text-orange-700 border-orange-200' },
+  moyenne: { label: 'Moyenne', className: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
+  normale: { label: 'Normale', className: 'bg-green-100 text-green-700 border-green-200' },
+};
+
+// Module grouping for entity types
+const MODULE_OPTIONS = [
+  { value: '', label: 'Tous les modules' },
+  { value: 'bulletin_de_soins', label: 'Bulletins' },
+  { value: 'provider', label: 'Praticiens' },
+  { value: 'adherent', label: 'Adhérents' },
+  { value: 'contract', label: 'Contrats' },
+  { value: 'user', label: 'Utilisateurs' },
+  { value: 'claim', label: 'PEC' },
+  { value: 'payment', label: 'Paiements' },
+];
 
 interface AuditStats {
   totalEntries: number;
@@ -58,13 +79,15 @@ export function AuditLogsPage() {
   const [selectedAction, setSelectedAction] = useState<string>('');
   const [selectedEntityType, setSelectedEntityType] = useState<string>('');
   const [selectedResult, setSelectedResult] = useState<string>('');
+  const [selectedModule, setSelectedModule] = useState<string>('');
+  const [selectedCriticality, setSelectedCriticality] = useState<string>('');
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const limit = 20;
 
   // Fetch audit logs
   const { data: logsData, isLoading } = useQuery({
-    queryKey: ['audit', 'logs', searchText, selectedAction, selectedEntityType, selectedResult, page],
+    queryKey: ['audit', 'logs', searchText, selectedAction, selectedEntityType, selectedResult, selectedModule, selectedCriticality, page],
     queryFn: async () => {
       const params = new URLSearchParams({
         limit: limit.toString(),
@@ -73,8 +96,10 @@ export function AuditLogsPage() {
 
       if (searchText) params.append('search', searchText);
       if (selectedAction) params.append('action', selectedAction);
-      if (selectedEntityType) params.append('entityType', selectedEntityType);
+      if (selectedModule) params.append('entityType', selectedModule);
+      else if (selectedEntityType) params.append('entityType', selectedEntityType);
       if (selectedResult) params.append('result', selectedResult);
+      if (selectedCriticality) params.append('criticality', selectedCriticality);
 
       const response = await apiClient.get<{
         success: boolean;
@@ -162,8 +187,10 @@ export function AuditLogsPage() {
       const params = new URLSearchParams({ format: 'csv' });
       if (searchText) params.append('search', searchText);
       if (selectedAction) params.append('action', selectedAction);
-      if (selectedEntityType) params.append('entityType', selectedEntityType);
+      if (selectedModule) params.append('entityType', selectedModule);
+      else if (selectedEntityType) params.append('entityType', selectedEntityType);
       if (selectedResult) params.append('result', selectedResult);
+      if (selectedCriticality) params.append('criticality', selectedCriticality);
 
       const response = await apiClient.get(
         `/audit/export?${params.toString()}`,
@@ -316,6 +343,36 @@ export function AuditLogsPage() {
               <option value="success">Succès</option>
               <option value="failure">Échec</option>
             </select>
+
+            <select
+              value={selectedModule}
+              onChange={(e) => {
+                setSelectedModule(e.target.value);
+                setPage(0);
+              }}
+              className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+            >
+              {MODULE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={selectedCriticality}
+              onChange={(e) => {
+                setSelectedCriticality(e.target.value);
+                setPage(0);
+              }}
+              className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+            >
+              <option value="">Toutes criticités</option>
+              <option value="critique">Critique</option>
+              <option value="haute">Haute</option>
+              <option value="moyenne">Moyenne</option>
+              <option value="normale">Normale</option>
+            </select>
           </div>
         </CardContent>
       </Card>
@@ -381,6 +438,12 @@ export function AuditLogsPage() {
                       <User className="h-4 w-4" />
                       {log.userName || log.userId}
                     </div>
+
+                    {log.criticality && CRITICALITY_CONFIG[log.criticality] && (
+                      <Badge className={`text-[10px] px-1.5 py-0 ${CRITICALITY_CONFIG[log.criticality].className}`}>
+                        {CRITICALITY_CONFIG[log.criticality].label}
+                      </Badge>
+                    )}
 
                     {log.result === 'success' ? (
                       <CheckCircle className="h-5 w-5 text-green-500" />

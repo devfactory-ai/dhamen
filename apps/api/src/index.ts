@@ -55,6 +55,8 @@ import {
   preAuthorizations,
   groupContracts,
   medicationFamilyBaremes,
+  roles,
+  adminStats,
 } from './routes';
 import type { Bindings, Variables } from './types';
 
@@ -212,6 +214,12 @@ api.route('/pre-authorizations', preAuthorizations);
 
 // Group Contracts (contrats d'assurance groupe)
 api.route('/group-contracts', groupContracts);
+
+// Roles management (admin panel)
+api.route('/roles', roles);
+
+// Admin dashboard stats
+api.route('/admin-stats', adminStats);
 
 // Root redirect
 app.get('/', (c) => {

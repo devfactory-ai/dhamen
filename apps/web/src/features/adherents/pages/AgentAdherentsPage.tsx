@@ -15,7 +15,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Users, Eye, UserPlus, Pencil, Trash2, Download, AlertCircle } from 'lucide-react';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
-// import { useCompanies } from '@/features/agent/hooks/use-companies';
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { useCompanies } from '@/features/agent/hooks/use-companies';
 import {
   useAdherents,
   useDeleteAdherent,
@@ -54,6 +55,8 @@ function formatAmount(amount: number | null): string {
 
 export function AgentAdherentsPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const { selectedCompany } = useAgentContext();
   const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
   const [page, setPage] = useState(1);
@@ -61,6 +64,9 @@ export function AgentAdherentsPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'incomplete'>('all');
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
+  const [companyFilter, setCompanyFilter] = useState<string | undefined>(undefined);
+  const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false);
+  const companyDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!statusDropdownOpen) return;
@@ -72,15 +78,28 @@ export function AgentAdherentsPage() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [statusDropdownOpen]);
-  // const [companyFilter, setCompanyFilter] = useState<string | undefined>(selectedCompany?.id);
-  // const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false);
+
+  useEffect(() => {
+    if (!companyDropdownOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (companyDropdownRef.current && !companyDropdownRef.current.contains(e.target as Node)) {
+        setCompanyDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [companyDropdownOpen]);
+
   // Dialogs
   const [deleteConfirm, setDeleteConfirm] = useState<AgentAdherent | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
 
-  // const { data: companiesList } = useCompanies();
-  const effectiveCompanyId = selectedCompany?.id; // companyFilter — TODO: rétablir le filtre entreprise
+  const { data: companiesList } = useCompanies();
+  const effectiveCompanyId = isAdmin ? companyFilter : selectedCompany?.id;
+  const selectedCompanyName = companyFilter
+    ? companiesList?.find((c: { id: string; name: string }) => c.id === companyFilter)?.name
+    : undefined;
   const isActiveParam = statusFilter === 'active' ? 'true' as const : statusFilter === 'inactive' ? 'false' as const : undefined;
   const dossierCompletParam = statusFilter === 'incomplete' ? 'false' as const : undefined;
   const contractTypeParam = isIndividualMode ? 'individual' as const : undefined;
@@ -253,8 +272,8 @@ export function AgentAdherentsPage() {
           </h1>
           <p className="mt-1 text-sm text-gray-500">
             {isIndividualMode
-              ? 'Adherents avec contrats individuels (sans entreprise).'
-              : 'Gerez votre base de donnees d\'assures et leurs plafonds de consommation.'}
+              ? 'Adhérents avec contrats individuels (sans entreprise).'
+              : 'Gérez votre base de données d\'assures et leurs plafonds de consommation.'}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -303,7 +322,7 @@ export function AgentAdherentsPage() {
           <Button
             className="gap-2 bg-slate-900 hover:bg-[#19355d]"
             onClick={() => navigate(isIndividualMode ? "/adherents/agent/new?type=individual" : "/adherents/agent/new")}
-            disabled={!selectedCompany}
+            disabled={!isAdmin && !selectedCompany}
           >
             <UserPlus className="w-4 h-4" /> Nouvel Adhérent
           </Button>
@@ -380,12 +399,12 @@ export function AgentAdherentsPage() {
               )}
             </div>
 
-            {/* Entreprise dropdown — TODO: rétablir quand le filtre sera prêt
-            <div className="relative shrink-0">
+            {/* Entreprise dropdown — ADMIN only */}
+            {isAdmin && (
+            <div className="relative shrink-0" ref={companyDropdownRef}>
               <button
                 type="button"
                 onClick={() => { setCompanyDropdownOpen(!companyDropdownOpen); setStatusDropdownOpen(false); }}
-                onBlur={() => setTimeout(() => setCompanyDropdownOpen(false), 150)}
                 className="flex items-center gap-2 w-full sm:w-auto px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
               >
                 <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Entreprise</span>
@@ -410,7 +429,7 @@ export function AgentAdherentsPage() {
                       </svg>
                     )}
                   </button>
-                  {(companiesList ?? []).map((c) => (
+                  {(companiesList ?? []).map((c: { id: string; name: string }) => (
                     <button
                       key={c.id}
                       type="button"
@@ -428,7 +447,7 @@ export function AgentAdherentsPage() {
                 </div>
               )}
             </div>
-            */}
+            )}
           </div>
         </div>
 

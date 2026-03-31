@@ -135,25 +135,25 @@ const statusConfig: Record<BulletinStatus, {
     description: 'En attente du bulletin papier',
   },
   paper_received: {
-    label: 'Papier recu',
+    label: 'Papier reçu',
     icon: Package,
     variant: 'default',
     color: 'text-blue-600 bg-blue-50',
-    description: 'Bulletin papier recu, a verifier',
+    description: 'Bulletin papier reçu, à vérifier',
   },
   paper_incomplete: {
     label: 'Dossier incomplet',
     icon: AlertCircle,
     variant: 'warning',
     color: 'text-orange-600 bg-orange-50',
-    description: 'Documents manquants - delai 15j',
+    description: 'Documents manquants - délai 15j',
   },
   paper_complete: {
     label: 'Dossier complet',
     icon: CheckCircle,
     variant: 'success',
     color: 'text-green-600 bg-green-50',
-    description: 'Dossier complet - delai 2j',
+    description: 'Dossier complet - délai 2j',
   },
   processing: {
     label: 'En traitement',
@@ -163,7 +163,7 @@ const statusConfig: Record<BulletinStatus, {
     description: 'Validation en cours',
   },
   approved: {
-    label: 'Approuve',
+    label: 'Approuvé',
     icon: ThumbsUp,
     variant: 'success',
     color: 'text-emerald-600 bg-emerald-50',
@@ -177,18 +177,18 @@ const statusConfig: Record<BulletinStatus, {
     description: 'Paiement en cours par l\'assurance',
   },
   reimbursed: {
-    label: 'Rembourse',
+    label: 'Remboursé',
     icon: CheckCircle2,
     variant: 'success',
     color: 'text-green-600 bg-green-50',
     description: 'Paiement effectue',
   },
   rejected: {
-    label: 'Rejete',
+    label: 'Rejeté',
     icon: XCircle,
     variant: 'destructive',
     color: 'text-red-600 bg-red-50',
-    description: 'Demande rejetee',
+    description: 'Demande rejetée',
   },
 };
 
@@ -552,7 +552,7 @@ export function BulletinsValidationPage() {
     <div className="space-y-6">
       <PageHeader
         title="Validation des Bulletins de Soins"
-        description="Verifiez et validez les bulletins soumis par les adherents"
+        description="Vérifiez et validez les bulletins soumis par les adhérents"
         actions={
           <Button variant="outline">
             <Download className="mr-2 h-4 w-4" />
@@ -578,7 +578,7 @@ export function BulletinsValidationPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Scans recus</p>
+                <p className="text-sm text-muted-foreground">Scans reçus</p>
                 <p className="text-2xl font-bold">{stats?.scan_uploaded || 0}</p>
               </div>
               <FileImage className="h-8 w-8 text-blue-500/50" />
@@ -589,7 +589,7 @@ export function BulletinsValidationPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Papiers recus</p>
+                <p className="text-sm text-muted-foreground">Papiers reçus</p>
                 <p className="text-2xl font-bold">{stats?.paper_received || 0}</p>
               </div>
               <Package className="h-8 w-8 text-indigo-500/50" />
@@ -611,7 +611,7 @@ export function BulletinsValidationPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Rembourses</p>
+                <p className="text-sm text-muted-foreground">Remboursés</p>
                 <p className="text-2xl font-bold text-green-600">{stats?.reimbursed || 0}</p>
               </div>
               <CheckCircle2 className="h-8 w-8 text-green-500/50" />
@@ -622,7 +622,7 @@ export function BulletinsValidationPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Rejetes</p>
+                <p className="text-sm text-muted-foreground">Rejetés</p>
                 <p className="text-2xl font-bold text-red-600">{stats?.rejected || 0}</p>
               </div>
               <XCircle className="h-8 w-8 text-red-500/50" />
@@ -648,7 +648,7 @@ export function BulletinsValidationPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-green-700">Total rembourse</p>
+                <p className="text-sm text-green-700">Total Remboursé</p>
                 <p className="text-3xl font-bold text-green-900">{formatAmount(stats?.total_reimbursed || 0)}</p>
               </div>
               <CheckCircle2 className="h-10 w-10 text-green-400" />
@@ -681,14 +681,14 @@ export function BulletinsValidationPage() {
                   <SelectItem value="all">Tous les statuts</SelectItem>
                   <SelectItem value="pending">A traiter</SelectItem>
                   <SelectItem value="scan_uploaded">Scan soumis</SelectItem>
-                  <SelectItem value="paper_received">Papier recu</SelectItem>
+                  <SelectItem value="paper_received">Papier reçu</SelectItem>
                   <SelectItem value="paper_incomplete">Dossier incomplet</SelectItem>
                   <SelectItem value="paper_complete">Dossier complet</SelectItem>
                   <SelectItem value="processing">En traitement</SelectItem>
-                  <SelectItem value="approved">Approuve</SelectItem>
+                  <SelectItem value="approved">Approuvé</SelectItem>
                   <SelectItem value="pending_payment">En attente paiement</SelectItem>
-                  <SelectItem value="reimbursed">Rembourse</SelectItem>
-                  <SelectItem value="rejected">Rejete</SelectItem>
+                  <SelectItem value="reimbursed">Remboursé</SelectItem>
+                  <SelectItem value="rejected">Rejeté</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -845,7 +845,7 @@ export function BulletinsValidationPage() {
                       <p className="font-medium text-lg">{formatAmount(selectedBulletin.total_amount)}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-muted-foreground">Montant rembourse</p>
+                      <p className="text-sm text-muted-foreground">Montant Remboursé</p>
                       <p className="font-medium text-lg text-green-600">{formatAmount(selectedBulletin.reimbursed_amount)}</p>
                     </div>
                   </div>
@@ -875,7 +875,7 @@ export function BulletinsValidationPage() {
                     {selectedBulletin.paper_received_date && (
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full bg-blue-500" />
-                        <span className="text-sm">Papier recu le {formatDate(selectedBulletin.paper_received_date)}</span>
+                        <span className="text-sm">Papier reçu le {formatDate(selectedBulletin.paper_received_date)}</span>
                       </div>
                     )}
                     {selectedBulletin.processing_date && (
@@ -887,7 +887,7 @@ export function BulletinsValidationPage() {
                     {selectedBulletin.reimbursement_date && (
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full bg-green-500" />
-                        <span className="text-sm">Rembourse le {formatDate(selectedBulletin.reimbursement_date)}</span>
+                        <span className="text-sm">Remboursé le {formatDate(selectedBulletin.reimbursement_date)}</span>
                       </div>
                     )}
                     {selectedBulletin.rejection_reason && (
@@ -960,7 +960,7 @@ export function BulletinsValidationPage() {
                 <AlertCircle className="h-5 w-5 text-orange-600 mt-0.5 shrink-0" />
                 <div className="text-sm text-orange-800">
                   <p className="font-semibold">Plafond atteint</p>
-                  <p>Le montant rembourse est de 0 TND. Tous les actes ont depasse le plafond. Le bulletin sera approuve sans remboursement.</p>
+                  <p>Le montant Remboursé est de 0 TND. Tous les actes ont depassé le plafond. Le bulletin sera approuvé sans remboursement.</p>
                 </div>
               </div>
             )}
@@ -974,7 +974,7 @@ export function BulletinsValidationPage() {
             />
             {selectedBulletin && (
               <p className="text-sm text-muted-foreground mt-2">
-                Montant demande: {formatAmount(selectedBulletin.total_amount)}
+                Montant demandé: {formatAmount(selectedBulletin.total_amount)}
               </p>
             )}
           </div>
@@ -1091,7 +1091,7 @@ export function BulletinsValidationPage() {
               {updateStatusMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Mise a jour...
+                  Mise à jour...
                 </>
               ) : (
                 'Mettre a jour'

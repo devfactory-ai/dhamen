@@ -396,28 +396,31 @@ bulletinsAgent.get('/', async (c) => {
   const batchId = c.req.query('batchId');
   const companyId = c.req.query('companyId');
 
+  const statusList = status.split(',');
+  const statusPlaceholders = statusList.map(() => '?').join(',');
+
   let query = `
     SELECT
       bs.*,
       b.name as batch_name
     FROM bulletins_soins bs
     LEFT JOIN bulletin_batches b ON bs.batch_id = b.id
-    WHERE bs.created_by = ?
-    AND bs.status IN (${status
-      .split(',')
-      .map(() => '?')
-      .join(',')})
+    WHERE bs.status IN (${statusPlaceholders})
   `;
-  const params: (string | number)[] = [user.id, ...status.split(',')];
+  const params: (string | number)[] = [...statusList];
 
+  // Filter by company or batch — agents see company bulletins, not just their own
   if (companyId) {
     query += ' AND bs.company_id = ?';
     params.push(companyId);
-  }
-
-  if (batchId) {
+  } else if (batchId) {
+    // No company selected — filter by batch only
     query += ' AND bs.batch_id = ?';
     params.push(batchId);
+  } else if (user.role !== 'ADMIN') {
+    // No company or batch — agents only see their own bulletins
+    query += ' AND bs.created_by = ?';
+    params.push(user.id);
   }
 
   if (search) {
@@ -643,7 +646,7 @@ bulletinsAgent.get('/batches/:id/export', async (c) => {
           success: false,
           error: {
             code: 'BATCH_ALREADY_EXPORTED',
-            message: 'Ce lot a deja ete exporte. Utilisez ?force=true pour re-exporter.',
+            message: 'Ce lot a déjà été exporté. Utilisez ?force=true pour re-exporter.',
           },
         },
         409
@@ -2815,7 +2818,7 @@ bulletinsAgent.post('/:id/validate', async (c) => {
           success: false,
           error: {
             code: 'BULLETIN_ALREADY_VALIDATED',
-            message: 'Ce bulletin a deja ete valide ou est dans un statut final',
+            message: 'Ce bulletin a déjà été validé ou est dans un statut final',
           },
         },
         409
@@ -2886,7 +2889,7 @@ bulletinsAgent.post('/:id/validate', async (c) => {
       const bulletinNumber = bulletin.bulletin_number;
       const careType = bulletin.care_type || 'soin';
       const formatAmt = (v: number) => v.toFixed(3);
-      const notifBody = `Votre bulletin ${bulletinNumber} (${careType}) a ete approuve. Montant rembourse : ${formatAmt(reimbursed_amount)} TND.`;
+      const notifBody = `Votre bulletin ${bulletinNumber} (${careType}) a été approuvé. Montant remboursé : ${formatAmt(reimbursed_amount)} TND.`;
       const notifTitle = `Bulletin ${bulletinNumber} approuve`;
 
       c.executionCtx.waitUntil(
@@ -3034,7 +3037,7 @@ bulletinsAgent.post('/:id/reject', async (c) => {
       return c.json(
         {
           success: false,
-          error: { code: 'BULLETIN_ALREADY_PROCESSED', message: 'Ce bulletin a deja ete traite' },
+          error: { code: 'BULLETIN_ALREADY_PROCESSED', message: 'Ce bulletin a déjà été traité' },
         },
         409
       );
