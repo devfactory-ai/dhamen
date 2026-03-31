@@ -52,13 +52,18 @@ export function useInsurers(page = 1, limit = 20) {
   return useQuery({
     queryKey: ['insurers', page, limit],
     queryFn: async () => {
-      const response = await apiClient.get<InsurersResponse>('/insurers', {
+      const response = await apiClient.get<Insurer[]>('/insurers', {
         params: { page, limit },
       });
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors du chargement des assureurs');
       }
-      return response.data;
+      // API returns { data: [...], meta: { total } } — map to InsurersResponse
+      const raw = response as unknown as { data: Insurer[]; meta?: { total: number } };
+      return {
+        insurers: raw.data || [],
+        total: raw.meta?.total || 0,
+      } as InsurersResponse;
     },
   });
 }
