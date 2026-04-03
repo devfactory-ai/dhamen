@@ -74,6 +74,11 @@ export function resolveTenant(): TenantCode | null {
     return null;
   }
 
+  // 5. Staging/preview: default to BH (single-tenant staging)
+  if (hostname.includes('pages.dev') || hostname.includes('workers.dev') || hostname.includes('e-sante.com.tn')) {
+    return 'BH';
+  }
+
   return null;
 }
 

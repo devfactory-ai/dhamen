@@ -18,12 +18,16 @@ export function createCorsMiddleware(environment: string) {
       const productionOrigins = [
         'https://app.dhamen.tn',
         'https://dhamen.tn',
+        'https://e-sante.com.tn',
+        'https://app.e-sante.com.tn',
       ];
 
       // Staging: allow staging domains
       const stagingOrigins = [
         'https://staging.dhamen.tn',
         'https://dhamen-web-staging.pages.dev',
+        'https://staging.e-sante.com.tn',
+        'https://app-staging.e-sante.com.tn',
       ];
 
       // Development: allow localhost and preview deployments
@@ -48,8 +52,8 @@ export function createCorsMiddleware(environment: string) {
         return origin;
       }
 
-      // Allow all *.dhamen.tn subdomains
-      if (origin.endsWith('.dhamen.tn')) {
+      // Allow all *.dhamen.tn and *.e-sante.com.tn subdomains
+      if (origin.endsWith('.dhamen.tn') || origin.endsWith('.e-sante.com.tn')) {
         return origin;
       }
 
