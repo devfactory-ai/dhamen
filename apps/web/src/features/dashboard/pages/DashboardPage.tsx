@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { INSURER_ROLES, ADMIN_ROLES } from '@dhamen/shared';
@@ -242,14 +242,9 @@ const quickActionsByRoleType: Record<
     },
   ],
   provider: [
-    { title: "Nouvelle PEC", icon: ClipboardIcon, href: "/claims" },
-    { title: "Nouvel Adhérent", icon: UsersIcon, href: "/adherents/agent/new" },
-    {
-      title: "Exporter Rapports",
-      icon: UploadIcon,
-      href: "/reports",
-      disabled: true,
-    },
+    { title: 'Mes actes', icon: ClipboardIcon, href: '/praticien/actes' },
+    { title: 'Vérifier éligibilité', icon: CheckCircleIcon, href: '/praticien/eligibilite' },
+    { title: 'Mon profil', icon: UsersIcon, href: '/praticien/profil' },
   ],
 };
 
@@ -257,12 +252,22 @@ const quickActionsByRoleType: Record<
 /*  Helpers                                                           */
 /* ------------------------------------------------------------------ */
 
+const PROVIDER_ROLES_SET = new Set(['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN']);
+
 function getRoleType(role: Role | undefined): 'admin' | 'insurer' | 'provider' {
   if (!role) return 'provider';
   if (ADMIN_ROLES.includes(role)) return 'admin';
   if (INSURER_ROLES.includes(role)) return 'insurer';
   return 'provider';
 }
+
+/** Maps provider role to their URL prefix */
+const ROLE_TO_PREFIX: Record<string, string> = {
+  PHARMACIST: '/praticien',
+  DOCTOR: '/praticien',
+  LAB_MANAGER: '/praticien',
+  CLINIC_ADMIN: '/praticien',
+};
 
 interface DashboardStats {
   totalUsers?: number;
@@ -425,14 +430,45 @@ function formatRelativeTime(isoDate: string): string {
 export function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const role = user?.role;
+
   const roleType = getRoleType(role);
   const roleConfig = role && roleStats[role] ? roleStats[role] : roleStats.INSURER_AGENT;
-  const quickActions = quickActionsByRoleType[roleType] ?? quickActionsByRoleType.insurer;
+  const prefix = role ? ROLE_TO_PREFIX[role] : null;
 
+  // Build provider-specific quick actions dynamically
+  const quickActions: Array<{ title: string; icon: React.ComponentType<IconProps>; href: string; disabled?: boolean }> = prefix
+    ? [
+        { title: 'Mes actes', icon: ClipboardIcon, href: `${prefix}/actes` },
+        { title: 'Vérifier éligibilité', icon: CheckCircleIcon, href: `${prefix}/eligibilite` },
+        { title: 'Mon profil', icon: UsersIcon, href: `${prefix}/profil` },
+      ]
+    : (quickActionsByRoleType[roleType] ?? quickActionsByRoleType.insurer ?? []);
+
+  const isProvider = PROVIDER_ROLES_SET.has(role || '');
+
+  // Provider roles use /praticien/stats, others use /analytics/dashboard-stats
   const { data: statsData, isLoading: statsLoading } = useQuery({
     queryKey: ['dashboard-stats', role],
     queryFn: async () => {
+      if (isProvider) {
+        const response = await apiClient.get<{
+          totalActes: number; enAttente: number; approuves: number; rejetes: number;
+          montantTotal: number; montantRembourse: number;
+        }>('/praticien/stats');
+        if (!response.success) return {} as DashboardStats;
+        const d = response.data;
+        return {
+          totalClaims: d.totalActes,
+          pendingClaims: d.enAttente,
+          approvedClaims: d.approuves,
+          rejectedToday: d.rejetes,
+          totalAmount: d.montantTotal,
+          processedToday: d.totalActes,
+          admissionsToday: d.totalActes,
+        } as DashboardStats;
+      }
       const response = await apiClient.get<DashboardStats>('/analytics/dashboard-stats');
       if (!response.success) return {} as DashboardStats;
       return response.data;
@@ -443,10 +479,15 @@ export function DashboardPage() {
   const stats = statsData ?? {};
   const trends = stats.trends;
 
-  // Recent bulletins
+  // Recent bulletins — providers use /praticien/actes, others use /analytics/recent-bulletins
   const { data: recentBulletins, isLoading: recentLoading } = useQuery({
-    queryKey: ['recent-bulletins'],
+    queryKey: ['recent-bulletins', role],
     queryFn: async () => {
+      if (isProvider) {
+        const response = await apiClient.get<RecentBulletin[]>('/praticien/actes?page=1&limit=5');
+        if (!response.success) return [];
+        return Array.isArray(response.data) ? response.data : [];
+      }
       const response = await apiClient.get<RecentBulletin[]>('/analytics/recent-bulletins');
       if (!response.success) return [];
       return response.data;
@@ -534,6 +575,15 @@ export function DashboardPage() {
     };
   };
 
+  // Early redirects — placed after all hooks to respect Rules of Hooks
+  if (role === 'HR') {
+    return <Navigate to="/hr/dashboard" replace />;
+  }
+  const praticienPrefix = role ? ROLE_TO_PREFIX[role] : null;
+  if (praticienPrefix && location.pathname === '/dashboard') {
+    return <Navigate to={`${praticienPrefix}/dashboard`} replace />;
+  }
+
   return (
     <div className="space-y-6">
       {/* Welcome header */}
@@ -542,7 +592,9 @@ export function DashboardPage() {
           Bienvenue, {user?.firstName} !
         </h1>
         <p className="mt-1 text-sm text-gray-500">
-          Voici l'état actuel de votre portefeuille d'assurance aujourd'hui.
+          {isProvider
+            ? 'Voici le résumé de votre activité et de vos actes.'
+            : "Voici l'état actuel de votre portefeuille d'assurance aujourd'hui."}
         </p>
       </div>
 
@@ -626,7 +678,12 @@ export function DashboardPage() {
           <h2 className="text-lg font-semibold text-gray-900">Derniers bulletins</h2>
           <button
             type="button"
-            onClick={() => navigate(isAdminRole ? '/admin/bulletins' : '/bulletins/history')}
+            onClick={() => {
+              const prefix = role ? ROLE_TO_PREFIX[role] : null;
+              if (isAdminRole) navigate('/admin/bulletins');
+              else if (prefix) navigate(`${prefix}/actes`);
+              else navigate('/bulletins/history');
+            }}
             className="text-sm font-medium text-blue-600 hover:text-blue-700 cursor-pointer"
           >
             Voir tout le registre &rarr;

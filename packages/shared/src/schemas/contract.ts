@@ -69,14 +69,25 @@ export const contractUpdateSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   annualLimit: z.number().positive().optional(),
   coverage: coverageConfigSchema.partial().optional(),
   exclusions: z.array(z.string()).optional(),
   status: contractStatusSchema.optional(),
+  contractNumber: z.string().optional(),
+  insurerId: z.string().optional(),
   // Document fields
   policyNumber: z.string().optional(),
   documentId: z.string().optional(),
   documentUrl: z.string().optional(),
+  // Simple coverage fields (used by frontend form)
+  name: z.string().optional(),
+  type: z.enum(['INDIVIDUAL', 'GROUP', 'CORPORATE']).optional(),
+  coveragePharmacy: z.number().min(0).max(100).optional(),
+  coverageConsultation: z.number().min(0).max(100).optional(),
+  coverageLab: z.number().min(0).max(100).optional(),
+  coverageHospitalization: z.number().min(0).max(100).optional(),
+  annualCeiling: z.number().min(0).optional(),
 });
 
 export const contractFiltersSchema = z.object({

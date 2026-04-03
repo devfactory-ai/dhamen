@@ -186,7 +186,6 @@ export function MfLookupInput({
 
   const handleSelectProvider = useCallback(
     (provider: ProviderSearchResult) => {
-      // Use provider's MF if available, otherwise keep current typed value
       const mf = provider.mfNumber || value;
       setSelectedFromDropdown(true);
       onChange(mf);
@@ -203,6 +202,7 @@ export function MfLookupInput({
       });
       setProviderName(provider.name);
       setMfVerified(!!provider.mfNumber);
+      // Provider was selected from list — it EXISTS, always mark as found
       updateStatus('found');
       setShowDropdown(false);
     },

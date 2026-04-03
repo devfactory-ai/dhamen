@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -62,6 +63,7 @@ export function CompanyFormPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isEditing = !!id;
+  const { hasPermission } = usePermissions();
 
   const { data: company, isLoading } = useQuery({
     queryKey: ['company', id],
@@ -124,6 +126,7 @@ export function CompanyFormPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['company', id] });
       toast({ title: isEditing ? 'Entreprise modifiée' : 'Entreprise créée', variant: 'success' });
       navigate('/companies');
     },
@@ -138,6 +141,16 @@ export function CompanyFormPage() {
 
   if (isEditing && isLoading) {
     return <div className="flex items-center justify-center p-8">Chargement...</div>;
+  }
+
+  if (!hasPermission('companies', isEditing ? 'update' : 'create')) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <p className="text-lg font-semibold text-gray-900">Accès refusé</p>
+        <p className="mt-1 text-sm text-gray-500">Vous n'avez pas la permission de {isEditing ? 'modifier' : 'créer'} une entreprise.</p>
+        <button onClick={() => navigate(-1)} className="mt-4 text-sm text-blue-600 hover:underline">Retour</button>
+      </div>
+    );
   }
 
   return (
@@ -190,6 +203,7 @@ export function CompanyFormPage() {
               <div className="space-y-2">
                 <Label htmlFor="sector">Secteur</Label>
                 <Select
+                  key={watch('sector') || 'no-sector'}
                   value={watch('sector') || undefined}
                   onValueChange={(val) => setValue('sector', val)}
                 >

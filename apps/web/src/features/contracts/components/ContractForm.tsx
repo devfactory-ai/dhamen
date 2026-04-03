@@ -2,7 +2,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useQuery } from '@tanstack/react-query';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,24 +32,37 @@ export type ContractFormDataWithFile = ContractFormData & {
   documentFile?: File;
 };
 
-interface ContractFormProps {
-  contract?: {
-    id: string;
-    insurerId: string;
-    name: string;
-    contractNumber: string;
-    policyNumber?: string;
-    type: 'INDIVIDUAL' | 'GROUP' | 'CORPORATE';
-    startDate: string;
-    endDate: string;
-    annualCeiling: number;
-    coveragePharmacy: number;
-    coverageConsultation: number;
-    coverageLab: number;
-    coverageHospitalization: number;
-    documentId?: string;
-    documentUrl?: string;
+interface ContractProp {
+  id: string;
+  insurerId: string;
+  name?: string;
+  contractNumber: string;
+  policyNumber?: string;
+  // Frontend names
+  type?: 'INDIVIDUAL' | 'GROUP' | 'CORPORATE';
+  annualCeiling?: number;
+  coveragePharmacy?: number;
+  coverageConsultation?: number;
+  coverageLab?: number;
+  coverageHospitalization?: number;
+  // Backend names (from API)
+  planType?: string;
+  annualLimit?: number;
+  coverageJson?: {
+    pharmacy?: { reimbursementRate?: number; enabled?: boolean } | number;
+    consultation?: { reimbursementRate?: number; enabled?: boolean } | number;
+    lab?: { reimbursementRate?: number; enabled?: boolean } | number;
+    hospitalization?: { reimbursementRate?: number; enabled?: boolean } | number;
+    [key: string]: unknown;
   };
+  startDate: string;
+  endDate: string;
+  documentId?: string;
+  documentUrl?: string;
+}
+
+interface ContractFormProps {
+  contract?: ContractProp;
   onSubmit: (data: ContractFormDataWithFile) => void;
   onCancel: () => void;
   isLoading?: boolean;
@@ -69,12 +82,54 @@ export function ContractForm({ contract, onSubmit, onCancel, isLoading }: Contra
   const { data: insurers } = useQuery({
     queryKey: ['insurers-list'],
     queryFn: async () => {
-      const response = await apiClient.get<{ insurers: { id: string; name: string }[] }>('/insurers', {
+      const response = await apiClient.get<{ id: string; name: string }[]>('/insurers', {
         params: { limit: 100 },
       });
       if (!response.success) throw new Error(response.error?.message);
-      return response.data.insurers;
+      // API returns paginated: { data: [...], meta: {...} }
+      const raw = response as unknown as { data: { id: string; name: string }[] };
+      return Array.isArray(raw.data) ? raw.data : [];
     },
+  });
+
+  const getCoverageRate = (val: unknown, fallback: number): number => {
+    if (typeof val === 'number') return val;
+    if (val && typeof val === 'object' && 'reimbursementRate' in val) return (val as { reimbursementRate: number }).reimbursementRate;
+    return fallback;
+  };
+
+  const mapPlanType = (c: ContractProp): 'INDIVIDUAL' | 'GROUP' | 'CORPORATE' => {
+    const raw = c.type || c.planType || 'INDIVIDUAL';
+    // Backend uses lowercase (individual, family, corporate), frontend uses uppercase
+    const mapping: Record<string, 'INDIVIDUAL' | 'GROUP' | 'CORPORATE'> = {
+      individual: 'INDIVIDUAL',
+      INDIVIDUAL: 'INDIVIDUAL',
+      family: 'GROUP',
+      GROUP: 'GROUP',
+      group: 'GROUP',
+      corporate: 'CORPORATE',
+      CORPORATE: 'CORPORATE',
+    };
+    return mapping[raw] || 'INDIVIDUAL';
+  };
+
+  const mapContractToFormValues = (c: ContractProp): ContractFormData => ({
+    insurerId: c.insurerId || '',
+    name: c.name || c.contractNumber || '',
+    contractNumber: c.contractNumber || '',
+    policyNumber: c.policyNumber || '',
+    type: mapPlanType(c),
+    startDate: c.startDate?.split('T')[0] || '',
+    endDate: c.endDate?.split('T')[0] || '',
+    annualCeiling: c.annualCeiling
+      ? c.annualCeiling / 1000
+      : c.annualLimit
+        ? c.annualLimit / 1000
+        : 5000,
+    coveragePharmacy: c.coveragePharmacy ?? getCoverageRate(c.coverageJson?.pharmacy, 80),
+    coverageConsultation: c.coverageConsultation ?? getCoverageRate(c.coverageJson?.consultation, 70),
+    coverageLab: c.coverageLab ?? getCoverageRate(c.coverageJson?.lab, 70),
+    coverageHospitalization: c.coverageHospitalization ?? getCoverageRate(c.coverageJson?.hospitalization, 80),
   });
 
   const {
@@ -82,24 +137,40 @@ export function ContractForm({ contract, onSubmit, onCancel, isLoading }: Contra
     handleSubmit,
     setValue,
     watch,
+    reset,
     formState: { errors },
   } = useForm<ContractFormData>({
     resolver: zodResolver(contractFormSchema),
-    defaultValues: {
-      insurerId: contract?.insurerId || '',
-      name: contract?.name || '',
-      contractNumber: contract?.contractNumber || '',
-      policyNumber: contract?.policyNumber || '',
-      type: contract?.type || 'INDIVIDUAL',
-      startDate: contract?.startDate?.split('T')[0] || '',
-      endDate: contract?.endDate?.split('T')[0] || '',
-      annualCeiling: contract?.annualCeiling ? contract.annualCeiling / 1000 : 5000,
-      coveragePharmacy: contract?.coveragePharmacy || 80,
-      coverageConsultation: contract?.coverageConsultation || 70,
-      coverageLab: contract?.coverageLab || 70,
-      coverageHospitalization: contract?.coverageHospitalization || 80,
-    },
+    defaultValues: contract
+      ? mapContractToFormValues(contract)
+      : {
+          insurerId: '',
+          name: '',
+          contractNumber: '',
+          policyNumber: '',
+          type: 'INDIVIDUAL',
+          startDate: '',
+          endDate: '',
+          annualCeiling: 5000,
+          coveragePharmacy: 80,
+          coverageConsultation: 70,
+          coverageLab: 70,
+          coverageHospitalization: 80,
+        },
   });
+
+  // Reset form when contract data loads (async fetch)
+  useEffect(() => {
+    if (contract && insurers) {
+      const values = mapContractToFormValues(contract);
+      reset(values);
+      // Explicitly set select values after reset to ensure Radix UI picks them up
+      setTimeout(() => {
+        if (values.insurerId) setValue('insurerId', values.insurerId, { shouldValidate: true });
+        if (values.type) setValue('type', values.type, { shouldValidate: true });
+      }, 0);
+    }
+  }, [contract, insurers, reset, setValue]);
 
   const selectedType = watch('type');
   const selectedInsurerId = watch('insurerId');

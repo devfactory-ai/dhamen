@@ -57,6 +57,7 @@ import {
   medicationFamilyBaremes,
   roles,
   adminStats,
+  praticien,
 } from './routes';
 import type { Bindings, Variables } from './types';
 
@@ -220,6 +221,9 @@ api.route('/roles', roles);
 
 // Admin dashboard stats
 api.route('/admin-stats', adminStats);
+
+// Praticien portal (provider-scoped routes)
+api.route('/praticien', praticien);
 
 // Root redirect
 app.get('/', (c) => {

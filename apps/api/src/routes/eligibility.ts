@@ -12,6 +12,7 @@ import { checkEligibility, checkEligibilityBatch } from '../agents/eligibility';
 import { authMiddleware } from '../middleware/auth';
 import { getDb } from '../lib/db';
 import { success, error as errorResponse } from '../lib/response';
+import { hashForIndex } from '../lib/encryption';
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -45,7 +46,21 @@ app.get('/check', async (c) => {
 
   const db = getDb(c);
 
-  // Find adherent by national_id_hash or encrypted value
+  // Build search: try national_id_hash (for CIN lookup) + matricule fallback
+  const encryptionKey = c.env.ENCRYPTION_KEY;
+  let whereClause: string;
+  let bindParams: string[];
+
+  if (encryptionKey) {
+    const idHash = await hashForIndex(nationalId, encryptionKey);
+    whereClause = 'WHERE a.national_id_hash = ? OR a.matricule = ?';
+    bindParams = [idHash, nationalId];
+  } else {
+    // Fallback: search by matricule only (no encryption key available)
+    whereClause = 'WHERE a.matricule = ?';
+    bindParams = [nationalId];
+  }
+
   const adherent = await db.prepare(`
     SELECT a.id, a.first_name, a.last_name, a.date_of_birth, a.gender,
            a.national_id_encrypted, a.matricule, a.city,
@@ -56,9 +71,9 @@ app.get('/check', async (c) => {
     FROM adherents a
     LEFT JOIN contracts c ON c.adherent_id = a.id AND c.status = 'active'
     LEFT JOIN insurers i ON c.insurer_id = i.id
-    WHERE a.national_id_encrypted LIKE ? OR a.matricule = ?
+    ${whereClause}
     LIMIT 1
-  `).bind(`%${nationalId}%`, nationalId).first<{
+  `).bind(...bindParams).first<{
     id: string;
     first_name: string;
     last_name: string;
@@ -88,7 +103,7 @@ app.get('/check', async (c) => {
   return success(c, {
     adhérent: {
       id: adherent.id,
-      memberNumber: adherent.matricule || adherent.national_id_encrypted,
+      memberNumber: adherent.matricule || '—',
       firstName: adherent.first_name,
       lastName: adherent.last_name,
       dateOfBirth: adherent.date_of_birth,

@@ -174,7 +174,7 @@ export function CompanyDetailPage() {
               <p className="text-sm text-muted-foreground">Secteur</p>
               <p className="font-medium">
                 {company.sector ? (
-                  <Badge variant="secondary">{SECTOR_LABELS[company.sector] || company.sector}</Badge>
+                  <Badge variant="secondary">{SECTOR_LABELS[company?.sector] || company?.sector}</Badge>
                 ) : '-'}
               </p>
             </div>

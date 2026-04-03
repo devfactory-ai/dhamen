@@ -82,7 +82,7 @@ export interface CreateAdherentData {
   ayantsDroit?: AyantDroitData[];
 }
 
-export type UpdateAdherentData = Partial<Omit<CreateAdherentData, 'nationalId' | 'companyId'>>;
+export type UpdateAdherentData = Partial<Omit<CreateAdherentData, 'companyId'>>;
 
 export function useAdherents(page = 1, limit = 20, search?: string, companyId?: string, isActive?: 'true' | 'false', dossierComplet?: 'true' | 'false', contractType?: 'group' | 'individual') {
   return useQuery({
@@ -231,6 +231,8 @@ export function useUpdateAdherent() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['adherents'] });
       queryClient.invalidateQueries({ queryKey: ['adherents', id] });
+      queryClient.invalidateQueries({ queryKey: ['adherent-detail', id] });
+      queryClient.invalidateQueries({ queryKey: ['adherent-famille', id] });
     },
   });
 }

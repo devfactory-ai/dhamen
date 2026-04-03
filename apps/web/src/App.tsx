@@ -8,6 +8,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Toaster as SonnerToaster } from 'sonner';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AgentContextGuard } from '@/components/guards/AgentContextGuard';
+import { RoleGuard, PermissionGuard } from '@/components/guards/RoleGuard';
 import { SkipLinks } from '@/components/ui/skip-links';
 import { AnnouncerProvider } from '@/components/ui/screen-reader';
 import { PWAPrompts } from '@/components/ui/pwa-prompts';
@@ -73,7 +74,7 @@ const SanteContreVisiteDetailsPage = lazy(() => import('@/features/sante/pages/S
 const BIDashboardPage = lazy(() => import('@/features/bi/pages/BIDashboardPage').then(m => ({ default: m.BIDashboardPage })));
 const InsurerDashboardPage = lazy(() => import('@/features/insurers/pages/InsurerDashboardPage').then(m => ({ default: m.InsurerDashboardPage })));
 const AnalyticsDashboardPage = lazy(() => import('@/features/analytics/pages/AnalyticsDashboardPage').then(m => ({ default: m.AnalyticsDashboardPage })));
-const AuditLogsPage = lazy(() => import('@/features/audit/pages/AuditLogsPage').then(m => ({ default: m.AuditLogsPage })));
+const AuditLogsPage = lazy(() => import('@/features/admin/pages/AuditLogsPage').then(m => ({ default: m.default })));
 const CardVerificationPage = lazy(() => import('@/features/cards/pages/CardVerificationPage').then(m => ({ default: m.default })));
 const CardsManagementPage = lazy(() => import('@/features/cards/pages/CardsManagementPage').then(m => ({ default: m.default })));
 const CardGeneratePage = lazy(() => import('@/features/cards/pages/CardGeneratePage').then(m => ({ default: m.default })));
@@ -123,6 +124,10 @@ const BulletinHistoryDetailPage = lazy(() => import('@/features/bulletins/pages/
 const AgentAdherentsPage = lazy(() => import('@/features/adherents/pages/AgentAdherentsPage').then(m => ({ default: m.AgentAdherentsPage })));
 const AgentAdherentFormPage = lazy(() => import('@/features/adherents/pages/AgentAdherentFormPage').then(m => ({ default: m.default })));
 const AgentAdherentDetailPage = lazy(() => import('@/features/adherents/pages/AgentAdherentDetailPage').then(m => ({ default: m.default })));
+// Praticien pages
+const PraticienActesPage = lazy(() => import('@/features/praticien/pages/PraticienActesPage').then(m => ({ default: m.PraticienActesPage })));
+const PraticienActeDetailPage = lazy(() => import('@/features/praticien/pages/PraticienActeDetailPage').then(m => ({ default: m.PraticienActeDetailPage })));
+const PraticienProfilPage = lazy(() => import('@/features/praticien/pages/PraticienProfilPage').then(m => ({ default: m.PraticienProfilPage })));
 // Appeals page
 const AppealsPage = lazy(() => import('@/features/appeals/pages/AppealsPage').then(m => ({ default: m.AppealsPage })));
 const AppealDetailsPage = lazy(() => import('@/features/appeals/pages/AppealDetailsPage').then(m => ({ default: m.default })));
@@ -243,70 +248,70 @@ function App() {
                   <Routes>
                     <Route path="/" element={<DashboardPage />} />
                     <Route path="/dashboard" element={<DashboardPage />} />
-                    {/* Admin routes */}
-                    <Route path="/users" element={<UsersPage />} />
-                    <Route path="/users/new" element={<UserFormPage />} />
-                    <Route path="/users/import" element={<UsersImportPage />} />
-                    <Route path="/users/:id/edit" element={<UserFormPage />} />
-                    <Route path="/providers" element={<ProvidersPage />} />
-                    <Route path="/providers/new" element={<ProviderFormPage />} />
-                    <Route path="/providers/import" element={<ProvidersImportPage />} />
-                    <Route path="/providers/:id/edit" element={<ProviderFormPage />} />
-                    <Route path="/providers/:id" element={<ProviderDetailPage />} />
-                    <Route path="/insurers" element={<InsurersPage />} />
-                    <Route path="/insurers/new" element={<InsurerFormPage />} />
-                    <Route path="/insurers/:id/edit" element={<InsurerFormPage />} />
-                    {/* Admin - MF & Medications */}
-                    <Route path="/admin/roles" element={<RolesPage />} />
-                    <Route path="/admin/bulletins" element={<BulletinsGlobauxPage />} />
-                    <Route path="/admin/bulletins/:id" element={<AdminBulletinDetailPage />} />
-                    <Route path="/admin/garanties/:id" element={<GarantiesContratPage />} />
-                    <Route path="/admin/mf-verification" element={<MFVerificationPage />} />
-                    <Route path="/admin/medications" element={<MedicationsPage />} />
-                    <Route path="/admin/medications/families/new" element={<MedicationFamilyFormPage />} />
-                    <Route path="/admin/medications/baremes/new" element={<MedicationBaremeFormPage />} />
-                    <Route path="/admin/medications/baremes/:id/edit" element={<MedicationBaremeFormPage />} />
-                    <Route path="/admin/medications/:id" element={<MedicationDetailPage />} />
+                    {/* Permission-guarded routes — access controlled by DB permissions */}
+                    <Route path="/users" element={<PermissionGuard resource="users" action="read"><UsersPage /></PermissionGuard>} />
+                    <Route path="/users/new" element={<PermissionGuard resource="users" action="create"><UserFormPage /></PermissionGuard>} />
+                    <Route path="/users/import" element={<RoleGuard roles={['ADMIN']}><UsersImportPage /></RoleGuard>} />
+                    <Route path="/users/:id/edit" element={<PermissionGuard resource="users" action="update"><UserFormPage /></PermissionGuard>} />
+                    <Route path="/providers" element={<PermissionGuard resource="providers" action="read"><ProvidersPage /></PermissionGuard>} />
+                    <Route path="/providers/new" element={<PermissionGuard resource="providers" action="create"><ProviderFormPage /></PermissionGuard>} />
+                    <Route path="/providers/import" element={<PermissionGuard resource="providers" action="create"><ProvidersImportPage /></PermissionGuard>} />
+                    <Route path="/providers/:id/edit" element={<PermissionGuard resource="providers" action="update"><ProviderFormPage /></PermissionGuard>} />
+                    <Route path="/providers/:id" element={<PermissionGuard resource="providers" action="read"><ProviderDetailPage /></PermissionGuard>} />
+                    <Route path="/insurers" element={<PermissionGuard resource="insurers" action="read"><InsurersPage /></PermissionGuard>} />
+                    <Route path="/insurers/new" element={<PermissionGuard resource="insurers" action="create"><InsurerFormPage /></PermissionGuard>} />
+                    <Route path="/insurers/:id/edit" element={<PermissionGuard resource="insurers" action="update"><InsurerFormPage /></PermissionGuard>} />
+                    {/* Admin-only: roles, audit — always static RoleGuard */}
+                    <Route path="/admin/roles" element={<RoleGuard roles={['ADMIN']}><RolesPage /></RoleGuard>} />
+                    <Route path="/admin/bulletins" element={<PermissionGuard resource="bulletins_soins" action="read"><BulletinsGlobauxPage /></PermissionGuard>} />
+                    <Route path="/admin/bulletins/:id" element={<PermissionGuard resource="bulletins_soins" action="read"><AdminBulletinDetailPage /></PermissionGuard>} />
+                    <Route path="/admin/garanties/:id" element={<RoleGuard roles={['ADMIN']}><GarantiesContratPage /></RoleGuard>} />
+                    <Route path="/admin/mf-verification" element={<RoleGuard roles={['ADMIN']}><MFVerificationPage /></RoleGuard>} />
+                    <Route path="/admin/medications" element={<PermissionGuard resource="adherents" action="read"><MedicationsPage /></PermissionGuard>} />
+                    <Route path="/admin/medications/families/new" element={<RoleGuard roles={['ADMIN']}><MedicationFamilyFormPage /></RoleGuard>} />
+                    <Route path="/admin/medications/baremes/new" element={<RoleGuard roles={['ADMIN']}><MedicationBaremeFormPage /></RoleGuard>} />
+                    <Route path="/admin/medications/baremes/:id/edit" element={<RoleGuard roles={['ADMIN']}><MedicationBaremeFormPage /></RoleGuard>} />
+                    <Route path="/admin/medications/:id" element={<PermissionGuard resource="adherents" action="read"><MedicationDetailPage /></PermissionGuard>} />
                     {/* Companies routes */}
-                    <Route path="/companies" element={<CompaniesPage />} />
-                    <Route path="/companies/new" element={<CompanyFormPage />} />
-                    <Route path="/companies/:id" element={<CompanyDetailPage />} />
-                    <Route path="/companies/:id/edit" element={<CompanyFormPage />} />
+                    <Route path="/companies" element={<PermissionGuard resource="companies" action="read"><CompaniesPage /></PermissionGuard>} />
+                    <Route path="/companies/new" element={<PermissionGuard resource="companies" action="create"><CompanyFormPage /></PermissionGuard>} />
+                    <Route path="/companies/:id" element={<PermissionGuard resource="companies" action="read"><CompanyDetailPage /></PermissionGuard>} />
+                    <Route path="/companies/:id/edit" element={<PermissionGuard resource="companies" action="update"><CompanyFormPage /></PermissionGuard>} />
                     {/* Group Contracts routes */}
-                    <Route path="/group-contracts" element={<GroupContractsPage />} />
-                    <Route path="/group-contracts/new" element={<GroupContractFormPage />} />
-                    <Route path="/group-contracts/:id" element={<GroupContractDetailPage />} />
-                    <Route path="/group-contracts/:id/edit" element={<GroupContractFormPage />} />
-                    {/* HR Portal routes */}
-                    <Route path="/hr" element={<HRDashboardPage />} />
-                    <Route path="/hr/dashboard" element={<HRDashboardPage />} />
-                    <Route path="/hr/adherents" element={<HRAdherentsPage />} />
-                    <Route path="/hr/contracts" element={<HRContractsPage />} />
-                    <Route path="/hr/claims" element={<HRClaimsPage />} />
+                    <Route path="/group-contracts" element={<PermissionGuard resource="contracts" action="read"><GroupContractsPage /></PermissionGuard>} />
+                    <Route path="/group-contracts/new" element={<PermissionGuard resource="contracts" action="create"><GroupContractFormPage /></PermissionGuard>} />
+                    <Route path="/group-contracts/:id" element={<PermissionGuard resource="contracts" action="read"><GroupContractDetailPage /></PermissionGuard>} />
+                    <Route path="/group-contracts/:id/edit" element={<PermissionGuard resource="contracts" action="update"><GroupContractFormPage /></PermissionGuard>} />
+                    {/* HR Portal routes — HR only */}
+                    <Route path="/hr" element={<RoleGuard roles={['HR']}><HRDashboardPage /></RoleGuard>} />
+                    <Route path="/hr/dashboard" element={<RoleGuard roles={['HR']}><HRDashboardPage /></RoleGuard>} />
+                    <Route path="/hr/adherents" element={<RoleGuard roles={['HR']}><HRAdherentsPage /></RoleGuard>} />
+                    <Route path="/hr/contracts" element={<RoleGuard roles={['HR']}><HRContractsPage /></RoleGuard>} />
+                    <Route path="/hr/claims" element={<RoleGuard roles={['HR']}><HRClaimsPage /></RoleGuard>} />
                     {/* Insurer routes */}
-                    <Route path="/insurer/dashboard" element={<InsurerDashboardPage />} />
-                    <Route path="/adherents" element={<AgentAdherentsPage />} />
-                    <Route path="/adherents/new" element={<AdherentFormPage />} />
-                    <Route path="/adherents/import" element={<AdherentsImportPage />} />
-                    <Route path="/adherents/:id/edit" element={<AdherentFormPage />} />
-                    <Route path="/contracts" element={<ContractsPage />} />
-                    <Route path="/contracts/new" element={<ContractFormPage />} />
-                    <Route path="/contracts/:id" element={<ContractDetailsPage />} />
-                    <Route path="/contracts/:id/edit" element={<ContractFormPage />} />
-                    <Route path="/claims/manage" element={<ClaimsManagePage />} />
-                    <Route path="/claims/manage/:id/process" element={<ClaimProcessPage />} />
-                    <Route path="/select-context" element={<SelectContextPage />} />
-                    <Route path="/bulletins/validation" element={<BulletinsValidationPage />} />
-                    <Route path="/bulletins/payments" element={<BulletinsPaymentPage />} />
-                    <Route path="/bulletins/saisie" element={<AgentContextGuard><BulletinsSaisiePage /></AgentContextGuard>} />
-                    <Route path="/adherents/agent" element={<AgentContextGuard><AgentAdherentsPage /></AgentContextGuard>} />
-                    <Route path="/adherents/agent/new" element={<AgentContextGuard><AgentAdherentFormPage /></AgentContextGuard>} />
-                    <Route path="/adherents/agent/:id" element={<AgentContextGuard><AgentAdherentDetailPage /></AgentContextGuard>} />
-                    <Route path="/adherents/agent/:id/edit" element={<AgentContextGuard><AgentAdherentFormPage /></AgentContextGuard>} />
-                    <Route path="/bulletins/history" element={<AgentContextGuard><BulletinsHistoryPage /></AgentContextGuard>} />
-                    <Route path="/bulletins/history/:id" element={<BulletinHistoryDetailPage />} />
-                    <Route path="/bulletins/archive" element={<BulletinsArchivePage />} />
-                    <Route path="/bulletins/import-lot" element={<AgentContextGuard><BulletinsImportPage /></AgentContextGuard>} />
+                    <Route path="/insurer/dashboard" element={<RoleGuard roles={['INSURER_ADMIN', 'INSURER_AGENT']}><InsurerDashboardPage /></RoleGuard>} />
+                    <Route path="/adherents" element={<PermissionGuard resource="adherents" action="read"><AgentAdherentsPage /></PermissionGuard>} />
+                    <Route path="/adherents/new" element={<PermissionGuard resource="adherents" action="create"><AdherentFormPage /></PermissionGuard>} />
+                    <Route path="/adherents/import" element={<PermissionGuard resource="adherents" action="create"><AdherentsImportPage /></PermissionGuard>} />
+                    <Route path="/adherents/:id/edit" element={<PermissionGuard resource="adherents" action="update"><AdherentFormPage /></PermissionGuard>} />
+                    <Route path="/contracts" element={<PermissionGuard resource="contracts" action="read"><ContractsPage /></PermissionGuard>} />
+                    <Route path="/contracts/new" element={<PermissionGuard resource="contracts" action="create"><ContractFormPage /></PermissionGuard>} />
+                    <Route path="/contracts/:id" element={<PermissionGuard resource="contracts" action="read"><ContractDetailsPage /></PermissionGuard>} />
+                    <Route path="/contracts/:id/edit" element={<PermissionGuard resource="contracts" action="update"><ContractFormPage /></PermissionGuard>} />
+                    <Route path="/claims/manage" element={<PermissionGuard resource="claims" action="approve"><ClaimsManagePage /></PermissionGuard>} />
+                    <Route path="/claims/manage/:id/process" element={<PermissionGuard resource="claims" action="approve"><ClaimProcessPage /></PermissionGuard>} />
+                    <Route path="/select-context" element={<RoleGuard roles={['INSURER_ADMIN', 'INSURER_AGENT']}><SelectContextPage /></RoleGuard>} />
+                    <Route path="/bulletins/validation" element={<PermissionGuard resource="bulletins_soins" action="validate"><BulletinsValidationPage /></PermissionGuard>} />
+                    <Route path="/bulletins/payments" element={<PermissionGuard resource="bulletins_soins" action="read"><BulletinsPaymentPage /></PermissionGuard>} />
+                    <Route path="/bulletins/saisie" element={<PermissionGuard resource="bulletins_soins" action="read"><AgentContextGuard><BulletinsSaisiePage /></AgentContextGuard></PermissionGuard>} />
+                    <Route path="/adherents/agent" element={<PermissionGuard resource="adherents" action="read"><AgentContextGuard><AgentAdherentsPage /></AgentContextGuard></PermissionGuard>} />
+                    <Route path="/adherents/agent/new" element={<PermissionGuard resource="adherents" action="create"><AgentContextGuard><AgentAdherentFormPage /></AgentContextGuard></PermissionGuard>} />
+                    <Route path="/adherents/agent/:id" element={<PermissionGuard resource="adherents" action="read"><AgentContextGuard><AgentAdherentDetailPage /></AgentContextGuard></PermissionGuard>} />
+                    <Route path="/adherents/agent/:id/edit" element={<PermissionGuard resource="adherents" action="update"><AgentContextGuard><AgentAdherentFormPage /></AgentContextGuard></PermissionGuard>} />
+                    <Route path="/bulletins/history" element={<PermissionGuard resource="bulletins_soins" action="read"><AgentContextGuard><BulletinsHistoryPage /></AgentContextGuard></PermissionGuard>} />
+                    <Route path="/bulletins/history/:id" element={<PermissionGuard resource="bulletins_soins" action="read"><BulletinHistoryDetailPage /></PermissionGuard>} />
+                    <Route path="/bulletins/archive" element={<PermissionGuard resource="bulletins_soins" action="read"><BulletinsArchivePage /></PermissionGuard>} />
+                    <Route path="/bulletins/import-lot" element={<PermissionGuard resource="bulletins_soins" action="read"><AgentContextGuard><BulletinsImportPage /></AgentContextGuard></PermissionGuard>} />
                     <Route path="/reconciliation" element={<ReconciliationPage />} />
                     <Route path="/reconciliation/:id" element={<ReconciliationDetailsPage />} />
                     {/* Appeals routes */}
@@ -316,55 +321,61 @@ function App() {
                     <Route path="/pre-authorizations" element={<PreAuthorizationsPage />} />
                     <Route path="/pre-authorizations/:id" element={<PreAuthorizationDetailsPage />} />
                     {/* Provider routes */}
-                    <Route path="/claims" element={<ClaimsPage />} />
-                    <Route path="/claims/new" element={<ClaimFormPage />} />
-                    <Route path="/claims/:id" element={<ClaimDetailsPage />} />
-                    <Route path="/eligibility" element={<EligibilityPage />} />
+                    <Route path="/claims" element={<PermissionGuard resource="claims" action="read"><ClaimsPage /></PermissionGuard>} />
+                    <Route path="/claims/new" element={<PermissionGuard resource="claims" action="create"><ClaimFormPage /></PermissionGuard>} />
+                    <Route path="/claims/:id" element={<PermissionGuard resource="claims" action="read"><ClaimDetailsPage /></PermissionGuard>} />
+                    <Route path="/eligibility" element={<PermissionGuard resource="adherents" action="read"><EligibilityPage /></PermissionGuard>} />
                     <Route path="/bordereaux" element={<BordereauxPage />} />
                     <Route path="/bordereaux/:id" element={<BordereauDetailsPage />} />
                     <Route path="/cards/verify" element={<CardVerificationPage />} />
-                    {/* Cards management (insurer) */}
-                    <Route path="/cards" element={<CardsManagementPage />} />
-                    <Route path="/cards/generate" element={<CardGeneratePage />} />
-                    <Route path="/cards/:id" element={<CardDetailsPage />} />
-                    {/* SoinFlow routes */}
-                    <Route path="/sante/demandes" element={<SanteDemandesPage />} />
-                    <Route path="/sante/demandes/:id" element={<SanteDemandeDetailsPage />} />
-                    <Route path="/sante/demandes/:id/process" element={<SanteDemandeProcessPage />} />
-                    <Route path="/sante/bordereaux" element={<SanteBordereauxPage />} />
-                    <Route path="/sante/bordereaux/new" element={<SanteBordereauCreatePage />} />
-                    <Route path="/sante/bordereaux/:id" element={<SanteBordereauDetailsPage />} />
-                    <Route path="/sante/paiements" element={<SantePaiementsPage />} />
-                    <Route path="/sante/paiements/batch" element={<SantePaiementsBatchPage />} />
-                    <Route path="/sante/paiements/:id" element={<SantePaiementDetailsPage />} />
-                    <Route path="/sante/paiements/:id/process" element={<SantePaiementProcessPage />} />
-                    <Route path="/sante/eligibility" element={<SanteEligibilityPage />} />
-                    <Route path="/sante/praticiens" element={<SantePraticiensPage />} />
-                    <Route path="/sante/praticiens/:id" element={<SantePraticienDetailsPage />} />
-                    <Route path="/sante/dashboard" element={<SanteDashboardPage />} />
-                    <Route path="/sante/garanties" element={<SanteGarantiesPage />} />
-                    <Route path="/sante/workflows" element={<SanteWorkflowsPage />} />
-                    <Route path="/sante/analytics" element={<SanteAnalyticsPage />} />
-                    <Route path="/sante/documents" element={<SanteDocumentsPage />} />
-                    <Route path="/sante/fraud" element={<SanteFraudPage />} />
-                    <Route path="/sante/reports" element={<SanteReportsPage />} />
-                    <Route path="/sante/contre-visites" element={<SanteContreVisitesPage />} />
-                    <Route path="/sante/contre-visites/:id" element={<SanteContreVisiteDetailsPage />} />
-                    {/* BI Dashboard */}
-                    <Route path="/bi" element={<BIDashboardPage />} />
-                    <Route path="/bi/dashboard" element={<BIDashboardPage />} />
+                    {/* Praticien routes — single set of routes, content adapts to role */}
+                    <Route path="/praticien/dashboard" element={<RoleGuard roles={['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN']}><DashboardPage /></RoleGuard>} />
+                    <Route path="/praticien/actes" element={<RoleGuard roles={['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN']}><PraticienActesPage /></RoleGuard>} />
+                    <Route path="/praticien/actes/:id" element={<RoleGuard roles={['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN']}><PraticienActeDetailPage /></RoleGuard>} />
+                    <Route path="/praticien/eligibilite" element={<RoleGuard roles={['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN']}><EligibilityPage /></RoleGuard>} />
+                    <Route path="/praticien/profil" element={<RoleGuard roles={['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN']}><PraticienProfilPage /></RoleGuard>} />
+                    {/* Cards management */}
+                    <Route path="/cards" element={<PermissionGuard resource="adherents" action="read"><CardsManagementPage /></PermissionGuard>} />
+                    <Route path="/cards/generate" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN']}><CardGeneratePage /></RoleGuard>} />
+                    <Route path="/cards/:id" element={<PermissionGuard resource="adherents" action="read"><CardDetailsPage /></PermissionGuard>} />
+                    {/* SoinFlow routes — SOIN_* + ADMIN */}
+                    <Route path="/sante/demandes" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'SOIN_RESPONSABLE', 'SOIN_DIRECTEUR']}><SanteDemandesPage /></RoleGuard>} />
+                    <Route path="/sante/demandes/:id" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'SOIN_RESPONSABLE', 'SOIN_DIRECTEUR']}><SanteDemandeDetailsPage /></RoleGuard>} />
+                    <Route path="/sante/demandes/:id/process" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteDemandeProcessPage /></RoleGuard>} />
+                    <Route path="/sante/bordereaux" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteBordereauxPage /></RoleGuard>} />
+                    <Route path="/sante/bordereaux/new" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteBordereauCreatePage /></RoleGuard>} />
+                    <Route path="/sante/bordereaux/:id" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteBordereauDetailsPage /></RoleGuard>} />
+                    <Route path="/sante/paiements" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SantePaiementsPage /></RoleGuard>} />
+                    <Route path="/sante/paiements/batch" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SantePaiementsBatchPage /></RoleGuard>} />
+                    <Route path="/sante/paiements/:id" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SantePaiementDetailsPage /></RoleGuard>} />
+                    <Route path="/sante/paiements/:id/process" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SantePaiementProcessPage /></RoleGuard>} />
+                    <Route path="/sante/eligibility" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteEligibilityPage /></RoleGuard>} />
+                    <Route path="/sante/praticiens" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SantePraticiensPage /></RoleGuard>} />
+                    <Route path="/sante/praticiens/:id" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SantePraticienDetailsPage /></RoleGuard>} />
+                    <Route path="/sante/dashboard" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteDashboardPage /></RoleGuard>} />
+                    <Route path="/sante/garanties" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteGarantiesPage /></RoleGuard>} />
+                    <Route path="/sante/workflows" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteWorkflowsPage /></RoleGuard>} />
+                    <Route path="/sante/analytics" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteAnalyticsPage /></RoleGuard>} />
+                    <Route path="/sante/documents" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteDocumentsPage /></RoleGuard>} />
+                    <Route path="/sante/fraud" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteFraudPage /></RoleGuard>} />
+                    <Route path="/sante/reports" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteReportsPage /></RoleGuard>} />
+                    <Route path="/sante/contre-visites" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteContreVisitesPage /></RoleGuard>} />
+                    <Route path="/sante/contre-visites/:id" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteContreVisiteDetailsPage /></RoleGuard>} />
+                    {/* BI Dashboard — ADMIN + INSURER */}
+                    <Route path="/bi" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT']}><BIDashboardPage /></RoleGuard>} />
+                    <Route path="/bi/dashboard" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT']}><BIDashboardPage /></RoleGuard>} />
                     {/* Analytics & Audit */}
-                    <Route path="/analytics" element={<AnalyticsDashboardPage />} />
-                    <Route path="/audit" element={<AuditLogsPage />} />
-                    {/* Adherent Portal routes */}
-                    <Route path="/adherent/profile" element={<AdherentProfilePage />} />
-                    <Route path="/adherent/contract" element={<AdherentContractPage />} />
-                    <Route path="/adherent/claims" element={<AdherentClaimsPage />} />
-                    <Route path="/adherent/card" element={<AdherentCardPage />} />
-                    <Route path="/adherent/beneficiaries" element={<AdherentBeneficiariesPage />} />
-                    <Route path="/adherent/bulletins" element={<AdherentBulletinsPage />} />
-                    <Route path="/adherent/consommation" element={<AdherentConsommationPage />} />
-                    <Route path="/adherent/providers" element={<AdherentProvidersPage />} />
+                    <Route path="/analytics" element={<PermissionGuard resource="adherents" action="read"><AnalyticsDashboardPage /></PermissionGuard>} />
+                    <Route path="/audit" element={<RoleGuard roles={['ADMIN']}><AuditLogsPage /></RoleGuard>} />
+                    {/* Adherent Portal routes — ADHERENT only */}
+                    <Route path="/adherent/profile" element={<RoleGuard roles={['ADHERENT']}><AdherentProfilePage /></RoleGuard>} />
+                    <Route path="/adherent/contract" element={<RoleGuard roles={['ADHERENT']}><AdherentContractPage /></RoleGuard>} />
+                    <Route path="/adherent/claims" element={<RoleGuard roles={['ADHERENT']}><AdherentClaimsPage /></RoleGuard>} />
+                    <Route path="/adherent/card" element={<RoleGuard roles={['ADHERENT']}><AdherentCardPage /></RoleGuard>} />
+                    <Route path="/adherent/beneficiaries" element={<RoleGuard roles={['ADHERENT']}><AdherentBeneficiariesPage /></RoleGuard>} />
+                    <Route path="/adherent/bulletins" element={<RoleGuard roles={['ADHERENT']}><AdherentBulletinsPage /></RoleGuard>} />
+                    <Route path="/adherent/consommation" element={<RoleGuard roles={['ADHERENT']}><AdherentConsommationPage /></RoleGuard>} />
+                    <Route path="/adherent/providers" element={<RoleGuard roles={['ADHERENT']}><AdherentProvidersPage /></RoleGuard>} />
                     {/* Common routes */}
                     <Route path="/reports" element={<ReportsPage />} />
                     <Route path="/about" element={<AboutPage />} />

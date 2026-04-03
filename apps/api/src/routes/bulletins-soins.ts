@@ -1943,13 +1943,7 @@ bulletinsSoins.get('/history/stats', async (c) => {
   const dateTo = c.req.query('dateTo');
   const companyId = c.req.query('companyId');
 
-  // Require companyId for agent users
-  if (!companyId && ['INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
-    return c.json({
-      success: false,
-      error: { code: 'MISSING_COMPANY', message: 'companyId est requis' },
-    }, 400);
-  }
+  // companyId is optional for agents — if missing, show all stats for their insurer
 
   let periodClause = '';
   const periodParams: string[] = [];
@@ -2352,13 +2346,7 @@ bulletinsSoins.get('/history', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
   const offset = (page - 1) * limit;
 
-  // Require companyId for agent users — data must be isolated per company
-  if (!companyId && ['INSURER_AGENT', 'INSURER_ADMIN'].includes(user.role)) {
-    return c.json({
-      success: false,
-      error: { code: 'MISSING_COMPANY', message: 'companyId est requis' },
-    }, 400);
-  }
+  // companyId is optional for agents — if missing, show all bulletins for their insurer
 
   // Whitelist sortBy to prevent SQL injection
   const allowedSortColumns: Record<string, string> = {
@@ -2547,7 +2535,7 @@ bulletinsSoins.get('/admin/all', async (c) => {
     if (search) {
       conditions.push(`(
         a.first_name LIKE ? OR a.last_name LIKE ? OR
-        bs.bulletin_number LIKE ? OR a.national_id LIKE ?
+        bs.bulletin_number LIKE ? OR a.matricule LIKE ?
       )`);
       const s = `%${search}%`;
       params.push(s, s, s, s);
@@ -2681,6 +2669,79 @@ bulletinsSoins.get('/admin/export', async (c) => {
     return c.json({
       success: false,
       error: { code: 'EXPORT_ERROR', message: `Erreur export: ${err instanceof Error ? err.message : String(err)}` },
+    }, 500);
+  }
+});
+
+/**
+ * DELETE /admin/:id — Supprimer un bulletin (ADMIN uniquement)
+ */
+bulletinsSoins.delete('/admin/:id', async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'ADMIN') {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès réservé aux administrateurs' } }, 403);
+  }
+
+  const db = getDb(c);
+  const id = c.req.param('id');
+
+  try {
+    const bulletin = await db
+      .prepare('SELECT id, bulletin_number FROM bulletins_soins WHERE id = ?')
+      .bind(id)
+      .first<{ id: string; bulletin_number: string }>();
+
+    if (!bulletin) {
+      return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Bulletin introuvable' } }, 404);
+    }
+
+    // Delete child records first (actes_bulletin FK)
+    await db.prepare('DELETE FROM actes_bulletin WHERE bulletin_id = ?').bind(id).run();
+    await db.prepare('DELETE FROM bulletins_soins WHERE id = ?').bind(id).run();
+
+    return c.json({ success: true, data: { id, deleted: true } });
+  } catch (err) {
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: `Erreur: ${err instanceof Error ? err.message : String(err)}` },
+    }, 500);
+  }
+});
+
+/**
+ * POST /admin/bulk-delete — Suppression en masse de bulletins (ADMIN uniquement)
+ */
+bulletinsSoins.post('/admin/bulk-delete', async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'ADMIN') {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès réservé aux administrateurs' } }, 403);
+  }
+
+  const db = getDb(c);
+  const body = await c.req.json();
+  const ids: string[] = body?.ids;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Liste d\'ids requise' } }, 400);
+  }
+
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    // Delete child records first (actes_bulletin FK)
+    await db
+      .prepare(`DELETE FROM actes_bulletin WHERE bulletin_id IN (${placeholders})`)
+      .bind(...ids)
+      .run();
+    const result = await db
+      .prepare(`DELETE FROM bulletins_soins WHERE id IN (${placeholders})`)
+      .bind(...ids)
+      .run();
+
+    return c.json({ success: true, data: { deleted: result.meta?.changes ?? ids.length } });
+  } catch (err) {
+    return c.json({
+      success: false,
+      error: { code: 'DATABASE_ERROR', message: `Erreur: ${err instanceof Error ? err.message : String(err)}` },
     }, 500);
   }
 });

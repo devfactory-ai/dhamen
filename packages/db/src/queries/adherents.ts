@@ -55,6 +55,7 @@ interface AdherentRow {
   contre_visite_obligatoire: number | null;
   etat_fiche: string | null;
   credit: number | null;
+  contract_number: string | null;
 }
 
 function rowToAdherent(row: AdherentRow): Adherent {
@@ -102,13 +103,19 @@ function rowToAdherent(row: AdherentRow): Adherent {
     contreVisiteObligatoire: !!row.contre_visite_obligatoire,
     etatFiche: row.etat_fiche,
     credit: row.credit,
+    contractNumber: row.contract_number,
   };
 }
 
 export async function findAdherentById(db: D1Database, id: string): Promise<Adherent | null> {
   const row = await db
     .prepare(
-      `SELECT a.*, co.name as company_name
+      `SELECT a.*, co.name as company_name,
+              (SELECT COALESCE(gc.contract_number, ct.contract_number)
+               FROM contracts ct
+               LEFT JOIN group_contracts gc ON ct.group_contract_id = gc.id
+               WHERE ct.adherent_id = a.id AND ct.status = 'active'
+               ORDER BY ct.created_at DESC LIMIT 1) as contract_number
        FROM adherents a
        LEFT JOIN companies co ON a.company_id = co.id
        WHERE a.id = ? AND a.deleted_at IS NULL`

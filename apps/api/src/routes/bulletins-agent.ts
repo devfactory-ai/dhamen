@@ -1405,6 +1405,29 @@ bulletinsAgent.post('/create', async (c) => {
   const bulletinId = generateId();
   const bulletinNumber = userBulletinNumber || `BS-${new Date().getFullYear()}-${bulletinId.slice(-8).toUpperCase()}`;
 
+  // Check bulletin number uniqueness within company
+  if (companyId && userBulletinNumber) {
+    const duplicateBulletin = await db
+      .prepare(
+        `SELECT id FROM bulletins_soins WHERE bulletin_number = ? AND company_id = ?`
+      )
+      .bind(bulletinNumber, companyId)
+      .first();
+
+    if (duplicateBulletin) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'DUPLICATE_BULLETIN_NUMBER',
+            message: `Le numéro de bulletin "${bulletinNumber}" existe déjà pour cette société`,
+          },
+        },
+        409
+      );
+    }
+  }
+
   // Handle file upload (scan)
   let scanUrl: string | null = null;
   const storage = c.env.STORAGE;
@@ -1550,20 +1573,38 @@ bulletinsAgent.post('/create', async (c) => {
         adherentCompanyId = company?.id || null;
       }
 
-      await db
-        .prepare(`
-          INSERT INTO adherents (id, matricule, first_name, last_name, national_id_encrypted, date_of_birth, company_id, is_active, dossier_complet, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, '1900-01-01', ?, 1, 0, datetime('now'), datetime('now'))
-        `)
-        .bind(
-          newAdherentId,
-          adherentMatricule,
-          firstName,
-          lastName,
-          adherentNationalId || `IMPORT_${adherentMatricule}`,
-          adherentCompanyId
-        )
-        .run();
+      try {
+        await db
+          .prepare(`
+            INSERT INTO adherents (id, matricule, first_name, last_name, national_id_encrypted, date_of_birth, company_id, is_active, dossier_complet, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, '1900-01-01', ?, 1, 0, datetime('now'), datetime('now'))
+          `)
+          .bind(
+            newAdherentId,
+            adherentMatricule,
+            firstName,
+            lastName,
+            adherentNationalId || `IMPORT_${adherentMatricule}`,
+            adherentCompanyId
+          )
+          .run();
+      } catch {
+        // Fallback: minimal INSERT for tenants missing dossier_complet column
+        await db
+          .prepare(`
+            INSERT INTO adherents (id, matricule, first_name, last_name, national_id_encrypted, date_of_birth, company_id, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, '1900-01-01', ?, 1, datetime('now'), datetime('now'))
+          `)
+          .bind(
+            newAdherentId,
+            adherentMatricule,
+            firstName,
+            lastName,
+            adherentNationalId || `IMPORT_${adherentMatricule}`,
+            adherentCompanyId
+          )
+          .run();
+      }
 
       adherentId = newAdherentId;
       adherentAutoCreated = true;
@@ -1792,8 +1833,10 @@ bulletinsAgent.post('/create', async (c) => {
     for (const acte of actes) {
       const rawMf = (acte.ref_prof_sant || '').trim().toUpperCase();
       const nomPraticien = (acte.nom_prof_sant || '').trim();
+      console.log('[PROVIDER-RESOLVE] acte:', { rawMf, nomPraticien, frontendProviderId: acte.provider_id, careType: acte.care_type });
 
       if (!rawMf || rawMf.length < 7) {
+        console.log('[PROVIDER-RESOLVE] MF too short, skipping:', rawMf, 'length:', rawMf.length);
         providerIds.push(null);
         continue;
       }
@@ -1820,12 +1863,12 @@ bulletinsAgent.post('/create', async (c) => {
       const existingProvider = await db
         .prepare(
           `SELECT id, name FROM providers
-           WHERE (mf_number = ? OR mf_number = ? OR license_no = ?
+           WHERE (mf_number = ? OR mf_number = ? OR license_no = ? OR license_no = ?
                   OR REPLACE(REPLACE(REPLACE(REPLACE(mf_number, '/', ''), '.', ''), '-', ''), ' ', '') = ?)
              AND deleted_at IS NULL AND is_active = 1
            LIMIT 1`
         )
-        .bind(normalizedMf, rawMf, `MF-${normalizedMf}`, normalizedMf)
+        .bind(normalizedMf, rawMf, `MF-${normalizedMf}`, rawMf, normalizedMf)
         .first<{ id: string; name: string }>();
 
       if (existingProvider) {
@@ -1950,6 +1993,7 @@ bulletinsAgent.post('/create', async (c) => {
 
     // Use first provider for bulletin-level provider_id
     const bulletinProviderId = providerIds.find((id) => id !== null) || null;
+    console.log('[SAISIE] providerIds resolved:', JSON.stringify(providerIds), '→ bulletinProviderId:', bulletinProviderId);
 
     // Fallback: derive provider_name from first acte's nom_prof_sant if not provided at bulletin level
     const effectiveProviderName = providerName || (actes.length > 0 && (actes[0] as Record<string, unknown>).nom_prof_sant) || null;
@@ -2320,6 +2364,8 @@ bulletinsAgent.post('/create', async (c) => {
           status,
           actes_count: actes.length,
           reimbursed_amount: reimbursedAmount,
+          provider_id: bulletinProviderId,
+          provider_ids_per_acte: providerIds,
           adherent_auto_created: adherentAutoCreated || undefined,
           newlyRegisteredProviders: newlyRegisteredProviders.length > 0 ? newlyRegisteredProviders : undefined,
           warnings: warnings.length > 0 ? warnings : undefined,
@@ -2503,16 +2549,29 @@ bulletinsAgent.post('/import-lot', async (c) => {
       const adherentSelectCols = 'a.id, a.first_name, a.last_name';
       let adherentAutoCreated = false;
 
-      // Try 1: find by matricule within the selected company
+      // Try 1: find by matricule within the selected company (active only)
       let adherentResult = await db
-        .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.matricule = ? AND a.company_id = ?`)
+        .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.matricule = ? AND a.company_id = ? AND a.deleted_at IS NULL`)
         .bind(bulletin.adherent_matricule, companyId)
         .first();
+
+      // Try 1b: if found deleted, restore it
+      if (!adherentResult) {
+        const deletedAdherent = await db
+          .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.matricule = ? AND a.company_id = ? AND a.deleted_at IS NOT NULL`)
+          .bind(bulletin.adherent_matricule, companyId)
+          .first();
+        if (deletedAdherent) {
+          await db.prepare(`UPDATE adherents SET deleted_at = NULL, is_active = 1, updated_at = datetime('now') WHERE id = ?`).bind(deletedAdherent.id).run();
+          adherentResult = deletedAdherent;
+          console.log('[IMPORT] Restored soft-deleted adherent:', deletedAdherent.id, bulletin.adherent_matricule);
+        }
+      }
 
       // Try 2: find by matricule within any company of this insurer
       if (!adherentResult && user.insurerId) {
         adherentResult = await db
-          .prepare(`SELECT ${adherentSelectCols} FROM adherents a JOIN companies co ON a.company_id = co.id WHERE a.matricule = ? AND co.insurer_id = ?`)
+          .prepare(`SELECT ${adherentSelectCols} FROM adherents a JOIN companies co ON a.company_id = co.id WHERE a.matricule = ? AND co.insurer_id = ? AND a.deleted_at IS NULL`)
           .bind(bulletin.adherent_matricule, user.insurerId)
           .first();
       }
@@ -2520,7 +2579,7 @@ bulletinsAgent.post('/import-lot', async (c) => {
       // Try 3: find by name match within the selected company
       if (!adherentResult && bulletin.adherent_first_name && bulletin.adherent_last_name) {
         adherentResult = await db
-          .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.company_id = ? AND LOWER(TRIM(a.first_name)) = LOWER(?) AND LOWER(TRIM(a.last_name)) = LOWER(?)`)
+          .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.company_id = ? AND LOWER(TRIM(a.first_name)) = LOWER(?) AND LOWER(TRIM(a.last_name)) = LOWER(?) AND a.deleted_at IS NULL`)
           .bind(companyId, bulletin.adherent_first_name.trim(), bulletin.adherent_last_name.trim())
           .first();
       }
@@ -2528,7 +2587,7 @@ bulletinsAgent.post('/import-lot', async (c) => {
       // Try 4: find by last_name only (SPROLS often has only the family name as adherent)
       if (!adherentResult && bulletin.adherent_last_name) {
         adherentResult = await db
-          .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.company_id = ? AND LOWER(TRIM(a.last_name)) = LOWER(?)`)
+          .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.company_id = ? AND LOWER(TRIM(a.last_name)) = LOWER(?) AND a.deleted_at IS NULL`)
           .bind(companyId, bulletin.adherent_last_name.trim())
           .first();
       }
@@ -2591,20 +2650,38 @@ bulletinsAgent.post('/import-lot', async (c) => {
         const newAdherentId = generateId();
         const firstName = bulletin.adherent_first_name || '';
         const lastName = bulletin.adherent_last_name || bulletin.adherent_first_name || 'Inconnu';
-        await db
-          .prepare(`
-            INSERT INTO adherents (id, matricule, first_name, last_name, national_id_encrypted, date_of_birth, company_id, is_active, dossier_complet, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, '1900-01-01', ?, 1, 0, datetime('now'), datetime('now'))
-          `)
-          .bind(
-            newAdherentId,
-            bulletin.adherent_matricule,
-            firstName,
-            lastName,
-            `IMPORT_${bulletin.adherent_matricule}`,
-            companyId
-          )
-          .run();
+        try {
+          await db
+            .prepare(`
+              INSERT INTO adherents (id, matricule, first_name, last_name, national_id_encrypted, date_of_birth, company_id, is_active, dossier_complet, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, '1900-01-01', ?, 1, 0, datetime('now'), datetime('now'))
+            `)
+            .bind(
+              newAdherentId,
+              bulletin.adherent_matricule,
+              firstName,
+              lastName,
+              `IMPORT_${bulletin.adherent_matricule}`,
+              companyId
+            )
+            .run();
+        } catch {
+          // Fallback: minimal INSERT for tenants missing dossier_complet column
+          await db
+            .prepare(`
+              INSERT INTO adherents (id, matricule, first_name, last_name, national_id_encrypted, date_of_birth, company_id, is_active, created_at, updated_at)
+              VALUES (?, ?, ?, ?, ?, '1900-01-01', ?, 1, datetime('now'), datetime('now'))
+            `)
+            .bind(
+              newAdherentId,
+              bulletin.adherent_matricule,
+              firstName,
+              lastName,
+              `IMPORT_${bulletin.adherent_matricule}`,
+              companyId
+            )
+            .run();
+        }
         adherentId = newAdherentId;
         adherentAutoCreated = true;
 

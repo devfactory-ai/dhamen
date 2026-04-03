@@ -5,7 +5,9 @@ import { Plus, FileText, Building2, Shield, Eye, Pencil, User, Trash2 } from 'lu
 import { cn } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
+import { useAuth } from '@/features/auth/hooks/useAuth';
 import { useToast } from '@/stores/toast';
+import { usePermissions } from '@/hooks/usePermissions';
 import { DataTable } from '@/components/ui/data-table';
 import { Button } from '@/components/ui/button';
 import {
@@ -46,11 +48,19 @@ const STATUS_LABELS: Record<string, { label: string; variant: 'success' | 'secon
 };
 
 export function GroupContractsPage() {
+  const { hasPermission } = usePermissions();
+  const canCreate = hasPermission('contracts', 'create');
+  const canDelete = hasPermission('contracts', 'delete');
+  const canUpdate = hasPermission('contracts', 'update');
+  const canRead = hasPermission('contracts', 'read');
+
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const toast = useToast();
+  const { user } = useAuth();
+  const isHR = user?.role === 'HR';
   const { selectedCompany } = useAgentContext();
-  const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
+  const isIndividualMode = !isHR && selectedCompany?.id === '__INDIVIDUAL__';
   const typeFilter = isIndividualMode ? 'individual' : 'all';
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'draft' | 'expired' | 'suspended'>('all');
@@ -58,6 +68,8 @@ export function GroupContractsPage() {
   const [page, setPage] = useState(1);
   const pageSize = 10;
   const [deleteTarget, setDeleteTarget] = useState<GroupContract | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
 
   const deleteMutation = useMutation({
     mutationFn: async (contractId: string) => {
@@ -71,6 +83,33 @@ export function GroupContractsPage() {
     },
     onError: (err: Error) => {
       toast.error(err.message || 'Erreur lors de la suppression');
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const errors: string[] = [];
+      for (const id of ids) {
+        try {
+          const response = await apiClient.delete(`/group-contracts/${id}`);
+          if (!response.success) errors.push(id);
+        } catch {
+          errors.push(id);
+        }
+      }
+      if (errors.length > 0) {
+        throw new Error(`${errors.length} contrat(s) n'ont pas pu être supprimés`);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['group-contracts'] });
+      setSelectedIds(new Set());
+      toast.success('Contrats supprimés avec succès');
+    },
+    onError: (err: Error) => {
+      queryClient.invalidateQueries({ queryKey: ['group-contracts'] });
+      setSelectedIds(new Set());
+      toast.error(err.message || 'Erreur lors de la suppression groupée');
     },
   });
 
@@ -99,8 +138,8 @@ export function GroupContractsPage() {
     if (!search.trim()) return allContracts;
     const q = search.toLowerCase();
     return allContracts.filter(c =>
-      c.contract_number.toLowerCase().includes(q) ||
-      c.company_name.toLowerCase().includes(q) ||
+      c.contract_number?.toLowerCase().includes(q) ||
+      c.company_name?.toLowerCase().includes(q) ||
       (c.insurer_name || '').toLowerCase().includes(q) ||
       (c.category || '').toLowerCase().includes(q)
     );
@@ -109,7 +148,47 @@ export function GroupContractsPage() {
   // Pagination
   const paginatedContracts = filtered.slice((page - 1) * pageSize, page * pageSize);
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === paginatedContracts.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(paginatedContracts.map((c) => c.id)));
+    }
+  };
+
   const contractColumns = [
+    ...(canDelete ? [{
+      key: 'select',
+      header: paginatedContracts.length > 0 ? (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-gray-300"
+          checked={selectedIds.size === paginatedContracts.length}
+          onChange={toggleSelectAll}
+        />
+      ) : null,
+      render: (contract: GroupContract) => (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-gray-300"
+          checked={selectedIds.has(contract.id)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+            e.stopPropagation();
+            toggleSelect(contract.id);
+          }}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        />
+      ),
+    }] : []),
     {
       key: 'contract_number',
       header: 'Contrat',
@@ -202,22 +281,26 @@ export function GroupContractsPage() {
           >
             <Eye className="h-4 w-4" />
           </button>
-          <button
-            type="button"
-            onClick={() => navigate(`/group-contracts/${contract.id}/edit`)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-            title="Modifier"
-          >
-            <Pencil className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setDeleteTarget(contract)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
-            title="Supprimer"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          {canUpdate && (
+            <button
+              type="button"
+              onClick={() => navigate(`/group-contracts/${contract.id}/edit`)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+              title="Modifier"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => setDeleteTarget(contract)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+              title="Supprimer"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
       ),
     },
@@ -228,26 +311,54 @@ export function GroupContractsPage() {
     statusFilter === 'draft' ? 'Brouillons' :
     statusFilter === 'expired' ? 'Expirés' : 'Suspendus';
 
+  if (!canRead) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-lg font-medium text-gray-900">Acces refuse</p>
+          <p className="text-sm text-gray-500 mt-1">Vous n'avez pas la permission de consulter cette page.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            {isIndividualMode ? 'Contrats Individuels' : 'Contrats'}
+            {isHR
+              ? `Contrats de ${user?.companyName || 'votre entreprise'}`
+              : isIndividualMode ? 'Contrats Individuels' : 'Contrats'}
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            {isIndividualMode ? 'Gerer les contrats d\'assurance individuels' : 'Gerer les contrats d\'assurance groupe et individuels'}
+            {isHR
+              ? 'Consultez les contrats d\'assurance de votre entreprise'
+              : isIndividualMode ? 'Gerer les contrats d\'assurance individuels' : 'Gerer les contrats d\'assurance groupe et individuels'}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            className="gap-2 bg-slate-900 hover:bg-[#19355d]"
-            onClick={() => navigate(isIndividualMode ? "/group-contracts/new?type=individual" : "/group-contracts/new")}
-          >
-            <Plus className="h-4 w-4" />
-            {isIndividualMode ? 'Nouveau contrat individuel' : 'Nouveau contrat groupe'}
-          </Button>
+          {canDelete && selectedIds.size > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-red-600 border-red-200 hover:bg-red-50"
+              onClick={() => setBulkDeleteConfirm(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              Supprimer ({selectedIds.size})
+            </Button>
+          )}
+          {canCreate && (
+            <Button
+              className="gap-2 bg-slate-900 hover:bg-[#19355d]"
+              onClick={() => navigate(isIndividualMode ? "/group-contracts/new?type=individual" : "/group-contracts/new")}
+            >
+              <Plus className="h-4 w-4" />
+              {isIndividualMode ? 'Nouveau contrat individuel' : 'Nouveau contrat groupe'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -485,6 +596,30 @@ export function GroupContractsPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk delete confirmation dialog */}
+      <AlertDialog open={bulkDeleteConfirm} onOpenChange={setBulkDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer {selectedIds.size} contrat(s)</AlertDialogTitle>
+            <AlertDialogDescription>
+              Êtes-vous sûr de vouloir supprimer <strong>{selectedIds.size}</strong> contrat(s) sélectionné(s) ? Les garanties associées seront également désactivées. Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                bulkDeleteMutation.mutate(Array.from(selectedIds));
+                setBulkDeleteConfirm(false);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Supprimer ({selectedIds.size})
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

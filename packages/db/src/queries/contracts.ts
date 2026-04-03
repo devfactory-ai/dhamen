@@ -220,6 +220,28 @@ export async function updateContract(
     updates.push('policy_number = ?');
     params.push(data.policyNumber);
   }
+  // Handle additional fields passed via _contractNumber / _startDate
+  const extra = data as Record<string, unknown>;
+  if (extra._contractNumber !== undefined) {
+    updates.push('contract_number = ?');
+    params.push(extra._contractNumber);
+  }
+  if (extra._startDate !== undefined) {
+    updates.push('start_date = ?');
+    params.push(extra._startDate);
+  }
+  if (extra.contractNumber !== undefined && extra._contractNumber === undefined) {
+    updates.push('contract_number = ?');
+    params.push(extra.contractNumber);
+  }
+  if (extra.startDate !== undefined && extra._startDate === undefined) {
+    updates.push('start_date = ?');
+    params.push(extra.startDate);
+  }
+  if (extra.insurerId !== undefined) {
+    updates.push('insurer_id = ?');
+    params.push(extra.insurerId);
+  }
   if (data.documentId !== undefined) {
     updates.push('document_id = ?');
     params.push(data.documentId);

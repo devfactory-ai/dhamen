@@ -18,6 +18,7 @@ import { toCSV, downloadCSV, type ExportColumn } from '@/lib/export-utils';
 import { apiClient } from '@/lib/api-client';
 import { useProviders, useDeleteProvider, type Provider } from '../hooks/useProviders';
 import { useToast } from '@/stores/toast';
+import { usePermissions } from '@/hooks/usePermissions';
 
 const PROVIDER_TYPES: Record<string, { label: string; color: string }> = {
   PHARMACY: { label: 'Pharmacie', color: 'bg-emerald-100 text-emerald-800' },
@@ -86,6 +87,13 @@ export function ProvidersPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isExporting, setIsExporting] = useState(false);
   const { toast } = useToast();
+  const { hasPermission } = usePermissions();
+  const canCreate = hasPermission('providers', 'create');
+  const canUpdate = hasPermission('providers', 'update');
+  const canDelete = hasPermission('providers', 'delete');
+  const canExport = hasPermission('providers', 'list');
+  const canRead = hasPermission('providers', 'read');
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
 
   const { data, isLoading } = useProviders(page, 20, typeFilter);
   const deleteProvider = useDeleteProvider();
@@ -149,6 +157,19 @@ export function ProvidersPage() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    try {
+      for (const id of selectedIds) {
+        await deleteProvider.mutateAsync(id);
+      }
+      toast({ title: `${selectedIds.size} praticien(s) supprimé(s)`, variant: 'success' });
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
+    } catch {
+      toast({ title: 'Erreur lors de la suppression groupée', variant: 'destructive' });
+    }
+  };
+
   // Selection helpers
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -163,26 +184,26 @@ export function ProvidersPage() {
   };
 
   const columns = [
-    {
+    ...(canDelete ? [{
       key: 'select',
-      header: (
+      header: filtered.length > 0 ? (
         <input
           type="checkbox"
-          checked={filtered.length > 0 && selectedIds.size === filtered.length}
+          checked={selectedIds.size === filtered.length}
           onChange={toggleSelectAll}
           className="h-4 w-4 rounded border-gray-300"
         />
-      ),
+      ) : null,
       render: (item: Provider) => (
         <input
           type="checkbox"
           checked={selectedIds.has(item.id)}
-          onChange={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
-          onClick={(e) => e.stopPropagation()}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => { e.stopPropagation(); toggleSelect(item.id); }}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
           className="h-4 w-4 rounded border-gray-300"
         />
       ),
-    },
+    }] : []),
     {
       key: 'praticien',
       header: 'Praticien',
@@ -252,16 +273,26 @@ export function ProvidersPage() {
           <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/providers/${item.id}`); }}>
             <Eye className="w-4 h-4" />
           </Button>
-          {/* <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/providers/${item.id}/edit`); }}>
-            <Pencil className="w-4 h-4" />
-          </Button> */}
-          <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={(e) => { e.stopPropagation(); setDeleteConfirm(item); }}>
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          {canDelete && (
+            <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={(e) => { e.stopPropagation(); setDeleteConfirm(item); }}>
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       ),
     },
   ];
+
+  if (!canRead) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-lg font-medium text-gray-900">Acces refuse</p>
+          <p className="text-sm text-gray-500 mt-1">Vous n'avez pas la permission de consulter cette page.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -274,36 +305,43 @@ export function ProvidersPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {selectedIds.size > 0 && (
+          {canDelete && selectedIds.size > 0 && (
             <Button
               variant="outline"
+              size="sm"
               className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
+              onClick={() => setBulkDeleteConfirm(true)}
+              disabled={deleteProvider.isPending}
             >
               <Trash2 className="w-4 h-4" /> Supprimer ({selectedIds.size})
             </Button>
           )}
-          <Button
-            variant="outline"
-            onClick={handleExportCSV}
-            disabled={isExporting}
-            className="gap-2"
-          >
-            <Download className="w-4 h-4" />{" "}
-            {isExporting ? "Export..." : "Exporter CSV"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => navigate("/providers/import")}
-            className="gap-2"
-          >
-            <Upload className="w-4 h-4" /> Import CSV
-          </Button>
-          <Button
+          {canExport && (
+            <Button
+              variant="outline"
+              onClick={handleExportCSV}
+              disabled={isExporting}
+              className="gap-2"
+            >
+              <Download className="w-4 h-4" />{" "}
+              {isExporting ? "Export..." : "Exporter CSV"}
+            </Button>
+          )}
+          {canCreate && (
+            <Button
+              variant="outline"
+              onClick={() => navigate("/providers/import")}
+              className="gap-2"
+            >
+              <Upload className="w-4 h-4" /> Import CSV
+            </Button>
+          )}
+          {canCreate && <Button
             className="gap-2 bg-slate-900 hover:bg-[#19355d]"
             onClick={() => navigate("/providers/new")}
           >
             <Plus className="w-4 h-4" /> Nouveau praticien
-          </Button>
+          </Button>}
         </div>
       </div>
 
@@ -490,6 +528,32 @@ export function ProvidersPage() {
               className="bg-red-600 hover:bg-red-700"
             >
               {deleteProvider.isPending ? "Suppression..." : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation */}
+      <AlertDialog
+        open={bulkDeleteConfirm}
+        onOpenChange={() => setBulkDeleteConfirm(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Suppression en masse</AlertDialogTitle>
+            <AlertDialogDescription>
+              Voulez-vous vraiment supprimer{" "}
+              <strong>{selectedIds.size}</strong> praticien(s) ? Cette action est
+              irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleteProvider.isPending ? "Suppression..." : `Supprimer (${selectedIds.size})`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

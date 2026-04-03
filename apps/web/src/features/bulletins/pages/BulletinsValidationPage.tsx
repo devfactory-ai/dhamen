@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
+import { usePermissions } from '@/hooks/usePermissions';
 import {
   FileText,
   Clock,
@@ -205,12 +206,18 @@ const validTransitions: Record<BulletinStatus, BulletinStatus[]> = {
   paper_received: ['paper_incomplete', 'paper_complete', 'rejected'],
   paper_incomplete: ['paper_complete', 'rejected'],
   paper_complete: ['processing', 'rejected'],
-  processing: ['reimbursed', 'rejected'],
+  processing: ['approved', 'rejected'],
+  approved: ['pending_payment', 'rejected'],
+  pending_payment: ['reimbursed', 'rejected'],
   reimbursed: [],
   rejected: [],
 };
 
 export function BulletinsValidationPage() {
+  const { hasPermission } = usePermissions();
+  const canApprove = hasPermission('bulletins_soins', 'approve');
+  const canReject = hasPermission('bulletins_soins', 'reject');
+
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('pending');
@@ -428,11 +435,11 @@ export function BulletinsValidationPage() {
       header: 'Type',
       render: (row: BulletinSoins) => {
         const config = careTypeConfig[row.care_type] || careTypeConfig.consultation;
-        const Icon = config.icon;
+        const Icon = config?.icon;
         return (
           <div className="flex items-center gap-2">
             <Icon className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm">{config.label}</span>
+            <span className="text-sm">{config?.label}</span>
           </div>
         );
       },
@@ -513,28 +520,32 @@ export function BulletinsValidationPage() {
           )}
           {['paper_complete', 'processing'].includes(row.status) && (
             <>
-              <Button
-                size="sm"
-                variant="default"
-                className="bg-green-600 hover:bg-green-700"
-                onClick={() => {
-                  setSelectedBulletin(row);
-                  setReimbursedAmount((row.reimbursed_amount ?? row.total_amount).toString());
-                  setShowApproveDialog(true);
-                }}
-              >
-                <ThumbsUp className="h-4 w-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => {
-                  setSelectedBulletin(row);
-                  setShowRejectDialog(true);
-                }}
-              >
-                <ThumbsDown className="h-4 w-4" />
-              </Button>
+              {canApprove && (
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={() => {
+                    setSelectedBulletin(row);
+                    setReimbursedAmount((row.reimbursed_amount ?? row.total_amount).toString());
+                    setShowApproveDialog(true);
+                  }}
+                >
+                  <ThumbsUp className="h-4 w-4" />
+                </Button>
+              )}
+              {canReject && (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => {
+                    setSelectedBulletin(row);
+                    setShowRejectDialog(true);
+                  }}
+                >
+                  <ThumbsDown className="h-4 w-4" />
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -658,8 +669,7 @@ export function BulletinsValidationPage() {
       </div>
 
       {/* Filters */}
-      <Card>
-        <CardContent className="pt-6">
+      <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
           <div className="flex flex-wrap gap-4">
             <div className="flex-1 min-w-0">
               <div className="relative">
@@ -693,12 +703,10 @@ export function BulletinsValidationPage() {
               </Select>
             </div>
           </div>
-        </CardContent>
-      </Card>
+      </div>
 
       {/* Table */}
-      <Card>
-        <CardContent className="pt-6">
+      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
           <DataTable
             columns={columns}
             data={bulletinsData?.data || []}
@@ -715,8 +723,7 @@ export function BulletinsValidationPage() {
                 : undefined
             }
           />
-        </CardContent>
-      </Card>
+      </div>
 
       {/* Details Dialog */}
       <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
@@ -823,11 +830,11 @@ export function BulletinsValidationPage() {
                       <div className="flex items-center gap-2">
                         {(() => {
                           const config = careTypeConfig[selectedBulletin.care_type] || careTypeConfig.consultation;
-                          const Icon = config.icon;
+                          const Icon = config?.icon!;
                           return (
                             <>
                               <Icon className="h-4 w-4 text-muted-foreground" />
-                              <span>{config.label}</span>
+                              <span>{config?.label}</span>
                             </>
                           );
                         })()}
@@ -918,7 +925,7 @@ export function BulletinsValidationPage() {
                     Voir le scan
                   </Button>
                 )}
-                {['paper_complete', 'processing'].includes(selectedBulletin.status) && (
+                {canApprove && ['paper_complete', 'processing'].includes(selectedBulletin.status) && (
                   <Button
                     className="bg-green-600 hover:bg-green-700"
                     onClick={() => {
@@ -930,7 +937,7 @@ export function BulletinsValidationPage() {
                     Approuver
                   </Button>
                 )}
-                {!['reimbursed', 'rejected'].includes(selectedBulletin.status) && (
+                {canReject && !['reimbursed', 'rejected'].includes(selectedBulletin.status) && (
                   <Button
                     variant="destructive"
                     onClick={() => setShowRejectDialog(true)}

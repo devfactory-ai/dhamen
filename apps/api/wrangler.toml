@@ -34,6 +34,7 @@ database_name = "dhamen-platform"
 database_id = "177d1c79-e45e-4d8e-8d36-7322fc4034d6"
 migrations_dir = "../../packages/db/migrations"
 
+
 # STAR Assurances tenant database
 [[d1_databases]]
 binding = "DB_STAR"
@@ -254,8 +255,8 @@ migrations_dir = "../../packages/db/migrations"
 
 [[env.staging.d1_databases]]
 binding = "DB_BH"
-database_name = "dhamen-staging-star"
-database_id = "9793c5be-adfb-4932-a97a-8e64c5e79f89"
+database_name = "dhamen-staging-bh"
+database_id = "663db17f-431b-408a-a2a0-0a3149927fb8"
 migrations_dir = "../../packages/db/migrations"
 
 # KV

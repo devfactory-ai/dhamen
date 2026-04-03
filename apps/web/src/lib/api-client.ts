@@ -60,6 +60,7 @@ function emitAuthEvent(event: 'logout' | 'refreshed'): void {
 class ApiClient {
   private baseUrl: string;
   private refreshTokenPromise: Promise<boolean> | null = null;
+  private lastRefreshTime = 0;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
@@ -175,14 +176,17 @@ class ApiClient {
 
       // Handle 401 (token expired) or 403 (stale role in JWT) - try refresh
       if ((response.status === 401 || response.status === 403) && token) {
+        console.info(`[auth] Got ${response.status} on ${endpoint}, attempting refresh...`);
         const refreshed = await this.refreshTokenWithLocking();
         if (refreshed) {
           // Retry the request with new token
+          const newToken = this.getAccessToken();
+          console.info(`[auth] Refresh OK, retrying ${endpoint} with new token`);
           const retryHeaders: HeadersInit = {
             'Content-Type': 'application/json',
             ...tenantHeaders,
             ...init.headers,
-            Authorization: `Bearer ${this.getAccessToken()}`,
+            Authorization: `Bearer ${newToken}`,
           };
 
           const retryController = new AbortController();
@@ -193,12 +197,11 @@ class ApiClient {
               ...init,
               headers: retryHeaders,
               signal: retryController.signal,
-              credentials: 'include', // Send cookies with cross-origin requests
+              credentials: 'include',
             });
             const retryData = await retryResponse.json();
-            // If still 403 after refresh, return the error (genuinely forbidden)
-            if (retryResponse.status === 403) {
-              return retryData;
+            if (retryResponse.status === 401 || retryResponse.status === 403) {
+              console.warn(`[auth] Retry still got ${retryResponse.status} on ${endpoint}`);
             }
             return retryData;
           } finally {
@@ -207,6 +210,7 @@ class ApiClient {
         }
 
         // Refresh failed on 401, emit logout event
+        console.warn(`[auth] Refresh failed, clearing tokens (original status: ${response.status})`);
         if (response.status === 401) {
           this.clearTokens();
           emitAuthEvent('logout');
@@ -240,9 +244,15 @@ class ApiClient {
 
   /**
    * Refresh token with locking mechanism to prevent race conditions
-   * Only one refresh can happen at a time - other requests wait for it
+   * Only one refresh can happen at a time - other requests wait for it.
+   * A 5-second grace window prevents duplicate refreshes from parallel 401s.
    */
   private async refreshTokenWithLocking(): Promise<boolean> {
+    // If a refresh just succeeded within the last 5 seconds, skip — tokens are already fresh
+    if (Date.now() - this.lastRefreshTime < 5000) {
+      return true;
+    }
+
     // If a refresh is already in progress, wait for it
     if (this.refreshTokenPromise) {
       return this.refreshTokenPromise;
@@ -254,6 +264,7 @@ class ApiClient {
     try {
       const result = await this.refreshTokenPromise;
       if (result) {
+        this.lastRefreshTime = Date.now();
         emitAuthEvent('refreshed');
       }
       return result;
@@ -270,6 +281,7 @@ class ApiClient {
   private async doRefreshToken(): Promise<boolean> {
     const refreshToken = this.getRefreshToken();
     if (!refreshToken) {
+      console.warn('[auth] No refresh token in localStorage, cannot refresh');
       return false;
     }
 
@@ -277,25 +289,29 @@ class ApiClient {
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
+      const tenantHeaders = getTenantHeader();
       const response = await fetch(`${this.baseUrl}/auth/refresh`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...tenantHeaders },
         body: JSON.stringify({ refreshToken }),
         signal: controller.signal,
-        credentials: 'include',
       });
 
       if (!response.ok) {
+        console.warn('[auth] Refresh failed with status:', response.status);
         return false;
       }
 
       const data = await response.json();
       if (data.success && data.data?.tokens) {
         this.setTokens(data.data.tokens.accessToken, data.data.tokens.refreshToken);
+        console.info('[auth] Token refreshed successfully');
         return true;
       }
+      console.warn('[auth] Refresh response missing tokens:', JSON.stringify(data).slice(0, 200));
       return false;
-    } catch {
+    } catch (err) {
+      console.warn('[auth] Refresh error:', err);
       return false;
     } finally {
       clearTimeout(timeoutId);

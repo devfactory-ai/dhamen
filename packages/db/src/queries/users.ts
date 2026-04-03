@@ -51,7 +51,7 @@ function rowToUser(row: UserRow): User {
   };
 }
 
-export function userToPublic(user: User): UserPublic {
+export function userToPublic(user: User & { companyName?: string | null }): UserPublic {
   return {
     id: user.id,
     email: user.email,
@@ -59,10 +59,12 @@ export function userToPublic(user: User): UserPublic {
     providerId: user.providerId,
     insurerId: user.insurerId,
     companyId: user.companyId,
+    companyName: (user as { companyName?: string | null }).companyName ?? null,
     firstName: user.firstName,
     lastName: user.lastName,
     phone: user.phone,
     mfaEnabled: user.mfaEnabled,
+    lastLoginAt: user.lastLoginAt,
     isActive: user.isActive,
     createdAt: user.createdAt,
   };
@@ -114,11 +116,11 @@ export async function listUsers(
     params.push(insurerId);
   }
   if (isActive !== undefined) {
-    whereClause += ' AND is_active = ?';
+    whereClause += ' AND users.is_active = ?';
     params.push(isActive ? 1 : 0);
   }
   if (search) {
-    whereClause += ' AND (email LIKE ? OR first_name LIKE ? OR last_name LIKE ?)';
+    whereClause += ' AND (users.email LIKE ? OR users.first_name LIKE ? OR users.last_name LIKE ?)';
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
@@ -129,13 +131,13 @@ export async function listUsers(
 
   const { results } = await db
     .prepare(
-      `SELECT * FROM users WHERE ${whereClause} ORDER BY last_name, first_name ASC LIMIT ? OFFSET ?`
+      `SELECT users.*, companies.name as company_name FROM users LEFT JOIN companies ON users.company_id = companies.id WHERE ${whereClause} ORDER BY users.last_name, users.first_name ASC LIMIT ? OFFSET ?`
     )
     .bind(...params, limit, offset)
-    .all<UserRow>();
+    .all<UserRow & { company_name: string | null }>();
 
   return {
-    data: results.map(rowToUser),
+    data: results.map((row) => ({ ...rowToUser(row), companyName: row.company_name ?? null })),
     total: countResult?.count ?? 0,
   };
 }
@@ -149,6 +151,7 @@ export async function createUser(
     role: Role;
     providerId?: string;
     insurerId?: string;
+    companyId?: string;
     firstName: string;
     lastName: string;
     phone?: string;
@@ -159,8 +162,8 @@ export async function createUser(
 
   await db
     .prepare(
-      `INSERT INTO users (id, email, password_hash, role, provider_id, insurer_id, first_name, last_name, phone, mfa_enabled, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+      `INSERT INTO users (id, email, password_hash, role, provider_id, insurer_id, company_id, first_name, last_name, phone, mfa_enabled, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     )
     .bind(
       id,
@@ -169,6 +172,7 @@ export async function createUser(
       data.role,
       data.providerId ?? null,
       data.insurerId ?? null,
+      data.companyId ?? null,
       data.firstName,
       data.lastName,
       data.phone ?? null,
@@ -189,6 +193,7 @@ type UserUpdateData = {
   email?: string;
   passwordHash?: string;
   role?: Role;
+  companyId?: string | null;
   firstName?: string;
   lastName?: string;
   phone?: string;
@@ -208,6 +213,7 @@ const USER_FIELD_MAPPINGS: FieldMapping[] = [
   { key: 'email', column: 'email', transform: (v) => String(v).toLowerCase() },
   { key: 'passwordHash', column: 'password_hash' },
   { key: 'role', column: 'role' },
+  { key: 'companyId', column: 'company_id' },
   { key: 'firstName', column: 'first_name' },
   { key: 'lastName', column: 'last_name' },
   { key: 'phone', column: 'phone' },

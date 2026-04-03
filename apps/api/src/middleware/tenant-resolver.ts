@@ -43,6 +43,12 @@ function extractSubdomain(host: string): string | null {
     return match[1];
   }
 
+  // e-sante.com.tn domain: bh.e-sante.com.tn or bh.api.e-sante.com.tn or staging.e-sante.com.tn
+  const esanteMatch = hostLower.match(/^([a-z0-9-]+)\.(?:api[.-])?e-sante\.com\.tn/);
+  if (esanteMatch?.[1] && esanteMatch[1] !== 'www' && esanteMatch[1] !== 'app') {
+    return esanteMatch[1];
+  }
+
   // Cloudflare Pages preview: star.dhamen-web.pages.dev
   const pagesMatch = hostLower.match(/^([a-z0-9-]+)\.dhamen-web\.pages\.dev/);
   if (pagesMatch?.[1] && !pagesMatch[1].match(/^[a-f0-9]{8}$/)) {
@@ -106,6 +112,18 @@ export const tenantResolverMiddleware: MiddlewareHandler<AppEnv> = async (c, nex
               subdomain = insurer.code.toLowerCase();
             }
           }
+          // Provider users: resolve tenant via their first convention's insurer
+          else if (payload.providerId && !payload.insurerId) {
+            const conv = await c.env.DB.prepare(
+              `SELECT i.code FROM conventions c
+               JOIN insurers i ON c.insurer_id = i.id
+               WHERE c.provider_id = ? AND c.is_active = 1
+               ORDER BY c.created_at DESC LIMIT 1`
+            ).bind(payload.providerId).first<{ code: string }>();
+            if (conv?.code) {
+              subdomain = conv.code.toLowerCase();
+            }
+          }
         }
       } catch {
         // Ignore JWT decode errors, fall through to default DB
@@ -115,8 +133,21 @@ export const tenantResolverMiddleware: MiddlewareHandler<AppEnv> = async (c, nex
 
   // Platform/Admin context (no subdomain, or admin subdomain)
   if (!subdomain || subdomain === 'admin' || subdomain === 'api' || subdomain === 'app') {
+    // In staging, default to DB_BH when no tenant is specified (single-tenant staging)
+    if (c.env.ENVIRONMENT === 'staging' && (!subdomain || subdomain === 'app') && c.env.DB_BH) {
+      try {
+        await (c.env.DB_BH as D1Database).prepare('SELECT 1 FROM users LIMIT 1').first();
+        console.log(`[tenant-resolver] ${c.req.method} ${c.req.path} → NO TENANT in staging, defaulting to DB_BH`);
+        c.set('tenantDb', c.env.DB_BH as D1Database);
+        c.set('isPlatformAdmin', false);
+        return next();
+      } catch {
+        // DB_BH not ready, fall through to legacy
+      }
+    }
     // Use legacy DB for backward compatibility during migration
     // After full migration, change to DB_PLATFORM
+    console.log(`[tenant-resolver] ${c.req.method} ${c.req.path} → NO TENANT (subdomain=${subdomain}), using legacy DB`);
     c.set('tenantDb', c.env.DB);
     c.set('isPlatformAdmin', subdomain === 'admin');
     return next();
@@ -153,11 +184,14 @@ export const tenantResolverMiddleware: MiddlewareHandler<AppEnv> = async (c, nex
       try {
         await db.prepare('SELECT 1 FROM users LIMIT 1').first();
         c.set('tenantDb', db);
-      } catch {
+        console.log(`[tenant-resolver] ${c.req.method} ${c.req.path} → tenant=${subdomain}, binding=${dbBinding}`);
+      } catch (err) {
         // Tenant DB not migrated — fall back to legacy DB
+        console.log(`[tenant-resolver] ${c.req.method} ${c.req.path} → tenant=${subdomain}, binding=${dbBinding} FAILED, fallback to DB`, err);
         c.set('tenantDb', c.env.DB);
       }
     } else {
+      console.log(`[tenant-resolver] ${c.req.method} ${c.req.path} → tenant=${subdomain}, binding=${dbBinding} NOT FOUND, fallback to DB`);
       c.set('tenantDb', c.env.DB);
     }
 

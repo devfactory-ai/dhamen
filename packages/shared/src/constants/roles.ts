@@ -62,12 +62,20 @@ export const SOINFLOW_INTERNAL_ROLES: Role[] = ['SOIN_GESTIONNAIRE', 'SOIN_AGENT
 // Compliance roles
 export const COMPLIANCE_ROLES: Role[] = ['COMPLIANCE_OFFICER'];
 
+// Rôles masqués temporairement de l'interface (pas encore activés)
+export const HIDDEN_ROLES: Role[] = ['SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'SOIN_RESPONSABLE', 'SOIN_DIRECTEUR', 'COMPLIANCE_OFFICER'];
+
+// ROLE_LABELS filtré sans les rôles masqués (pour les dropdowns frontend)
+export const VISIBLE_ROLE_LABELS: Partial<Record<Role, string>> = Object.fromEntries(
+  Object.entries(ROLE_LABELS).filter(([key]) => !HIDDEN_ROLES.includes(key as Role))
+) as Partial<Record<Role, string>>;
+
 // Labels for resources (French)
 export const RESOURCE_LABELS: Record<Resource, string> = {
   users: 'Utilisateurs',
   providers: 'Praticiens',
   adherents: 'Adhérents',
-  insurers: 'Assureurs',
+  insurers: 'Compagnies Partenaires',
   contracts: 'Contrats',
   claims: 'Prises en charge',
   reconciliations: 'Réconciliations',

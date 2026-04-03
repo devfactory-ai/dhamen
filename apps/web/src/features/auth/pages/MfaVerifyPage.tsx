@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiClient } from '@/lib/api-client';
-import { setTokens, setUser } from '@/lib/auth';
+import { setTokens, setUser, setPermissions, type UserPermissions } from '@/lib/auth';
 import type { UserPublic, AuthTokens } from '@dhamen/shared';
 import { Shield, Loader2, RefreshCw, ArrowRightLeft, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 interface MfaVerifyResponse {
   user: UserPublic;
   tokens: AuthTokens;
+  permissions?: UserPermissions;
   tenantCode?: string;
 }
 
@@ -117,10 +118,13 @@ export function MfaVerifyPage() {
       });
 
       if (res.success) {
-        const { tokens: resTokens, user: resUser } = res.data;
+        const { tokens: resTokens, user: resUser, permissions: resPermissions } = res.data;
         if (resTokens && resUser) {
           setTokens(resTokens);
           setUser(resUser);
+          if (resPermissions) {
+            setPermissions(resPermissions);
+          }
           localStorage.setItem('isAuthenticated', 'true');
           navigate('/auth/success', { replace: true });
         } else {

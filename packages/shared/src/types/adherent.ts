@@ -48,6 +48,7 @@ export interface Adherent {
   contreVisiteObligatoire?: boolean;
   etatFiche?: string | null;
   credit?: number | null;
+  contractNumber?: string | null;
 }
 
 export interface AdherentPublic {

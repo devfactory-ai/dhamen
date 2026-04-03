@@ -37,6 +37,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { usePermissions } from '@/hooks/usePermissions';
 import {
   useFormules,
   useFormuleById,
@@ -53,6 +54,11 @@ import {
 } from '../hooks/useGaranties';
 
 export default function SanteGarantiesPage() {
+  const { hasPermission } = usePermissions();
+  const canCreate = hasPermission('sante_garanties', 'create');
+  const canUpdate = hasPermission('sante_garanties', 'update');
+  const canDelete = hasPermission('sante_garanties', 'delete');
+
   const [showInactive, setShowInactive] = useState(false);
   const [selectedFormuleId, setSelectedFormuleId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -74,9 +80,11 @@ export default function SanteGarantiesPage() {
             <Switch checked={showInactive} onCheckedChange={setShowInactive} />
             Afficher inactives
           </label>
-          <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => setIsCreateOpen(true)}>
-            <Plus className="w-4 h-4" /> Nouvelle formule
-          </Button>
+          {canCreate && (
+            <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => setIsCreateOpen(true)}>
+              <Plus className="w-4 h-4" /> Nouvelle formule
+            </Button>
+          )}
         </div>
       </div>
 
@@ -102,6 +110,8 @@ export default function SanteGarantiesPage() {
                 setEditFormule(formule);
                 setIsEditOpen(true);
               }}
+              canUpdate={canUpdate}
+              canDelete={canDelete}
             />
           ))}
           {formules?.length === 0 && (
@@ -151,10 +161,14 @@ function FormuleCard({
   formule,
   onView,
   onEdit,
+  canUpdate,
+  canDelete,
 }: {
   formule: SanteFormule;
   onView: () => void;
   onEdit: () => void;
+  canUpdate: boolean;
+  canDelete: boolean;
 }) {
   const deleteFormule = useDeleteFormule();
 
@@ -204,22 +218,26 @@ function FormuleCard({
           <Button variant="ghost" size="sm" onClick={onView}>
             <Eye className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="sm" onClick={onEdit}>
-            <Edit className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-red-600 hover:text-red-700"
-            onClick={() => {
-              if (confirm('Supprimer cette formule ?')) {
-                deleteFormule.mutate(formule.id);
-              }
-            }}
-            disabled={formule.nbAdhérents > 0}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {canUpdate && (
+            <Button variant="ghost" size="sm" onClick={onEdit}>
+              <Edit className="h-4 w-4" />
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-red-600 hover:text-red-700"
+              onClick={() => {
+                if (confirm('Supprimer cette formule ?')) {
+                  deleteFormule.mutate(formule.id);
+                }
+              }}
+              disabled={formule.nbAdhérents > 0}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

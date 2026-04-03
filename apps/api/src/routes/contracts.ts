@@ -180,7 +180,35 @@ contracts.put(
       return notFound(c, 'Contrat non trouvé');
     }
 
-    const contract = await updateContract(getDb(c), id, data);
+    // Map frontend simple fields to API fields
+    const mapped = { ...data } as Record<string, unknown>;
+    const TYPE_MAP: Record<string, string> = {
+      INDIVIDUAL: 'individual', GROUP: 'family', CORPORATE: 'corporate',
+    };
+    if (mapped.type && !mapped.planType) {
+      mapped.planType = TYPE_MAP[mapped.type as string] || (mapped.type as string).toLowerCase();
+    }
+    if (mapped.annualCeiling !== undefined && mapped.annualLimit === undefined) {
+      mapped.annualLimit = mapped.annualCeiling;
+    }
+    // Build coverage from simple fields if no structured coverage provided
+    if (!mapped.coverage && (mapped.coveragePharmacy !== undefined || mapped.coverageConsultation !== undefined || mapped.coverageLab !== undefined || mapped.coverageHospitalization !== undefined)) {
+      const cov: Record<string, unknown> = {};
+      if (mapped.coveragePharmacy !== undefined) cov.pharmacy = { enabled: true, reimbursementRate: (mapped.coveragePharmacy as number) / 100, annualLimit: null, genericOnly: false };
+      if (mapped.coverageConsultation !== undefined) cov.consultation = { enabled: true, reimbursementRate: (mapped.coverageConsultation as number) / 100, annualLimit: null, specialities: [] };
+      if (mapped.coverageLab !== undefined) cov.lab = { enabled: true, reimbursementRate: (mapped.coverageLab as number) / 100, annualLimit: null };
+      if (mapped.coverageHospitalization !== undefined) cov.hospitalization = { enabled: true, reimbursementRate: (mapped.coverageHospitalization as number) / 100, annualLimit: null, roomType: 'any' };
+      mapped.coverage = cov;
+    }
+    // Map contractNumber and startDate for DB update
+    if (mapped.contractNumber !== undefined) mapped._contractNumber = mapped.contractNumber;
+    if (mapped.startDate !== undefined) mapped._startDate = mapped.startDate;
+    // Clean up frontend-only keys before passing to DB
+    delete mapped.type; delete mapped.annualCeiling; delete mapped.coveragePharmacy;
+    delete mapped.coverageConsultation; delete mapped.coverageLab; delete mapped.coverageHospitalization;
+    delete mapped.name; delete mapped.insurerId;
+
+    const contract = await updateContract(getDb(c), id, mapped as typeof data);
 
     if (!contract) {
       return notFound(c, 'Contrat non trouvé');

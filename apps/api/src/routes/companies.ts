@@ -20,9 +20,9 @@ const companyCreateSchema = z.object({
   address: z.string().optional(),
   city: z.string().optional(),
   phone: z.string().optional(),
-  email: z.string().email().optional(),
-  sector: z.enum(SECTORS).optional(),
-  employeeCount: z.number().int().positive().optional(),
+  email: z.string().email().optional().or(z.literal('')),
+  sector: z.enum(SECTORS).optional().or(z.literal('')),
+  employeeCount: z.number().int().positive().optional().or(z.literal(0)),
   insurerId: z.string().optional(),
 });
 
@@ -64,6 +64,7 @@ companies.get(
   async (c) => {
     const { search, sector, insurerId, isActive, page, limit } = c.req.valid('query');
     const offset = (page - 1) * limit;
+    const currentUser = c.get('user');
 
     let query = `SELECT * FROM companies WHERE 1=1`;
     const params: unknown[] = [];
@@ -76,9 +77,15 @@ companies.get(
       query += ` AND sector = ?`;
       params.push(sector);
     }
-    if (insurerId) {
+
+    // INSURER_ADMIN / INSURER_AGENT: scope to own insurer's companies
+    const effectiveInsurerId = currentUser.role !== 'ADMIN'
+      ? (currentUser.insurerId || insurerId)
+      : insurerId;
+
+    if (effectiveInsurerId) {
       query += ` AND insurer_id = ?`;
-      params.push(insurerId);
+      params.push(effectiveInsurerId);
     }
     if (isActive !== undefined) {
       query += ` AND is_active = ?`;
@@ -200,6 +207,13 @@ companies.put(
       return notFound(c, 'Entreprise non trouvee');
     }
 
+    // Coerce empty strings to null for optional fields
+    if (data.email === '') data.email = undefined;
+    if (data.sector === '') data.sector = undefined;
+    if (data.insurerId === '') data.insurerId = undefined;
+    if (data.phone === '') data.phone = undefined;
+    if (data.employeeCount === 0) data.employeeCount = undefined;
+
     const updates: string[] = [];
     const params: unknown[] = [];
 
@@ -209,47 +223,47 @@ companies.put(
     }
     if (data.code !== undefined) {
       updates.push('code = ?');
-      params.push(data.code);
+      params.push(data.code || null);
     }
     if (data.matriculeFiscal !== undefined) {
       updates.push('matricule_fiscal = ?');
-      params.push(data.matriculeFiscal);
+      params.push(data.matriculeFiscal || null);
     }
     if (data.contractNumber !== undefined) {
       updates.push('contract_number = ?');
-      params.push(data.contractNumber);
+      params.push(data.contractNumber || null);
     }
     if (data.dateOuverture !== undefined) {
       updates.push('date_ouverture = ?');
-      params.push(data.dateOuverture);
+      params.push(data.dateOuverture || null);
     }
     if (data.address !== undefined) {
       updates.push('address = ?');
-      params.push(data.address);
+      params.push(data.address || null);
     }
     if (data.city !== undefined) {
       updates.push('city = ?');
-      params.push(data.city);
+      params.push(data.city || null);
     }
     if (data.phone !== undefined) {
       updates.push('phone = ?');
-      params.push(data.phone);
+      params.push(data.phone || null);
     }
     if (data.email !== undefined) {
       updates.push('email = ?');
-      params.push(data.email);
+      params.push(data.email || null);
     }
     if (data.sector !== undefined) {
       updates.push('sector = ?');
-      params.push(data.sector);
+      params.push(data.sector || null);
     }
     if (data.employeeCount !== undefined) {
       updates.push('employee_count = ?');
-      params.push(data.employeeCount);
+      params.push(data.employeeCount || null);
     }
     if (data.insurerId !== undefined) {
       updates.push('insurer_id = ?');
-      params.push(data.insurerId);
+      params.push(data.insurerId || null);
     }
 
     if (updates.length > 0) {
@@ -343,39 +357,61 @@ companies.get('/:id/stats', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT
     return notFound(c, 'Entreprise non trouvee');
   }
 
+  const db = getDb(c);
+
   // Verify company exists first — return empty stats immediately if not
-  const companyExists = await getDb(c).prepare('SELECT id FROM companies WHERE id = ?').bind(id).first();
+  const companyExists = await db.prepare('SELECT id FROM companies WHERE id = ?').bind(id).first();
   if (!companyExists) {
-    return success(c, { totalAdherents: 0, activeContracts: 0, totalClaims: 0, pendingClaims: 0 });
+    return success(c, { totalAdherents: 0, activeContracts: 0, totalClaims: 0, pendingClaims: 0, totalReimbursed: 0 });
   }
 
-  // Use try/catch per query to handle missing tables gracefully
-  const safeCount = async (query: string, ...params: unknown[]): Promise<number> => {
-    try {
-      const result = await getDb(c).prepare(query).bind(...params).first<{ count: number }>();
-      return result?.count || 0;
-    } catch {
-      return 0;
-    }
-  };
+  // Single query for adherents + group_contracts (core tables, must exist)
+  const coreStats = await db.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM adherents WHERE company_id = ?1 AND (deleted_at IS NULL OR deleted_at = '')) as totalAdherents,
+       (SELECT COUNT(*) FROM group_contracts WHERE company_id = ?1 AND status = 'active' AND (deleted_at IS NULL OR deleted_at = '')) as activeGroupContracts`
+  ).bind(id).first<{ totalAdherents: number; activeGroupContracts: number }>();
 
-  const [totalAdherents, activeContracts, totalClaims, pendingClaims] = await Promise.all([
-    safeCount('SELECT COUNT(*) as count FROM adherents WHERE company_id = ?', id),
-    safeCount(
-      `SELECT COUNT(*) as count FROM group_contracts WHERE company_id = ? AND status = 'ACTIVE'`,
-      id
-    ),
-    safeCount(
-      `SELECT COUNT(*) as count FROM sante_demandes WHERE adherent_id IN (SELECT id FROM adherents WHERE company_id = ?)`,
-      id
-    ),
-    safeCount(
-      `SELECT COUNT(*) as count FROM sante_demandes WHERE adherent_id IN (SELECT id FROM adherents WHERE company_id = ?) AND statut IN ('soumise', 'en_examen')`,
-      id
-    ),
-  ]);
+  const totalAdherents = Number(coreStats?.totalAdherents) || 0;
+  const activeContracts = Number(coreStats?.activeGroupContracts) || 0;
 
-  return success(c, { totalAdherents, activeContracts, totalClaims, pendingClaims });
+  // Claims stats from bulletins_soins
+  let totalBulletins = 0, pendingBulletins = 0, reimbursedBulletins = 0;
+  try {
+    const bsStats = await db.prepare(
+      `SELECT
+         COUNT(*) as total,
+         SUM(CASE WHEN status IN ('submitted','processing','scan_uploaded','paper_received','paper_incomplete','paper_complete','pending') THEN 1 ELSE 0 END) as pending,
+         COALESCE(SUM(CASE WHEN reimbursed_amount IS NOT NULL THEN reimbursed_amount ELSE 0 END), 0) as reimbursed
+       FROM bulletins_soins
+       WHERE adherent_id IN (SELECT id FROM adherents WHERE company_id = ? AND (deleted_at IS NULL OR deleted_at = ''))`
+    ).bind(id).first<{ total: number; pending: number; reimbursed: number }>();
+    totalBulletins = Number(bsStats?.total) || 0;
+    pendingBulletins = Number(bsStats?.pending) || 0;
+    reimbursedBulletins = Number(bsStats?.reimbursed) || 0;
+  } catch { /* bulletins_soins table may not exist */ }
+
+  // Claims stats from sante_demandes
+  let totalDemandes = 0, pendingDemandes = 0, reimbursedDemandes = 0;
+  try {
+    const sdStats = await db.prepare(
+      `SELECT
+         COUNT(*) as total,
+         SUM(CASE WHEN statut IN ('soumise','en_examen') THEN 1 ELSE 0 END) as pending,
+         COALESCE(SUM(CASE WHEN montant_rembourse IS NOT NULL THEN montant_rembourse ELSE 0 END), 0) as reimbursed
+       FROM sante_demandes
+       WHERE adherent_id IN (SELECT id FROM adherents WHERE company_id = ? AND (deleted_at IS NULL OR deleted_at = ''))`
+    ).bind(id).first<{ total: number; pending: number; reimbursed: number }>();
+    totalDemandes = Number(sdStats?.total) || 0;
+    pendingDemandes = Number(sdStats?.pending) || 0;
+    reimbursedDemandes = Number(sdStats?.reimbursed) || 0;
+  } catch { /* sante_demandes table may not exist */ }
+
+  const totalClaims = totalBulletins + totalDemandes;
+  const pendingClaims = pendingBulletins + pendingDemandes;
+  const totalReimbursed = reimbursedBulletins + reimbursedDemandes;
+
+  return success(c, { totalAdherents, activeContracts, totalClaims, pendingClaims, totalReimbursed });
 });
 
 /**
@@ -393,18 +429,18 @@ companies.get('/:id/contracts', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_A
 
   try {
     const { results } = await getDb(c).prepare(
-      `SELECT gc.id, gc.policy_number as contract_number, gc.type,
-              gc.start_date, gc.end_date, gc.status,
+      `SELECT gc.id, gc.contract_number, gc.contract_type as type,
+              gc.effective_date as start_date, gc.end_date, gc.status,
               i.name as insurer_name,
-              (SELECT COUNT(*) FROM adherents a WHERE a.company_id = ?) as employee_count,
-              COALESCE(gc.monthly_premium, 0) as monthly_premium,
-              gc.coverage_details
+              (SELECT COUNT(*) FROM adherents a WHERE a.company_id = ?1 AND a.deleted_at IS NULL) as employee_count,
+              gc.annual_global_limit,
+              gc.plan_category
        FROM group_contracts gc
        LEFT JOIN insurers i ON gc.insurer_id = i.id
-       WHERE gc.company_id = ?
+       WHERE gc.company_id = ?1 AND gc.deleted_at IS NULL
        ORDER BY gc.created_at DESC`
     )
-      .bind(id, id)
+      .bind(id)
       .all();
 
     return success(c, results || []);
@@ -428,36 +464,66 @@ companies.get('/:id/claims', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGEN
   }
 
   try {
-    // Try sante_demandes first (active PEC system)
-    const { results } = await getDb(c).prepare(
-      `SELECT sd.id, sd.numero_demande as reference,
-              a.first_name || ' ' || a.last_name as adherent_name,
-              sd.adherent_id,
-              sd.type_soin as type,
-              COALESCE(p.nom, '') as provider_name,
-              COALESCE(sd.montant_demande, 0) as amount,
-              COALESCE(sd.montant_rembourse, 0) as covered_amount,
-              CASE sd.statut
-                WHEN 'soumise' THEN 'PENDING'
-                WHEN 'en_examen' THEN 'PENDING'
-                WHEN 'approuvee' THEN 'APPROVED'
-                WHEN 'payee' THEN 'PAID'
-                WHEN 'rejetee' THEN 'REJECTED'
-                ELSE 'PENDING'
-              END as status,
-              sd.created_at,
-              sd.updated_at as processed_at
-       FROM sante_demandes sd
-       LEFT JOIN adherents a ON sd.adherent_id = a.id
-       LEFT JOIN praticiens p ON sd.praticien_id = p.id
-       WHERE a.company_id = ?
-       ORDER BY sd.created_at DESC
-       LIMIT 100`
-    )
-      .bind(id)
-      .all();
+    // Combine bulletins_soins and sante_demandes for the company
+    const [bulletinsResult, demandesResult] = await Promise.all([
+      getDb(c).prepare(
+        `SELECT bs.id, bs.bulletin_number as reference,
+                a.first_name || ' ' || a.last_name as adherent_name,
+                bs.adherent_id,
+                COALESCE(bs.care_type, '') as type,
+                COALESCE(bs.provider_name, '') as provider_name,
+                COALESCE(bs.total_amount, 0) as amount,
+                COALESCE(bs.reimbursed_amount, 0) as covered_amount,
+                CASE bs.status
+                  WHEN 'approved' THEN 'APPROVED'
+                  WHEN 'paid' THEN 'PAID'
+                  WHEN 'rejected' THEN 'REJECTED'
+                  ELSE 'PENDING'
+                END as status,
+                bs.created_at,
+                bs.approved_date as processed_at
+         FROM bulletins_soins bs
+         LEFT JOIN adherents a ON bs.adherent_id = a.id
+         WHERE a.company_id = ? AND a.deleted_at IS NULL
+         ORDER BY bs.created_at DESC
+         LIMIT 100`
+      ).bind(id).all().catch(() => ({ results: [] })),
+      getDb(c).prepare(
+        `SELECT sd.id, sd.numero_demande as reference,
+                a.first_name || ' ' || a.last_name as adherent_name,
+                sd.adherent_id,
+                sd.type_soin as type,
+                COALESCE(sp.nom, '') as provider_name,
+                COALESCE(sd.montant_demande, 0) as amount,
+                COALESCE(sd.montant_rembourse, 0) as covered_amount,
+                CASE sd.statut
+                  WHEN 'soumise' THEN 'PENDING'
+                  WHEN 'en_examen' THEN 'PENDING'
+                  WHEN 'approuvee' THEN 'APPROVED'
+                  WHEN 'payee' THEN 'PAID'
+                  WHEN 'rejetee' THEN 'REJECTED'
+                  ELSE 'PENDING'
+                END as status,
+                sd.created_at,
+                sd.updated_at as processed_at
+         FROM sante_demandes sd
+         LEFT JOIN adherents a ON sd.adherent_id = a.id
+         LEFT JOIN sante_praticiens sp ON sd.praticien_id = sp.id
+         WHERE a.company_id = ? AND a.deleted_at IS NULL
+         ORDER BY sd.created_at DESC
+         LIMIT 100`
+      ).bind(id).all().catch(() => ({ results: [] })),
+    ]);
 
-    return success(c, results || []);
+    // Merge and sort by created_at desc
+    const allClaims = [
+      ...(bulletinsResult.results ?? []),
+      ...(demandesResult.results ?? []),
+    ].sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
+      String(b.created_at || '').localeCompare(String(a.created_at || ''))
+    ).slice(0, 100);
+
+    return success(c, allClaims);
   } catch {
     // Table may not exist — return empty
     return success(c, []);

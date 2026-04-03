@@ -387,10 +387,12 @@ adherents.get('/me/card', requireRole('ADHERENT'), async (c) => {
  */
 adherents.get(
   '/search',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
   async (c) => {
     const q = c.req.query('q') || '';
-    if (q.length < 2) {
+    const nationalId = c.req.query('nationalId') || '';
+
+    if (!nationalId && q.length < 2) {
       return c.json({
         success: false,
         error: { code: 'VALIDATION_ERROR', message: 'Le paramètre q doit avoir au moins 2 caractères' },
@@ -399,22 +401,43 @@ adherents.get(
 
     const user = c.get('user');
     const db = getDb(c);
-    const likeQ = `%${q}%`;
+
+    // HR role: must have a company_id
+    if (user.role === 'HR' && !user.companyId) {
+      return c.json({
+        success: false,
+        error: { code: 'NO_COMPANY', message: 'Votre compte n\'est associé à aucune entreprise' },
+      }, 403);
+    }
 
     let query = `
       SELECT a.id, a.matricule, a.first_name, a.last_name, a.email,
              a.plafond_global, a.plafond_consomme,
              co.name as company_name,
-             ct.plan_type as contract_type
+             (SELECT ct.plan_type FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY ct.created_at DESC LIMIT 1) as contract_type
       FROM adherents a
       LEFT JOIN companies co ON a.company_id = co.id
-      LEFT JOIN contracts ct ON ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE'
-      WHERE a.deleted_at IS NULL
-        AND (a.matricule LIKE ? OR a.first_name LIKE ? OR a.last_name LIKE ?)
+      WHERE a.deleted_at IS NULL AND a.parent_adherent_id IS NULL
     `;
-    const params: unknown[] = [likeQ, likeQ, likeQ];
+    const params: unknown[] = [];
 
-    if (user.insurerId) {
+    if (nationalId) {
+      // Search by national ID hash (encrypted field)
+      const encryptionKey = getEncryptionKey(c);
+      const idHash = await hashForIndex(nationalId, encryptionKey);
+      query += ' AND a.national_id_hash = ?';
+      params.push(idHash);
+    } else {
+      const likeQ = `%${q}%`;
+      query += ' AND (a.matricule LIKE ? OR a.first_name LIKE ? OR a.last_name LIKE ?)';
+      params.push(likeQ, likeQ, likeQ);
+    }
+
+    // HR: scope to own company only
+    if (user.role === 'HR') {
+      query += ' AND a.company_id = ?';
+      params.push(user.companyId);
+    } else if (user.insurerId) {
       query += " AND (co.insurer_id = ? OR a.company_id IS NULL OR a.company_id = '__INDIVIDUAL__')";
       params.push(user.insurerId);
     }
@@ -443,9 +466,11 @@ adherents.get(
  */
 adherents.get(
   '/next-matricule',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
   async (c) => {
-    const companyId = c.req.query('companyId');
+    const user = c.get('user');
+    // HR: force own company_id
+    const companyId = user.role === 'HR' ? user.companyId : c.req.query('companyId');
     if (!companyId) {
       return success(c, { matricule: '0001' });
     }
@@ -470,13 +495,12 @@ adherents.get(
  */
 adherents.get(
   '/',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
   async (c) => {
     const page = Number(c.req.query('page')) || 1;
     const limit = Number(c.req.query('limit')) || 20;
     const search = c.req.query('search') || undefined;
     const city = c.req.query('city') || undefined;
-    const companyId = c.req.query('companyId') || undefined;
     const isActiveParam = c.req.query('isActive');
     const dossierCompletParam = c.req.query('dossierComplet');
     const contractTypeParam = c.req.query('contractType');
@@ -484,12 +508,27 @@ adherents.get(
     const db = getDb(c);
     const offset = (page - 1) * limit;
 
-    let whereClause = 'a.deleted_at IS NULL';
+    // HR role: must have a company_id
+    if (user.role === 'HR' && !user.companyId) {
+      return c.json({
+        success: false,
+        error: { code: 'NO_COMPANY', message: 'Votre compte n\'est associé à aucune entreprise' },
+      }, 403);
+    }
+
+    let whereClause = 'a.deleted_at IS NULL AND a.parent_adherent_id IS NULL';
     const params: unknown[] = [];
 
-    if (companyId) {
+    // HR: force scope to own company (ignore companyId query param)
+    if (user.role === 'HR') {
       whereClause += ' AND a.company_id = ?';
-      params.push(companyId);
+      params.push(user.companyId);
+    } else {
+      const companyId = c.req.query('companyId') || undefined;
+      if (companyId) {
+        whereClause += ' AND a.company_id = ?';
+        params.push(companyId);
+      }
     }
 
     // Filter by contract type: individual = no company, group = has company
@@ -576,11 +615,18 @@ adherents.get(
  * Export adherents as CSV
  * Query params: ?companyId=xxx&search=xxx
  */
-adherents.get('/export', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
+adherents.get('/export', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'), async (c) => {
   const user = c.get('user');
   const db = getDb(c);
-  const companyId = c.req.query('companyId');
   const search = c.req.query('search');
+
+  // HR role: must have a company_id
+  if (user.role === 'HR' && !user.companyId) {
+    return c.json({
+      success: false,
+      error: { code: 'NO_COMPANY', message: 'Votre compte n\'est associé à aucune entreprise' },
+    }, 403);
+  }
 
   let query = `
     SELECT a.matricule, a.first_name, a.last_name, a.date_of_birth, a.gender,
@@ -594,14 +640,20 @@ adherents.get('/export', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   `;
   const binds: unknown[] = [];
 
-  if (user.insurerId) {
-    query += ' AND c.insurer_id = ?';
-    binds.push(user.insurerId);
-  }
-
-  if (companyId) {
+  // HR: force scope to own company
+  if (user.role === 'HR') {
     query += ' AND a.company_id = ?';
-    binds.push(companyId);
+    binds.push(user.companyId);
+  } else {
+    if (user.insurerId) {
+      query += ' AND c.insurer_id = ?';
+      binds.push(user.insurerId);
+    }
+    const companyId = c.req.query('companyId');
+    if (companyId) {
+      query += ' AND a.company_id = ?';
+      binds.push(companyId);
+    }
   }
 
   if (search) {
@@ -662,7 +714,7 @@ adherents.get('/export', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
     changes: {
       format: 'csv',
       count: results.length,
-      companyId: companyId ?? 'all',
+      companyId: user.role === 'HR' ? user.companyId : (c.req.query('companyId') ?? 'all'),
     },
     ipAddress: c.req.header('CF-Connecting-IP'),
     userAgent: c.req.header('User-Agent'),
@@ -682,9 +734,18 @@ adherents.get('/export', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
  */
 adherents.get(
   '/:id/bulletins',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
   async (c) => {
     const adherentId = c.req.param('id');
+    const user = c.get('user');
+
+    // HR: verify adherent belongs to their company
+    if (user.role === 'HR') {
+      const adherentCheck = await getDb(c).prepare('SELECT company_id FROM adherents WHERE id = ? AND deleted_at IS NULL').bind(adherentId).first<{ company_id: string | null }>();
+      if (!adherentCheck || adherentCheck.company_id !== user.companyId) {
+        return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Cet adhérent n\'appartient pas à votre entreprise' } }, 403);
+      }
+    }
     const page = Number(c.req.query('page')) || 1;
     const limit = Number(c.req.query('limit')) || 10;
     const offset = (page - 1) * limit;
@@ -734,17 +795,23 @@ adherents.get(
  */
 adherents.get(
   '/:id/plafonds',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
   async (c) => {
     const id = c.req.param('id');
     const annee = Number(c.req.query('annee')) || new Date().getFullYear();
     const db = getDb(c);
+    const user = c.get('user');
 
     // Check adherent exists
     const adherent = await db
-      .prepare('SELECT id FROM adherents WHERE id = ? AND deleted_at IS NULL')
+      .prepare('SELECT id, company_id FROM adherents WHERE id = ? AND deleted_at IS NULL')
       .bind(id)
-      .first();
+      .first<{ id: string; company_id: string | null }>();
+
+    // HR: verify company ownership
+    if (user.role === 'HR' && adherent && adherent.company_id !== user.companyId) {
+      return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Cet adhérent n\'appartient pas à votre entreprise' } }, 403);
+    }
 
     if (!adherent) {
       return notFound(c, 'Adhérent non trouvé');
@@ -802,10 +869,11 @@ adherents.get(
  */
 adherents.get(
   '/:id/famille',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
   async (c) => {
     const id = c.req.param('id');
     const db = getDb(c);
+    const user = c.get('user');
 
     // Get the adherent
     const adherent = await db
@@ -815,6 +883,11 @@ adherents.get(
 
     if (!adherent) {
       return notFound(c, 'Adhérent non trouvé');
+    }
+
+    // HR: verify company ownership
+    if (user.role === 'HR' && adherent.company_id !== user.companyId) {
+      return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Cet adhérent n\'appartient pas à votre entreprise' } }, 403);
     }
 
     // Determine the principal id
@@ -844,7 +917,9 @@ adherents.get(
       dateOfBirth: r.date_of_birth,
       gender: r.gender,
       email: r.email || null,
-      phone: r.phone || null,
+      phone: r.phone_encrypted ? String(r.phone_encrypted) : null,
+      nationalId: r.national_id_encrypted ? String(r.national_id_encrypted) : null,
+      typePieceIdentite: r.type_piece_identite || 'CIN',
       codeType: r.code_type || 'A',
       rangPres: r.rang_pres ?? 0,
       codeSituationFam: r.code_situation_fam,
@@ -875,17 +950,62 @@ adherents.get(
     'PHARMACIST',
     'DOCTOR',
     'LAB_MANAGER',
-    'CLINIC_ADMIN'
+    'CLINIC_ADMIN',
+    'HR'
   ),
   async (c) => {
     const id = c.req.param('id');
+    const user = c.get('user');
     const adherent = await findAdherentById(getDb(c), id);
 
     if (!adherent) {
       return notFound(c, 'Adhérent non trouvé');
     }
 
-    return success(c, adherent);
+    // HR: verify company ownership
+    if (user.role === 'HR' && adherent.companyId !== user.companyId) {
+      return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Cet adhérent n\'appartient pas à votre entreprise' } }, 403);
+    }
+
+    // Decrypt sensitive fields before sending to client
+    const encryptionKey = getEncryptionKey(c);
+    const decrypted: Record<string, unknown> = { ...adherent };
+
+    // nationalId (stored as nationalIdEncrypted)
+    if (adherent.nationalIdEncrypted) {
+      try {
+        const enc = String(adherent.nationalIdEncrypted);
+        decrypted.nationalId = enc.startsWith('ENC_') ? enc.replace('ENC_', '') : await decrypt(enc, encryptionKey);
+      } catch { decrypted.nationalId = ''; }
+    }
+    delete decrypted.nationalIdEncrypted;
+
+    // phone (stored as phoneEncrypted)
+    if (adherent.phoneEncrypted) {
+      try {
+        const enc = String(adherent.phoneEncrypted);
+        decrypted.phone = enc.startsWith('ENC_') ? enc.replace('ENC_', '') : await decrypt(enc, encryptionKey);
+      } catch { decrypted.phone = null; }
+    }
+    delete decrypted.phoneEncrypted;
+
+    // mobile (stored encrypted)
+    if (adherent.mobile) {
+      try {
+        const enc = String(adherent.mobile);
+        decrypted.mobile = enc.startsWith('ENC_') ? enc.replace('ENC_', '') : await decrypt(enc, encryptionKey);
+      } catch { decrypted.mobile = null; }
+    }
+
+    // rib (stored encrypted)
+    if (adherent.rib) {
+      try {
+        const enc = String(adherent.rib);
+        decrypted.rib = enc.startsWith('ENC_') ? enc.replace('ENC_', '') : await decrypt(enc, encryptionKey);
+      } catch { decrypted.rib = null; }
+    }
+
+    return success(c, decrypted);
   }
 );
 
@@ -895,12 +1015,23 @@ adherents.get(
  */
 adherents.post(
   '/',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
   zValidator('json', adherentCreateSchema),
   async (c) => {
     const data = c.req.valid('json');
     const user = c.get('user');
     const encryptionKey = getEncryptionKey(c);
+
+    // HR: force company_id to own company (BR-003: auto-assign)
+    if (user.role === 'HR') {
+      if (!user.companyId) {
+        return c.json({
+          success: false,
+          error: { code: 'NO_COMPANY', message: 'Votre compte n\'est associé à aucune entreprise' },
+        }, 403);
+      }
+      data.companyId = user.companyId;
+    }
 
     // Encrypt sensitive data with AES-256-GCM — skip costly PBKDF2 when values are empty
     const encryptedNationalId = data.nationalId ? await encrypt(data.nationalId, encryptionKey) : '';
@@ -1125,7 +1256,7 @@ adherents.post(
  */
 adherents.put(
   '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
   zValidator('json', adherentUpdateSchema),
   async (c) => {
     const id = c.req.param('id');
@@ -1138,6 +1269,16 @@ adherents.put(
     const existing = await db.prepare('SELECT id, company_id FROM adherents WHERE id = ? AND deleted_at IS NULL').bind(id).first<{ id: string; company_id: string }>();
     if (!existing) {
       return notFound(c, 'Adhérent non trouvé');
+    }
+
+    // HR: verify company ownership (BR-003)
+    if (user.role === 'HR') {
+      if (!user.companyId) {
+        return c.json({ success: false, error: { code: 'NO_COMPANY', message: 'Votre compte n\'est associé à aucune entreprise' } }, 403);
+      }
+      if (existing.company_id !== user.companyId) {
+        return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Cet adhérent n\'appartient pas à votre entreprise' } }, 403);
+      }
     }
 
     // Check matricule uniqueness within the company on update
@@ -1199,6 +1340,12 @@ adherents.put(
     if (data.contreVisiteObligatoire !== undefined) { updates.push('contre_visite_obligatoire = ?'); params.push(data.contreVisiteObligatoire ? 1 : 0); }
 
     // Encrypted fields
+    if (data.nationalId !== undefined && data.nationalId !== '') {
+      updates.push('national_id_encrypted = ?');
+      params.push(await encrypt(data.nationalId, encryptionKey));
+      updates.push('national_id_hash = ?');
+      params.push(await hashForIndex(data.nationalId, encryptionKey));
+    }
     if (data.phone !== undefined) {
       updates.push('phone_encrypted = ?');
       params.push(data.phone ? await encrypt(data.phone, encryptionKey) : null);
@@ -1396,7 +1543,7 @@ adherents.put(
  */
 adherents.post(
   '/import',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
   zValidator('json', adherentImportSchema, (result, c) => {
     if (!result.success) {
       const errors = result.error.errors.map((e) => ({ path: e.path.join('.'), message: e.message }));
@@ -1405,9 +1552,20 @@ adherents.post(
     }
   }),
   async (c) => {
-    const { adherents: rows, skipDuplicates, companyId } = c.req.valid('json');
+    const validated = c.req.valid('json');
     const user = c.get('user');
     const encryptionKey = getEncryptionKey(c);
+
+    // HR: force company_id to own company
+    let companyId = validated.companyId;
+    if (user.role === 'HR') {
+      if (!user.companyId) {
+        return c.json({ success: false, error: { code: 'NO_COMPANY', message: 'Votre compte n\'est associé à aucune entreprise' } }, 403);
+      }
+      companyId = user.companyId;
+    }
+
+    const { adherents: rows, skipDuplicates } = validated;
 
     console.log(`[adherent-import] Starting import: ${rows.length} rows, skipDuplicates=${skipDuplicates}, companyId=${companyId}`);
 
@@ -1450,42 +1608,69 @@ adherents.post(
         const encryptedPhone = row.phone ? await encrypt(row.phone, encryptionKey) : null;
         const encryptedRib = row.rib ? await encrypt(row.rib, encryptionKey) : null;
 
-        await getDb(c).prepare(
-          `INSERT INTO adherents (
-            id, national_id_encrypted, national_id_hash, first_name, last_name,
-            date_of_birth, gender, phone_encrypted, email, address, city,
-            company_id, matricule, code_type, rang_pres, code_situation_fam,
-            date_debut_adhesion, date_fin_adhesion, date_mariage,
-            rib_encrypted, postal_code, handicap, maladie_chronique,
-            is_active, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`
-        )
-          .bind(
-            id,
-            encryptedNationalId,
-            nationalIdHash,
-            row.firstName,
-            row.lastName,
-            row.dateOfBirth,
-            row.gender || null,
-            encryptedPhone,
-            row.email || null,
-            row.address || null,
-            row.city || null,
-            companyId || null,
-            row.matricule || null,
-            row.memberType || 'A',
-            row.rang ? Number(row.rang) : 0,
-            row.maritalStatus || null,
-            row.dateDebutAdhesion || null,
-            row.dateFinAdhesion || null,
-            row.dateMarriage || null,
-            encryptedRib,
-            row.postalCode || null,
-            row.handicap ? 1 : 0,
-            row.chronicDisease ? 1 : 0
+        try {
+          await getDb(c).prepare(
+            `INSERT INTO adherents (
+              id, national_id_encrypted, national_id_hash, first_name, last_name,
+              date_of_birth, gender, phone_encrypted, email, address, city,
+              company_id, matricule, code_type, rang_pres, code_situation_fam,
+              date_debut_adhesion, date_fin_adhesion, date_mariage,
+              rib_encrypted, postal_code, handicap, maladie_chronique,
+              is_active, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`
           )
-          .run();
+            .bind(
+              id,
+              encryptedNationalId,
+              nationalIdHash,
+              row.firstName,
+              row.lastName,
+              row.dateOfBirth,
+              row.gender || null,
+              encryptedPhone,
+              row.email || null,
+              row.address || null,
+              row.city || null,
+              companyId || null,
+              row.matricule || null,
+              row.memberType || 'A',
+              row.rang ? Number(row.rang) : 0,
+              row.maritalStatus || null,
+              row.dateDebutAdhesion || null,
+              row.dateFinAdhesion || null,
+              row.dateMarriage || null,
+              encryptedRib,
+              row.postalCode || null,
+              row.handicap ? 1 : 0,
+              row.chronicDisease ? 1 : 0
+            )
+            .run();
+        } catch {
+          // Fallback: minimal INSERT for tenants missing some columns
+          await getDb(c).prepare(
+            `INSERT INTO adherents (
+              id, national_id_encrypted, national_id_hash, first_name, last_name,
+              date_of_birth, gender, phone_encrypted, email, address, city,
+              company_id, matricule, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+          )
+            .bind(
+              id,
+              encryptedNationalId,
+              nationalIdHash,
+              row.firstName,
+              row.lastName,
+              row.dateOfBirth,
+              row.gender || null,
+              encryptedPhone,
+              row.email || null,
+              row.address || null,
+              row.city || null,
+              companyId || null,
+              row.matricule || null
+            )
+            .run();
+        }
 
         results.success++;
         console.log(`[adherent-import] Row ${i + 1}: SUCCESS (id=${id})`);
@@ -1524,9 +1709,20 @@ adherents.post(
  * DELETE /api/v1/adherents/:id
  * Soft delete an adherent
  */
-adherents.delete('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
+adherents.delete('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'), async (c) => {
   const id = c.req.param('id');
   const user = c.get('user');
+
+  // HR: verify company ownership before deletion
+  if (user.role === 'HR') {
+    if (!user.companyId) {
+      return c.json({ success: false, error: { code: 'NO_COMPANY', message: 'Votre compte n\'est associé à aucune entreprise' } }, 403);
+    }
+    const adherentCheck = await getDb(c).prepare('SELECT company_id FROM adherents WHERE id = ? AND deleted_at IS NULL').bind(id).first<{ company_id: string | null }>();
+    if (!adherentCheck || adherentCheck.company_id !== user.companyId) {
+      return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Cet adhérent n\'appartient pas à votre entreprise' } }, 403);
+    }
+  }
 
   const deleted = await softDeleteAdherent(getDb(c), id);
 
@@ -1551,7 +1747,7 @@ adherents.delete('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
  * POST /api/v1/adherents/bulk-delete
  * Soft delete multiple adherents
  */
-adherents.post('/bulk-delete', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
+adherents.post('/bulk-delete', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'), async (c) => {
   const user = c.get('user');
   const db = getDb(c);
   const body = await c.req.json<{ ids: string[] }>();
@@ -1563,6 +1759,22 @@ adherents.post('/bulk-delete', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AG
 
   if (ids.length > 100) {
     return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Maximum 100 adhérents à la fois' } }, 400);
+  }
+
+  // HR: verify all adherents belong to their company
+  if (user.role === 'HR') {
+    if (!user.companyId) {
+      return c.json({ success: false, error: { code: 'NO_COMPANY', message: 'Votre compte n\'est associé à aucune entreprise' } }, 403);
+    }
+    const placeholdersCheck = ids.map(() => '?').join(',');
+    const { results: checkResults } = await db
+      .prepare(`SELECT id, company_id FROM adherents WHERE id IN (${placeholdersCheck}) AND deleted_at IS NULL`)
+      .bind(...ids)
+      .all<{ id: string; company_id: string | null }>();
+    const unauthorized = (checkResults || []).filter((r) => r.company_id !== user.companyId);
+    if (unauthorized.length > 0) {
+      return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Certains adhérents n\'appartiennent pas à votre entreprise' } }, 403);
+    }
   }
 
   try {

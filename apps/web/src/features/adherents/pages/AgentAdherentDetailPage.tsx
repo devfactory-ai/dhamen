@@ -29,6 +29,7 @@ import {
 import { useAdherentFamille } from '@/features/agent/hooks/use-adherent-famille';
 import { apiClient } from '@/lib/api-client';
 import { useQuery } from '@tanstack/react-query';
+import { usePermissions } from '@/hooks/usePermissions';
 
 // --- Constants ---
 
@@ -57,6 +58,7 @@ interface AdherentDetail {
   address: string | null;
   companyId: string | null;
   companyName: string | null;
+  contractNumber: string | null;
   plafondGlobal: number | null;
   plafondConsomme: number | null;
   isActive: boolean;
@@ -99,6 +101,7 @@ function useAdherentDetail(id: string) {
         address: (d.address as string) || null,
         companyId: (d.companyId as string) || null,
         companyName: (d.companyName as string) || null,
+        contractNumber: (d.contractNumber as string) || null,
         plafondGlobal: d.plafondGlobal != null ? Number(d.plafondGlobal) : null,
         plafondConsomme: d.plafondConsomme != null ? Number(d.plafondConsomme) : null,
         isActive: !!d.isActive,
@@ -183,6 +186,9 @@ export default function AgentAdherentDetailPage() {
   const { data: adherent, isLoading, error } = useAdherentDetail(id!);
   const { data: famille } = useAdherentFamille(id);
   const deleteMutation = useDeleteAdherent();
+  const { hasPermission } = usePermissions();
+  const canUpdate = hasPermission('adherents', 'update');
+  const canDelete = hasPermission('adherents', 'delete');
 
   if (isLoading) {
     return (
@@ -272,19 +278,23 @@ export default function AgentAdherentDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => navigate(`/adherents/agent/${id}/edit`)}
-          >
-            <Pencil className="w-4 h-4 mr-2" /> Modifier
-          </Button>
-          <Button
-            variant="outline"
-            className="text-red-600 border-red-200 hover:bg-red-50"
-            onClick={() => setDeleteConfirm(true)}
-          >
-            <Trash2 className="w-4 h-4 mr-2" /> Supprimer
-          </Button>
+          {canUpdate && (
+            <Button
+              variant="outline"
+              onClick={() => navigate(`/adherents/agent/${id}/edit`)}
+            >
+              <Pencil className="w-4 h-4 mr-2" /> Modifier
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="outline"
+              className="text-red-600 border-red-200 hover:bg-red-50"
+              onClick={() => setDeleteConfirm(true)}
+            >
+              <Trash2 className="w-4 h-4 mr-2" /> Supprimer
+            </Button>
+          )}
         </div>
       </div>
 
@@ -337,10 +347,19 @@ export default function AgentAdherentDetailPage() {
             </div>
           </div>
 
-          {/* Entreprise */}
+          {/* Entreprise & Contrat */}
           <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-            <h3 className="text-sm font-semibold text-gray-700 mb-2">Entreprise</h3>
-            <p className="text-sm font-medium">{adherent.companyName || '—'}</p>
+            <h3 className="text-sm font-semibold text-gray-700 mb-4">Entreprise & Contrat</h3>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-gray-500">Entreprise</span>
+                <p className="font-medium">{adherent.companyName || '—'}</p>
+              </div>
+              <div>
+                <span className="text-gray-500">N° Contrat</span>
+                <p className="font-medium font-mono">{adherent.contractNumber || '—'}</p>
+              </div>
+            </div>
           </div>
 
           {/* Historique bulletins */}

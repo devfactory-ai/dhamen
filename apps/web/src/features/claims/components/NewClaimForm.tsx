@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useCreateClaim } from '../hooks/useClaims';
 import { useSearchAdherent } from '@/features/adherents/hooks/useAdherents';
 import { useToast } from '@/stores/toast';
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { apiClient } from '@/lib/api-client';
 
 interface NewClaimFormProps {
   onSuccess: () => void;
@@ -23,7 +26,7 @@ interface ClaimItem {
   unitPrice: number;
 }
 
-const SOIN_TYPES = [
+const DEFAULT_SOIN_TYPES = [
   { value: 'pharmacie', label: 'Pharmacie' },
   { value: 'consultation', label: 'Consultation' },
   { value: 'laboratoire', label: 'Laboratoire' },
@@ -34,11 +37,32 @@ const SOIN_TYPES = [
   { value: 'autre', label: 'Autre' },
 ];
 
+const PROVIDER_ROLES = ['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN'];
+
 export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
+  const { user } = useAuth();
+  const isProvider = user?.role ? PROVIDER_ROLES.includes(user.role) : false;
+
+  // Fetch role-specific care types for praticien roles
+  const { data: praticienTypes } = useQuery({
+    queryKey: ['praticien-types-soins'],
+    queryFn: async () => {
+      const response = await apiClient.get<Array<{ value: string; label: string }>>('/praticien/types-soins');
+      if (!response.success) return null;
+      return response.data;
+    },
+    enabled: isProvider,
+    staleTime: 300000,
+  });
+
+  const soinTypes = (isProvider && praticienTypes && praticienTypes.length > 0)
+    ? praticienTypes
+    : DEFAULT_SOIN_TYPES;
+
   const [searchNationalId, setSearchNationalId] = useState('');
   const [items, setItems] = useState<ClaimItem[]>([]);
   const [newItem, setNewItem] = useState<Omit<ClaimItem, 'id'>>({ code: '', description: '', quantity: 1, unitPrice: 0 });
-  const [typeSoin, setTypeSoin] = useState('pharmacie');
+  const [typeSoin, setTypeSoin] = useState(soinTypes[0]?.value || 'pharmacie');
   const { toast } = useToast();
 
   const { data: adherent, isLoading: isSearching } = useSearchAdherent(searchNationalId);
@@ -126,7 +150,7 @@ export function NewClaimForm({ onSuccess, onCancel }: NewClaimFormProps) {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {SOIN_TYPES.map((t) => (
+            {soinTypes.map((t) => (
               <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
             ))}
           </SelectContent>

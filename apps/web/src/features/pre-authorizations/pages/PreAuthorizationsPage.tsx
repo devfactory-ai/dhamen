@@ -28,6 +28,7 @@ import {
   getPreAuthStatusVariant,
 } from '../hooks/usePreAuthorizations';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { usePermissions } from '@/hooks/usePermissions';
 import {
   Clock,
   CheckCircle,
@@ -48,6 +49,10 @@ const PRIORITY_COLORS = {
 };
 
 export function PreAuthorizationsPage() {
+  const { hasPermission } = usePermissions();
+  const canApprove = hasPermission('claims', 'approve');
+  const canReject = hasPermission('claims', 'reject');
+
   const { user } = useAuth();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);

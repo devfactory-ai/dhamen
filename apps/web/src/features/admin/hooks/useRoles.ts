@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { refreshPermissions } from '@/lib/auth';
 
 interface RoleSummary {
   id: string;
@@ -88,6 +89,85 @@ export function useAssignRole() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['roles'] });
+    },
+  });
+}
+
+export function useUpdatePermissions() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ roleId, permissions, password }: { roleId: string; permissions: { resource: string; action: string; is_granted: boolean }[]; password?: string }) => {
+      const response = await apiClient.put<{ roleId: string; updated: number }>(
+        `/roles/${roleId}/permissions`,
+        { permissions, ...(password ? { password } : {}) }
+      );
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur lors de la mise à jour des permissions');
+      }
+      return response.data;
+    },
+    onSuccess: async (_, { roleId }) => {
+      queryClient.invalidateQueries({ queryKey: ['roles'] });
+      queryClient.invalidateQueries({ queryKey: ['roles', roleId, 'permissions'] });
+      // Refresh current user's permissions from server so changes apply immediately
+      await refreshPermissions();
+    },
+  });
+}
+
+export function useCreateRole() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { name: string; description: string; duplicateFromId?: string }) => {
+      const response = await apiClient.post<{ id: string; name: string }>('/roles', data);
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur lors de la création du rôle');
+      }
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['roles'] });
+    },
+  });
+}
+
+export function useDeleteRole() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (roleId: string) => {
+      const response = await apiClient.delete<{ roleId: string; deleted: boolean }>(
+        `/roles/${roleId}`
+      );
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur lors de la suppression du rôle');
+      }
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['roles'] });
+    },
+  });
+}
+
+export function useToggleRoleStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ roleId, isActive }: { roleId: string; isActive: boolean }) => {
+      const response = await apiClient.put<{ roleId: string; isActive: boolean; usersCount: number }>(
+        `/roles/${roleId}/statut`,
+        { isActive }
+      );
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Erreur lors du changement de statut');
+      }
+      return response.data;
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['roles'] });
     },
   });

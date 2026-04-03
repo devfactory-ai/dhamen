@@ -63,10 +63,15 @@ import {
   type VirtualCard,
 } from '../hooks/useCards';
 import { useToast } from '../../../stores/toast';
+import { usePermissions } from '@/hooks/usePermissions';
 
 type ConfirmAction = 'suspend' | 'revoke' | null;
 
 export default function CardsManagementPage() {
+  const { hasPermission } = usePermissions();
+  const canCreate = hasPermission('claims', 'create');
+  const canUpdate = hasPermission('claims', 'update');
+
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -226,12 +231,14 @@ export default function CardsManagementPage() {
         title="Gestion des cartes virtuelles"
         description="Gerez les cartes virtuelles des adhérents"
       >
-        <Button
-          className="gap-2 bg-slate-900 hover:bg-[#19355d]"
-          onClick={() => navigate('/cards/generate')}
-        >
-          <Plus className="w-4 h-4" /> Générer une carte
-        </Button>
+        {canCreate && (
+          <Button
+            className="gap-2 bg-slate-900 hover:bg-[#19355d]"
+            onClick={() => navigate('/cards/generate')}
+          >
+            <Plus className="w-4 h-4" /> Générer une carte
+          </Button>
+        )}
       </PageHeader>
 
       {/* Stats */}
@@ -336,43 +343,47 @@ export default function CardsManagementPage() {
                             <Eye className="mr-2 h-4 w-4" />
                             Voir details
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          {card.status === 'active' && (
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setSelectedCard(card);
-                                setConfirmAction('suspend');
-                              }}
-                            >
-                              <PauseCircle className="mr-2 h-4 w-4" />
-                              Suspendre
-                            </DropdownMenuItem>
-                          )}
-                          {card.status === 'suspended' && (
-                            <DropdownMenuItem onClick={() => handleReactivateCard(card)}>
-                              <CheckCircle className="mr-2 h-4 w-4" />
-                              Réactiver
-                            </DropdownMenuItem>
-                          )}
-                          {card.status === 'active' && (
-                            <DropdownMenuItem onClick={() => handleRenewCard(card)}>
-                              <RefreshCw className="mr-2 h-4 w-4" />
-                              Renouveler
-                            </DropdownMenuItem>
-                          )}
-                          {card.status !== 'revoked' && (
+                          {canUpdate && (
                             <>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="text-red-600"
-                                onClick={() => {
-                                  setSelectedCard(card);
-                                  setConfirmAction('revoke');
-                                }}
-                              >
-                                <XCircle className="mr-2 h-4 w-4" />
-                                Revoquer
-                              </DropdownMenuItem>
+                              {card.status === 'active' && (
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setSelectedCard(card);
+                                    setConfirmAction('suspend');
+                                  }}
+                                >
+                                  <PauseCircle className="mr-2 h-4 w-4" />
+                                  Suspendre
+                                </DropdownMenuItem>
+                              )}
+                              {card.status === 'suspended' && (
+                                <DropdownMenuItem onClick={() => handleReactivateCard(card)}>
+                                  <CheckCircle className="mr-2 h-4 w-4" />
+                                  Réactiver
+                                </DropdownMenuItem>
+                              )}
+                              {card.status === 'active' && (
+                                <DropdownMenuItem onClick={() => handleRenewCard(card)}>
+                                  <RefreshCw className="mr-2 h-4 w-4" />
+                                  Renouveler
+                                </DropdownMenuItem>
+                              )}
+                              {card.status !== 'revoked' && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-red-600"
+                                    onClick={() => {
+                                      setSelectedCard(card);
+                                      setConfirmAction('revoke');
+                                    }}
+                                  >
+                                    <XCircle className="mr-2 h-4 w-4" />
+                                    Revoquer
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                             </>
                           )}
                         </DropdownMenuContent>

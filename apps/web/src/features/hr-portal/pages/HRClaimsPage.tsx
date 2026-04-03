@@ -1,13 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Search, Download, Filter, CreditCard, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Download, CreditCard, Clock, CheckCircle, XCircle } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { DataTable } from '@/components/ui/data-table';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { usePermissions } from '@/hooks/usePermissions';
 import { apiClient } from '@/lib/api-client';
 import { toCSV, downloadCSV, type ExportColumn } from '@/lib/export-utils';
 import { useToast } from '@/stores/toast';
@@ -27,27 +27,59 @@ interface Claim {
   processed_at: string | null;
 }
 
-interface ClaimStats {
-  total: number;
-  pending: number;
-  approved: number;
-  totalAmount: number;
+interface CompanyStats {
+  totalAdherents: number;
+  activeContracts: number;
+  totalClaims: number;
+  pendingClaims: number;
+  totalReimbursed: number;
+}
+
+function formatAmount(amount: number): string {
+  return (amount / 1000).toFixed(3) + ' TND';
 }
 
 export function HRClaimsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { hasPermission } = usePermissions();
+  const canRead = hasPermission('claims', 'read');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isExporting, setIsExporting] = useState(false);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const statusDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+        setStatusDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const { data: claims, isLoading } = useQuery({
     queryKey: ['hr-claims', user?.companyId],
     queryFn: async () => {
       if (!user?.companyId) return [];
-      const response = await apiClient.get<{ data: Claim[] }>(`/companies/${user.companyId}/claims`);
+      const response = await apiClient.get<Claim[]>(`/companies/${user.companyId}/claims`);
       if (!response.success) throw new Error(response.error?.message);
-      return response.data?.data || [];
+      return Array.isArray(response.data) ? response.data : [];
+    },
+    enabled: !!user?.companyId,
+  });
+
+  const { data: companyStats } = useQuery({
+    queryKey: ['hr-company-stats', user?.companyId],
+    queryFn: async () => {
+      if (!user?.companyId) return null;
+      const response = await apiClient.get<CompanyStats>(`/companies/${user.companyId}/stats`);
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
     },
     enabled: !!user?.companyId,
   });
@@ -63,12 +95,8 @@ export function HRClaimsPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const stats: ClaimStats = {
-    total: claims?.length || 0,
-    pending: claims?.filter(c => c.status === 'PENDING').length || 0,
-    approved: claims?.filter(c => c.status === 'APPROVED' || c.status === 'PAID').length || 0,
-    totalAmount: claims?.reduce((sum, c) => sum + c.covered_amount, 0) || 0,
-  };
+  const filteredTotal = filteredClaims?.length ?? 0;
+  const paginatedClaims = filteredClaims?.slice((page - 1) * pageSize, page * pageSize) ?? [];
 
   const getStatusBadge = (status: Claim['status']) => {
     switch (status) {
@@ -139,8 +167,8 @@ export function HRClaimsPage() {
       header: 'Montant',
       render: (claim: Claim) => (
         <div>
-          <p className="font-medium">{claim.covered_amount.toLocaleString()} TND</p>
-          <p className="text-sm text-muted-foreground">sur {claim.amount.toLocaleString()} TND</p>
+          <p className="font-medium">{formatAmount(claim.covered_amount)}</p>
+          <p className="text-sm text-muted-foreground">sur {formatAmount(claim.amount)}</p>
         </div>
       ),
     },
@@ -164,10 +192,12 @@ export function HRClaimsPage() {
           title="Suivi des remboursements"
           description="Consultez les demandes de remboursement de vos salaries"
         />
-        <Button variant="outline" onClick={handleExport} disabled={isExporting}>
-          <Download className="mr-2 h-4 w-4" />
-          {isExporting ? 'Export...' : 'Exporter CSV'}
-        </Button>
+        {canRead && (
+          <Button variant="outline" onClick={handleExport} disabled={isExporting}>
+            <Download className="mr-2 h-4 w-4" />
+            {isExporting ? 'Export...' : 'Exporter CSV'}
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -178,7 +208,7 @@ export function HRClaimsPage() {
             <CreditCard className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
+            <div className="text-2xl font-bold">{companyStats?.totalClaims ?? 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -187,7 +217,7 @@ export function HRClaimsPage() {
             <Clock className="h-4 w-4 text-orange-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{stats.pending}</div>
+            <div className="text-2xl font-bold text-orange-600">{companyStats?.pendingClaims ?? 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -196,51 +226,122 @@ export function HRClaimsPage() {
             <CheckCircle className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.approved}</div>
+            <div className="text-2xl font-bold text-green-600">{(companyStats?.totalClaims ?? 0) - (companyStats?.pendingClaims ?? 0)}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Montant total</CardTitle>
+            <CardTitle className="text-sm font-medium">Total remboursé</CardTitle>
             <CreditCard className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalAmount.toLocaleString()} TND</div>
+            <div className="text-2xl font-bold">{companyStats?.totalReimbursed ? formatAmount(companyStats.totalReimbursed) : '0 TND'}</div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Rechercher par adhérent, référence, praticien..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
+      {/* Filters bar + Total card */}
+      <div className="flex flex-col lg:flex-row items-stretch gap-4">
+        {/* Filters */}
+        <div className="flex-1 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+          <div className="flex flex-col sm:flex-row gap-2">
+            {/* Search */}
+            <div className="relative flex-1 min-w-0">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                <svg className="w-[18px] h-[18px] text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                placeholder="Rechercher par adhérent, référence, praticien..."
+                value={searchTerm}
+                onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
+                className="w-full h-11 pl-11 pr-10 rounded-xl bg-[#f3f4f5] text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all"
+              />
+              {searchTerm && (
+                <button type="button" onClick={() => { setSearchTerm(""); setPage(1); }} className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+
+            {/* Statut dropdown */}
+            <div className="relative shrink-0" ref={statusDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                className="flex items-center gap-2 w-full sm:w-auto px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
+              >
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Statut</span>
+                <span className="text-sm font-medium text-gray-900">
+                  {statusFilter === "all" ? "Tous" : statusFilter === "PENDING" ? "En attente" : statusFilter === "APPROVED" ? "Approuvé" : statusFilter === "PAID" ? "Payé" : "Rejeté"}
+                </span>
+                <svg className={`w-3.5 h-3.5 text-gray-400 ml-auto sm:ml-1 transition-transform ${statusDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+                </svg>
+              </button>
+              {statusDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1 w-full sm:w-48 py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50">
+                  {([
+                    { value: "all" as const, label: "Tous", color: null },
+                    { value: "PENDING" as const, label: "En attente", color: "bg-amber-400" },
+                    { value: "APPROVED" as const, label: "Approuvé", color: "bg-emerald-500" },
+                    { value: "PAID" as const, label: "Payé", color: "bg-blue-500" },
+                    { value: "REJECTED" as const, label: "Rejeté", color: "bg-red-400" },
+                  ]).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => { setStatusFilter(opt.value); setStatusDropdownOpen(false); setPage(1); }}
+                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${statusFilter === opt.value ? "text-blue-600 font-semibold bg-blue-50/50" : "text-gray-700"}`}
+                    >
+                      {opt.color && <span className={`w-2 h-2 rounded-full ${opt.color}`} />}
+                      {opt.label}
+                      {statusFilter === opt.value && (
+                        <svg className="w-4 h-4 ml-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />
+                        </svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-4 py-2 border rounded-lg bg-white"
-        >
-          <option value="all">Tous les statuts</option>
-          <option value="PENDING">En attente</option>
-          <option value="APPROVED">Approuvé</option>
-          <option value="PAID">Payé</option>
-          <option value="REJECTED">Rejeté</option>
-        </select>
+
+        {/* Total card */}
+        <div className="flex items-center gap-4 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 px-6 py-4 lg:py-0 text-white shadow-sm shrink-0">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-white">
+              Total Demandes
+            </p>
+            <p className="text-2xl font-bold">
+              {(companyStats?.totalClaims ?? 0).toLocaleString("fr-TN")}
+            </p>
+          </div>
+          <CreditCard className="w-8 h-8 text-white ml-auto" />
+        </div>
       </div>
 
       {/* Claims Table */}
-      <DataTable
-        columns={columns}
-        data={filteredClaims || []}
-        isLoading={isLoading}
-        emptyMessage="Aucune demande de remboursement"
-      />
+      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+        <DataTable
+          columns={columns}
+          data={paginatedClaims}
+          isLoading={isLoading}
+          emptyMessage="Aucune demande de remboursement"
+          pagination={{
+            page,
+            limit: pageSize,
+            total: filteredTotal,
+            onPageChange: setPage,
+          }}
+        />
+      </div>
     </div>
     </NoEntrepriseGuard>
   );

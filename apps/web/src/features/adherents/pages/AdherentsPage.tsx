@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, Plus, Download } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Upload, Plus, Download, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +21,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Adherent, useAdherents, useDeleteAdherent } from '../hooks/useAdherents';
 import { useToast } from '@/stores/toast';
+import { usePermissions } from '@/hooks/usePermissions';
 
 const RELATIONSHIP_LABELS = {
   PRIMARY: 'Titulaire',
@@ -35,14 +37,62 @@ const GENDER_LABELS = {
 
 export function AdherentsPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<Adherent | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const { toast } = useToast();
+
+  const { hasPermission } = usePermissions();
+  const canCreate = hasPermission('adherents', 'create');
+  const canUpdate = hasPermission('adherents', 'update');
+  const canDelete = hasPermission('adherents', 'delete');
+  const canRead = hasPermission('adherents', 'read');
 
   const { data, isLoading } = useAdherents(page, 20, search || undefined);
   const deleteAdherent = useDeleteAdherent();
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) => apiClient.post('/adherents/bulk-delete', { ids }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['adherents'] });
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
+      toast({ title: 'Adhérents supprimés avec succès', variant: 'success' });
+    },
+    onError: () => {
+      toast({ title: 'Erreur lors de la suppression groupée', description: 'Veuillez réessayer', variant: 'destructive' });
+    },
+  });
+
+  const currentRows = (data?.data as Adherent[]) || [];
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === currentRows.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(currentRows.map((a) => a.id)));
+    }
+  };
+
+  const handleBulkDelete = () => {
+    bulkDeleteMutation.mutate(Array.from(selectedIds));
+  };
 
   const exportColumns: ExportColumn<Adherent>[] = [
     { key: 'nationalId', header: 'CIN' },
@@ -97,6 +147,36 @@ export function AdherentsPage() {
   };
 
   const columns = [
+    ...(canDelete
+      ? [
+          {
+            key: 'select',
+            header: currentRows.length > 0 ? (
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300"
+                checked={selectedIds.size === currentRows.length}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  e.stopPropagation();
+                  toggleSelectAll();
+                }}
+              />
+            ) : null,
+            render: (row: Adherent) => (
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300"
+                checked={selectedIds.has(row.id)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  e.stopPropagation();
+                  toggleSelect(row.id);
+                }}
+                onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              />
+            ),
+          },
+        ]
+      : []),
     {
       key: 'member',
       header: 'Adhérent',
@@ -154,21 +234,36 @@ export function AdherentsPage() {
       className: 'text-right',
       render: (adherent: Adherent) => (
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => navigate(`/adherents/${adherent.id}/edit`)}>
-            Modifier
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={() => setDeleteConfirm(adherent)}
-          >
-            Supprimer
-          </Button>
+          {canUpdate && (
+            <Button variant="ghost" size="sm" onClick={() => navigate(`/adherents/${adherent.id}/edit`)}>
+              Modifier
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setDeleteConfirm(adherent)}
+            >
+              Supprimer
+            </Button>
+          )}
         </div>
       ),
     },
   ];
+
+  if (!canRead) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-lg font-medium text-gray-900">Acces refuse</p>
+          <p className="text-sm text-gray-500 mt-1">Vous n'avez pas la permission de consulter cette page.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -178,6 +273,17 @@ export function AdherentsPage() {
           description="Gérer les adhérents et leurs ayants droit"
         />
         <div className="flex flex-wrap gap-2">
+          {canDelete && selectedIds.size > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-red-600 border-red-200 hover:bg-red-50"
+              onClick={() => setBulkDeleteConfirm(true)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Supprimer ({selectedIds.size})
+            </Button>
+          )}
           <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
             <Download className="mr-2 h-4 w-4" />
             {isExporting ? 'Export...' : 'Exporter'}
@@ -186,9 +292,11 @@ export function AdherentsPage() {
             <Upload className="mr-2 h-4 w-4" />
             Import CSV
           </Button>
-          <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => navigate('/adhérents/new')}>
-            <Plus className="w-4 h-4" /> Nouvel adhérent
-          </Button>
+          {canCreate && (
+            <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => navigate('/adhérents/new')}>
+              <Plus className="w-4 h-4" /> Nouvel adhérent
+            </Button>
+          )}
         </div>
       </div>
 
@@ -204,7 +312,7 @@ export function AdherentsPage() {
 
       <DataTable
         columns={columns}
-        data={(data?.data as Adherent[]) || []}
+        data={currentRows}
         isLoading={isLoading}
         emptyMessage="Aucun adhérent trouvé"
         pagination={
@@ -237,6 +345,28 @@ export function AdherentsPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteAdherent.isPending ? 'Suppression...' : 'Supprimer'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={bulkDeleteConfirm} onOpenChange={() => setBulkDeleteConfirm(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la suppression groupée</AlertDialogTitle>
+            <AlertDialogDescription>
+              Êtes-vous sûr de vouloir supprimer <strong>{selectedIds.size} adhérent(s)</strong> ?
+              Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkDeleteMutation.isPending ? 'Suppression...' : `Supprimer (${selectedIds.size})`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

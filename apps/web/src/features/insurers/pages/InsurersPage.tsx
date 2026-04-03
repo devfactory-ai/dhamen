@@ -1,7 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Download } from 'lucide-react';
-import { PageHeader } from '@/components/ui/page-header';
+import { Plus, Download, Trash2 } from 'lucide-react';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,6 +18,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useInsurers, useDeleteInsurer, useToggleInsurerStatus, type Insurer } from '../hooks/useInsurers';
 import { useToast } from '@/stores/toast';
+import { usePermissions } from '@/hooks/usePermissions';
 
 const INSURER_TYPES: Record<string, { label: string; color: string }> = {
   INSURANCE: { label: 'Assurance', color: 'bg-blue-100 text-blue-800' },
@@ -33,13 +33,68 @@ const INSURER_TYPES: Record<string, { label: string; color: string }> = {
 export function InsurersPage() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<Insurer | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const { toast } = useToast();
+  const { hasPermission } = usePermissions();
+  const canRead = hasPermission('insurers', 'read');
+  const canCreate = hasPermission('insurers', 'create');
+  const canUpdate = hasPermission('insurers', 'update');
+  const canDelete = hasPermission('insurers', 'delete');
+  const canExport = hasPermission('insurers', 'list');
 
   const { data, isLoading } = useInsurers(page);
   const deleteInsurer = useDeleteInsurer();
   const toggleStatus = useToggleInsurerStatus();
+
+  const filteredInsurers = useMemo(() => {
+    const all = data?.insurers || [];
+    if (!search.trim()) return all;
+    const q = search.toLowerCase();
+    return all.filter((i) =>
+      i.name?.toLowerCase().includes(q) ||
+      i.code?.toLowerCase().includes(q) ||
+      i.city?.toLowerCase().includes(q) ||
+      i.email?.toLowerCase().includes(q) ||
+      i.phone?.toLowerCase().includes(q)
+    );
+  }, [data?.insurers, search]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredInsurers.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredInsurers.map((i) => i.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    try {
+      for (const id of selectedIds) {
+        await deleteInsurer.mutateAsync(id);
+      }
+      toast({ title: `${selectedIds.size} assureur(s) supprimé(s) avec succès`, variant: 'success' });
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
+    } catch {
+      toast({ title: 'Erreur lors de la suppression groupée', description: 'Veuillez réessayer', variant: 'destructive' });
+    }
+  };
 
   const exportColumns: ExportColumn<Insurer>[] = [
     { key: 'code', header: 'Code' },
@@ -92,6 +147,26 @@ export function InsurersPage() {
   };
 
   const columns = [
+    ...(canDelete ? [{
+      key: 'select',
+      header: filteredInsurers.length > 0 ? (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-gray-300"
+          checked={selectedIds.size === filteredInsurers.length}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => { e.stopPropagation(); toggleSelectAll(); }}
+        />
+      ) : null,
+      render: (insurer: Insurer) => (
+        <input
+          type="checkbox"
+          className="h-4 w-4 rounded border-gray-300"
+          checked={selectedIds.has(insurer.id)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => { e.stopPropagation(); toggleSelect(insurer.id); }}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        />
+      ),
+    }] : []),
     {
       key: 'name',
       header: 'Compagnie',
@@ -129,7 +204,7 @@ export function InsurersPage() {
             <div>
               <span className="font-mono text-sm">{insurer.matriculeFiscal}</span>
               {!insurer.matriculeValide && (
-                <p className="text-xs text-amber-600 mt-0.5">⚠ MF invalide</p>
+                <p className="text-xs text-amber-600 mt-0.5">MF invalide</p>
               )}
             </div>
           ) : (
@@ -147,7 +222,7 @@ export function InsurersPage() {
             <div>
               <span className="text-sm">{new Date(insurer.dateFinConvention).toLocaleDateString('fr-TN')}</span>
               {insurer.conventionExpireBientot && (
-                <p className="text-xs text-amber-600 mt-0.5">⚠ Expire bientôt</p>
+                <p className="text-xs text-amber-600 mt-0.5">Expire bientot</p>
               )}
             </div>
           ) : (
@@ -181,64 +256,126 @@ export function InsurersPage() {
       className: 'text-right',
       render: (insurer: Insurer) => (
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={() => navigate(`/insurers/${insurer.id}/edit`)}>
-            Modifier
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleToggleStatus(insurer)}
-            disabled={toggleStatus.isPending}
-          >
-            {insurer.isActive ? 'Suspendre' : 'Activer'}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={() => setDeleteConfirm(insurer)}
-          >
-            Supprimer
-          </Button>
+          {canUpdate && (
+            <Button variant="ghost" size="sm" onClick={() => navigate(`/insurers/${insurer.id}/edit`)}>
+              Modifier
+            </Button>
+          )}
+          {canUpdate && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleToggleStatus(insurer)}
+              disabled={toggleStatus.isPending}
+            >
+              {insurer.isActive ? 'Suspendre' : 'Activer'}
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setDeleteConfirm(insurer)}
+            >
+              Supprimer
+            </Button>
+          )}
         </div>
       ),
     },
   ];
 
+  if (!canRead) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-lg font-medium text-gray-900">Accès refusé</p>
+          <p className="text-sm text-gray-500 mt-1">Vous n'avez pas la permission de consulter les compagnies partenaires.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <PageHeader
-          title="Compagnies Partenaires"
-          description="Gérer les organismes partenaires et conventions de remboursement"
-        />
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
-            <Download className="mr-2 h-4 w-4" />
-            {isExporting ? 'Export...' : 'Exporter'}
-          </Button>
-          <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => navigate('/insurers/new')}>
-            <Plus className="w-4 h-4" /> Nouvelle compagnie
-          </Button>
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Compagnies Partenaires</h1>
+          <p className="mt-1 text-sm text-gray-500">Gérer les organismes partenaires et conventions de remboursement</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {canDelete && selectedIds.size > 0 && (
+            <Button
+              variant="outline"
+              className="text-destructive border-destructive hover:bg-destructive/10"
+              onClick={() => setBulkDeleteConfirm(true)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Supprimer ({selectedIds.size})
+            </Button>
+          )}
+          {canExport && (
+            <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
+              <Download className="mr-2 h-4 w-4" />
+              {isExporting ? 'Export...' : 'Exporter'}
+            </Button>
+          )}
+          {canCreate && (
+            <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => navigate('/insurers/new')}>
+              <Plus className="w-4 h-4" /> Nouvelle compagnie
+            </Button>
+          )}
         </div>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={data?.insurers || []}
-        isLoading={isLoading}
-        emptyMessage="Aucune compagnie partenaire enregistrée"
-        pagination={
-          data
-            ? {
-                page,
-                limit: 20,
-                total: data.total,
-                onPageChange: setPage,
-              }
-            : undefined
-        }
-      />
+      {/* Filter bar */}
+      <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1 min-w-0">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <svg className="w-[18px] h-[18px] text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              placeholder="Rechercher par nom, code, ville..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full h-11 pl-11 pr-10 rounded-xl bg-[#f3f4f5] text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch('')} className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+        <DataTable
+          columns={columns}
+          data={filteredInsurers}
+          isLoading={isLoading}
+          emptyMessage="Aucune compagnie partenaire enregistrée"
+          pagination={
+            data
+              ? {
+                  page,
+                  limit: 20,
+                  total: data.total,
+                  onPageChange: setPage,
+                }
+              : undefined
+          }
+        />
+      </div>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>
@@ -258,6 +395,29 @@ export function InsurersPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteInsurer.isPending ? 'Suppression...' : 'Supprimer'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={bulkDeleteConfirm} onOpenChange={() => setBulkDeleteConfirm(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmer la suppression groupée</AlertDialogTitle>
+            <AlertDialogDescription>
+              Êtes-vous sûr de vouloir supprimer{' '}
+              <strong>{selectedIds.size} assureur(s)</strong> ?
+              Cette action est irréversible et supprimera tous les contrats associés.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteInsurer.isPending ? 'Suppression...' : `Supprimer (${selectedIds.size})`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

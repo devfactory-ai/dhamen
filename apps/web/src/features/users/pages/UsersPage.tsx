@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, Plus, Download, Trash2, Pencil } from 'lucide-react';
+import { Upload, Plus, Download, Pencil, UserX, Trash2, Building2, Shield } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -18,9 +18,11 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useUsers, useDeleteUser, useBulkDeleteUsers } from '../hooks/useUsers';
-import { ROLE_LABELS } from '@dhamen/shared';
+import { PermissionsDrawer } from '../components/PermissionsDrawer';
+import { ROLE_LABELS, VISIBLE_ROLE_LABELS } from '@dhamen/shared';
 import type { Role, UserPublic } from '@dhamen/shared';
 import { useToast } from '@/stores/toast';
+import { usePermissions } from '@/hooks/usePermissions';
 
 const ROLE_BADGE_COLORS: Partial<Record<Role, string>> = {
   ADMIN: 'bg-red-100 text-red-700 border-red-200',
@@ -36,27 +38,39 @@ export function UsersPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const roleDropdownRef = useRef<HTMLDivElement>(null);
+  const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<UserPublic | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [permissionsUserId, setPermissionsUserId] = useState<string | null>(null);
   const { toast } = useToast();
+  const { hasPermission } = usePermissions();
+  const canCreate = hasPermission('users', 'create');
+  const canUpdate = hasPermission('users', 'update');
+  const canDelete = hasPermission('users', 'delete');
+  const canRead = hasPermission('users', 'read');
 
-  // Close role dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
-    if (!roleDropdownOpen) return;
+    if (!roleDropdownOpen && !statusDropdownOpen) return;
     function handleClickOutside(e: MouseEvent) {
-      if (roleDropdownRef.current && !roleDropdownRef.current.contains(e.target as Node)) {
+      if (roleDropdownOpen && roleDropdownRef.current && !roleDropdownRef.current.contains(e.target as Node)) {
         setRoleDropdownOpen(false);
+      }
+      if (statusDropdownOpen && statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+        setStatusDropdownOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [roleDropdownOpen]);
+  }, [roleDropdownOpen, statusDropdownOpen]);
 
-  const { data, isLoading } = useUsers(page, 20, search || undefined, roleFilter || undefined);
+  const { data, isLoading } = useUsers(page, 20, search || undefined, roleFilter || undefined, statusFilter || undefined);
   const deleteUser = useDeleteUser();
   const bulkDelete = useBulkDeleteUsers();
 
@@ -84,6 +98,7 @@ export function UsersPage() {
     { key: 'firstName', header: 'Prénom' },
     { key: 'lastName', header: 'Nom' },
     { key: 'role', header: 'Role', format: (v) => ROLE_LABELS[v as keyof typeof ROLE_LABELS] || String(v) },
+    { key: 'companyName', header: 'Entreprise' },
     { key: 'phone', header: 'Téléphone' },
     { key: 'isActive', header: 'Actif', format: (v) => v ? 'Oui' : 'Non' },
   ];
@@ -105,27 +120,31 @@ export function UsersPage() {
     }
   };
 
-  const handleDelete = async () => {
+  const handleDeactivate = async () => {
     if (!deleteConfirm) return;
+    const isHardDelete = !deleteConfirm.isActive;
     try {
       await deleteUser.mutateAsync(deleteConfirm.id);
       setDeleteConfirm(null);
       selectedIds.delete(deleteConfirm.id);
       setSelectedIds(new Set(selectedIds));
-      toast({ title: 'Utilisateur supprimé avec succès', variant: 'success' });
+      toast({ title: isHardDelete ? 'Compte supprimé avec succès' : 'Compte désactivé avec succès', variant: 'success' });
     } catch {
-      toast({ title: 'Erreur lors de la suppression', variant: 'destructive' });
+      toast({ title: isHardDelete ? 'Erreur lors de la suppression' : 'Erreur lors de la désactivation', variant: 'destructive' });
     }
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDeactivate = async () => {
     try {
       const result = await bulkDelete.mutateAsync(Array.from(selectedIds));
-      toast({ title: `${result?.deleted ?? selectedIds.size} utilisateur(s) supprimé(s)`, variant: 'success' });
+      const msg = result?.hardDeleted
+        ? `${result.hardDeleted} supprimé(s), ${result.deactivated} désactivé(s)`
+        : `${result?.deleted ?? selectedIds.size} compte(s) désactivé(s)`;
+      toast({ title: msg, variant: 'success' });
       setSelectedIds(new Set());
       setBulkDeleteConfirm(false);
     } catch {
-      toast({ title: 'Erreur lors de la suppression', variant: 'destructive' });
+      toast({ title: 'Erreur lors de l\'operation', variant: 'destructive' });
     }
   };
 
@@ -141,26 +160,26 @@ export function UsersPage() {
   }
 
   const columns = [
-    {
+    ...(canDelete ? [{
       key: 'select',
-      header: (
+      header: users.length > 0 ? (
         <input
           type="checkbox"
-          checked={users.length > 0 && selectedIds.size === users.length}
+          checked={selectedIds.size === users.length}
           onChange={toggleSelectAll}
           className="h-4 w-4 rounded border-gray-300"
         />
-      ),
+      ) : null,
       render: (user: UserPublic) => (
         <input
           type="checkbox"
           checked={selectedIds.has(user.id)}
-          onChange={(e) => { e.stopPropagation(); toggleSelect(user.id); }}
-          onClick={(e) => e.stopPropagation()}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => { e.stopPropagation(); toggleSelect(user.id); }}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
           className="h-4 w-4 rounded border-gray-300"
         />
       ),
-    },
+    }] : []),
     {
       key: 'name',
       header: 'Utilisateur',
@@ -189,19 +208,29 @@ export function UsersPage() {
       ),
     },
     {
-      key: 'phone',
-      header: 'Téléphone',
+      key: 'entreprise',
+      header: 'Entreprise',
       render: (user: UserPublic) => (
-        <span className="text-sm text-gray-600">{user.phone || '—'}</span>
+        user.companyName ? (
+          <div className="flex items-center gap-1.5">
+            <Building2 className="w-3.5 h-3.5 text-gray-400" />
+            <span className="text-sm text-gray-700">{user.companyName}</span>
+          </div>
+        ) : (
+          <span className="text-sm text-gray-400">—</span>
+        )
       ),
     },
     {
       key: 'status',
       header: 'Statut',
       render: (user: UserPublic) => (
-        <Badge variant={user.isActive ? 'success' : 'destructive'}>
-          {user.isActive ? 'Actif' : 'Inactif'}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <span className={`inline-block h-2 w-2 rounded-full ${user.isActive ? 'bg-green-500' : 'bg-red-400'}`} />
+          <span className={`text-sm font-medium ${user.isActive ? 'text-green-700' : 'text-red-600'}`}>
+            {user.isActive ? 'Actif' : 'Désactivé'}
+          </span>
+        </div>
       ),
     },
     {
@@ -209,17 +238,42 @@ export function UsersPage() {
       header: 'Actions',
       render: (user: UserPublic) => (
         <div className="flex gap-1">
-          <Button size="sm" variant="ghost" onClick={() => navigate(`/users/${user.id}/edit`)}>
-            <Pencil className="w-4 h-4" />
-          </Button>
+          {canUpdate && (
+            <Button size="sm" variant="ghost" onClick={() => navigate(`/users/${user.id}/edit`)}>
+              <Pencil className="w-4 h-4" />
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
-            className="text-red-500 hover:text-red-700"
-            onClick={() => setDeleteConfirm(user)}
+            className="text-indigo-500 hover:text-indigo-700"
+            onClick={() => setPermissionsUserId(user.id)}
+            title="Permissions individuelles"
           >
-            <Trash2 className="w-4 h-4" />
+            <Shield className="w-4 h-4" />
           </Button>
+          {canDelete && user.isActive && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-orange-500 hover:text-orange-700"
+              onClick={() => setDeleteConfirm(user)}
+              title="Désactiver le compte"
+            >
+              <UserX className="w-4 h-4" />
+            </Button>
+          )}
+          {canDelete && !user.isActive && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-red-500 hover:text-red-700"
+              onClick={() => setDeleteConfirm(user)}
+              title="Supprimer l'utilisateur"
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       ),
     },
@@ -228,8 +282,19 @@ export function UsersPage() {
   // Role filter options
   const roleOptions: { value: string; label: string }[] = [
     { value: '', label: 'Tous les rôles' },
-    ...Object.entries(ROLE_LABELS).map(([value, label]) => ({ value, label })),
+    ...Object.entries(VISIBLE_ROLE_LABELS).map(([value, label]) => ({ value, label })),
   ];
+
+  if (!canRead) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-lg font-medium text-gray-900">Accès refusé</p>
+          <p className="text-sm text-gray-500 mt-1">Vous n'avez pas la permission de consulter cette page.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -240,17 +305,37 @@ export function UsersPage() {
           description="Gérer les utilisateurs de la plateforme"
         />
         <div className="flex items-center gap-2">
-          {selectedIds.size > 0 && (
-            <Button
-              variant="outline"
-              className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
-              onClick={() => setBulkDeleteConfirm(true)}
-              disabled={bulkDelete.isPending}
-            >
-              <Trash2 className="w-4 h-4" />
-              Supprimer ({selectedIds.size})
-            </Button>
-          )}
+          {canDelete && selectedIds.size > 0 && (() => {
+            const selectedUsers = users.filter((u) => selectedIds.has(u.id));
+            const allInactive = selectedUsers.every((u) => !u.isActive);
+            const someActive = selectedUsers.some((u) => u.isActive);
+            return (
+              <>
+                {someActive && (
+                  <Button
+                    variant="outline"
+                    className="gap-2 text-orange-600 border-orange-200 hover:bg-orange-50"
+                    onClick={() => setBulkDeleteConfirm(true)}
+                    disabled={bulkDelete.isPending}
+                  >
+                    <UserX className="w-4 h-4" />
+                    Désactiver ({selectedIds.size})
+                  </Button>
+                )}
+                {allInactive && (
+                  <Button
+                    variant="outline"
+                    className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
+                    onClick={() => setBulkDeleteConfirm(true)}
+                    disabled={bulkDelete.isPending}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Supprimer ({selectedIds.size})
+                  </Button>
+                )}
+              </>
+            );
+          })()}
           <Button
             variant="outline"
             onClick={handleExportCSV}
@@ -263,9 +348,11 @@ export function UsersPage() {
             <Upload className="mr-2 h-4 w-4" />
             Import CSV
           </Button>
-          <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => navigate("/users/new")}>
-            <Plus className="w-4 h-4" /> Nouvel utilisateur
-          </Button>
+          {canCreate && (
+            <Button className="gap-2 bg-slate-900 hover:bg-[#19355d]" onClick={() => navigate("/users/new")}>
+              <Plus className="w-4 h-4" /> Nouvel utilisateur
+            </Button>
+          )}
         </div>
       </div>
 
@@ -330,7 +417,7 @@ export function UsersPage() {
             <button
               type="button"
               onClick={() => setRoleDropdownOpen(!roleDropdownOpen)}
-              className="flex items-center gap-2 w-full sm:w-auto px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
+              className="flex items-center gap-2 w-full sm:w-full px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
             >
               <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                 Rôle
@@ -386,100 +473,188 @@ export function UsersPage() {
               </div>
             )}
           </div>
+
+          {/* Status dropdown */}
+          <div className="relative shrink-0 sm:w-48 w-full" ref={statusDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+              className="flex items-center gap-2 w-full sm:w-full px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
+            >
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                Statut
+              </span>
+              <span className="text-sm font-medium text-gray-900">
+                {statusFilter === 'true' ? 'Actif' : statusFilter === 'false' ? 'Désactivé' : 'Tous'}
+              </span>
+              <svg
+                className={`w-3.5 h-3.5 text-gray-400 ml-auto sm:ml-1 transition-transform ${statusDropdownOpen ? "rotate-180" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="m19 9-7 7-7-7"
+                />
+              </svg>
+            </button>
+            {statusDropdownOpen && (
+              <div className="absolute top-full left-0 mt-1 w-full sm:w-48 py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50">
+                {[
+                  { value: '', label: 'Tous' },
+                  { value: 'true', label: 'Actif' },
+                  { value: 'false', label: 'Désactivé' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter(opt.value);
+                      setStatusDropdownOpen(false);
+                      setPage(1);
+                    }}
+                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${statusFilter === opt.value ? "text-blue-600 font-semibold bg-blue-50/50" : "text-gray-700"}`}
+                  >
+                    {opt.value === 'true' && <span className="inline-block h-2 w-2 rounded-full bg-green-500" />}
+                    {opt.value === 'false' && <span className="inline-block h-2 w-2 rounded-full bg-red-400" />}
+                    {opt.label}
+                    {statusFilter === opt.value && (
+                      <svg
+                        className="w-4 h-4 ml-auto text-blue-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="m4.5 12.75 6 6 9-13.5"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Results count */}
-      {(search || roleFilter) && !isLoading && (
-        <p className="text-sm text-gray-500">
-          {data?.total ?? 0} résultat(s)
-          {search && (
-            <>
-              {" "}
-              pour "<strong>{search}</strong>"
-            </>
-          )}
-          {roleFilter && (
-            <>
-              {" "}
-              — rôle: <strong>{ROLE_LABELS[roleFilter as Role]}</strong>
-            </>
-          )}
-        </p>
-      )}
+      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+        <DataTable
+          columns={columns}
+          data={users}
+          isLoading={isLoading}
+          emptyMessage="Aucun utilisateur trouvé"
+          pagination={
+            data
+              ? {
+                  page,
+                  limit: 20,
+                  total: data.total,
+                  onPageChange: setPage,
+                }
+              : undefined
+          }
+        />
+      </div>
 
-      <DataTable
-        columns={columns}
-        data={users}
-        isLoading={isLoading}
-        emptyMessage="Aucun utilisateur trouvé"
-        pagination={
-          data
-            ? {
-                page,
-                limit: 20,
-                total: data.total,
-                onPageChange: setPage,
-              }
-            : undefined
-        }
-      />
-
-      {/* Delete Confirmation Dialog */}
+      {/* Delete / Deactivate Confirmation Dialog */}
       <AlertDialog
         open={!!deleteConfirm}
         onOpenChange={() => setDeleteConfirm(null)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
+            <AlertDialogTitle>
+              {deleteConfirm?.isActive ? 'Désactiver le compte' : 'Supprimer le compte'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Êtes-vous sûr de vouloir supprimer l'utilisateur{" "}
-              <strong>
-                {deleteConfirm?.firstName} {deleteConfirm?.lastName}
-              </strong>{" "}
-              ? Cette action désactivera son compte.
+              {deleteConfirm?.isActive ? (
+                <>
+                  Êtes-vous sûr de vouloir désactiver le compte de{" "}
+                  <strong>{deleteConfirm?.firstName} {deleteConfirm?.lastName}</strong>{" "}
+                  ? L'utilisateur ne pourra plus se connecter.
+                </>
+              ) : (
+                <>
+                  Êtes-vous sûr de vouloir supprimer définitivement le compte de{" "}
+                  <strong>{deleteConfirm?.firstName} {deleteConfirm?.lastName}</strong>{" "}
+                  ? Cette action est irréversible.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDeactivate}
+              className={deleteConfirm?.isActive ? "bg-orange-600 text-white hover:bg-orange-700" : "bg-red-600 text-white hover:bg-red-700"}
             >
-              {deleteUser.isPending ? "Suppression..." : "Supprimer"}
+              {deleteUser.isPending
+                ? (deleteConfirm?.isActive ? "Désactivation..." : "Suppression...")
+                : (deleteConfirm?.isActive ? "Désactiver" : "Supprimer")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Bulk Delete Dialog */}
+      {/* Bulk Delete / Deactivate Dialog */}
       <AlertDialog
         open={bulkDeleteConfirm}
         onOpenChange={() => setBulkDeleteConfirm(false)}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Suppression multiple</AlertDialogTitle>
+            <AlertDialogTitle>
+              {(() => {
+                const sel = users.filter((u) => selectedIds.has(u.id));
+                const allInactive = sel.every((u) => !u.isActive);
+                return allInactive ? 'Suppression multiple' : 'Désactivation multiple';
+              })()}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Êtes-vous sûr de vouloir supprimer{" "}
-              <strong>{selectedIds.size}</strong> utilisateur(s) ? Leurs comptes
-              seront désactivés.
+              {(() => {
+                const sel = users.filter((u) => selectedIds.has(u.id));
+                const allInactive = sel.every((u) => !u.isActive);
+                return allInactive
+                  ? <>Êtes-vous sûr de vouloir supprimer définitivement <strong>{selectedIds.size}</strong> compte(s) ? Cette action est irréversible.</>
+                  : <>Êtes-vous sûr de vouloir désactiver <strong>{selectedIds.size}</strong> compte(s) ? Ces utilisateurs ne pourront plus se connecter.</>;
+              })()}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleBulkDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleBulkDeactivate}
+              className={(() => {
+                const sel = users.filter((u) => selectedIds.has(u.id));
+                const allInactive = sel.every((u) => !u.isActive);
+                return allInactive ? "bg-red-600 text-white hover:bg-red-700" : "bg-orange-600 text-white hover:bg-orange-700";
+              })()}
             >
-              {bulkDelete.isPending
-                ? "Suppression..."
-                : `Supprimer (${selectedIds.size})`}
+              {(() => {
+                const sel = users.filter((u) => selectedIds.has(u.id));
+                const allInactive = sel.every((u) => !u.isActive);
+                if (bulkDelete.isPending) return allInactive ? "Suppression..." : "Désactivation...";
+                return allInactive ? `Supprimer (${selectedIds.size})` : `Désactiver (${selectedIds.size})`;
+              })()}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Permissions Drawer */}
+      {permissionsUserId && (
+        <PermissionsDrawer
+          userId={permissionsUserId}
+          onClose={() => setPermissionsUserId(null)}
+        />
+      )}
     </div>
   );
 }

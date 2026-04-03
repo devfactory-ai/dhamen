@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { usePermissions } from '@/hooks/usePermissions';
 import { apiClient } from '@/lib/api-client';
 import { toCSV, downloadCSV, type ExportColumn } from '@/lib/export-utils';
 import { useToast } from '@/stores/toast';
@@ -32,6 +33,9 @@ export function HRAdherentsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { hasPermission } = usePermissions();
+  const canCreate = hasPermission('adherents', 'create');
+  const canRead = hasPermission('adherents', 'read');
   const [searchTerm, setSearchTerm] = useState('');
   const [isExporting, setIsExporting] = useState(false);
 
@@ -144,18 +148,24 @@ export function HRAdherentsPage() {
           description="Gérer les salaries couverts par votre contrat groupe"
         />
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
-            <Download className="mr-2 h-4 w-4" />
-            {isExporting ? 'Export...' : 'Exporter CSV'}
-          </Button>
-          <Button variant="outline" onClick={() => navigate('/hr/adherents/import')}>
-            <Upload className="mr-2 h-4 w-4" />
-            Import CSV
-          </Button>
-          <Button onClick={() => navigate('/hr/adherents/new')}>
-            <UserPlus className="mr-2 h-4 w-4" />
-            Ajouter
-          </Button>
+          {canRead && (
+            <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
+              <Download className="mr-2 h-4 w-4" />
+              {isExporting ? 'Export...' : 'Exporter CSV'}
+            </Button>
+          )}
+          {canCreate && (
+            <Button variant="outline" onClick={() => navigate('/hr/adherents/import')}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import CSV
+            </Button>
+          )}
+          {canCreate && (
+            <Button onClick={() => navigate('/hr/adherents/new')}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Ajouter
+            </Button>
+          )}
         </div>
       </div>
 

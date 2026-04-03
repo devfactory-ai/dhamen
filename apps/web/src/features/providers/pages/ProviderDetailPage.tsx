@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useProvider } from '../hooks/useProviders';
+import { usePermissions } from '@/hooks/usePermissions';
 
 const PROVIDER_TYPES: Record<string, { label: string; color: string }> = {
   PHARMACY: { label: 'Pharmacie', color: 'bg-emerald-100 text-emerald-800' },
@@ -18,6 +19,9 @@ const PROVIDER_TYPES: Record<string, { label: string; color: string }> = {
 };
 
 export default function ProviderDetailPage() {
+  const { hasPermission } = usePermissions();
+  const canUpdate = hasPermission('providers', 'update');
+
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -54,13 +58,15 @@ export default function ProviderDetailPage() {
           ]}
         />
         <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            onClick={() => navigate(`/providers/${id}/edit`)}
-          >
-            <Pencil className="h-4 w-4 mr-2" />
-            Modifier
-          </Button>
+          {canUpdate && (
+            <Button
+              variant="outline"
+              onClick={() => navigate(`/providers/${id}/edit`)}
+            >
+              <Pencil className="h-4 w-4 mr-2" />
+              Modifier
+            </Button>
+          )}
           <Badge className={typeInfo.color}>{typeInfo.label}</Badge>
           <Badge variant={provider.isActive ? 'default' : 'destructive'} className={provider.isActive ? 'bg-green-100 text-green-800' : ''}>
             {provider.isActive ? 'Actif' : 'Inactif'}

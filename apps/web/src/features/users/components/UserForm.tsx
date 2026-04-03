@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ROLE_LABELS } from '@dhamen/shared';
+import { VISIBLE_ROLE_LABELS } from '@dhamen/shared';
 import type { UserPublic, } from '@dhamen/shared';
 
 const userFormSchema = z.object({
@@ -95,7 +95,7 @@ export function UserForm({ user, onSubmit, onCancel, isLoading }: UserFormProps)
             <SelectValue placeholder="Sélectionner un rôle" />
           </SelectTrigger>
           <SelectContent>
-            {Object.entries(ROLE_LABELS).map(([value, label]) => (
+            {Object.entries(VISIBLE_ROLE_LABELS).map(([value, label]) => (
               <SelectItem key={value} value={value}>
                 {label}
               </SelectItem>

@@ -17,7 +17,9 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/features/auth/hooks/useAuth';
 import { useToast } from '@/stores/toast';
+import { usePermissions } from '@/hooks/usePermissions';
 
 interface Guarantee {
   id: string;
@@ -94,6 +96,10 @@ function formatAmount(amount: number | null | undefined): string {
 }
 
 export function GroupContractDetailPage() {
+  const { hasPermission } = usePermissions();
+  const canUpdate = hasPermission('contracts', 'update');
+  const canDelete = hasPermission('contracts', 'delete');
+
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -177,12 +183,14 @@ export function GroupContractDetailPage() {
           </Button>
           )}
 
-          <Button onClick={() => navigate(`/group-contracts/${id}/edit`)}>
-            <Pencil className="mr-2 h-4 w-4" />
-            Modifier
-          </Button>
+          {canUpdate && (
+            <Button onClick={() => navigate(`/group-contracts/${id}/edit`)}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Modifier
+            </Button>
+          )}
 
-          <AlertDialog>
+          {canDelete && <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="destructive" disabled={deleteMutation.isPending}>
                 <Trash2 className="mr-2 h-4 w-4" />
@@ -206,7 +214,7 @@ export function GroupContractDetailPage() {
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
-          </AlertDialog>
+          </AlertDialog>}
         </div>
       </div>
 

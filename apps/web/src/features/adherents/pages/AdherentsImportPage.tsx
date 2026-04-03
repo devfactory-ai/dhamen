@@ -5,6 +5,7 @@ import { useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { Upload, CheckCircle2, XCircle, AlertTriangle, Download, FileSpreadsheet, Zap, Eye, HelpCircle, X, Copy } from 'lucide-react';
+import { PageHeader } from '@/components/ui/page-header';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -282,6 +283,12 @@ export function AdhérentsImportPage() {
       mapped.dateDebutAdhesion = parseAcoradDate(mapped.dateDebutAdhesion);
       mapped.dateFinAdhesion = parseAcoradDate(mapped.dateFinAdhesion);
       mapped.dateMarriage = parseAcoradDate(mapped.dateMarriage);
+      // Normalize Acorad gender codes (1=M, 2=F)
+      if (mapped.gender) {
+        const g = mapped.gender.toUpperCase().trim();
+        mapped.gender = g === '1' || g === 'MASCULIN' || g === 'HOMME' || g === 'H' ? 'M' :
+                        g === '2' || g === 'FEMININ' || g === 'FÉMININ' || g === 'FEMME' ? 'F' : g;
+      }
       mapped._chronicDisease = mapped._chronicDisease || '';
       mapped._handicap = mapped._handicap || '';
       return mapped;
@@ -420,7 +427,7 @@ export function AdhérentsImportPage() {
   const importMutation = useMutation({
     mutationFn: async (data: { adherents: AdherentCsvRow[]; skipDuplicates: boolean; companyId?: string }) => {
       console.log('[adherent-import] Sending to API:', JSON.stringify({ count: data.adherents.length, skipDuplicates: data.skipDuplicates, companyId: data.companyId, firstRow: data.adherents[0] }));
-      const response = await apiClient.post<ImportResult>('/adherents/import', data);
+      const response = await apiClient.post<ImportResult>('/adherents/import', data, { timeout: 120000 });
       console.log('[adherent-import] API response:', JSON.stringify(response));
       if (!response.success) {
         const errResp = response as { error?: { message?: string; details?: { path: string; message: string }[] } };
@@ -483,13 +490,14 @@ export function AdhérentsImportPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Importation de données</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Mettez à jour votre base de données en important vos fichiers CSV ou Excel.
-            Assurez-vous que le format respecte les spécifications techniques.
-          </p>
-        </div>
+        <PageHeader
+          title="Importation de données"
+          description="Mettez à jour votre base de données en important vos fichiers CSV ou Excel. Assurez-vous que le format respecte les spécifications techniques."
+          breadcrumb={[
+            { label: 'Adhérents', href: '/adherents/agent' },
+            { label: 'Importation CSV' },
+          ]}
+        />
         <button
           onClick={downloadTemplate}
           className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors shrink-0"
@@ -647,7 +655,7 @@ export function AdhérentsImportPage() {
                   </p>
                 </div>
                 <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
-                  DHAMEN v1.0
+                  E-Santé v1.0
                 </span>
               </div>
 

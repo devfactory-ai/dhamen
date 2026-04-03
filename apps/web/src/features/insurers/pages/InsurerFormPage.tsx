@@ -5,6 +5,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useForm } from 'react-hook-form';
 import { validerMatriculeFiscal } from '@dhamen/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -60,6 +61,7 @@ export function InsurerFormPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const isEditing = !!id;
+  const { hasPermission } = usePermissions();
 
   const { data: insurer, isLoading: isLoadingInsurer } = useInsurer(id || '');
   const createInsurer = useCreateInsurer();
@@ -169,6 +171,16 @@ export function InsurerFormPage() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (!hasPermission('insurers', isEditing ? 'update' : 'create')) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <p className="text-lg font-semibold text-gray-900">Accès refusé</p>
+        <p className="mt-1 text-sm text-gray-500">Vous n'avez pas la permission de {isEditing ? 'modifier' : 'créer'} une compagnie.</p>
+        <button onClick={() => navigate(-1)} className="mt-4 text-sm text-blue-600 hover:underline">Retour</button>
       </div>
     );
   }

@@ -13,7 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Users, Eye, UserPlus, Pencil, Trash2, Download, AlertCircle } from 'lucide-react';
+import { Users, Eye, UserPlus, Pencil, Trash2, Download, Upload, AlertCircle } from 'lucide-react';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { useCompanies } from '@/features/agent/hooks/use-companies';
@@ -22,6 +22,7 @@ import {
   useDeleteAdherent,
   useBulkDeleteAdherents,
 } from '../hooks/useAdherents';
+import { usePermissions } from '@/hooks/usePermissions';
 
 // --- Types ---
 
@@ -51,14 +52,28 @@ function formatAmount(amount: number | null): string {
   return new Intl.NumberFormat('fr-TN', { maximumFractionDigits: 0 }).format(amount / 1000) + ' DT';
 }
 
+function getIncompleteReason(adherent: AgentAdherent): string {
+  const missing: string[] = [];
+  if (!adherent.dateOfBirth) missing.push('Date de naissance');
+  if (!adherent.email) missing.push('Email');
+  if (!adherent.companyId) missing.push('Entreprise');
+  if (missing.length === 0) missing.push('Informations manquantes');
+  return `Manquant: ${missing.join(', ')}`;
+}
+
 // --- Main Page ---
 
 export function AgentAdherentsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const isHR = user?.role === 'HR';
+  const { hasPermission } = usePermissions();
+  const canCreate = hasPermission('adherents', 'create');
+  const canUpdate = hasPermission('adherents', 'update');
+  const canDelete = hasPermission('adherents', 'delete');
   const { selectedCompany } = useAgentContext();
-  const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
+  const isIndividualMode = !isHR && selectedCompany?.id === '__INDIVIDUAL__';
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'incomplete'>('all');
@@ -96,7 +111,7 @@ export function AgentAdherentsPage() {
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
 
   const { data: companiesList } = useCompanies();
-  const effectiveCompanyId = isAdmin ? companyFilter : selectedCompany?.id;
+  const effectiveCompanyId = isHR ? (user?.companyId ?? undefined) : isAdmin ? companyFilter : selectedCompany?.id;
   const selectedCompanyName = companyFilter
     ? companiesList?.find((c: { id: string; name: string }) => c.id === companyFilter)?.name
     : undefined;
@@ -147,26 +162,26 @@ export function AgentAdherentsPage() {
 
   // --- Columns ---
   const columns = [
-    {
+    ...(canDelete ? [{
       key: 'select',
-      header: (
+      header: adherents.length > 0 ? (
         <input
           type="checkbox"
-          checked={adherents.length > 0 && selectedIds.size === adherents.length}
+          checked={selectedIds.size === adherents.length}
           onChange={toggleSelectAll}
           className="h-4 w-4 rounded border-gray-300"
         />
-      ),
+      ) : null,
       render: (item: AgentAdherent) => (
         <input
           type="checkbox"
           checked={selectedIds.has(item.id)}
-          onChange={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
-          onClick={(e) => e.stopPropagation()}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => { e.stopPropagation(); toggleSelect(item.id); }}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
           className="h-4 w-4 rounded border-gray-300"
         />
       ),
-    },
+    }] : []),
     {
       key: 'matricule',
       header: 'Matricule',
@@ -188,7 +203,11 @@ export function AgentAdherentsPage() {
             <div className="flex items-center gap-2">
               <p className="text-sm font-medium text-gray-900">{item.firstName} {item.lastName}</p>
               {!item.dossierComplet && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-amber-50 border-amber-300 text-amber-700 gap-0.5">
+                <Badge
+                  variant="outline"
+                  className="text-[10px] px-1.5 py-0 bg-amber-50 border-amber-300 text-amber-700 gap-0.5 cursor-help"
+                  title={getIncompleteReason(item)}
+                >
                   <AlertCircle className="w-2.5 h-2.5" />
                   Dossier incomplet
                 </Badge>
@@ -199,25 +218,40 @@ export function AgentAdherentsPage() {
         </div>
       ),
     },
-    {
+    // Hide enterprise column for HR (they only see their own company)
+    ...(!isHR ? [{
       key: 'companyName',
       header: 'Entreprise',
       render: (item: AgentAdherent) => <span className="text-sm text-gray-700">{item.companyName || '—'}</span>,
-    },
+    }] : []),
     {
       key: 'plafond',
       header: 'Consommation Plafond',
       render: (item: AgentAdherent) => {
         const global = Number(item.plafondGlobal) || 0;
         const consomme = Number(item.plafondConsomme) || 0;
-        const pct = global > 0 ? Math.round((consomme / global) * 100) : 0;
-        const barColor = pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-blue-500' : 'bg-blue-500';
+
+        // No ceiling configured → show "— / Illimité"
+        if (global === 0) {
+          return (
+            <div className="w-40">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-gray-900">{consomme > 0 ? formatAmount(consomme) : '—'}</span>
+                <span className="text-gray-400">/ Illimité</span>
+              </div>
+              <div className="h-2 rounded-full bg-gray-100 mt-1.5" />
+            </div>
+          );
+        }
+
+        const pct = Math.round((consomme / global) * 100);
+        const barColor = pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-amber-500' : 'bg-blue-500';
         return (
           <div className="w-40">
             <div className="flex items-center justify-between text-xs mb-1.5">
               <span className="font-medium text-gray-900">{formatAmount(consomme)}</span>
               <span className="text-gray-400">/ {formatAmount(global)}</span>
-              <span className={`font-semibold ${pct > 80 ? 'text-red-500' : 'text-blue-600'}`}>{pct}%</span>
+              <span className={`font-semibold ${pct > 80 ? 'text-red-500' : pct > 50 ? 'text-amber-600' : 'text-blue-600'}`}>{pct}%</span>
             </div>
             <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
               <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.min(pct, 100)}%` }} />
@@ -232,8 +266,12 @@ export function AgentAdherentsPage() {
       render: (item: AgentAdherent) => (
         <div className="flex gap-1">
           <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/adherents/agent/${item.id}`); }}><Eye className="w-4 h-4" /></Button>
-          <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/adherents/agent/${item.id}/edit`); }}><Pencil className="w-4 h-4" /></Button>
-          <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={(e) => { e.stopPropagation(); setDeleteConfirm(item); }}><Trash2 className="w-4 h-4" /></Button>
+          {canUpdate && (
+            <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); navigate(`/adherents/agent/${item.id}/edit`); }}><Pencil className="w-4 h-4" /></Button>
+          )}
+          {canDelete && (
+            <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700" onClick={(e) => { e.stopPropagation(); setDeleteConfirm(item); }}><Trash2 className="w-4 h-4" /></Button>
+          )}
         </div>
       ),
     },
@@ -262,22 +300,37 @@ export function AgentAdherentsPage() {
   // Pagination
   const pageSize = 20;
 
+  // BR-007: HR user must have a company assigned
+  if (isHR && !user?.companyId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <AlertCircle className="w-12 h-12 text-amber-500 mb-4" />
+        <p className="text-lg font-semibold text-gray-900">Aucune entreprise associée</p>
+        <p className="mt-1 text-sm text-gray-500">Votre compte n'est associé à aucune entreprise. Contactez votre administrateur.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header: title + buttons */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            {isIndividualMode ? 'Adhérents Individuels' : 'Liste des Adhérents'}
+            {isHR
+              ? `Adhérents de ${user?.companyName || 'votre entreprise'}`
+              : isIndividualMode ? 'Adhérents Individuels' : 'Liste des Adhérents'}
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            {isIndividualMode
-              ? 'Adhérents avec contrats individuels (sans entreprise).'
-              : 'Gérez votre base de données d\'assures et leurs plafonds de consommation.'}
+            {isHR
+              ? 'Gérez les adhérents de votre entreprise.'
+              : isIndividualMode
+                ? 'Adhérents avec contrats individuels (sans entreprise).'
+                : 'Gérez votre base de données d\'assures et leurs plafonds de consommation.'}
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {selectedIds.size > 0 && (
+          {selectedIds.size > 0 && canDelete && (
             <Button
               variant="outline"
               className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
@@ -286,6 +339,15 @@ export function AgentAdherentsPage() {
             >
               <Trash2 className="w-4 h-4" />
               Supprimer ({selectedIds.size})
+            </Button>
+          )}
+          {canCreate && (
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => navigate('/adherents/import')}
+            >
+              <Upload className="w-4 h-4" /> Importer CSV
             </Button>
           )}
           <Button
@@ -319,13 +381,15 @@ export function AgentAdherentsPage() {
           >
             <Download className="w-4 h-4" /> Exporter CSV
           </Button>
-          <Button
-            className="gap-2 bg-slate-900 hover:bg-[#19355d]"
-            onClick={() => navigate(isIndividualMode ? "/adherents/agent/new?type=individual" : "/adherents/agent/new")}
-            disabled={!isAdmin && !selectedCompany}
-          >
-            <UserPlus className="w-4 h-4" /> Nouvel Adhérent
-          </Button>
+          {canCreate && (
+            <Button
+              className="gap-2 bg-slate-900 hover:bg-[#19355d]"
+              onClick={() => navigate(isIndividualMode ? "/adherents/agent/new?type=individual" : "/adherents/agent/new")}
+              disabled={!isAdmin && !isHR && !selectedCompany}
+            >
+              <UserPlus className="w-4 h-4" /> Nouvel Adhérent
+            </Button>
+          )}
         </div>
       </div>
 
@@ -399,8 +463,8 @@ export function AgentAdherentsPage() {
               )}
             </div>
 
-            {/* Entreprise dropdown — ADMIN only */}
-            {isAdmin && (
+            {/* Entreprise dropdown — ADMIN only (hidden for HR) */}
+            {isAdmin && !isHR && (
             <div className="relative shrink-0" ref={companyDropdownRef}>
               <button
                 type="button"

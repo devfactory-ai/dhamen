@@ -116,12 +116,20 @@ groupContracts.use('*', authMiddleware());
 // ---------------------------------------------------------------------------
 groupContracts.get(
   '/',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
   zValidator('query', groupContractFiltersSchema),
   async (c) => {
     const { companyId, insurerId, status, planCategory, contractType, page, limit } = c.req.valid('query');
     const user = c.get('user');
     const db = getDb(c);
+
+    // HR: must have a company_id, scope to own company only
+    if (user.role === 'HR' && !user.companyId) {
+      return c.json({
+        success: false,
+        error: { code: 'NO_COMPANY', message: 'Votre compte n\'est associé à aucune entreprise' },
+      }, 403);
+    }
 
     // Insurer users can only see their own contracts
     let effectiveInsurerId = insurerId;
@@ -136,7 +144,12 @@ groupContracts.get(
       conditions.push('gc.insurer_id = ?');
       params.push(effectiveInsurerId);
     }
-    if (companyId) {
+
+    // HR: force scope to own company (ignore companyId query param)
+    if (user.role === 'HR') {
+      conditions.push('gc.company_id = ?');
+      params.push(user.companyId);
+    } else if (companyId) {
       conditions.push('gc.company_id = ?');
       params.push(companyId);
     }
@@ -197,7 +210,7 @@ groupContracts.get(
 // ---------------------------------------------------------------------------
 groupContracts.get(
   '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
   async (c) => {
     const id = c.req.param('id');
     const user = c.get('user');
@@ -234,6 +247,11 @@ groupContracts.get(
       contract.insurer_id !== user.insurerId
     ) {
       return notFound(c, 'Contrat groupe non trouvé');
+    }
+
+    // HR: verify company ownership
+    if (user.role === 'HR' && contract.company_id !== user.companyId) {
+      return notFound(c, 'Contrat non trouvé');
     }
 
     // Fetch guarantees
@@ -616,6 +634,102 @@ groupContracts.put(
       }
     }
 
+    // Auto-apply to adherents when status changes to 'active'
+    let applyResult: { created: number; skipped: number } | null = null;
+    const statusChanged = (data as Record<string, unknown>).status === 'active' && existing.status !== 'active';
+
+    if (statusChanged) {
+      const updatedContract = await db
+        .prepare('SELECT * FROM group_contracts WHERE id = ? AND deleted_at IS NULL')
+        .bind(id)
+        .first<Record<string, unknown>>();
+
+      if (updatedContract) {
+        // Get adherents based on contract type
+        let adherentList: { id: string; first_name: string; last_name: string }[];
+
+        if (updatedContract.contract_type === 'individual' && updatedContract.adherent_id) {
+          const adherent = await db
+            .prepare('SELECT id, first_name, last_name FROM adherents WHERE id = ? AND is_active = 1 AND deleted_at IS NULL')
+            .bind(updatedContract.adherent_id)
+            .first<{ id: string; first_name: string; last_name: string }>();
+          adherentList = adherent ? [adherent] : [];
+        } else {
+          const adherents = await db
+            .prepare('SELECT id, first_name, last_name FROM adherents WHERE company_id = ? AND is_active = 1 AND deleted_at IS NULL AND parent_adherent_id IS NULL')
+            .bind(updatedContract.company_id)
+            .all<{ id: string; first_name: string; last_name: string }>();
+          adherentList = adherents.results ?? [];
+        }
+
+        if (adherentList.length > 0) {
+          // Fetch guarantees for coverage JSON
+          const gResults = await db
+            .prepare('SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1')
+            .bind(id)
+            .all();
+
+          const coverage: Record<string, unknown> = {};
+          for (const g of (gResults.results ?? [])) {
+            const gt = g as Record<string, unknown>;
+            coverage[gt.care_type as string] = {
+              enabled: true,
+              reimbursementRate: gt.reimbursement_rate ? Number(gt.reimbursement_rate) * 100 : null,
+              annualLimit: gt.annual_limit,
+              perEventLimit: gt.per_event_limit,
+            };
+          }
+
+          const now = new Date().toISOString();
+          let created = 0;
+          let skipped = 0;
+
+          for (const adherent of adherentList) {
+            // Check if already has active contract from this group
+            const existingContract = await db
+              .prepare(
+                `SELECT id FROM contracts
+                 WHERE adherent_id = ? AND insurer_id = ? AND status = 'active' AND group_contract_id = ?`
+              )
+              .bind(adherent.id, updatedContract.insurer_id, id)
+              .first();
+
+            if (existingContract) {
+              skipped++;
+              continue;
+            }
+
+            const contractId = generateId();
+            const contractNumber = `${updatedContract.contract_number}-${contractId.slice(-6).toUpperCase()}`;
+            const endDate = updatedContract.end_date
+              ?? updatedContract.annual_renewal_date
+              ?? new Date(new Date(updatedContract.effective_date as string).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+            await db
+              .prepare(
+                `INSERT INTO contracts (
+                  id, contract_number, adherent_id, insurer_id,
+                  plan_type, status, coverage_json,
+                  start_date, end_date, group_contract_id,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`
+              )
+              .bind(
+                contractId, contractNumber, adherent.id, updatedContract.insurer_id,
+                updatedContract.contract_type === 'individual' ? 'individual' : 'corporate',
+                JSON.stringify(coverage),
+                updatedContract.effective_date, endDate, id, now, now
+              )
+              .run();
+
+            created++;
+          }
+
+          applyResult = { created, skipped };
+        }
+      }
+    }
+
     // Audit log
     await logAudit(getDb(c), {
       userId: user?.sub,
@@ -638,7 +752,11 @@ groupContracts.put(
       .bind(id)
       .all();
 
-    return success(c, { ...updated, guarantees: guarantees.results ?? [] });
+    return success(c, {
+      ...updated,
+      guarantees: guarantees.results ?? [],
+      ...(applyResult ? { adherentsApplied: applyResult } : {}),
+    });
   }
 );
 

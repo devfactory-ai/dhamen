@@ -34,7 +34,6 @@ import {
   CreditCard,
   Loader2,
   RotateCcw,
-  AlertCircle,
   TrendingUp,
   Trash2,
 } from 'lucide-react';
@@ -48,6 +47,7 @@ import { getAccessToken } from '@/lib/auth';
 import { apiClient } from '@/lib/api-client';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
+import { usePermissions } from '@/hooks/usePermissions';
 
 const careTypeLabels: Record<string, string> = {
   consultation: 'Consultation',
@@ -80,6 +80,9 @@ function formatDate(date: string | null | undefined): string {
 }
 
 export default function BulletinsHistoryPage() {
+  const { hasPermission } = usePermissions();
+  const canDelete = hasPermission('bulletins_soins', 'delete');
+
   const token = getAccessToken();
   const navigate = useNavigate();
   const { selectedCompany } = useAgentContext();
@@ -118,8 +121,8 @@ export default function BulletinsHistoryPage() {
     onError: (error: Error) => toast.error(error.message || 'Erreur lors de la suppression'),
   });
 
-  const { data: historyData, isLoading } = useHistoryList(activeFilters, { enabled: !!selectedCompany });
-  const { data: stats } = useHistoryStats(activeFilters.dateFrom, activeFilters.dateTo, activeFilters.companyId, { enabled: !!selectedCompany });
+  const { data: historyData, isLoading } = useHistoryList(activeFilters);
+  const { data: stats } = useHistoryStats(activeFilters.dateFrom, activeFilters.dateTo, activeFilters.companyId);
 
   const updateFilter = useCallback((key: keyof HistoryFilters, value: string | number | undefined) => {
     setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
@@ -168,7 +171,7 @@ export default function BulletinsHistoryPage() {
 
   const historyItems = historyData?.data || [];
   const columns = [
-    ...(historyItems.length > 1 ? [{
+    ...(canDelete && historyItems.length > 1 ? [{
       key: 'checkbox',
       header: (
         <input
@@ -270,17 +273,7 @@ export default function BulletinsHistoryPage() {
         description="Consultez l'historique des actions et le suivi des bulletins de soins"
       />
 
-      {!selectedCompany && (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <AlertCircle className="mx-auto h-12 w-12 opacity-20 mb-4" />
-            <p className="text-lg font-medium">Aucune entreprise sélectionnée</p>
-            <p className="text-sm mt-1">Veuillez sélectionner une entreprise pour consulter l'historique de ses bulletins</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {selectedCompany && <>
+      <>
       {/* Stats cards */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -328,8 +321,7 @@ export default function BulletinsHistoryPage() {
       )}
 
       {/* Filters */}
-      <Card>
-        <CardContent className="pt-6">
+      <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
           <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
             <div className="md:col-span-2">
               <Label>Recherche</Label>
@@ -408,7 +400,7 @@ export default function BulletinsHistoryPage() {
               {exporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
               Exporter CSV
             </Button>
-            {selectedIds.length > 0 && (
+            {canDelete && selectedIds.length > 0 && (
               <Button
                 variant="destructive"
                 size="sm"
@@ -420,10 +412,10 @@ export default function BulletinsHistoryPage() {
               </Button>
             )}
           </div>
-        </CardContent>
-      </Card>
+      </div>
 
       {/* Table */}
+      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
       <DataTable
         data={historyData?.data || []}
         columns={columns}
@@ -436,6 +428,7 @@ export default function BulletinsHistoryPage() {
           onPageChange: (p) => setFilters((prev) => ({ ...prev, page: p })),
         } : undefined}
       />
+      </div>
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
@@ -466,7 +459,7 @@ export default function BulletinsHistoryPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      </>}
+      </>
     </div>
   );
 }

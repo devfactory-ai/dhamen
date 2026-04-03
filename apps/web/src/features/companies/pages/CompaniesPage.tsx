@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Plus, Building2, Users, Eye, Pencil, Search, X } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Plus, Building2, Users, Eye, Pencil, Search, X, Trash2 } from 'lucide-react';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api-client';
+import { usePermissions } from '@/hooks/usePermissions';
 
 interface Company {
   id: string;
@@ -36,9 +37,19 @@ const SECTOR_LABELS: Record<string, string> = {
 };
 
 export function CompaniesPage() {
+  const { hasPermission } = usePermissions();
+  const canRead = hasPermission('companies', 'read');
+  const canCreate = hasPermission('companies', 'create');
+  const canUpdate = hasPermission('companies', 'update');
+  const canDelete = hasPermission('companies', 'delete');
+
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleteConfirm, setDeleteConfirm] = useState<Company | null>(null);
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['companies', page, search],
@@ -54,7 +65,76 @@ export function CompaniesPage() {
     },
   });
 
+  const companies: Company[] = data?.companies ?? [];
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === companies.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(companies.map((c) => c.id)));
+    }
+  };
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiClient.delete<{ id: string; deleted: boolean }>(
+        `/companies/${id}`
+      );
+      if (!response.success) throw new Error(response.error?.message || 'Erreur lors de la suppression');
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      setDeleteConfirm(null);
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) {
+        const response = await apiClient.delete<{ id: string; deleted: boolean }>(
+          `/companies/${id}`
+        );
+        if (!response.success) throw new Error(response.error?.message || 'Erreur lors de la suppression');
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      setSelectedIds(new Set());
+      setBulkDeleteConfirm(false);
+    },
+  });
+
   const columns = [
+    ...(canDelete ? [{
+      key: 'select',
+      header: companies.length > 0 ? (
+        <input
+          type="checkbox"
+          checked={selectedIds.size === companies.length}
+          onChange={toggleSelectAll}
+          className="h-4 w-4 rounded border-gray-300"
+        />
+      ) : null,
+      render: (company: Company) => (
+        <input
+          type="checkbox"
+          checked={selectedIds.has(company.id)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => { e.stopPropagation(); toggleSelect(company.id); }}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          className="h-4 w-4 rounded border-gray-300"
+        />
+      ),
+    }] : []),
     {
       key: 'name',
       header: 'Entreprise',
@@ -114,13 +194,37 @@ export function CompaniesPage() {
           {/* <Button variant="ghost" size="icon" title="Voir" onClick={() => navigate(`/companies/${company.id}`)}>
             <Eye className="h-4 w-4" />
           </Button> */}
-          <Button variant="ghost" size="icon" title="Modifier" onClick={() => navigate(`/companies/${company.id}/edit`)}>
-            <Pencil className="h-4 w-4" />
-          </Button>
+          {canUpdate && (
+            <Button variant="ghost" size="icon" title="Modifier" onClick={() => navigate(`/companies/${company.id}/edit`)}>
+              <Pencil className="h-4 w-4" />
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              title="Supprimer"
+              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+              onClick={(e: React.MouseEvent) => { e.stopPropagation(); setDeleteConfirm(company); }}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       ),
     },
   ];
+
+  if (!canRead) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <p className="text-lg font-medium text-gray-900">Accès refusé</p>
+          <p className="text-sm text-gray-500 mt-1">Vous n'avez pas la permission de consulter les entreprises.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -132,12 +236,28 @@ export function CompaniesPage() {
             Gérer les entreprises clientes et leurs RH
           </p>
         </div>
-        <Button
-          className="gap-2 bg-slate-900 hover:bg-[#19355d]"
-          onClick={() => navigate("/companies/new")}
-        >
-          <Plus className="w-4 h-4" /> Nouvelle entreprise
-        </Button>
+        <div className="flex items-center gap-3">
+          {canDelete && selectedIds.size > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setBulkDeleteConfirm(true)}
+              disabled={bulkDeleteMutation.isPending}
+              className="text-red-600 border-red-200 hover:bg-red-50"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Supprimer ({selectedIds.size})
+            </Button>
+          )}
+          {canCreate && (
+            <Button
+              className="gap-2 bg-slate-900 hover:bg-[#19355d]"
+              onClick={() => navigate("/companies/new")}
+            >
+              <Plus className="w-4 h-4" /> Nouvelle entreprise
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filters bar + Total card */}
@@ -204,6 +324,62 @@ export function CompaniesPage() {
           }
         />
       </div>
+
+      {/* Single delete confirmation */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 !mt-0">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-gray-900">Confirmer la suppression</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Êtes-vous sûr de vouloir supprimer l'entreprise <strong>{deleteConfirm.name}</strong> ? Cette action est irréversible.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleteMutation.isPending}
+              >
+                Annuler
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => deleteMutation.mutate(deleteConfirm.id)}
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? 'Suppression...' : 'Supprimer'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk delete confirmation */}
+      {bulkDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 !mt-0">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-gray-900">Suppression en masse</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              Êtes-vous sûr de vouloir supprimer <strong>{selectedIds.size}</strong> entreprise(s) ? Cette action est irréversible.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setBulkDeleteConfirm(false)}
+                disabled={bulkDeleteMutation.isPending}
+              >
+                Annuler
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+                disabled={bulkDeleteMutation.isPending}
+              >
+                {bulkDeleteMutation.isPending ? 'Suppression...' : `Supprimer (${selectedIds.size})`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

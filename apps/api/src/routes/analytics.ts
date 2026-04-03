@@ -361,10 +361,20 @@ analytics.get(
  */
 analytics.get(
   '/dashboard-stats',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'SOIN_GESTIONNAIRE', 'HR'),
   async (c) => {
     const { getDb } = await import('../lib/db');
     const db = getDb(c);
+    const user = c.get('user');
+
+    // HR: scope all queries to company adherents
+    const isHR = user.role === 'HR';
+    const hrCompanyId = isHR ? user.companyId : null;
+
+    // Provider: scope to their own praticien data
+    const PROVIDER_ROLES = ['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN'];
+    const isProvider = PROVIDER_ROLES.includes(user.role);
+    const providerId = isProvider ? user.providerId : null;
 
     try {
       // Total active users
@@ -372,22 +382,34 @@ analytics.get(
         `SELECT COUNT(*) as count FROM users WHERE is_active = 1`
       ).first<{ count: number }>();
 
-      // Total adherents
-      const adherentsRow = await db.prepare(
-        `SELECT COUNT(*) as count FROM adherents WHERE deleted_at IS NULL`
-      ).first<{ count: number }>();
+      // Total adherents (HR: only company adherents)
+      const adherentsRow = isHR
+        ? await db.prepare(
+            `SELECT COUNT(*) as count FROM adherents WHERE deleted_at IS NULL AND company_id = ?`
+          ).bind(hrCompanyId).first<{ count: number }>()
+        : await db.prepare(
+            `SELECT COUNT(*) as count FROM adherents WHERE deleted_at IS NULL`
+          ).first<{ count: number }>();
 
-      // Claims stats from sante_demandes — this month
+      // HR join clause for sante_demandes scoped to company adherents
+      const hrJoin = isHR ? 'JOIN adherents a ON sd.adherent_id = a.id' : '';
+      const hrWhere = isHR ? 'WHERE a.company_id = ?' : isProvider ? 'WHERE sd.praticien_id IN (SELECT id FROM sante_praticiens WHERE provider_id = ?)' : '';
+      const hrWhereAnd = isHR ? 'AND a.company_id = ?' : isProvider ? 'AND sd.praticien_id IN (SELECT id FROM sante_praticiens WHERE provider_id = ?)' : '';
+      const hrParams = isHR ? [hrCompanyId] : isProvider ? [providerId] : [];
+
+      // Claims stats from sante_demandes
       const claimsRow = await db.prepare(`
         SELECT
           COUNT(*) as totalClaims,
-          SUM(CASE WHEN statut IN ('soumise','en_examen','info_requise') THEN 1 ELSE 0 END) as pendingClaims,
-          SUM(CASE WHEN statut IN ('approuvee','en_paiement','payee') THEN 1 ELSE 0 END) as approvedClaims,
-          SUM(CASE WHEN statut = 'rejetee' THEN 1 ELSE 0 END) as rejectedClaims,
-          COALESCE(SUM(montant_demande), 0) as totalAmount,
-          COUNT(DISTINCT adherent_id) as uniquePatients
-        FROM sante_demandes
-      `).first<{
+          SUM(CASE WHEN sd.statut IN ('soumise','en_examen','info_requise') THEN 1 ELSE 0 END) as pendingClaims,
+          SUM(CASE WHEN sd.statut IN ('approuvee','en_paiement','payee') THEN 1 ELSE 0 END) as approvedClaims,
+          SUM(CASE WHEN sd.statut = 'rejetee' THEN 1 ELSE 0 END) as rejectedClaims,
+          COALESCE(SUM(sd.montant_demande), 0) as totalAmount,
+          COUNT(DISTINCT sd.adherent_id) as uniquePatients
+        FROM sante_demandes sd
+        ${hrJoin}
+        ${hrWhere}
+      `).bind(...hrParams).first<{
         totalClaims: number;
         pendingClaims: number;
         approvedClaims: number;
@@ -400,39 +422,47 @@ analytics.get(
       const todayRow = await db.prepare(`
         SELECT
           COUNT(*) as processedToday,
-          SUM(CASE WHEN statut = 'rejetee' THEN 1 ELSE 0 END) as rejectedToday
-        FROM sante_demandes
-        WHERE date(created_at) = date('now')
-      `).first<{ processedToday: number; rejectedToday: number }>();
+          SUM(CASE WHEN sd.statut = 'rejetee' THEN 1 ELSE 0 END) as rejectedToday
+        FROM sante_demandes sd
+        ${hrJoin}
+        WHERE date(sd.created_at) = date('now')
+        ${hrWhereAnd}
+      `).bind(...hrParams).first<{ processedToday: number; rejectedToday: number }>();
 
       // Previous month stats for trend comparison
       const prevMonthRow = await db.prepare(`
         SELECT
           COUNT(*) as totalClaims,
-          SUM(CASE WHEN statut IN ('approuvee','en_paiement','payee') THEN 1 ELSE 0 END) as approvedClaims,
-          SUM(CASE WHEN statut = 'rejetee' THEN 1 ELSE 0 END) as rejectedClaims,
-          SUM(CASE WHEN statut IN ('soumise','en_examen','info_requise') THEN 1 ELSE 0 END) as pendingClaims
-        FROM sante_demandes
-        WHERE created_at >= date('now', 'start of month', '-1 month')
-          AND created_at < date('now', 'start of month')
-      `).first<{ totalClaims: number; approvedClaims: number; rejectedClaims: number; pendingClaims: number }>();
+          SUM(CASE WHEN sd.statut IN ('approuvee','en_paiement','payee') THEN 1 ELSE 0 END) as approvedClaims,
+          SUM(CASE WHEN sd.statut = 'rejetee' THEN 1 ELSE 0 END) as rejectedClaims,
+          SUM(CASE WHEN sd.statut IN ('soumise','en_examen','info_requise') THEN 1 ELSE 0 END) as pendingClaims
+        FROM sante_demandes sd
+        ${hrJoin}
+        WHERE sd.created_at >= date('now', 'start of month', '-1 month')
+          AND sd.created_at < date('now', 'start of month')
+          ${hrWhereAnd}
+      `).bind(...hrParams).first<{ totalClaims: number; approvedClaims: number; rejectedClaims: number; pendingClaims: number }>();
 
       const thisMonthRow = await db.prepare(`
         SELECT
           COUNT(*) as totalClaims,
-          SUM(CASE WHEN statut IN ('approuvee','en_paiement','payee') THEN 1 ELSE 0 END) as approvedClaims,
-          SUM(CASE WHEN statut = 'rejetee' THEN 1 ELSE 0 END) as rejectedClaims,
-          SUM(CASE WHEN statut IN ('soumise','en_examen','info_requise') THEN 1 ELSE 0 END) as pendingClaims
-        FROM sante_demandes
-        WHERE created_at >= date('now', 'start of month')
-      `).first<{ totalClaims: number; approvedClaims: number; rejectedClaims: number; pendingClaims: number }>();
+          SUM(CASE WHEN sd.statut IN ('approuvee','en_paiement','payee') THEN 1 ELSE 0 END) as approvedClaims,
+          SUM(CASE WHEN sd.statut = 'rejetee' THEN 1 ELSE 0 END) as rejectedClaims,
+          SUM(CASE WHEN sd.statut IN ('soumise','en_examen','info_requise') THEN 1 ELSE 0 END) as pendingClaims
+        FROM sante_demandes sd
+        ${hrJoin}
+        WHERE sd.created_at >= date('now', 'start of month')
+          ${hrWhereAnd}
+      `).bind(...hrParams).first<{ totalClaims: number; approvedClaims: number; rejectedClaims: number; pendingClaims: number }>();
 
       // Average processing time in hours (submission → approval)
       const avgProcRow = await db.prepare(`
-        SELECT AVG((julianday(date_traitement) - julianday(created_at)) * 24) as avg_hours
-        FROM sante_demandes
-        WHERE date_traitement IS NOT NULL AND created_at IS NOT NULL
-      `).first<{ avg_hours: number | null }>();
+        SELECT AVG((julianday(sd.date_traitement) - julianday(sd.created_at)) * 24) as avg_hours
+        FROM sante_demandes sd
+        ${hrJoin}
+        WHERE sd.date_traitement IS NOT NULL AND sd.created_at IS NOT NULL
+        ${hrWhereAnd}
+      `).bind(...hrParams).first<{ avg_hours: number | null }>();
 
       const totalClaims = Number(claimsRow?.totalClaims) || 0;
       const approvedClaims = Number(claimsRow?.approvedClaims) || 0;
@@ -490,7 +520,7 @@ analytics.get(
  */
 analytics.get(
   '/recent-bulletins',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'HR'),
   async (c) => {
     const { getDb } = await import('../lib/db');
     const db = getDb(c);
@@ -500,8 +530,27 @@ analytics.get(
       let whereClause = '';
       const params: string[] = [];
 
+      // HR: filter by company
+      if (user.role === 'HR' && user.companyId) {
+        whereClause = 'WHERE a.company_id = ?';
+        params.push(user.companyId);
+      }
+      // Provider: filter by provider_id, actes_bulletin.provider_id, OR created_by
+      else if (['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN'].includes(user.role)) {
+        if (user.providerId) {
+          whereClause = `WHERE (
+            bs.provider_id = ?
+            OR bs.created_by = ?
+            OR bs.id IN (SELECT ab.bulletin_id FROM actes_bulletin ab WHERE ab.provider_id = ?)
+          )`;
+          params.push(user.providerId, user.id, user.providerId);
+        } else {
+          whereClause = 'WHERE bs.created_by = ?';
+          params.push(user.id);
+        }
+      }
       // Filter by insurer for non-admin roles
-      if (user.role !== 'ADMIN' && user.insurerId) {
+      else if (user.role !== 'ADMIN' && user.insurerId) {
         whereClause = 'WHERE co.insurer_id = ?';
         params.push(user.insurerId);
       }

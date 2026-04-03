@@ -176,37 +176,38 @@ export class AuditService {
     const id = this.generateId();
     const timestamp = new Date().toISOString();
 
-    await this.env.DB.prepare(
-      `INSERT INTO audit_logs (
-        id, timestamp, user_id, user_name, user_role, action,
-        entity_type, entity_id, entity_name, details, ip_address,
-        user_agent, request_id, session_id, insurer_id, provider_id,
-        result, error_message, duration, changes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(
-        id,
-        timestamp,
-        entry.userId,
-        entry.userName || null,
-        entry.userRole,
-        entry.action,
-        entry.entityType,
-        entry.entityId,
-        entry.entityName || null,
-        JSON.stringify(entry.details),
-        entry.ipAddress || null,
-        entry.userAgent || null,
-        entry.requestId || null,
-        entry.sessionId || null,
-        entry.insurerId || null,
-        entry.providerId || null,
-        entry.result,
-        entry.errorMessage || null,
-        entry.duration || null,
-        entry.changes ? JSON.stringify(entry.changes) : null
+    // Try full schema first, fallback to minimal schema (legacy DB without extra columns)
+    try {
+      await this.env.DB.prepare(
+        `INSERT INTO audit_logs (
+          id, created_at, user_id, user_name, user_role, action,
+          entity_type, entity_id, entity_name, details, ip_address,
+          user_agent, request_id, session_id, insurer_id, provider_id,
+          result, error_message, duration, changes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run();
+        .bind(
+          id, timestamp, entry.userId, entry.userName || null, entry.userRole,
+          entry.action, entry.entityType, entry.entityId, entry.entityName || null,
+          JSON.stringify(entry.details), entry.ipAddress || null, entry.userAgent || null,
+          entry.requestId || null, entry.sessionId || null, entry.insurerId || null,
+          entry.providerId || null, entry.result, entry.errorMessage || null,
+          entry.duration || null, entry.changes ? JSON.stringify(entry.changes) : null
+        )
+        .run();
+    } catch {
+      // Fallback: minimal schema (id, user_id, action, entity_type, entity_id, changes_json, ip_address, user_agent, created_at)
+      await this.env.DB.prepare(
+        `INSERT INTO audit_logs (id, created_at, user_id, action, entity_type, entity_id, changes_json, ip_address, user_agent)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+        .bind(
+          id, timestamp, entry.userId, entry.action, entry.entityType, entry.entityId,
+          JSON.stringify({ ...entry.details, _userName: entry.userName, _userRole: entry.userRole, _result: entry.result }),
+          entry.ipAddress || null, entry.userAgent || null
+        )
+        .run();
+    }
 
     // Also cache recent critical events for quick alerting
     if (this.isCriticalEvent(entry.action)) {
@@ -285,12 +286,12 @@ export class AuditService {
     }
 
     if (params.startDate) {
-      conditions.push('timestamp >= ?');
+      conditions.push('created_at >= ?');
       bindings.push(params.startDate);
     }
 
     if (params.endDate) {
-      conditions.push('timestamp <= ?');
+      conditions.push('created_at <= ?');
       bindings.push(params.endDate);
     }
 
@@ -300,8 +301,9 @@ export class AuditService {
     }
 
     if (params.searchText) {
+      // Use columns that exist in both legacy and full schema
       conditions.push(
-        '(entity_name LIKE ? OR user_name LIKE ? OR details LIKE ?)'
+        '(entity_id LIKE ? OR action LIKE ? OR changes_json LIKE ?)'
       );
       const searchPattern = `%${params.searchText}%`;
       bindings.push(searchPattern, searchPattern, searchPattern);
@@ -317,7 +319,7 @@ export class AuditService {
       .first<{ count: number }>();
 
     // Get paginated results
-    const sortBy = params.sortBy || 'timestamp';
+    const sortBy = params.sortBy === 'timestamp' ? 'created_at' : (params.sortBy || 'created_at');
     const sortOrder = params.sortOrder || 'desc';
     const limit = params.limit || 50;
     const offset = params.offset || 0;
@@ -364,7 +366,7 @@ export class AuditService {
     const { results } = await this.env.DB.prepare(
       `SELECT * FROM audit_logs
        WHERE entity_type = ? AND entity_id = ?
-       ORDER BY timestamp DESC
+       ORDER BY created_at DESC
        LIMIT ?`
     )
       .bind(entityType, entityId, limit)
@@ -385,8 +387,8 @@ export class AuditService {
 
     const { results } = await this.env.DB.prepare(
       `SELECT * FROM audit_logs
-       WHERE user_id = ? AND timestamp >= ?
-       ORDER BY timestamp DESC
+       WHERE user_id = ? AND created_at >= ?
+       ORDER BY created_at DESC
        LIMIT ?`
     )
       .bind(userId, startDate, limit)
@@ -442,9 +444,9 @@ export class AuditService {
 
     // By day (last 30 days)
     const { results: byDay } = await this.env.DB.prepare(
-      `SELECT date(timestamp) as date, COUNT(*) as count FROM audit_logs
-       WHERE timestamp >= date('now', '-30 days') ${insurerFilter}
-       GROUP BY date(timestamp) ORDER BY date ASC`
+      `SELECT date(created_at) as date, COUNT(*) as count FROM audit_logs
+       WHERE created_at >= date('now', '-30 days') ${insurerFilter}
+       GROUP BY date(created_at) ORDER BY date ASC`
     ).all<{ date: string; count: number }>();
 
     // Average duration and error rate
@@ -477,7 +479,7 @@ export class AuditService {
     endDate: string,
     insurerId?: string
   ): Promise<ComplianceReport> {
-    const dateFilter = `AND timestamp >= '${startDate}' AND timestamp <= '${endDate}'`;
+    const dateFilter = `AND created_at >= '${startDate}' AND created_at <= '${endDate}'`;
     const insurerFilter = insurerId ? `AND insurer_id = '${insurerId}'` : '';
 
     // Summary counts
@@ -504,7 +506,7 @@ export class AuditService {
 
     // Peak hours
     const { results: peakHours } = await this.env.DB.prepare(
-      `SELECT CAST(strftime('%H', timestamp) AS INTEGER) as hour, COUNT(*) as count
+      `SELECT CAST(strftime('%H', created_at) AS INTEGER) as hour, COUNT(*) as count
        FROM audit_logs
        WHERE 1=1 ${dateFilter} ${insurerFilter}
        GROUP BY hour ORDER BY hour`
@@ -544,7 +546,7 @@ export class AuditService {
 
     // Failed logins by user
     const { results: failedLogins } = await this.env.DB.prepare(
-      `SELECT user_id as userId, COUNT(*) as count, MAX(timestamp) as lastAttempt
+      `SELECT user_id as userId, COUNT(*) as count, MAX(created_at) as lastAttempt
        FROM audit_logs
        WHERE action = 'LOGIN_FAILED' ${dateFilter} ${insurerFilter}
        GROUP BY user_id
@@ -673,7 +675,7 @@ export class AuditService {
 
     // Archive to R2 before deleting (optional)
     const { results } = await this.env.DB.prepare(
-      `SELECT * FROM audit_logs WHERE timestamp < ? LIMIT 10000`
+      `SELECT * FROM audit_logs WHERE created_at < ? LIMIT 10000`
     )
       .bind(cutoffDate)
       .all();
@@ -686,7 +688,7 @@ export class AuditService {
 
     // Delete old entries
     const deleteResult = await this.env.DB.prepare(
-      `DELETE FROM audit_logs WHERE timestamp < ?`
+      `DELETE FROM audit_logs WHERE created_at < ?`
     )
       .bind(cutoffDate)
       .run();
@@ -759,38 +761,51 @@ export class AuditService {
     const conditions: string[] = [];
 
     if (startDate) {
-      conditions.push(`timestamp >= '${startDate}'`);
+      conditions.push(`created_at >= '${startDate}'`);
     }
 
     if (endDate) {
-      conditions.push(`timestamp <= '${endDate}'`);
+      conditions.push(`created_at <= '${endDate}'`);
     }
 
     return conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
   }
 
   private mapToAuditEntry(row: Record<string, unknown>): AuditEntry {
+    // Parse details from either 'details' column or 'changes_json' (legacy schema)
+    let details: Record<string, unknown> = {};
+    if (row.details && typeof row.details === 'string') {
+      try { details = JSON.parse(row.details); } catch { /* ignore */ }
+    } else if (row.changes_json && typeof row.changes_json === 'string') {
+      try { details = JSON.parse(row.changes_json); } catch { /* ignore */ }
+    }
+
+    let changes: { field: string; oldValue: unknown; newValue: unknown }[] | undefined;
+    if (row.changes && typeof row.changes === 'string') {
+      try { changes = JSON.parse(row.changes); } catch { /* ignore */ }
+    }
+
     return {
       id: row.id as string,
-      timestamp: row.timestamp as string,
+      timestamp: (row.created_at || row.timestamp) as string,
       userId: row.user_id as string,
       userName: (row.user_name as string) || undefined,
-      userRole: row.user_role as string,
+      userRole: (row.user_role as string) || undefined as unknown as string,
       action: row.action as AuditAction,
       entityType: row.entity_type as EntityType,
       entityId: row.entity_id as string,
       entityName: (row.entity_name as string) || undefined,
-      details: row.details ? JSON.parse(row.details as string) : {},
+      details,
       ipAddress: (row.ip_address as string) || undefined,
       userAgent: (row.user_agent as string) || undefined,
       requestId: (row.request_id as string) || undefined,
       sessionId: (row.session_id as string) || undefined,
       insurerId: (row.insurer_id as string) || undefined,
       providerId: (row.provider_id as string) || undefined,
-      result: row.result as 'success' | 'failure',
+      result: (row.result as 'success' | 'failure') || 'success',
       errorMessage: (row.error_message as string) || undefined,
       duration: (row.duration as number) || undefined,
-      changes: row.changes ? JSON.parse(row.changes as string) : undefined,
+      changes,
     };
   }
 }

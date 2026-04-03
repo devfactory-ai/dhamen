@@ -48,6 +48,7 @@ import { useAdherentPlafonds } from '@/features/agent/hooks/use-adherent-plafond
 import { FamilleTable } from '@/features/agent/adherents/components/FamilleTable';
 import { PlafondsCard } from '@/features/agent/adherents/components/PlafondsCard';
 import { ScanUpload } from '@/features/bulletins/components/scan-upload';
+import { usePermissions } from '@/hooks/usePermissions';
 import { ActeSelector } from '@/features/agent/bulletins/components/ActeSelector';
 import { MedicationAutocomplete } from '@/features/bulletins/components/medication-autocomplete';
 import { MfLookupInput } from '@/features/bulletins/components/mf-lookup-input';
@@ -233,6 +234,11 @@ function mapNatureActeToCode(natureActe: string): { code: string; label: string 
 }
 
 export function BulletinsSaisiePage() {
+  const { hasPermission } = usePermissions();
+  const canCreate = hasPermission('bulletins_soins', 'create');
+  const canUpdate = hasPermission('bulletins_soins', 'update');
+  const canDelete = hasPermission('bulletins_soins', 'delete');
+
   const queryClient = useQueryClient();
   const { selectedCompany, selectedBatch, setBatch } = useAgentContext();
   const [activeTab, setActiveTab] = useState("saisie");
@@ -240,6 +246,7 @@ export function BulletinsSaisiePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedBulletins, setSelectedBulletins] = useState<string[]>([]);
   const [bulkDeleteBulletinConfirm, setBulkDeleteBulletinConfirm] = useState(false);
+  const [bulkDeleteBatchConfirm, setBulkDeleteBatchConfirm] = useState(false);
   const [showBatchDialog, setShowBatchDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showExportDetailDialog, setShowExportDetailDialog] = useState(false);
@@ -781,6 +788,23 @@ export function BulletinsSaisiePage() {
     },
   });
 
+  const invalidateAllBulletinQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin-bulletins"] });
+    queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
+    queryClient.invalidateQueries({ queryKey: ["agent-batches"] });
+    queryClient.invalidateQueries({ queryKey: ["bulletins-validation"] });
+    queryClient.invalidateQueries({ queryKey: ["bulletins-validation-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["bulletins-history"] });
+    queryClient.invalidateQueries({ queryKey: ["bulletins-payments"] });
+    queryClient.invalidateQueries({ queryKey: ["bulletins-payment-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["recent-bulletins"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["hr-recent-bulletins"] });
+    queryClient.invalidateQueries({ queryKey: ["adhérent-bulletins"] });
+    queryClient.invalidateQueries({ queryKey: ["adhérent-bulletins-stats"] });
+    queryClient.invalidateQueries({ queryKey: ["batch-bulletins"] });
+  };
+
   // Delete bulletin mutation
   const deleteMutation = useMutation({
     mutationFn: async (bulletinId: string) => {
@@ -791,8 +815,7 @@ export function BulletinsSaisiePage() {
       return response.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-batches"] });
+      invalidateAllBulletinQueries();
       toast.success("Bulletin supprimé");
     },
     onError: (error: Error) => {
@@ -811,8 +834,7 @@ export function BulletinsSaisiePage() {
       return response.data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
-      queryClient.invalidateQueries({ queryKey: ["agent-batches"] });
+      invalidateAllBulletinQueries();
       toast.success(`${data?.deleted || 0} bulletin(s) supprimé(s)`);
       setSelectedBulletins([]);
     },
@@ -832,7 +854,9 @@ export function BulletinsSaisiePage() {
       return response.data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["agent-batches"] });
+      invalidateAllBulletinQueries();
+      // Always reset active batch — it may have been deleted
+      setBatch(null);
       toast.success(`${data?.deleted || 0} lot(s) supprimé(s)`);
       setSelectedBatches([]);
     },
@@ -1075,6 +1099,10 @@ export function BulletinsSaisiePage() {
         // Default to "self" if no beneficiaire detected from OCR
         if (!info.beneficiaire_coche) {
           setValue("beneficiary_relationship" as keyof BulletinFormData, "self");
+        }
+        // Fill beneficiary name from OCR
+        if (info.nom_beneficiaire) {
+          setValue("beneficiary_name", info.nom_beneficiaire.trim());
         }
       }
 
@@ -2193,12 +2221,13 @@ export function BulletinsSaisiePage() {
                             <div className="relative">
                               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                               <Input
-                                {...register("adherent_matricule")}
+                                value={adherentSearch}
                                 placeholder="Rechercher par nom ou matricule..."
                                 className="pl-9 rounded-xl"
                                 onChange={(e) => {
-                                  register("adherent_matricule").onChange(e);
-                                  setAdherentSearch(e.target.value);
+                                  const val = e.target.value;
+                                  setAdherentSearch(val);
+                                  setValue("adherent_matricule", val);
                                   setShowAdherentDropdown(true);
                                   // Reset all adherent/beneficiary info when matricule changes
                                   setSelectedAdherentInfo(null);
@@ -2250,9 +2279,11 @@ export function BulletinsSaisiePage() {
                                       className="w-full px-3 py-2 text-left hover:bg-gray-50 text-sm border-b last:border-0"
                                       onMouseDown={(e) => {
                                         e.preventDefault();
+                                        const matriculeVal = a.matricule || "";
                                         setValue(
                                           "adherent_matricule",
-                                          a.matricule || "",
+                                          matriculeVal,
+                                          { shouldValidate: true, shouldDirty: true },
                                         );
                                         setValue(
                                           "adherent_last_name",
@@ -2268,7 +2299,7 @@ export function BulletinsSaisiePage() {
                                         );
                                         // Auto-select "self" as default bénéficiaire
                                         setValue("beneficiary_relationship", "self");
-                                        setAdherentSearch("");
+                                        setAdherentSearch(matriculeVal);
                                         setShowAdherentDropdown(false);
                                         setSelectedAdherentInfo(a);
                                       }}
@@ -2452,7 +2483,7 @@ export function BulletinsSaisiePage() {
                                       Actif
                                     </Badge>
                                   </div>
-                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div className="grid grid-cols-1 gap-2 text-xs">
                                     {selectedAdherentInfo.email && (
                                       <div>
                                         <p className="text-gray-500">Email</p>
@@ -2463,7 +2494,7 @@ export function BulletinsSaisiePage() {
                                     )}
                                     {selectedAdherentInfo.plafondGlobal !=
                                       null && (
-                                      <div>
+                                      <div className='flex flex-col'>
                                         <p className="text-gray-500">
                                           Plafond restant
                                         </p>
@@ -2542,6 +2573,16 @@ export function BulletinsSaisiePage() {
                                         type="email"
                                         {...register("adherent_email")}
                                         placeholder="email@exemple.com"
+                                        className="rounded-xl text-sm"
+                                      />
+                                    </div>
+                                    <div className="space-y-1 sm:col-span-2">
+                                      <Label className="text-xs text-gray-500">
+                                        Adresse
+                                      </Label>
+                                      <Input
+                                        {...register("adherent_address")}
+                                        placeholder="Adresse complète"
                                         className="rounded-xl text-sm"
                                       />
                                     </div>
@@ -3070,7 +3111,7 @@ export function BulletinsSaisiePage() {
                                     )}
                                   </div>
                                   <div>
-                                    <Label className="text-sm text-gray-700">
+                                    <Label className="text-sm text-gray-700">cla
                                       Matricule fiscale *
                                     </Label>
                                     <MfLookupInput
@@ -3086,6 +3127,7 @@ export function BulletinsSaisiePage() {
                                       }
                                       onProviderFound={(provider) => {
                                         // Autocomplete: fill name and provider_id from existing provider
+                                        console.log("provider",provider)
                                         setValue(
                                           `actes.${index}.nom_prof_sant`,
                                           provider.name,
@@ -3102,16 +3144,25 @@ export function BulletinsSaisiePage() {
                                       }}
                                       onStatusChange={(status) => {
                                         // Clear provider_id when MF changes and provider is not found
-                                        if (status !== 'found' && status !== 'registered') {
-                                          setValue(`actes.${index}.provider_id`, undefined);
+                                        if (
+                                          status !== "found" &&
+                                          status !== "registered"
+                                        ) {
+                                          setValue(
+                                            `actes.${index}.provider_id`,
+                                            undefined,
+                                          );
                                         }
                                         // Update auto-register state based on lookup result
-                                        if (status === 'not_found') {
+                                        if (status === "not_found") {
                                           setAutoRegisterPraticien((prev) => ({
                                             ...prev,
                                             [index]: true,
                                           }));
-                                        } else if (status === 'found' || status === 'registered') {
+                                        } else if (
+                                          status === "found" ||
+                                          status === "registered"
+                                        ) {
                                           setAutoRegisterPraticien((prev) => ({
                                             ...prev,
                                             [index]: false,
@@ -3514,7 +3565,7 @@ export function BulletinsSaisiePage() {
                     </div>
 
                     {/* Action buttons */}
-                    <button
+                    {canCreate && <button
                       type="submit"
                       disabled={
                         isSubmitting ||
@@ -3546,7 +3597,7 @@ export function BulletinsSaisiePage() {
                       ) : (
                         <>Enregistrer le bulletin</>
                       )}
-                    </button>
+                    </button>}
                     <button
                       type="button"
                       onClick={() => {
@@ -3617,25 +3668,8 @@ export function BulletinsSaisiePage() {
                     className="pl-9 w-64 rounded-xl border-gray-200 bg-gray-50 focus:bg-white"
                   />
                 </div>
-                {selectedBulletins.length > 0 && (
+                {canDelete && selectedBulletins.length > 0 && (
                   <div className="flex items-center gap-2">
-                    {/* <span className="text-sm text-gray-500">
-                      {selectedBulletins.length} sélectionné(s)
-                    </span> */}
-                    {/* <Button
-                      variant="outline"
-                      onClick={() => setSelectedBulletins([])}
-                      className="gap-2"
-                    >
-                      Désélectionner
-                    </Button>
-                    <Button
-                      onClick={() => setShowBatchDialog(true)}
-                      className="gap-2 bg-slate-900 hover:bg-[#19355d]"
-                    >
-                      <FolderPlus className="h-4 w-4" />
-                      Créer un lot ({selectedBulletins.length})
-                    </Button> */}
                     <Button
                       variant="outline"
                       className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
@@ -3652,7 +3686,7 @@ export function BulletinsSaisiePage() {
 
             <DataTable
               columns={[
-                {
+                ...(canDelete ? [{
                   key: "checkbox",
                   header: (
                     <input
@@ -3678,7 +3712,7 @@ export function BulletinsSaisiePage() {
                       className="h-4 w-4 rounded border-gray-300"
                     />
                   ),
-                },
+                }] : []),
                 {
                   key: "bulletin_number",
                   header: "Bulletin",
@@ -3814,7 +3848,7 @@ export function BulletinsSaisiePage() {
                           <CheckCircle2 className="h-4 w-4" />
                         </button>
                       )}
-                      {row.status !== "exported" && (
+                      {canDelete && row.status !== "exported" && (
                         <button
                           type="button"
                           onClick={() => setDeleteBulletinId(row.id)}
@@ -3871,28 +3905,11 @@ export function BulletinsSaisiePage() {
               <option value="closed">Fermé</option>
               <option value="exported">Exporté</option>
             </select>
-            {selectedBatches.length > 0 && (
+            {canDelete && selectedBatches.length > 0 && (
               <>
-                {/* <span className="text-sm text-gray-500">
-                  {selectedBatches.length} lot(s) sélectionné(s)
-                </span>
                 <button
                   type="button"
-                  onClick={() => setSelectedBatches([])}
-                  className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  Désélectionner
-                </button> */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (
-                      confirm(
-                        `Supprimer ${selectedBatches.length} lot(s) et leurs bulletins ?`,
-                      )
-                    )
-                      bulkDeleteBatchesMutation.mutate(selectedBatches);
-                  }}
+                  onClick={() => setBulkDeleteBatchConfirm(true)}
                   disabled={bulkDeleteBatchesMutation.isPending}
                   className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
                 >
@@ -3905,7 +3922,7 @@ export function BulletinsSaisiePage() {
 
           <DataTable
             columns={[
-              ...(batchesData.length > 2 ? [{
+              ...(canDelete && batchesData.length > 0 ? [{
                 key: "checkbox",
                 header: (
                   <input
@@ -4801,6 +4818,36 @@ export function BulletinsSaisiePage() {
               {bulkDeleteMutation.isPending
                 ? "Suppression..."
                 : `Supprimer (${selectedBulletins.length})`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk delete batches confirmation popup */}
+      <AlertDialog
+        open={bulkDeleteBatchConfirm}
+        onOpenChange={() => setBulkDeleteBatchConfirm(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer les lots sélectionnés</AlertDialogTitle>
+            <AlertDialogDescription>
+              Voulez-vous vraiment supprimer <strong>{selectedBatches.length}</strong>{" "}
+              lot(s) et leurs bulletins associés ? Cette action est irréversible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                bulkDeleteBatchesMutation.mutate(selectedBatches);
+                setBulkDeleteBatchConfirm(false);
+              }}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {bulkDeleteBatchesMutation.isPending
+                ? "Suppression..."
+                : `Supprimer (${selectedBatches.length})`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

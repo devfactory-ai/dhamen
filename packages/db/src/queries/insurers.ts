@@ -15,10 +15,15 @@ interface InsurerRow {
   id: string;
   name: string;
   code: string;
+  type: string | null;
+  registration_number: string | null;
   tax_id: string | null;
   address: string | null;
+  city: string | null;
+  postal_code: string | null;
   phone: string | null;
   email: string | null;
+  website: string | null;
   config_json: string;
   is_active: number;
   type_assureur: string | null;
@@ -46,10 +51,15 @@ function rowToInsurer(row: InsurerRow): Insurer {
     id: row.id,
     name: row.name,
     code: row.code,
+    type: row.type || 'INSURANCE',
+    registrationNumber: row.registration_number,
     taxId: row.tax_id,
     address: row.address,
+    city: row.city,
+    postalCode: row.postal_code,
     phone: row.phone,
     email: row.email,
+    website: row.website,
     configJson: JSON.parse(row.config_json) as InsurerConfig,
     isActive: row.is_active === 1,
     typeAssureur,
@@ -149,25 +159,30 @@ export async function createInsurer(
 
   await db
     .prepare(
-      `INSERT INTO insurers (id, name, code, tax_id, address, phone, email, config_json, is_active,
+      `INSERT INTO insurers (id, name, code, type, registration_number, tax_id, address, city, postal_code, phone, email, website, config_json, is_active,
        type_assureur, matricule_fiscal, matricule_valide, date_debut_convention, date_fin_convention, taux_couverture,
        created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       id,
       data.name,
       data.code,
-      data.taxId ?? null,
-      data.address ?? null,
-      data.phone ?? null,
-      data.email ?? null,
+      data.type || 'INSURANCE',
+      data.registrationNumber || null,
+      data.taxId || null,
+      data.address || null,
+      data.city || null,
+      data.postalCode || null,
+      data.phone || null,
+      data.email || null,
+      data.website || null,
       JSON.stringify(config),
       data.typeAssureur ?? 'autre',
-      data.matriculeFiscal ?? null,
+      data.matriculeFiscal || null,
       data.matriculeFiscal ? 1 : 0,
-      data.dateDebutConvention ?? null,
-      data.dateFinConvention ?? null,
+      data.dateDebutConvention || null,
+      data.dateFinConvention || null,
       data.tauxCouverture ?? null,
       now,
       now
@@ -198,21 +213,41 @@ export async function updateInsurer(
     updates.push('name = ?');
     params.push(data.name);
   }
+  if (data.type !== undefined) {
+    updates.push('type = ?');
+    params.push(data.type || null);
+  }
+  if (data.registrationNumber !== undefined) {
+    updates.push('registration_number = ?');
+    params.push(data.registrationNumber || null);
+  }
   if (data.taxId !== undefined) {
     updates.push('tax_id = ?');
-    params.push(data.taxId);
+    params.push(data.taxId || null);
   }
   if (data.address !== undefined) {
     updates.push('address = ?');
-    params.push(data.address);
+    params.push(data.address || null);
+  }
+  if (data.city !== undefined) {
+    updates.push('city = ?');
+    params.push(data.city || null);
+  }
+  if (data.postalCode !== undefined) {
+    updates.push('postal_code = ?');
+    params.push(data.postalCode || null);
   }
   if (data.phone !== undefined) {
     updates.push('phone = ?');
-    params.push(data.phone);
+    params.push(data.phone || null);
   }
   if (data.email !== undefined) {
     updates.push('email = ?');
-    params.push(data.email);
+    params.push(data.email || null);
+  }
+  if (data.website !== undefined) {
+    updates.push('website = ?');
+    params.push(data.website || null);
   }
   if (data.config !== undefined) {
     const newConfig = { ...existing.configJson, ...data.config };

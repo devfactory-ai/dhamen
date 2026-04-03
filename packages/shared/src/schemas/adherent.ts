@@ -82,6 +82,7 @@ export const adherentCreateSchema = z.object({
 
 export const adherentUpdateSchema = z.object({
   // Identité
+  nationalId: z.string().optional().or(z.literal('')),
   typePieceIdentite: typePieceIdentiteSchema.optional(),
   dateEditionPiece: z.string().optional(),
   firstName: z.string().min(1).optional(),

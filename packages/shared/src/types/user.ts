@@ -51,10 +51,12 @@ export interface UserPublic {
   providerId: string | null;
   insurerId: string | null;
   companyId: string | null;
+  companyName: string | null;
   firstName: string;
   lastName: string;
   phone: string | null;
   mfaEnabled: boolean;
+  lastLoginAt: string | null;
   isActive: boolean;
   createdAt: string;
 }

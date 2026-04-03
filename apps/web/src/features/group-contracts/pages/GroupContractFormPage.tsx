@@ -46,6 +46,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/stores/toast';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
+import { usePermissions } from '@/hooks/usePermissions';
 
 // ---- Care types ----
 
@@ -216,29 +217,46 @@ interface Insurer {
 interface ExistingContract {
   id: string;
   contract_number: string;
+  contract_type?: string;
   company_id: string;
   insurer_id: string | null;
-  intermediary: string | null;
+  // API returns raw DB column names
+  intermediary_name: string | null;
+  intermediary_code: string | null;
   effective_date: string;
-  expiry_date: string | null;
-  global_ceiling: number | null;
-  covered_risks: string | null;
-  category: string | null;
+  annual_renewal_date: string | null;
+  end_date: string | null;
+  annual_global_limit: number | null;
+  carence_days: number | null;
+  risk_illness: number;
+  risk_disability: number;
+  risk_death: number;
+  covers_spouse: number;
+  covers_children: number;
+  children_max_age: number | null;
+  children_student_max_age: number | null;
+  covers_disabled_children: number;
+  covers_retirees: number;
+  plan_category: string | null;
   status: string;
+  company_address: string | null;
+  matricule_fiscale: string | null;
+  adherent_id: string | null;
+  notes: string | null;
   guarantees: Array<{
     id: string;
     care_type: string;
     label: string;
-    rate: number | null;
-    annual_ceiling: number | null;
-    per_act_ceiling: number | null;
-    per_day_ceiling: number | null;
-    letter_keys: Record<string, number> | null;
-    sub_limits: Record<string, number> | null;
-    conditions: string | null;
+    reimbursement_rate: number | null;
+    annual_limit: number | null;
+    per_event_limit: number | null;
+    daily_limit: number | null;
+    letter_keys_json: string | null;
+    sub_limits_json: string | null;
+    conditions_text: string | null;
     requires_prescription: number;
     requires_cnam_complement: number;
-    renewal_period: string | null;
+    renewal_period_months: number | null;
     age_limit: number | null;
   }>;
 }
@@ -297,12 +315,15 @@ interface PdfAnalyseResponse {
 }
 
 export function GroupContractFormPage() {
+  const { hasPermission } = usePermissions();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isEditing = !!id;
+  const canCreate = hasPermission('contracts', 'create');
+  const canUpdate = hasPermission('contracts', 'update');
 
   // Determine contract type from URL param or agent context
   const agentContext = useAgentContext();
@@ -414,47 +435,81 @@ export function GroupContractFormPage() {
     enabled: isEditing,
   });
 
-  // Populate form when editing
+  // Populate form when editing — wait for contract + insurers + companies
   useEffect(() => {
-    if (existingContract) {
-      const coveredRisks = existingContract.covered_risks
-        ? JSON.parse(existingContract.covered_risks)
-        : [];
+    if (existingContract && insurers && companies) {
+      // Build covered_risks array from individual boolean columns
+      const coveredRisks: string[] = [];
+      if (existingContract.risk_illness) coveredRisks.push('Maladie');
+      if (existingContract.risk_disability) coveredRisks.push('Invalidité');
+      if (existingContract.risk_death) coveredRisks.push('Décès');
+
+      const contractType = existingContract.contract_type === 'individual'
+        ? 'individual' as const
+        : 'group' as const;
+
+      const insurerId = existingContract.insurer_id || '';
+      const companyId = existingContract.company_id || '';
+
+      // Parse guarantee JSON fields
+      const parseJson = (val: string | null): Record<string, number> | null => {
+        if (!val) return null;
+        try { return JSON.parse(val); } catch { return null; }
+      };
 
       reset({
+        contract_type: contractType,
         contract_number: existingContract.contract_number,
-        company_id: existingContract.company_id,
-        insurer_id: existingContract.insurer_id || '',
-        intermediary_name: existingContract.intermediary || '',
+        company_id: companyId,
+        insurer_id: insurerId,
+        company_address: existingContract.company_address || '',
+        matricule_fiscale: existingContract.matricule_fiscale || '',
+        intermediary_name: existingContract.intermediary_name || '',
+        intermediary_code: existingContract.intermediary_code || '',
         effective_date: existingContract.effective_date || '',
-        expiry_date: existingContract.expiry_date || '',
-        global_ceiling: existingContract.global_ceiling,
-        carence_days: (existingContract as unknown as { carence_days?: number | null }).carence_days ?? null,
+        expiry_date: existingContract.annual_renewal_date || '',
+        global_ceiling: existingContract.annual_global_limit,
+        carence_days: existingContract.carence_days ?? null,
         covered_risks: coveredRisks,
-        category: existingContract.category || '',
+        category: existingContract.plan_category || 'standard',
         status: existingContract.status,
+        covers_spouse: !!existingContract.covers_spouse,
+        covers_children: !!existingContract.covers_children,
+        children_max_age: existingContract.children_max_age ?? 20,
+        children_student_max_age: existingContract.children_student_max_age ?? 28,
+        covers_disabled_children: !!existingContract.covers_disabled_children,
+        covers_retirees: !!existingContract.covers_retirees,
         guarantees: existingContract.guarantees.map((g) => ({
           care_type: g.care_type,
           label: g.label || '',
-          rate: g.rate,
-          annual_ceiling: g.annual_ceiling,
-          per_act_ceiling: g.per_act_ceiling,
-          per_day_ceiling: g.per_day_ceiling,
-          letter_keys: g.letter_keys
-            ? Object.entries(g.letter_keys).map(([key, value]) => ({ key, value }))
+          rate: g.reimbursement_rate != null ? Math.round(g.reimbursement_rate * 100) : null,
+          annual_ceiling: g.annual_limit,
+          per_act_ceiling: g.per_event_limit,
+          per_day_ceiling: g.daily_limit,
+          letter_keys: g.letter_keys_json
+            ? Object.entries(parseJson(g.letter_keys_json) || {}).map(([key, value]) => ({ key, value }))
             : [],
-          sub_limits: g.sub_limits
-            ? Object.entries(g.sub_limits).map(([key, value]) => ({ key, value }))
+          sub_limits: g.sub_limits_json
+            ? Object.entries(parseJson(g.sub_limits_json) || {}).map(([key, value]) => ({ key, value }))
             : [],
-          conditions: g.conditions || '',
+          conditions: g.conditions_text || '',
           requires_prescription: g.requires_prescription === 1,
           requires_cnam_complement: g.requires_cnam_complement === 1,
-          renewal_period: g.renewal_period || '',
+          renewal_period: g.renewal_period_months === 12 ? 'annual'
+            : g.renewal_period_months === 24 ? 'biennial'
+            : g.renewal_period_months === 36 ? 'triennial'
+            : '',
           age_limit: g.age_limit,
         })),
       });
+
+      // Explicitly set select values after reset to ensure Radix UI picks them up
+      setTimeout(() => {
+        if (insurerId) setValue('insurer_id', insurerId, { shouldValidate: true });
+        if (companyId) setValue('company_id', companyId, { shouldValidate: true });
+      }, 0);
     }
-  }, [existingContract, reset]);
+  }, [existingContract, insurers, companies, reset, setValue]);
 
   // Set contract type from URL on mount (new contracts only)
   useEffect(() => {
@@ -790,6 +845,7 @@ export function GroupContractFormPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['group-contracts'] });
+      queryClient.invalidateQueries({ queryKey: ['group-contract', id] });
       toast({
         title: isEditing ? 'Contrat modifié avec succès' : 'Contrat créé avec succès',
         variant: 'success',
@@ -875,6 +931,16 @@ export function GroupContractFormPage() {
 
   if (isEditing && contractLoading) {
     return <div className="flex items-center justify-center p-8">Chargement...</div>;
+  }
+
+  if ((isEditing && !canUpdate) || (!isEditing && !canCreate)) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <p className="text-lg font-semibold text-gray-900">Acces refuse</p>
+        <p className="mt-1 text-sm text-gray-500">Vous n'avez pas la permission de {isEditing ? 'modifier' : 'creer'} un contrat.</p>
+        <button onClick={() => navigate(-1)} className="mt-4 text-sm text-blue-600 hover:underline">Retour</button>
+      </div>
+    );
   }
 
   return (

@@ -117,3 +117,6 @@ export { roles } from './roles';
 
 // Admin dashboard stats
 export { adminStats } from './admin-stats';
+
+// Praticien (provider portal)
+export { praticien } from './praticien';

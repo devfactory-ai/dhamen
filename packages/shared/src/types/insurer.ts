@@ -28,10 +28,15 @@ export interface Insurer {
   id: string;
   name: string;
   code: string;
+  type: string;
+  registrationNumber: string | null;
   taxId: string | null;
   address: string | null;
+  city: string | null;
+  postalCode: string | null;
   phone: string | null;
   email: string | null;
+  website: string | null;
   configJson: InsurerConfig;
   isActive: boolean;
   typeAssureur: TypeAssureur;
@@ -49,10 +54,15 @@ export interface Insurer {
 export interface InsurerCreate {
   name: string;
   code: string;
+  type?: string;
+  registrationNumber?: string;
   taxId?: string;
   address?: string;
+  city?: string;
+  postalCode?: string;
   phone?: string;
   email?: string;
+  website?: string;
   config?: Partial<InsurerConfig>;
   typeAssureur?: TypeAssureur;
   matriculeFiscal?: string;
@@ -63,10 +73,15 @@ export interface InsurerCreate {
 
 export interface InsurerUpdate {
   name?: string;
+  type?: string;
+  registrationNumber?: string;
   taxId?: string;
   address?: string;
+  city?: string;
+  postalCode?: string;
   phone?: string;
   email?: string;
+  website?: string;
   config?: Partial<InsurerConfig>;
   isActive?: boolean;
   typeAssureur?: TypeAssureur;

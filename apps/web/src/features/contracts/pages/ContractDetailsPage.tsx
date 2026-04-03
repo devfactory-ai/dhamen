@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { apiClient, API_BASE_URL } from '@/lib/api-client';
+import { usePermissions } from '@/hooks/usePermissions';
 
 interface Contract {
   id: string;
@@ -48,6 +49,9 @@ const CONTRACT_STATUS = {
 };
 
 export function ContractDetailsPage() {
+  const { hasPermission } = usePermissions();
+  const canUpdate = hasPermission('contracts', 'update');
+
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -108,10 +112,12 @@ export function ContractDetailsPage() {
           title={contract.name}
           description={`Contrat N° ${contract.contractNumber}`}
         />
-        <Button onClick={() => navigate(`/contracts/${id}/edit`)}>
-          <Edit className="h-4 w-4 mr-2" />
-          Modifier
-        </Button>
+        {canUpdate && (
+          <Button onClick={() => navigate(`/contracts/${id}/edit`)}>
+            <Edit className="h-4 w-4 mr-2" />
+            Modifier
+          </Button>
+        )}
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
@@ -314,14 +320,16 @@ export function ContractDetailsPage() {
               <FileText className="h-12 w-12 mb-3 opacity-50" />
               <p className="font-medium">Aucun document associe</p>
               <p className="text-sm">Vous pouvez ajouter un PDF en modifiant le contrat</p>
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={() => navigate(`/contracts/${id}/edit`)}
-              >
-                <Edit className="h-4 w-4 mr-2" />
-                Ajouter un document
-              </Button>
+              {canUpdate && (
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => navigate(`/contracts/${id}/edit`)}
+                >
+                  <Edit className="h-4 w-4 mr-2" />
+                  Ajouter un document
+                </Button>
+              )}
             </div>
           )}
         </CardContent>

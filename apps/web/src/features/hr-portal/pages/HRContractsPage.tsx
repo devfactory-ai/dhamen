@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { usePermissions } from '@/hooks/usePermissions';
 import { apiClient } from '@/lib/api-client';
 import { NoEntrepriseGuard } from '../components/NoEntrepriseGuard';
 
@@ -30,6 +31,8 @@ interface ContractStats {
 
 export function HRContractsPage() {
   const { user } = useAuth();
+  const { hasPermission } = usePermissions();
+  const canRead = hasPermission('contracts', 'read');
 
   const { data: contracts, isLoading } = useQuery({
     queryKey: ['hr-contracts', user?.companyId],
@@ -117,12 +120,12 @@ export function HRContractsPage() {
       key: 'actions',
       header: '',
       className: 'text-right',
-      render: (contract: Contract) => (
+      render: (contract: Contract) => canRead ? (
         <Button variant="ghost" size="sm">
           <Download className="mr-2 h-4 w-4" />
           PDF
         </Button>
-      ),
+      ) : null,
     },
   ];
 

@@ -10,6 +10,8 @@ interface FamilleMembre {
   gender: string | null;
   email: string | null;
   phone: string | null;
+  nationalId: string | null;
+  typePieceIdentite: string | null;
   codeType: 'A' | 'C' | 'E';
   rangPres: number;
   codeSituationFam: string | null;

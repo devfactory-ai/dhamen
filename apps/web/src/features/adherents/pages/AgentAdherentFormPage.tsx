@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useCompanies } from '@/features/agent/hooks/use-companies';
 import { apiClient } from '@/lib/api-client';
 import { useAdherentFamille } from '@/features/agent/hooks/use-adherent-famille';
@@ -89,7 +90,6 @@ interface AdherentFormState {
   handicap: boolean;
   fonction: string;
   maladiChronique: boolean;
-  matriculeConjoint: string;
   contractNumber: string;
   credit: string;
 }
@@ -114,7 +114,7 @@ const emptyForm: AdherentFormState = {
   contreVisiteObligatoire: false, etatFiche: 'NON_TEMPORAIRE',
   phone: '', mobile: '', email: '',
   rue: '', address: '', city: '', postalCode: '',
-  banque: '', rib: '', regimeSocial: '', handicap: false, fonction: '', maladiChronique: false, matriculeConjoint: '',
+  banque: '', rib: '', regimeSocial: '', handicap: false, fonction: '', maladiChronique: false,
   contractNumber: '', credit: '',
 };
 
@@ -136,14 +136,17 @@ export function AgentAdherentFormPage() {
   const isEdit = !!id;
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const isHR = user?.role === 'HR';
+  const { hasPermission } = usePermissions();
   const { selectedCompany } = useAgentContext();
-  const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
+  const isIndividualMode = !isHR && selectedCompany?.id === '__INDIVIDUAL__';
   const [adminCompanyId, setAdminCompanyId] = useState<string>('');
   const { data: companiesList } = useCompanies();
 
   const [form, setForm] = useState<AdherentFormState>(emptyForm);
   const [ayantsDroit, setAyantsDroit] = useState<AyantDroitFormState[]>([]);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [formPopulated, setFormPopulated] = useState(false);
 
   // Import existing adherent as ayant droit
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -161,7 +164,9 @@ export function AgentAdherentFormPage() {
     setImportSearching(true);
     try {
       const params = new URLSearchParams({ search: query, limit: '10' });
-      if (selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__') {
+      if (isHR && user?.companyId) {
+        params.set('companyId', user.companyId);
+      } else if (selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__') {
         params.set('companyId', selectedCompany.id);
       }
       const res = await apiClient.get<Array<{
@@ -204,7 +209,7 @@ export function AgentAdherentFormPage() {
     setImportSearchResults([]);
   };
 
-  const effectiveCompanyId = isAdmin ? adminCompanyId : selectedCompany?.id;
+  const effectiveCompanyId = isHR ? (user?.companyId ?? undefined) : isAdmin ? adminCompanyId : selectedCompany?.id;
   const { data: nextMatricule } = useNextMatricule(effectiveCompanyId || undefined);
   const createMutation = useCreateAdherent();
   const updateMutation = useUpdateAdherent();
@@ -222,6 +227,8 @@ export function AgentAdherentFormPage() {
       loaded.push({
         ...emptyAyantDroit,
         lienParente: 'C',
+        nationalId: familleData.conjoint.nationalId || '',
+        typePieceIdentite: familleData.conjoint.typePieceIdentite || 'CIN',
         firstName: familleData.conjoint.firstName || '',
         lastName: familleData.conjoint.lastName || '',
         dateOfBirth: familleData.conjoint.dateOfBirth || '',
@@ -234,6 +241,8 @@ export function AgentAdherentFormPage() {
       loaded.push({
         ...emptyAyantDroit,
         lienParente: 'E',
+        nationalId: enfant.nationalId || '',
+        typePieceIdentite: enfant.typePieceIdentite || 'CIN',
         firstName: enfant.firstName || '',
         lastName: enfant.lastName || '',
         dateOfBirth: enfant.dateOfBirth || '',
@@ -245,9 +254,9 @@ export function AgentAdherentFormPage() {
     setAyantsDroit(loaded);
   }, [isEdit, familleData]);
 
-  // Populate form when editing
+  // Populate form when editing — only once when data first loads
   useEffect(() => {
-    if (adherentData && isEdit) {
+    if (adherentData && isEdit && !formPopulated) {
       const a = adherentData as unknown as Record<string, unknown>;
       setForm({
         typePieceIdentite: (a.typePieceIdentite as string) || (a.type_piece_identite as string) || 'CIN',
@@ -281,14 +290,20 @@ export function AgentAdherentFormPage() {
         handicap: !!(a.handicap),
         fonction: (a.fonction as string) || '',
         maladiChronique: !!(a.maladiChronique || a.maladi_chronique),
-        matriculeConjoint: (a.matriculeConjoint as string) || (a.matricule_conjoint as string) || '',
         contractNumber: (a.contractNumber as string) || (a.contract_number as string) || '',
         credit: a.credit ? String(a.credit) : '',
       });
-    } else if (!isEdit) {
+      setFormPopulated(true);
+      // Set company for ADMIN mode edit
+      if (isAdmin) {
+        const cid = (a.companyId as string) || (a.company_id as string) || '';
+        if (cid) setAdminCompanyId(cid);
+      }
+    } else if (!isEdit && !formPopulated) {
       setForm({ ...emptyForm, matricule: nextMatricule || '0001' });
+      if (nextMatricule) setFormPopulated(true);
     }
-  }, [adherentData, isEdit, nextMatricule]);
+  }, [adherentData, isEdit, nextMatricule, isAdmin, formPopulated]);
 
   // --- Ayants droit helpers ---
   const hasConjoint = ayantsDroit.some((ad) => ad.lienParente === 'C');
@@ -353,6 +368,7 @@ export function AgentAdherentFormPage() {
         }));
 
       const payload: UpdateAdherentData = {
+        nationalId: form.nationalId || undefined,
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         dateOfBirth: form.dateOfBirth || undefined,
@@ -379,11 +395,11 @@ export function AgentAdherentFormPage() {
         handicap: form.handicap || undefined,
         fonction: form.fonction || undefined,
         maladiChronique: form.maladiChronique || undefined,
-        matriculeConjoint: form.matriculeConjoint || undefined,
         typePieceIdentite: form.typePieceIdentite || undefined,
         dateEditionPiece: form.dateEditionPiece || undefined,
         contreVisiteObligatoire: form.contreVisiteObligatoire || undefined,
         etatFiche: form.etatFiche || undefined,
+        contractNumber: form.contractNumber || undefined,
         credit: form.credit ? Number(form.credit) : undefined,
         ayantsDroit: ayantsDroitPayload.length > 0 ? ayantsDroitPayload : undefined,
       };
@@ -392,8 +408,9 @@ export function AgentAdherentFormPage() {
         navigate('/adherents/agent');
       } catch { /* handled by mutation */ }
     } else {
-      if (!isIndividualMode && !isAdmin && !selectedCompany) return;
+      if (!isIndividualMode && !isAdmin && !isHR && !selectedCompany) return;
       if (!isIndividualMode && isAdmin && !adminCompanyId) return;
+      if (isHR && !user?.companyId) return;
 
       // Build ayants droit payload
       const ayantsDroitPayload: AyantDroitData[] = ayantsDroit
@@ -426,7 +443,7 @@ export function AgentAdherentFormPage() {
         address: form.address || undefined,
         city: form.city || undefined,
         postalCode: form.postalCode || undefined,
-        companyId: isIndividualMode ? '__INDIVIDUAL__' : (isAdmin ? adminCompanyId : selectedCompany!.id),
+        companyId: isIndividualMode ? '__INDIVIDUAL__' : (isHR ? user!.companyId! : isAdmin ? adminCompanyId : selectedCompany!.id),
         matricule: form.matricule || undefined,
         contractNumber: form.contractNumber || undefined,
         plafondGlobal: form.plafondGlobal ? Number(form.plafondGlobal) * 1000 : undefined,
@@ -440,7 +457,6 @@ export function AgentAdherentFormPage() {
         handicap: form.handicap || undefined,
         fonction: form.fonction || undefined,
         maladiChronique: form.maladiChronique || undefined,
-        matriculeConjoint: form.matriculeConjoint || undefined,
         typePieceIdentite: form.typePieceIdentite || undefined,
         dateEditionPiece: form.dateEditionPiece || undefined,
         contreVisiteObligatoire: form.contreVisiteObligatoire || undefined,
@@ -458,6 +474,18 @@ export function AgentAdherentFormPage() {
   const isBusy = createMutation.isPending || updateMutation.isPending;
   const formError = createMutation.error || updateMutation.error;
 
+  // Permission guard: block if no create/update permission
+  const requiredAction = isEdit ? 'update' : 'create';
+  if (!hasPermission('adherents', requiredAction)) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <p className="text-lg font-semibold text-gray-900">Accès refusé</p>
+        <p className="mt-1 text-sm text-gray-500">Vous n'avez pas la permission de {isEdit ? 'modifier' : 'créer'} un adhérent.</p>
+        <Button variant="outline" className="mt-4" onClick={() => navigate(-1)}>Retour</Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -467,9 +495,11 @@ export function AgentAdherentFormPage() {
             ? `Modification de ${form.firstName} ${form.lastName}`
             : isIndividualMode
               ? 'Adhérent avec contrat individuel (sans entreprise)'
-              : isAdmin
-                ? 'Sélectionnez une entreprise pour créer un adhérent'
-                : `Entreprise: ${selectedCompany?.name || '\u2014'}`
+              : isHR
+                ? `Entreprise: ${user?.companyName || 'votre entreprise'}`
+                : isAdmin
+                  ? 'Sélectionnez une entreprise pour créer un adhérent'
+                  : `Entreprise: ${selectedCompany?.name || '\u2014'}`
         }
         icon={isEdit ? <Pencil className="w-6 h-6" /> : isIndividualMode ? <User className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
         breadcrumb={[
@@ -500,7 +530,7 @@ export function AgentAdherentFormPage() {
             <div className="mb-4">
               <Label className="text-xs text-gray-500">Entreprise</Label>
               <p className="text-sm font-medium">
-                {selectedCompany?.name || '\u2014'}
+                {isHR ? (user?.companyName || 'votre entreprise') : (selectedCompany?.name || '\u2014')}
               </p>
             </div>
           )}
@@ -549,7 +579,7 @@ export function AgentAdherentFormPage() {
                     id="nationalId"
                     placeholder="12345678"
                     maxLength={form.typePieceIdentite === 'CIN' ? 8 : 20}
-                    disabled={isEdit}
+                    disabled={isEdit && !!adherentData && !!((adherentData as unknown as Record<string, unknown>).nationalId || (adherentData as unknown as Record<string, unknown>).national_id)}
                     value={form.nationalId}
                     onChange={(e) => setForm({ ...form, nationalId: form.typePieceIdentite === 'CIN' ? e.target.value.replace(/\D/g, '') : e.target.value })}
                     className={formErrors.nationalId ? 'border-red-500' : ''}
@@ -760,7 +790,7 @@ export function AgentAdherentFormPage() {
                 </div>
               </div>
 
-              {/* Handicap / Maladie chronique / Matricule conjoint */}
+              {/* Handicap / Maladie chronique */}
               <div className="grid grid-cols-3 gap-3">
                 <label className="flex items-center gap-2 cursor-pointer pt-5">
                   <input type="checkbox" checked={form.handicap} onChange={(e) => setForm({ ...form, handicap: e.target.checked })} className="rounded" />
@@ -770,10 +800,7 @@ export function AgentAdherentFormPage() {
                   <input type="checkbox" checked={form.maladiChronique} onChange={(e) => setForm({ ...form, maladiChronique: e.target.checked })} className="rounded" />
                   <span className="text-sm">Maladie chronique</span>
                 </label>
-                <div>
-                  <Label htmlFor="matriculeConjoint">Matricule conjoint</Label>
-                  <Input id="matriculeConjoint" value={form.matriculeConjoint} onChange={(e) => setForm({ ...form, matriculeConjoint: e.target.value })} />
-                </div>
+                <div />
               </div>
             </TabsContent>
 

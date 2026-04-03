@@ -1,5 +1,6 @@
 import { findUserByEmail, findUserById, updateUser, userToPublic } from '@dhamen/db';
-import { loginRequestSchema, mfaVerifyRequestSchema, mfaEmailSendSchema, mfaEmailVerifySchema, passwordResetRequestSchema, passwordResetConfirmSchema, magicLinkSendSchema, magicLinkVerifySchema } from '@dhamen/shared';
+import { loginRequestSchema, mfaVerifyRequestSchema, mfaEmailSendSchema, mfaEmailVerifySchema, passwordResetRequestSchema, passwordResetConfirmSchema, magicLinkSendSchema, magicLinkVerifySchema, getPermissions, RESOURCES, ACTIONS } from '@dhamen/shared';
+import type { Role } from '@dhamen/shared';
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -46,6 +47,13 @@ function isProduction(c: { env: Bindings }): boolean {
   return c.env.ENVIRONMENT === 'production';
 }
 
+/** Resolve company name for a user with companyId */
+async function resolveCompanyName(db: ReturnType<typeof getDb>, companyId: string | null | undefined): Promise<string | null> {
+  if (!companyId) return null;
+  const company = await db.prepare('SELECT name FROM companies WHERE id = ?').bind(companyId).first<{ name: string }>();
+  return company?.name || null;
+}
+
 // Schema for MFA setup
 const mfaSetupSchema = z.object({
   otpCode: z.string().length(6, 'Code OTP doit contenir 6 chiffres'),
@@ -58,6 +66,62 @@ const backupCodeSchema = z.object({
 });
 
 const auth = new Hono<{ Bindings: Bindings; Variables: Variables }>();
+
+/**
+ * Build resolved permissions for a user (role + individual overrides)
+ */
+async function buildUserPermissions(db: ReturnType<typeof getDb>, userId: string, role: string) {
+  // Role permissions matrix (from static code)
+  const rolePerms = getPermissions(role as Role);
+  const roleMatrix: Record<string, Record<string, boolean>> = {};
+  for (const resource of RESOURCES) {
+    roleMatrix[resource] = {};
+    for (const action of ACTIONS) {
+      const resourceActions = rolePerms[resource];
+      roleMatrix[resource][action] = resourceActions ? resourceActions.includes(action) : false;
+    }
+  }
+
+  // Apply role-level overrides from DB (from Rôles & Permissions page)
+  try {
+    const { results: roleOverrides } = await db
+      .prepare('SELECT resource, action, is_granted FROM role_permission_overrides WHERE role_id = ?')
+      .bind(role)
+      .all<{ resource: string; action: string; is_granted: number }>();
+    for (const o of roleOverrides ?? []) {
+      if (roleMatrix[o.resource]) {
+        roleMatrix[o.resource][o.action] = o.is_granted === 1;
+      }
+    }
+  } catch {
+    // Table may not exist yet
+  }
+
+  // Individual user overrides (highest priority)
+  let overrides: { resource: string; action: string; is_granted: number; expires_at: string | null }[] = [];
+  try {
+    const { results } = await db
+      .prepare(
+        `SELECT resource, action, is_granted, expires_at FROM user_permissions
+         WHERE user_id = ? AND (expires_at IS NULL OR expires_at > datetime('now'))`
+      )
+      .bind(userId)
+      .all<{ resource: string; action: string; is_granted: number; expires_at: string | null }>();
+    overrides = results ?? [];
+  } catch {
+    // Table may not exist yet
+  }
+
+  return {
+    role: roleMatrix,
+    overrides: overrides.map((o) => ({
+      resource: o.resource,
+      action: o.action,
+      isGranted: o.is_granted === 1,
+      expiresAt: o.expires_at,
+    })),
+  };
+}
 
 /**
  * POST /api/v1/auth/login
@@ -166,11 +230,18 @@ auth.post('/login', zValidator('json', loginRequestSchema, validationHook), asyn
     tenantCode = insurer?.code || null;
   }
 
+  // Resolve company name for users with a company
+  const companyName = await resolveCompanyName(getDb(c), user.companyId);
+
+  // Resolve user permissions (role + individual overrides)
+  const permissions = await buildUserPermissions(getDb(c), user.id, user.role);
+
   return success(c, {
     requiresMfa: false,
     expiresIn: jwtExpiresIn,
-    user: userToPublic(user),
+    user: userToPublic({ ...user, companyName }),
     tenantCode,
+    permissions,
     // Also return tokens in body for localStorage fallback (cross-origin cookie issues)
     tokens: {
       accessToken,
@@ -369,9 +440,14 @@ auth.post('/mfa/verify', zValidator('json', mfaVerifyRequestSchema), async (c) =
     userAgent: c.req.header('User-Agent'),
   });
 
+  // Resolve user permissions
+  const mfaPermissions = await buildUserPermissions(getDb(c), user.id, user.role);
+  const mfaCompanyName = await resolveCompanyName(getDb(c), user.companyId);
+
   return success(c, {
     expiresIn: jwtExpiresIn,
-    user: userToPublic(user),
+    user: userToPublic({ ...user, companyName: mfaCompanyName }),
+    permissions: mfaPermissions,
     // Also return tokens in body for localStorage fallback
     tokens: {
       accessToken,
@@ -469,9 +545,13 @@ auth.post('/mfa/backup', zValidator('json', backupCodeSchema), async (c) => {
     userAgent: c.req.header('User-Agent'),
   });
 
+  const permissions = await buildUserPermissions(getDb(c), user.id, user.role);
+  const backupCompanyName = await resolveCompanyName(getDb(c), user.companyId);
+
   return success(c, {
     expiresIn: jwtExpiresIn,
-    user: userToPublic(user),
+    user: userToPublic({ ...user, companyName: backupCompanyName }),
+    permissions,
     remainingBackupCodes: hashedCodes.length,
     warning: hashedCodes.length < 3 ? 'Attention: peu de codes de secours restants' : undefined,
     // Also return tokens in body for localStorage fallback
@@ -732,7 +812,8 @@ auth.get('/me', authMiddleware(), async (c) => {
     return unauthorized(c, 'Utilisateur non trouvé');
   }
 
-  return success(c, userToPublic(user));
+  const meCompanyName = await resolveCompanyName(getDb(c), user.companyId);
+  return success(c, userToPublic({ ...user, companyName: meCompanyName }));
 });
 
 /**
@@ -893,9 +974,13 @@ auth.post('/mfa/email/verify', zValidator('json', mfaEmailVerifySchema, validati
     tenantCode = insurer?.code || null;
   }
 
+  const permissions = await buildUserPermissions(getDb(c), user.id, user.role);
+  const emailVerifyCompanyName = await resolveCompanyName(getDb(c), user.companyId);
+
   return success(c, {
     expiresIn: jwtExpiresIn,
-    user: userToPublic(user),
+    user: userToPublic({ ...user, companyName: emailVerifyCompanyName }),
+    permissions,
     tenantCode,
     tokens: { accessToken, refreshToken },
   });
@@ -1253,15 +1338,80 @@ auth.post('/magic-link/verify', zValidator('json', magicLinkVerifySchema, valida
     tenantCode = insurer?.code || null;
   }
 
+  const permissions = await buildUserPermissions(getDb(c), user.id, user.role);
+  const magicLinkCompanyName = await resolveCompanyName(getDb(c), user.companyId);
+
   return success(c, {
     expiresIn: jwtExpiresIn,
-    user: userToPublic(user),
+    user: userToPublic({ ...user, companyName: magicLinkCompanyName }),
+    permissions,
     tenantCode,
     tokens: {
       accessToken,
       refreshToken,
     },
   });
+});
+
+/**
+ * POST /auth/verify-password — Re-authenticate current user by password
+ * Used for sensitive operations (e.g., modifying permissions)
+ */
+auth.post('/verify-password', authMiddleware(), async (c) => {
+  const currentUser = c.get('user');
+  const body = await c.req.json();
+
+  const schema = z.object({
+    password: z.string().min(1, 'Mot de passe requis'),
+  });
+
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    return error(c, 'VALIDATION_ERROR', 'Mot de passe requis', 400);
+  }
+
+  const db = getDb(c);
+  const user = await findUserById(db, currentUser.sub);
+  if (!user || !user.passwordHash) {
+    return error(c, 'USER_NOT_FOUND', 'Utilisateur introuvable', 404);
+  }
+
+  const isValid = await verifyPassword(parsed.data.password, user.passwordHash);
+  if (!isValid) {
+    await logAudit(db, {
+      userId: currentUser.sub,
+      action: 'auth.verify_password.failed',
+      entityType: 'user',
+      entityId: currentUser.sub,
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+    return error(c, 'INVALID_PASSWORD', 'Mot de passe incorrect', 401);
+  }
+
+  await logAudit(db, {
+    userId: currentUser.sub,
+    action: 'auth.verify_password.success',
+    entityType: 'user',
+    entityId: currentUser.sub,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, { verified: true });
+});
+
+/**
+ * GET /auth/permissions — Refresh current user's resolved permissions
+ * Returns fresh role matrix + individual overrides from DB
+ */
+auth.get('/permissions', authMiddleware(), async (c) => {
+  const currentUser = c.get('user');
+  const db = getDb(c);
+
+  const permissions = await buildUserPermissions(db, currentUser.sub, currentUser.role);
+
+  return success(c, { permissions });
 });
 
 export { auth };

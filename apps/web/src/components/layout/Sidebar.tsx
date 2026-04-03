@@ -4,7 +4,8 @@ import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/ui';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
-import { ROLES, type Role } from '@dhamen/shared';
+import { ROLE_LABELS, type Role } from '@dhamen/shared';
+import { usePermissions } from '@/hooks/usePermissions';
 import {
   DashboardIcon,
   UsersIcon,
@@ -37,7 +38,6 @@ import {
   ArchiveIcon,
   ClockIcon,
   UploadIcon,
-  ListIcon,
   type IconProps,
 } from '@/components/icons';
 
@@ -49,6 +49,11 @@ interface NavItem {
   badge?: string;
   disabled?: boolean;
   children?: NavItem[];
+  activePrefix?: string;
+  /** Permission resource to check (e.g. 'users', 'adherents'). If set, visibility is based on DB permissions, not static roles. */
+  permission?: string;
+  /** When true, this item stays role-locked (never permission-checked). Used for admin-only items. */
+  adminOnly?: boolean;
 }
 
 interface NavSection {
@@ -64,7 +69,7 @@ const navigationSections: NavSection[] = [
         name: "Tableau de bord",
         href: "/dashboard",
         icon: DashboardIcon,
-        roles: "all",
+        roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT", "SOIN_GESTIONNAIRE"],
       },
     ],
   },
@@ -75,43 +80,57 @@ const navigationSections: NavSection[] = [
         name: "Utilisateurs",
         href: "/users",
         icon: UsersIcon,
-        roles: ["ADMIN"],
+        roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT"],
+        permission: "users",
       },
       {
         name: "Praticiens",
         href: "/providers",
         icon: BuildingIcon,
-        roles: ["ADMIN"],
+        roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT"],
+        permission: "providers",
       },
       {
         name: "Compagnies Partenaires",
         href: "/insurers",
         icon: ShieldIcon,
         roles: ["ADMIN"],
+        permission: "insurers",
       },
       {
-        name: "Rôles & Permissions",
+        name: "Roles & Permissions",
         href: "/admin/roles",
         icon: ShieldIcon,
         roles: ["ADMIN"],
+        adminOnly: true,
       },
       {
         name: "Entreprises",
         href: "/companies",
         icon: CompanyIcon,
         roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT"],
+        permission: "companies",
       },
       {
-        name: "Vérification MF",
+        name: "Journaux d'audit",
+        href: "/audit",
+        icon: ClipboardCheckIcon,
+        roles: ["ADMIN"],
+        adminOnly: true,
+      },
+      {
+        name: "Verification MF",
         href: "/admin/mf-verification",
         icon: DocumentCheckIcon,
         roles: ["ADMIN"],
+        adminOnly: true,
       },
       {
         name: "Médicaments",
         href: "/admin/medications",
         icon: PillIcon,
         roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT"],
+        permission: "adherents",
       },
     ],
   },
@@ -126,13 +145,14 @@ const navigationSections: NavSection[] = [
       },
       {
         name: "Adhérents",
-        href: "/hr/adherents",
+        href: "/adherents/agent",
         icon: UsersIcon,
         roles: ["HR"],
+        activePrefix: "/adherents",
       },
       {
         name: "Contrats",
-        href: "/hr/contracts",
+        href: "/group-contracts",
         icon: DocumentIcon,
         roles: ["HR"],
       },
@@ -151,53 +171,16 @@ const navigationSections: NavSection[] = [
         name: "Adhérents",
         href: "/adherents",
         icon: UserGroupIcon,
-        roles: ["ADMIN"],
-        children: [
-          {
-            name: "Liste adhérents",
-            href: "/adherents",
-            icon: ListIcon,
-            roles: ["ADMIN"],
-          },
-          {
-            name: "Import CSV",
-            href: "/adherents/import",
-            icon: UploadIcon,
-            roles: ["ADMIN"],
-          },
-        ],
-      },
-      {
-        name: "Adhérents",
-        href: "/adherents/agent",
-        icon: UserGroupIcon,
-        roles: ["INSURER_ADMIN", "INSURER_AGENT"],
-        children: [
-          {
-            name: "Liste adhérents",
-            href: "/adherents/agent",
-            icon: ListIcon,
-            roles: ["INSURER_ADMIN", "INSURER_AGENT"],
-          },
-          {
-            name: "Import CSV",
-            href: "/adherents/import",
-            icon: UploadIcon,
-            roles: ["INSURER_ADMIN", "INSURER_AGENT"],
-          },
-        ],
-      },
-      {
-        name: "Praticiens",
-        href: "/providers",
-        icon: BuildingIcon,
-        roles: ["INSURER_ADMIN", "INSURER_AGENT"],
+        roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT"],
+        activePrefix: "/adherents",
+        permission: "adherents",
       },
       {
         name: "Contrats groupe",
         href: "/group-contracts",
         icon: DocumentCheckIcon,
         roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT"],
+        permission: "contracts",
       },
       {
         name: "Gestion bulletins",
@@ -255,7 +238,7 @@ const navigationSections: NavSection[] = [
         href: "/claims/manage",
         icon: ShieldIcon,
         roles: ["ADMIN", "INSURER_ADMIN"],
-        disabled:!ROLES.includes("ADMIN"),
+        permission: "claims",
       },
       // {
       //   name: "Réconciliation",
@@ -411,59 +394,15 @@ const navigationSections: NavSection[] = [
   //     },
   //   ],
   // },
-  // {
-  //   title: "Praticien",
-  //   items: [
-  //     {
-  //       name: "Prises en charge",
-  //       href: "/claims",
-  //       icon: ClipboardIcon,
-  //       roles: [
-  //         "PHARMACIST",
-  //         "DOCTOR",
-  //         "LAB_MANAGER",
-  //         "CLINIC_ADMIN",
-  //         "PRATICIEN",
-  //       ],
-  //     },
-  //     {
-  //       name: "Éligibilité",
-  //       href: "/eligibility",
-  //       icon: SearchIcon,
-  //       roles: [
-  //         "PHARMACIST",
-  //         "DOCTOR",
-  //         "LAB_MANAGER",
-  //         "CLINIC_ADMIN",
-  //         "PRATICIEN",
-  //       ],
-  //     },
-  //     {
-  //       name: "Vérifier carte",
-  //       href: "/cards/verify",
-  //       icon: CreditCardIcon,
-  //       roles: [
-  //         "PHARMACIST",
-  //         "DOCTOR",
-  //         "LAB_MANAGER",
-  //         "CLINIC_ADMIN",
-  //         "PRATICIEN",
-  //       ],
-  //     },
-  //     {
-  //       name: "Mes bordereaux",
-  //       href: "/bordereaux",
-  //       icon: DocumentIcon,
-  //       roles: [
-  //         "PHARMACIST",
-  //         "DOCTOR",
-  //         "LAB_MANAGER",
-  //         "CLINIC_ADMIN",
-  //         "PRATICIEN",
-  //       ],
-  //     },
-  //   ],
-  // },
+  {
+    title: "Espace Praticien",
+    items: [
+      { name: "Tableau de bord", href: "/praticien/dashboard", icon: DashboardIcon, roles: ["PHARMACIST", "DOCTOR", "LAB_MANAGER", "CLINIC_ADMIN"] as Role[] },
+      { name: "Mes PEC", href: "/praticien/actes", icon: ClipboardIcon, roles: ["PHARMACIST", "DOCTOR", "LAB_MANAGER", "CLINIC_ADMIN"] as Role[], activePrefix: "/praticien/actes" },
+      { name: "Vérifier éligibilité", href: "/praticien/eligibilite", icon: CheckCircleIcon, roles: ["PHARMACIST", "DOCTOR", "LAB_MANAGER", "CLINIC_ADMIN"] as Role[] },
+      { name: "Mon profil", href: "/praticien/profil", icon: UserIcon, roles: ["PHARMACIST", "DOCTOR", "LAB_MANAGER", "CLINIC_ADMIN"] as Role[] },
+    ],
+  },
   // {
   //   title: "Mon Espace Adhérent",
   //   items: [
@@ -534,6 +473,7 @@ const navigationSections: NavSection[] = [
 export function Sidebar() {
   const { sidebarOpen, sidebarCollapsed, toggleSidebar, toggleSidebarCollapsed } = useUIStore();
   const { user } = useAuth();
+  const { hasPermission } = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
   const { selectedCompany, setCompany } = useAgentContext();
@@ -570,18 +510,59 @@ export function Sidebar() {
 
   const isAdmin = user?.role === 'ADMIN';
 
-  // Filter navigation sections based on user role
-  // Disabled items are only visible for ADMIN, hidden for other roles
+  // Dynamic section titles based on user role
+  const PRATICIEN_TITLES: Record<string, string> = {
+    PHARMACIST: 'Espace Pharmacien',
+    DOCTOR: 'Espace Médecin',
+    LAB_MANAGER: 'Espace Laboratoire',
+    CLINIC_ADMIN: 'Espace Clinique',
+  };
+
+  // Dynamic item names based on user role
+  const PRATICIEN_ACTES_LABEL: Record<string, string> = {
+    PHARMACIST: 'Mes dispensations',
+    DOCTOR: 'Mes consultations',
+    LAB_MANAGER: 'Mes analyses',
+    CLINIC_ADMIN: 'Mes hospitalisations',
+  };
+
+  // Filter navigation sections based on user role and permissions.
+  // Items with `permission` use dynamic DB permissions — shown as locked if no access.
+  // Items with `adminOnly` are strictly role-gated (hidden for non-matching roles).
   const filteredSections = navigationSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => {
-        if (item.roles === 'all') return !item.disabled || isAdmin;
-        if (!user?.role) return false;
-        if (!item.roles.includes(user.role)) return false;
-        if (item.disabled && !isAdmin) return false;
-        return true;
-      }),
+      title: section.title === 'Espace Praticien' && user?.role
+        ? (PRATICIEN_TITLES[user.role] || section.title)
+        : section.title,
+      items: section.items
+        .filter((item) => {
+          if (!user?.role) return false;
+          // First check: user's role must be in the allowed list (or 'all')
+          if (item.roles !== 'all' && !item.roles.includes(user.role)) return false;
+          // Admin-only items: strictly role-gated
+          if (item.adminOnly) return true;
+          // ADMIN always sees matching items
+          if (isAdmin) return true;
+          // Items with permission: hide if user lacks the permission
+          if (item.permission) {
+            return hasPermission(item.permission, 'read');
+          }
+          // Static check for disabled items
+          if (item.disabled) return false;
+          return true;
+        })
+        .map((item) => {
+          if (item.name === 'Mes PEC' && user?.role) {
+            const label = PRATICIEN_ACTES_LABEL[user.role];
+            if (label) return { ...item, name: label };
+          }
+          // Agents use /adherents/agent instead of /adherents
+          if (item.name === 'Adhérents' && item.href === '/adherents' && isAgent) {
+            return { ...item, href: '/adherents/agent' };
+          }
+          return item;
+        }),
     }))
     .filter((section) => section.items.length > 0);
 
@@ -778,11 +759,13 @@ export function Sidebar() {
                                     <span
                                       key={child.href}
                                       className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm cursor-not-allowed opacity-40 text-gray-400"
+                                      title="Accès non autorisé"
                                     >
                                       <child.icon className="h-4 w-4 flex-shrink-0" />
                                       <span className="truncate">
                                         {child.name}
                                       </span>
+                                      <span className="ml-auto text-xs">&#128274;</span>
                                     </span>
                                   ) : (
                                     <NavLink
@@ -835,8 +818,8 @@ export function Sidebar() {
                           key={item.href}
                           title={
                             sidebarCollapsed
-                              ? `${item.name} (bientôt)`
-                              : "Bientôt disponible"
+                              ? `${item.name} (accès non autorisé)`
+                              : "Accès non autorisé"
                           }
                           className={cn(
                             "flex items-center rounded-xl text-sm font-medium cursor-not-allowed opacity-40",
@@ -848,7 +831,10 @@ export function Sidebar() {
                         >
                           <item.icon className="h-5 w-5 flex-shrink-0" />
                           {!sidebarCollapsed && (
-                            <span className="truncate">{item.name}</span>
+                            <>
+                              <span className="truncate">{item.name}</span>
+                              <span className="ml-auto text-xs">&#128274;</span>
+                            </>
                           )}
                         </span>
                       ) : (
@@ -856,17 +842,20 @@ export function Sidebar() {
                           key={item.href}
                           to={item.href}
                           title={sidebarCollapsed ? item.name : undefined}
-                          className={({ isActive }) =>
-                            cn(
+                          className={({ isActive }) => {
+                            const active = item.activePrefix
+                              ? location.pathname.startsWith(item.activePrefix)
+                              : isActive;
+                            return cn(
                               "flex items-center rounded-xl text-sm font-medium transition-all duration-200",
                               sidebarCollapsed
                                 ? "justify-center px-2 py-2.5"
                                 : "gap-3 px-3 py-2.5",
-                              isActive
+                              active
                                 ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-600/25"
                                 : "text-gray-600 hover:bg-gray-100 hover:text-gray-900",
-                            )
-                          }
+                            );
+                          }}
                         >
                           <item.icon className="h-5 w-5 flex-shrink-0" />
                           {!sidebarCollapsed && (

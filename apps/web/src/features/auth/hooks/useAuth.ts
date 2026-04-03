@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { UserPublic, LoginRequest } from '@dhamen/shared';
 import { apiClient } from '@/lib/api-client';
-import { setTokens, clearTokens, getUser, setUser, isAuthenticated } from '@/lib/auth';
+import { setTokens, clearTokens, getUser, setUser, isAuthenticated, setPermissions, type UserPermissions } from '@/lib/auth';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
 interface LoginResponse {
   requiresMfa: boolean;
@@ -12,6 +12,7 @@ interface LoginResponse {
   mfaMethods?: string[];
   expiresIn?: number;
   user?: UserPublic;
+  permissions?: UserPermissions;
   tokens?: {
     accessToken: string;
     refreshToken: string;
@@ -69,6 +70,10 @@ export function useAuth() {
           setTokens(data.tokens);
           setUser(data.user);
           setUserState(data.user);
+          // Store resolved permissions (role + individual overrides)
+          if (data.permissions) {
+            setPermissions(data.permissions);
+          }
           // Mark as authenticated in localStorage
           localStorage.setItem('isAuthenticated', 'true');
           // Agents must select company + batch before working

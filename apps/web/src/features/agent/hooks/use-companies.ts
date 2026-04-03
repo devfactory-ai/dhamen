@@ -16,6 +16,9 @@ interface Company {
 export function useCompanies(search?: string) {
   const user = getUser();
 
+  // HR users don't need the companies list — they have a single company
+  const isHR = user?.role === 'HR';
+
   return useQuery({
     queryKey: ['companies', 'agent', user?.insurerId, search],
     queryFn: async () => {
@@ -34,5 +37,6 @@ export function useCompanies(search?: string) {
       }
       return response.data;
     },
+    enabled: !isHR,
   });
 }

@@ -5,6 +5,7 @@
  */
 import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
@@ -17,23 +18,28 @@ import { toast } from 'sonner';
 interface Contract {
   id: string;
   insurerId: string;
-  insurerName: string;
+  insurerName?: string;
   contractNumber: string;
   policyNumber?: string;
-  name: string;
-  type: 'INDIVIDUAL' | 'GROUP' | 'CORPORATE';
+  name?: string;
+  // Backend field names (from API)
+  planType?: string;
+  annualLimit?: number;
+  coverageJson?: Record<string, unknown>;
+  // Frontend field names (may not exist from API)
+  type?: 'INDIVIDUAL' | 'GROUP' | 'CORPORATE';
+  coveragePharmacy?: number;
+  coverageConsultation?: number;
+  coverageLab?: number;
+  coverageHospitalization?: number;
+  annualCeiling?: number;
   startDate: string;
   endDate: string;
-  status: 'ACTIVE' | 'SUSPENDED' | 'EXPIRED' | 'CANCELLED';
-  coveragePharmacy: number;
-  coverageConsultation: number;
-  coverageLab: number;
-  coverageHospitalization: number;
-  annualCeiling: number;
-  adhérentCount: number;
+  status?: string;
+  adhérentCount?: number;
   documentId?: string;
   documentUrl?: string;
-  createdAt: string;
+  createdAt?: string;
 }
 
 interface DocumentUploadResponse {
@@ -72,6 +78,7 @@ export function ContractFormPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isEditing = !!id;
+  const { hasPermission } = usePermissions();
   const [isUploading, setIsUploading] = useState(false);
 
   const { data: contract, isLoading: isLoadingContract } = useQuery({
@@ -112,6 +119,7 @@ export function ContractFormPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contracts'] });
+      queryClient.invalidateQueries({ queryKey: ['contracts', id] });
       toast.success('Contrat créé avec succès');
       navigate('/contracts');
     },
@@ -139,7 +147,7 @@ export function ContractFormPage() {
         }
       }
 
-      // Update contract with new data and document info
+      // Update contract with all form data + document info
       const response = await apiClient.put<Contract>(`/contracts/${id}`, {
         ...contractData,
         documentId,
@@ -150,6 +158,7 @@ export function ContractFormPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['contracts'] });
+      queryClient.invalidateQueries({ queryKey: ['contracts', id] });
       toast.success('Contrat mis à jour avec succès');
       navigate('/contracts');
     },
@@ -172,6 +181,16 @@ export function ContractFormPage() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (!hasPermission('contracts', isEditing ? 'update' : 'create')) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <p className="text-lg font-semibold text-gray-900">Accès refusé</p>
+        <p className="mt-1 text-sm text-gray-500">Vous n'avez pas la permission de {isEditing ? 'modifier' : 'créer'} un contrat.</p>
+        <button onClick={() => navigate(-1)} className="mt-4 text-sm text-blue-600 hover:underline">Retour</button>
       </div>
     );
   }
