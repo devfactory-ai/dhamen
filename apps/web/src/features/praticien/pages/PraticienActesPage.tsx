@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, FileText } from 'lucide-react';
+import { Eye, FileText, Search, Filter, Clock } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
@@ -331,6 +332,16 @@ export function PraticienActesPage() {
           } : undefined}
         />
       </div>
+
+      <FloatingHelp
+        title="Mes actes"
+        tips={[
+          { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez par référence de bulletin, nom d'adhérent ou entreprise." },
+          { icon: <Filter className="h-4 w-4 text-purple-500" />, title: "Filtrer par statut", desc: "Utilisez le filtre pour afficher uniquement les actes en attente, approuvés ou rejetés." },
+          { icon: <Eye className="h-4 w-4 text-green-500" />, title: "Détails de l'acte", desc: "Cliquez sur un acte pour consulter le détail et le statut de remboursement." },
+          { icon: <Clock className="h-4 w-4 text-orange-500" />, title: "Suivi des remboursements", desc: "Suivez l'état de vos remboursements depuis les indicateurs en haut de page." },
+        ]}
+      />
     </div>
   );
 }

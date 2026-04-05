@@ -11,7 +11,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiClient } from '@/lib/api-client';
-import { Eye, Calendar, FileText, ClipboardCheck } from 'lucide-react';
+import { Eye, Calendar, FileText, ClipboardCheck, Stethoscope } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import type { SanteStatutContreVisite } from '@dhamen/shared';
 
 interface ContreVisite {
@@ -288,6 +289,33 @@ export function SanteContreVisitesPage() {
               }
             : undefined
         }
+      />
+
+      <FloatingHelp
+        title="Aide - Contre-visites"
+        subtitle="Gestion des demandes de contre-visite medicale"
+        tips={[
+          {
+            icon: <Calendar className="h-4 w-4 text-blue-500" />,
+            title: "Planifier une contre-visite",
+            desc: "Cliquez sur 'Planifier' pour fixer la date d'une contre-visite demandee.",
+          },
+          {
+            icon: <FileText className="h-4 w-4 text-green-500" />,
+            title: "Soumettre un rapport",
+            desc: "Apres la visite, soumettez le rapport medical avec vos conclusions.",
+          },
+          {
+            icon: <ClipboardCheck className="h-4 w-4 text-purple-500" />,
+            title: "Valider le rapport",
+            desc: "Les rapports soumis doivent etre valides avant impact sur la demande.",
+          },
+          {
+            icon: <Stethoscope className="h-4 w-4 text-orange-500" />,
+            title: "Suivi des delais",
+            desc: "Attention aux dates limites affichees en orange pour chaque contre-visite.",
+          },
+        ]}
       />
     </div>
   );

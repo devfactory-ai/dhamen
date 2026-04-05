@@ -3,6 +3,7 @@
  */
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { ChevronRight, FileText, User, Calendar, CreditCard, AlertTriangle } from 'lucide-react';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -176,7 +177,7 @@ export function ClaimDetailsPage() {
                 </p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Tiers payant</p>
+                <p className="text-sm text-muted-foreground">Tiers payant<InfoTooltip text="En mode tiers payant, l'assureur paie directement le prestataire de sante. L'adherent ne paie que le ticket moderateur. Sinon, l'adherent avance les frais et se fait rembourser." /></p>
                 <p className="font-medium">{claim.estTiersPayant ? 'Oui' : 'Non'}</p>
               </div>
             </div>
@@ -250,7 +251,7 @@ export function ClaimDetailsPage() {
           <CardContent className="space-y-4">
             {claim.scoreFraude !== null && (
               <div>
-                <p className="text-sm text-muted-foreground">Score anti-fraude</p>
+                <p className="text-sm text-muted-foreground">Score anti-fraude<InfoTooltip text="Score calcule automatiquement par l'IA pour detecter les anomalies. De 0 (aucun risque) a 100 (tres suspect). Au-dela de 70, une verification manuelle est obligatoire." /></p>
                 <div className="flex items-center gap-3 mt-1">
                   <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
                     <div

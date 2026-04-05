@@ -63,6 +63,7 @@ import {
 } from '../hooks/useFraud';
 import { formatMontant } from '../hooks/useStats';
 import { useToast } from '@/stores/toast';
+import { FloatingHelp } from '@/components/ui/floating-help';
 
 const NIVEAU_CHART_COLORS = {
   faible: '#fbbf24',
@@ -451,6 +452,33 @@ export function SanteFraudPage() {
         alert={selectedAlert}
         onResolve={handleResolve}
         isLoading={resolveAlert.isPending}
+      />
+
+      <FloatingHelp
+        title="Aide - Detection Fraude"
+        subtitle="Surveillance et investigation des anomalies"
+        tips={[
+          {
+            icon: <AlertTriangle className="h-4 w-4 text-red-500" />,
+            title: "Niveaux d'alerte",
+            desc: "Les alertes sont classees par niveau : faible, moyen, eleve et critique.",
+          },
+          {
+            icon: <Eye className="h-4 w-4 text-blue-500" />,
+            title: "Investiguer une alerte",
+            desc: "Cliquez sur 'Investiguer' pour demarrer l'analyse d'une alerte suspecte.",
+          },
+          {
+            icon: <Brain className="h-4 w-4 text-purple-500" />,
+            title: "Patterns IA",
+            desc: "L'onglet Patterns affiche les schemas de fraude detectes automatiquement par l'IA.",
+          },
+          {
+            icon: <Shield className="h-4 w-4 text-green-500" />,
+            title: "Resoudre une alerte",
+            desc: "Apres investigation, confirmez ou rejetez l'alerte avec une justification.",
+          },
+        ]}
       />
     </div>
   );

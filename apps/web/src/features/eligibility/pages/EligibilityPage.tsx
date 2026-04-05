@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { apiClient } from '@/lib/api-client';
 import { usePermissions } from '@/hooks/usePermissions';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 /** Matches the actual API response from GET /eligibility/check */
 interface EligibilityApiResponse {
@@ -161,7 +162,7 @@ export function EligibilityPage() {
       <Card>
         <CardHeader>
           <CardTitle>Rechercher un adhérent</CardTitle>
-          <CardDescription>Entrez le numéro CIN de l'adhérent</CardDescription>
+          <CardDescription>Entrez le numéro CIN de l'adhérent<InfoTooltip text="Saisissez le numero de Carte d'Identite Nationale (8 chiffres) pour verifier en temps reel si l'adherent est couvert et quels types de soins sont pris en charge." /></CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col sm:flex-row gap-4">
@@ -244,7 +245,7 @@ export function EligibilityPage() {
                     <p className="font-medium">{data.adherent.firstName} {data.adherent.lastName}</p>
                   </div>
                   <div>
-                    <Label className="text-muted-foreground">N° Adhérent</Label>
+                    <Label className="text-muted-foreground">N° Adhérent<InfoTooltip text="Matricule unique de l'adherent dans le systeme d'assurance. Ce numero figure sur sa carte d'adherent et permet de l'identifier lors des prises en charge." /></Label>
                     <p className="font-medium">{data.adherent.memberNumber}</p>
                   </div>
                   <div>

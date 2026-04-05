@@ -4,7 +4,8 @@
  * Allows practitioners and pharmacists to verify adhérent coverage
  */
 import { useState } from 'react';
-import { Search, CheckCircle, XCircle, AlertCircle, User, CreditCard } from 'lucide-react';
+import { Search, CheckCircle, XCircle, AlertCircle, User, CreditCard, Shield } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -296,6 +297,33 @@ export default function SanteEligibilityPage() {
           </CardContent>
         </Card>
       )}
+
+      <FloatingHelp
+        title="Aide - Eligibilite"
+        subtitle="Verification des droits et plafonds"
+        tips={[
+          {
+            icon: <Search className="h-4 w-4 text-blue-500" />,
+            title: "Rechercher un adherent",
+            desc: "Entrez le matricule ou le numero CIN pour verifier l'eligibilite.",
+          },
+          {
+            icon: <CheckCircle className="h-4 w-4 text-green-500" />,
+            title: "Statut d'eligibilite",
+            desc: "Le resultat indique si l'adherent est eligible avec sa couverture active.",
+          },
+          {
+            icon: <Shield className="h-4 w-4 text-purple-500" />,
+            title: "Plafonds et consommation",
+            desc: "Consultez les plafonds restants par type de soin et le taux d'utilisation.",
+          },
+          {
+            icon: <AlertCircle className="h-4 w-4 text-orange-500" />,
+            title: "Avertissements",
+            desc: "Les avertissements en orange signalent des situations a verifier (plafond proche, etc.).",
+          },
+        ]}
+      />
     </div>
   );
 }

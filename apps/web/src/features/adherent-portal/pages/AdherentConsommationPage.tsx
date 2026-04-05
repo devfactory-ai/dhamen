@@ -26,7 +26,10 @@ import {
   AlertTriangle,
   CheckCircle,
   Wallet,
+  Filter,
+  BarChart3,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 
 interface CoverageData {
   care_type: string;
@@ -520,6 +523,33 @@ export function AdherentConsommationPage() {
           </CardContent>
         </Card>
       )}
+
+      <FloatingHelp
+        title="Aide - Consommation"
+        subtitle="Suivez l'utilisation de vos garanties"
+        tips={[
+          {
+            icon: <Wallet className="h-4 w-4 text-blue-500" />,
+            title: "Plafonds annuels",
+            desc: "Chaque type de soin a un plafond annuel. Surveillez votre consommation pour éviter les dépassements.",
+          },
+          {
+            icon: <Filter className="h-4 w-4 text-amber-500" />,
+            title: "Filtrer par bénéficiaire",
+            desc: "Utilisez le filtre pour voir la consommation de chaque membre de la famille séparément.",
+          },
+          {
+            icon: <AlertTriangle className="h-4 w-4 text-red-500" />,
+            title: "Alertes de plafond",
+            desc: "Un badge 'Presque épuisé' apparaît quand vous avez consommé plus de 90% d'une garantie.",
+          },
+          {
+            icon: <BarChart3 className="h-4 w-4 text-green-500" />,
+            title: "Historique par année",
+            desc: "Changez l'année pour consulter votre consommation sur les exercices précédents.",
+          },
+        ]}
+      />
     </div>
   );
 }

@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiClient } from '@/lib/api-client';
 import { useToast } from '@/stores/toast';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 const SECTORS: Record<string, string> = {
   IT: 'Informatique',
@@ -186,7 +187,7 @@ export function CompanyFormPage() {
 
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="matriculeFiscal">Matricule fiscale</Label>
+                <Label htmlFor="matriculeFiscal">Matricule fiscale<InfoTooltip text="Identifiant fiscal unique delivre par l'administration fiscale tunisienne. Format : chiffres + lettre cle (ex: 123456ABC). Obligatoire pour la facturation." /></Label>
                 <Input id="matriculeFiscal" {...register('matriculeFiscal')} placeholder="Ex: 123456ABC" />
               </div>
               <div className="space-y-2">

@@ -6,6 +6,8 @@ import { INSURER_ROLES, ADMIN_ROLES } from '@dhamen/shared';
 import type { Role } from '@dhamen/shared';
 import { apiClient } from '@/lib/api-client';
 import { DataTable } from '@/components/ui/data-table';
+import { FloatingHelp } from '@/components/ui/floating-help';
+import { BarChart3, CalendarDays, Zap } from 'lucide-react';
 import KPICards from '../components/KPICards';
 import EvolutionChart from '../components/EvolutionChart';
 import RepartitionActes from '../components/RepartitionActes';
@@ -591,6 +593,27 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <FloatingHelp
+        title="Aide - Tableau de bord"
+        subtitle="Comprendre vos indicateurs clés"
+        tips={[
+          {
+            icon: <BarChart3 className="h-4 w-4 text-blue-500" />,
+            title: "KPIs affichés",
+            desc: "Les indicateurs sont adaptés à votre rôle : PEC traitées, temps moyen, demandes en attente et rejets du jour.",
+          },
+          {
+            icon: <CalendarDays className="h-4 w-4 text-green-500" />,
+            title: "Période des données",
+            desc: "Les statistiques couvrent le mois en cours par défaut. Les tendances comparent avec le mois précédent (flèches vertes/rouges).",
+          },
+          {
+            icon: <Zap className="h-4 w-4 text-amber-500" />,
+            title: "Données en temps réel",
+            desc: "Le tableau de bord se rafraîchit automatiquement toutes les 30 secondes. Le statut système en bas à droite confirme la connectivité.",
+          },
+        ]}
+      />
       {/* Welcome header */}
       <div>
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">

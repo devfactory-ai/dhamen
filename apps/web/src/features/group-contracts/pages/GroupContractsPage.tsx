@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, FileText, Building2, Shield, Eye, Pencil, User, Trash2 } from 'lucide-react';
+import { Plus, FileText, Building2, Shield, Eye, Pencil, User, Trash2, Users, Link2 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { cn } from '@/lib/utils';
 import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { apiClient } from '@/lib/api-client';
@@ -325,6 +326,27 @@ export function GroupContractsPage() {
 
   return (
     <div className="space-y-6">
+      <FloatingHelp
+        title="Aide - Contrats groupe"
+        subtitle="Gestion des contrats d'assurance groupe et individuels"
+        tips={[
+          {
+            icon: <Users className="h-4 w-4 text-blue-500" />,
+            title: "Groupe vs Individuel",
+            desc: "Un contrat groupe est souscrit par une entreprise pour ses salariés. Un contrat individuel est souscrit directement par un adhérent sans entreprise.",
+          },
+          {
+            icon: <Link2 className="h-4 w-4 text-green-500" />,
+            title: "Lien avec les entreprises",
+            desc: "Chaque contrat groupe est rattaché à une entreprise. Les garanties, plafonds et barèmes sont définis au niveau du contrat et appliqués à tous les adhérents.",
+          },
+          {
+            icon: <Shield className="h-4 w-4 text-purple-500" />,
+            title: "Garanties associées",
+            desc: "Un contrat peut avoir plusieurs garanties (pharmacie, consultation, hospitalisation) avec des taux de remboursement et plafonds distincts.",
+          },
+        ]}
+      />
       {/* Header */}
       <div className="flex flex-col md:flex-row items-start justify-between gap-4">
         <div>

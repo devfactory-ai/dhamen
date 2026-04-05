@@ -34,6 +34,8 @@ import {
   type Workflow,
 } from '../hooks/useWorkflows';
 import { useToast } from '@/stores/toast';
+import { FloatingHelp } from '@/components/ui/floating-help';
+import { Clock, AlertTriangle, CheckCircle, RefreshCw } from 'lucide-react';
 
 export function SanteWorkflowsPage() {
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
@@ -140,6 +142,33 @@ export function SanteWorkflowsPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <FloatingHelp
+        title="Aide - Workflows"
+        subtitle="Gestion des workflows en attente"
+        tips={[
+          {
+            icon: <Clock className="h-4 w-4 text-blue-500" />,
+            title: "Demandes d'information",
+            desc: "Repondez aux demandes d'info complementaire pour debloquer le traitement.",
+          },
+          {
+            icon: <AlertTriangle className="h-4 w-4 text-orange-500" />,
+            title: "Escalades",
+            desc: "Les escalades necessitent une decision : approuver, rejeter ou retourner.",
+          },
+          {
+            icon: <CheckCircle className="h-4 w-4 text-green-500" />,
+            title: "Validations multi-niveaux",
+            desc: "Certaines demandes requierent plusieurs niveaux de validation selon le montant.",
+          },
+          {
+            icon: <RefreshCw className="h-4 w-4 text-purple-500" />,
+            title: "Priorite des workflows",
+            desc: "Traitez en priorite les workflows avec un delai limite proche.",
+          },
+        ]}
+      />
 
       {/* Action Dialog */}
       <WorkflowActionDialog

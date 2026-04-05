@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UserPlus, Pencil, Save, Plus, Trash2, Users, User, Search, Import, Loader2 } from 'lucide-react';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -658,7 +659,7 @@ export function AgentAdherentFormPage() {
               {/* Matricule / N° Contrat / Plafond */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
-                  <Label htmlFor="matricule">Matricule</Label>
+                  <Label htmlFor="matricule">Matricule<InfoTooltip text="Identifiant unique de l'adherent dans le systeme d'assurance. Il est compose du code societe et d'un numero sequentiel. Ce matricule figure sur la carte d'adherent." /></Label>
                   <Input id="matricule" placeholder="001" value={form.matricule} onChange={(e) => setForm({ ...form, matricule: e.target.value })} />
                 </div>
                 <div>
@@ -781,7 +782,7 @@ export function AgentAdherentFormPage() {
               {/* Regime social / Fonction */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>CNSS / CNRPS</Label>
+                  <Label>CNSS / CNRPS<InfoTooltip text="Numero d'affiliation a la Caisse Nationale de Securite Sociale (CNSS) ou a la Caisse Nationale de Retraite et de Prevoyance Sociale (CNRPS). Utile pour les remboursements complementaires." /></Label>
                   <Select value={form.regimeSocial || 'none'} onValueChange={(v) => setForm({ ...form, regimeSocial: v === 'none' ? '' : v })}>
                     <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
                     <SelectContent>

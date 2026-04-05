@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Upload, Download, Search, UserPlus } from 'lucide-react';
+import { Plus, Upload, Download, Search, UserPlus, Users, Filter, FileText } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -205,6 +206,15 @@ export function HRAdherentsPage() {
         emptyMessage="Aucun adhérent trouvé"
       />
     </div>
+    <FloatingHelp
+      title="Adhérents entreprise"
+      tips={[
+        { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez par nom, email ou ville pour trouver un adhérent." },
+        { icon: <Users className="h-4 w-4 text-green-500" />, title: "Import CSV", desc: "Importez vos salariés en masse via un fichier CSV." },
+        { icon: <Download className="h-4 w-4 text-purple-500" />, title: "Export", desc: "Exportez la liste complète des adhérents au format CSV." },
+        { icon: <FileText className="h-4 w-4 text-orange-500" />, title: "Contrats", desc: "Vérifiez que chaque adhérent est bien rattaché à un contrat actif." },
+      ]}
+    />
     </NoEntrepriseGuard>
   );
 }

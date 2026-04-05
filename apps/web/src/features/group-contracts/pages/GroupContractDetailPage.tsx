@@ -339,7 +339,7 @@ export function GroupContractDetailPage() {
                     <th className="px-3 py-3 text-center font-medium">Taux</th>
                     <th className="px-3 py-3 text-right font-medium">Plafond annuel</th>
                     <th className="px-3 py-3 text-right font-medium">Plafond/acte</th>
-                    <th className="px-3 py-3 text-left font-medium">Cles lettres</th>
+                    <th className="px-3 py-3 text-left font-medium">Clés lettres</th>
                     <th className="px-3 py-3 text-left font-medium">Conditions</th>
                   </tr>
                 </thead>

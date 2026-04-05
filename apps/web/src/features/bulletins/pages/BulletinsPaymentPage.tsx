@@ -40,7 +40,9 @@ import {
   Users,
   TrendingUp,
   Calendar,
+  Filter,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 
 interface BulletinPayment {
   id: string;
@@ -626,6 +628,16 @@ export default function BulletinsPaymentPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <FloatingHelp
+        title="Traitement des paiements"
+        tips={[
+          { icon: <CreditCard className="h-4 w-4 text-blue-500" />, title: "Paiement individuel", desc: "Cliquez sur 'Payer' pour traiter le paiement d'un bulletin approuvé." },
+          { icon: <Wallet className="h-4 w-4 text-green-500" />, title: "Paiement groupé", desc: "Sélectionnez plusieurs bulletins pour les payer en lot avec une seule référence." },
+          { icon: <Filter className="h-4 w-4 text-purple-500" />, title: "Filtrer par statut", desc: "Affichez uniquement les bulletins approuvés ou ceux en cours de paiement." },
+          { icon: <Building2 className="h-4 w-4 text-orange-500" />, title: "Méthode de paiement", desc: "Choisissez entre virement bancaire, chèque, espèces ou paiement mobile." },
+        ]}
+      />
     </div>
   );
 }

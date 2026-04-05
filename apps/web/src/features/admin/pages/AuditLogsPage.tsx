@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, RotateCcw, Eye, ArrowDown, ArrowUp } from 'lucide-react';
+import { Download, RotateCcw, Eye, ArrowDown, ArrowUp, Search, Filter, Clock, Shield } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -527,6 +528,15 @@ export function AuditLogsPage() {
           </div>
         </div>
       )}
+    <FloatingHelp
+      title="Journaux d'audit"
+      tips={[
+        { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez par utilisateur, action ou entité." },
+        { icon: <Filter className="h-4 w-4 text-purple-500" />, title: "Filtres", desc: "Filtrez par type d'entité et par plage de dates." },
+        { icon: <Clock className="h-4 w-4 text-green-500" />, title: "Chronologie", desc: "Triez les logs du plus récent au plus ancien et inversement." },
+        { icon: <Shield className="h-4 w-4 text-orange-500" />, title: "Traçabilité", desc: "Chaque action est enregistrée pour assurer la conformité." },
+      ]}
+    />
     </div>
   );
 }

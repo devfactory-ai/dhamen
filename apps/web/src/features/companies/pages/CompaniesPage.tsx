@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Building2, Users, Eye, Pencil, Search, X, Trash2 } from 'lucide-react';
+import { Plus, Building2, Users, Eye, Pencil, Search, X, Trash2, FileText, Link2 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -229,6 +230,27 @@ export function CompaniesPage() {
 
   return (
     <div className="space-y-6">
+      <FloatingHelp
+        title="Aide - Entreprises"
+        subtitle="Gestion des entreprises clientes"
+        tips={[
+          {
+            icon: <Link2 className="h-4 w-4 text-blue-500" />,
+            title: "Lien entreprise-contrat",
+            desc: "Chaque entreprise est rattachée à un contrat groupe. C'est ce contrat qui définit les garanties et plafonds pour tous les salariés.",
+          },
+          {
+            icon: <FileText className="h-4 w-4 text-green-500" />,
+            title: "Matricule fiscal (MF)",
+            desc: "Le matricule fiscal est l'identifiant unique de l'entreprise auprès de l'administration tunisienne. Il est vérifié automatiquement.",
+          },
+          {
+            icon: <Users className="h-4 w-4 text-purple-500" />,
+            title: "Gestion RH",
+            desc: "Chaque entreprise peut avoir un utilisateur RH qui gère ses adhérents, consulte les contrats et suit les remboursements.",
+          },
+        ]}
+      />
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>

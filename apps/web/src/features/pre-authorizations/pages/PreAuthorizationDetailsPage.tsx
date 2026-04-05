@@ -56,6 +56,7 @@ import {
   AlertTriangle,
   Send,
 } from 'lucide-react';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 export function PreAuthorizationDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -636,7 +637,7 @@ export function PreAuthorizationDetailsPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label htmlFor="approvedAmount">Montant approuvé (TND)</Label>
+              <Label htmlFor="approvedAmount">Montant approuvé (TND)<InfoTooltip text="Montant de la prise en charge accorde par l'assureur. Ce montant peut etre inferieur au montant estime si l'approbation est partielle ou si le plafond est atteint." /></Label>
               <Input
                 id="approvedAmount"
                 type="number"

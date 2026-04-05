@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, CreditCard, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Download, CreditCard, Clock, CheckCircle, XCircle, Search, Filter, Eye } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -316,6 +317,15 @@ export function HRClaimsPage() {
         />
       </div>
     </div>
+    <FloatingHelp
+      title="Suivi des remboursements"
+      tips={[
+        { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez par adhérent, référence ou praticien." },
+        { icon: <Filter className="h-4 w-4 text-purple-500" />, title: "Filtres", desc: "Filtrez par statut : en attente, approuvé, payé ou rejeté." },
+        { icon: <CreditCard className="h-4 w-4 text-green-500" />, title: "Montants", desc: "Consultez le montant couvert et le total pour chaque demande." },
+        { icon: <Download className="h-4 w-4 text-orange-500" />, title: "Export", desc: "Exportez les remboursements au format CSV pour vos rapports." },
+      ]}
+    />
     </NoEntrepriseGuard>
   );
 }

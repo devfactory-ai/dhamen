@@ -36,7 +36,9 @@ import {
   FileQuestion,
   ArrowUpRight,
   Search,
+  Filter,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 
 const PRIORITY_COLORS = {
   low: 'bg-gray-100 text-gray-800',
@@ -322,6 +324,16 @@ export function AppealsPage() {
           onPageChange: setPage,
         }}
         emptyMessage="Aucun recours trouvé"
+      />
+
+      <FloatingHelp
+        title="Gestion des recours"
+        tips={[
+          { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez un recours par nom d'adhérent ou référence de sinistre." },
+          { icon: <Filter className="h-4 w-4 text-purple-500" />, title: "Filtres", desc: "Filtrez par statut, motif de contestation ou niveau de priorité." },
+          { icon: <Clock className="h-4 w-4 text-amber-500" />, title: "Priorité", desc: "Les recours urgents sont signalés en rouge et doivent être traités en priorité." },
+          { icon: <ArrowUpRight className="h-4 w-4 text-green-500" />, title: "Consulter un recours", desc: "Cliquez sur 'Voir' pour accéder au détail du recours et le traiter." },
+        ]}
       />
     </div>
   );

@@ -16,8 +16,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { apiClient } from '@/lib/api-client';
 import {
   Search, MapPin, Phone, Clock, Building2, Pill, Stethoscope,
-  FlaskConical, Filter, X, User
+  FlaskConical, Filter, X, User, ShieldCheck, BadgeCheck
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 
 // ============================================
 // Types
@@ -130,6 +131,33 @@ export function AdherentProvidersPage() {
           <PraticiensTab />
         </TabsContent>
       </Tabs>
+
+      <FloatingHelp
+        title="Aide - Praticiens de santé"
+        subtitle="Trouvez un professionnel de santé"
+        tips={[
+          {
+            icon: <BadgeCheck className="h-4 w-4 text-green-500" />,
+            title: "Praticiens conventionnés",
+            desc: "Privilégiez les praticiens conventionnés pour bénéficier d'un meilleur taux de remboursement.",
+          },
+          {
+            icon: <Search className="h-4 w-4 text-blue-500" />,
+            title: "Recherche avancée",
+            desc: "Filtrez par spécialité, ville ou statut de conventionnement pour trouver le bon praticien.",
+          },
+          {
+            icon: <MapPin className="h-4 w-4 text-amber-500" />,
+            title: "Localisation",
+            desc: "Chaque fiche affiche l'adresse et le numéro de téléphone pour faciliter la prise de rendez-vous.",
+          },
+          {
+            icon: <Stethoscope className="h-4 w-4 text-purple-500" />,
+            title: "Deux onglets",
+            desc: "Consultez les établissements (pharmacies, cliniques, labos) ou les praticiens individuels.",
+          },
+        ]}
+      />
     </div>
   );
 }

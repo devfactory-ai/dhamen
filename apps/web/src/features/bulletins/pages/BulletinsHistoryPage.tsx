@@ -30,7 +30,10 @@ import {
   RotateCcw,
   TrendingUp,
   Trash2,
+  Filter,
+  FileText,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import {
   useHistoryList,
   useHistoryStats,
@@ -279,6 +282,27 @@ export default function BulletinsHistoryPage() {
 
   return (
     <div className="space-y-6">
+      <FloatingHelp
+        title="Aide - Historique des bulletins"
+        subtitle="Suivi et consultation des bulletins traités"
+        tips={[
+          {
+            icon: <CheckCircle className="h-4 w-4 text-green-500" />,
+            title: "Statuts des bulletins",
+            desc: "Approuvé = validé en attente de paiement, Remboursé = paiement effectué, Rejeté = non conforme aux garanties du contrat.",
+          },
+          {
+            icon: <Filter className="h-4 w-4 text-blue-500" />,
+            title: "Filtrage avancé",
+            desc: "Combinez les filtres par date, type de soin et statut pour retrouver rapidement un bulletin. La recherche porte aussi sur le matricule.",
+          },
+          {
+            icon: <FileText className="h-4 w-4 text-purple-500" />,
+            title: "Export pour rapprochement",
+            desc: "Exportez l'historique en CSV pour le rapprochement comptable avec les bordereaux de l'assureur. Tous les filtres actifs sont appliqués.",
+          },
+        ]}
+      />
       <PageHeader
         title={selectedCompany ? `Historique — ${selectedCompany.name}` : 'Historique des bulletins de soins'}
         description="Consultez l'historique des actions et le suivi des bulletins de soins"

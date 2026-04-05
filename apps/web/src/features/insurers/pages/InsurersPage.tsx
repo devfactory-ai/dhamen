@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Download, Trash2 } from 'lucide-react';
+import { Plus, Download, Trash2, Handshake, ShieldCheck, FileText } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -299,6 +300,27 @@ export function InsurersPage() {
 
   return (
     <div className="space-y-6">
+      <FloatingHelp
+        title="Aide - Compagnies partenaires"
+        subtitle="Gestion des assureurs et mutuelles"
+        tips={[
+          {
+            icon: <Handshake className="h-4 w-4 text-blue-500" />,
+            title: "Conventionnement",
+            desc: "Chaque compagnie a une date de fin de convention. Surveillez les alertes d'expiration pour renouveler les accords à temps.",
+          },
+          {
+            icon: <ShieldCheck className="h-4 w-4 text-green-500" />,
+            title: "Types de compagnies",
+            desc: "Assurance, Mutuelle, CNAM, Réassureur — chaque type a ses spécificités en matière de barèmes et de circuits de remboursement en Tunisie.",
+          },
+          {
+            icon: <FileText className="h-4 w-4 text-purple-500" />,
+            title: "Matricule fiscal",
+            desc: "Le matricule fiscal de la compagnie est vérifié automatiquement. Un MF invalide est signalé en orange dans la liste.",
+          },
+        ]}
+      />
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>

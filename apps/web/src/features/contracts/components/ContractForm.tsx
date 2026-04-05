@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { useQuery } from '@tanstack/react-query';
 import { useState, useRef, useEffect } from 'react';
 import { Upload } from 'lucide-react';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -231,7 +232,7 @@ export function ContractForm({ contract, onSubmit, onCancel, isLoading }: Contra
           </div>
 
           <div className="space-y-2">
-            <Label>Type de contrat</Label>
+            <Label>Type de contrat<InfoTooltip text="Individuel : couvre une seule personne. Groupe : couvre un ensemble d'adherents (famille ou association). Entreprise : contrat collectif souscrit par un employeur pour ses salaries." /></Label>
             <Select value={selectedType} onValueChange={(value: 'INDIVIDUAL' | 'GROUP' | 'CORPORATE') => setValue('type', value)}>
               <SelectTrigger>
                 <SelectValue placeholder="Sélectionner un type" />
@@ -291,7 +292,7 @@ export function ContractForm({ contract, onSubmit, onCancel, isLoading }: Contra
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="annualCeiling">Plafond annuel (TND)</Label>
+          <Label htmlFor="annualCeiling">Plafond annuel (TND)<InfoTooltip text="Montant maximum de remboursement par an pour l'ensemble des adherents du contrat. Une fois ce plafond atteint, aucun remboursement supplementaire n'est possible." /></Label>
           <Input
             id="annualCeiling"
             type="number"

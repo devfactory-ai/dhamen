@@ -16,7 +16,9 @@ import {
   XCircle,
   Activity,
   Building,
+  BarChart3,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -241,6 +243,33 @@ export default function SanteDashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <FloatingHelp
+        title="Aide - Dashboard"
+        subtitle="Vue d'ensemble des remboursements sante"
+        tips={[
+          {
+            icon: <BarChart3 className="h-4 w-4 text-blue-500" />,
+            title: "Indicateurs cles",
+            desc: "Les KPIs affichent les demandes, montants et delais de traitement en temps reel.",
+          },
+          {
+            icon: <Clock className="h-4 w-4 text-orange-500" />,
+            title: "Periode d'analyse",
+            desc: "Changez la periode (semaine, mois, annee) pour adapter les statistiques.",
+          },
+          {
+            icon: <AlertTriangle className="h-4 w-4 text-red-500" />,
+            title: "Alertes fraude",
+            desc: "Surveillez le nombre d'alertes fraude et le score de risque moyen.",
+          },
+          {
+            icon: <Activity className="h-4 w-4 text-green-500" />,
+            title: "Tendances",
+            desc: "Les graphiques montrent l'evolution des demandes et la repartition par type de soin.",
+          },
+        ]}
+      />
     </div>
   );
 }

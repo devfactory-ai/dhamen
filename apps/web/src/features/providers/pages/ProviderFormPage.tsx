@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { useProvider, useCreateProvider, useUpdateProvider } from '../hooks/useProviders';
 import { useToast } from '@/stores/toast';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 /** Frontend type → backend type mapping */
 const FRONTEND_TO_BACKEND_TYPE: Record<string, string> = {
@@ -290,7 +291,7 @@ export function ProviderFormPage() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="mfNumber">Matricule Fiscal (MF)</Label>
+                <Label htmlFor="mfNumber">Matricule Fiscal (MF)<InfoTooltip text="Identifiant fiscal unique du prestataire delivre par l'administration tunisienne. Format : 1234567/A/B/C/000. Necessaire pour le conventionnement et les paiements." /></Label>
                 <Input id="mfNumber" {...register('mfNumber')} placeholder="1234567/A/B/C/000" />
               </div>
             </div>

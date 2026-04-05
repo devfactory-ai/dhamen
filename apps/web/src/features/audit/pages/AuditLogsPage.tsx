@@ -22,6 +22,7 @@ import {
   ArrowUp,
   ArrowDown,
 } from 'lucide-react';
+import { FloatingHelp } from '../../../components/ui/floating-help';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Badge } from '../../../components/ui/badge';
@@ -585,6 +586,15 @@ export function AuditLogsPage() {
           </CardContent>
         </Card>
       )}
+      <FloatingHelp
+        title="Journal d'audit"
+        tips={[
+          { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez par utilisateur, action ou ressource." },
+          { icon: <Filter className="h-4 w-4 text-purple-500" />, title: "Filtres", desc: "Filtrez par action, type d'entité, résultat, module ou criticité." },
+          { icon: <Clock className="h-4 w-4 text-green-500" />, title: "Chronologie", desc: "Les logs sont triés du plus récent au plus ancien." },
+          { icon: <Shield className="h-4 w-4 text-orange-500" />, title: "Traçabilité", desc: "Chaque action est enregistrée pour la conformité." },
+        ]}
+      />
     </div>
   );
 }

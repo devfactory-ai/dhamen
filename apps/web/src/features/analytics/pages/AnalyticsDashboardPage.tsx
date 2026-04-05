@@ -17,7 +17,10 @@ import {
   Download,
   RefreshCw,
   Calendar,
+  ShieldCheck,
+  Filter,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Badge } from '../../../components/ui/badge';
@@ -555,6 +558,33 @@ export function AnalyticsDashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      <FloatingHelp
+        title="Aide - Tableau de bord Analytics"
+        subtitle="Indicateurs clés de performance"
+        tips={[
+          {
+            icon: <Filter className="h-4 w-4 text-blue-500" />,
+            title: "Filtrer par période",
+            desc: "Sélectionnez une période (jour, semaine, mois, trimestre, année) pour ajuster les indicateurs.",
+          },
+          {
+            icon: <DollarSign className="h-4 w-4 text-green-500" />,
+            title: "KPIs financiers",
+            desc: "Suivez les montants totaux, approuvés et le taux d'utilisation du budget en temps réel.",
+          },
+          {
+            icon: <AlertTriangle className="h-4 w-4 text-amber-500" />,
+            title: "Détection de fraude",
+            desc: "Surveillez le taux de fraude et les alertes pour identifier les anomalies rapidement.",
+          },
+          {
+            icon: <Download className="h-4 w-4 text-purple-500" />,
+            title: "Exporter les données",
+            desc: "Téléchargez les KPIs et rapports au format CSV pour une analyse approfondie.",
+          },
+        ]}
+      />
     </div>
   );
 }

@@ -33,6 +33,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -62,7 +63,9 @@ import {
   ChevronRight,
   Info,
   Printer,
+  Filter,
 } from 'lucide-react';
+
 
 // Types for bulletin workflow
 type BulletinStatus =
@@ -406,12 +409,12 @@ export function BulletinsValidationPage() {
       key: 'bulletin',
       header: 'Bulletin',
       render: (row: BulletinSoins) => (
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
+        <div className="flex items-center gap-3 min-w-[150px]">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100">
             <FileText className="h-5 w-5 text-gray-600" />
           </div>
-          <div>
-            <p className="font-mono font-medium text-sm">{row.bulletin_number}</p>
+          <div className="min-w-0">
+            <p className="font-mono font-medium text-sm truncate" title={row.bulletin_number}>{row.bulletin_number}</p>
             <p className="text-xs text-muted-foreground">{formatDate(row.bulletin_date)}</p>
           </div>
         </div>
@@ -421,11 +424,13 @@ export function BulletinsValidationPage() {
       key: 'adherent',
       header: 'Adhérent',
       render: (row: BulletinSoins) => (
-        <div>
-          <p className="font-medium">{row.adherent_first_name} {row.adherent_last_name}</p>
-          <p className="text-xs text-muted-foreground font-mono">{row.adherent_national_id}</p>
+        <div className="min-w-[130px] max-w-[200px]">
+          <p className="font-medium truncate" title={`${row.adherent_first_name} ${row.adherent_last_name}`}>{row.adherent_first_name} {row.adherent_last_name}</p>
+          <p className="text-xs text-muted-foreground font-mono truncate" title={row.adherent_national_id}>
+            {row.adherent_national_id}
+          </p>
           {row.beneficiary_name && (
-            <p className="text-xs text-blue-600 mt-0.5">
+            <p className="text-xs text-blue-600 mt-0.5 truncate" title={`Ayant droit: ${row.beneficiary_name}`}>
               Ayant droit: {row.beneficiary_name}
             </p>
           )}
@@ -439,9 +444,9 @@ export function BulletinsValidationPage() {
         const config = careTypeConfig[row.care_type] || careTypeConfig.consultation;
         const Icon = config?.icon;
         return (
-          <div className="flex items-center gap-2">
-            <Icon className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm">{config?.label}</span>
+          <div className="flex items-center gap-2 min-w-[100px]">
+            {Icon && <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />}
+            <span className="text-sm truncate">{config?.label}</span>
           </div>
         );
       },
@@ -450,10 +455,10 @@ export function BulletinsValidationPage() {
       key: 'provider',
       header: 'Praticien',
       render: (row: BulletinSoins) => (
-        <div>
-          <p className="text-sm">{row.provider_name || '-'}</p>
+        <div className="min-w-[120px] max-w-[180px]">
+          <p className="text-sm truncate" title={row.provider_name || '-'}>{row.provider_name || '-'}</p>
           {row.provider_specialty && (
-            <p className="text-xs text-muted-foreground">{row.provider_specialty}</p>
+            <p className="text-xs text-muted-foreground truncate" title={row.provider_specialty}>{row.provider_specialty}</p>
           )}
         </div>
       ),
@@ -462,11 +467,11 @@ export function BulletinsValidationPage() {
       key: 'amount',
       header: 'Montant',
       render: (row: BulletinSoins) => (
-        <div className="text-right">
+        <div className="text-right min-w-[100px]">
           <p className="font-medium">{formatAmount(row.total_amount)}</p>
           {row.reimbursed_amount > 0 && (
-            <p className="text-xs text-green-600">
-              Rembourse: {formatAmount(row.reimbursed_amount)}
+            <p className="text-xs text-green-600 truncate">
+              Remb: {formatAmount(row.reimbursed_amount)}
             </p>
           )}
         </div>
@@ -476,10 +481,10 @@ export function BulletinsValidationPage() {
       key: 'submission_date',
       header: 'Soumis le',
       render: (row: BulletinSoins) => (
-        <div className="text-sm">
+        <div className="text-sm min-w-[100px]">
           <p>{formatDate(row.submission_date)}</p>
           {row.paper_received_date && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground truncate">
               Papier: {formatDate(row.paper_received_date)}
             </p>
           )}
@@ -566,7 +571,7 @@ export function BulletinsValidationPage() {
       <PageHeader
         title="Validation des Bulletins de Soins"
         description="Vérifiez et validez les bulletins soumis par les adhérents"
-        actions={
+        action={
           <Button variant="outline">
             <Download className="mr-2 h-4 w-4" />
             Exporter
@@ -1123,6 +1128,16 @@ export function BulletinsValidationPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <FloatingHelp
+        title="Validation des bulletins"
+        tips={[
+          { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez un bulletin par numéro, nom d'adhérent ou matricule." },
+          { icon: <Filter className="h-4 w-4 text-purple-500" />, title: "Filtrer par statut", desc: "Filtrez les bulletins par statut : brouillon, reçu, en traitement, approuvé ou rejeté." },
+          { icon: <ThumbsUp className="h-4 w-4 text-green-500" />, title: "Approuver", desc: "Approuvez un bulletin après vérification en précisant le montant du remboursement." },
+          { icon: <ThumbsDown className="h-4 w-4 text-red-500" />, title: "Rejeter", desc: "Rejetez un bulletin en indiquant le motif du rejet pour informer l'adhérent." },
+        ]}
+      />
     </div>
   );
 }

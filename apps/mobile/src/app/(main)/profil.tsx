@@ -438,8 +438,8 @@ export default function ProfilScreen() {
                     <Text style={styles.menuIcon}>⚙️</Text>
                   </View>
                   <View style={styles.menuContent}>
-                    <Text style={styles.menuTitle}>Parametres</Text>
-                    <Text style={styles.menuSubtitle}>Notifications, securite</Text>
+                    <Text style={styles.menuTitle}>Paramètres</Text>
+                    <Text style={styles.menuSubtitle}>Notifications, sécurite</Text>
                   </View>
                   <Text style={styles.menuChevron}>›</Text>
                 </TouchableOpacity>

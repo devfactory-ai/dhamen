@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { Users, FileText, CreditCard, TrendingUp, UserPlus, Banknote } from 'lucide-react';
+import { Users, FileText, CreditCard, TrendingUp, UserPlus, Banknote, BarChart3, Eye, Clock } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -384,6 +385,15 @@ export function HRDashboardPage() {
           </Card>
         </div>
       </div>
+      <FloatingHelp
+        title="Tableau de bord RH"
+        tips={[
+          { icon: <BarChart3 className="h-4 w-4 text-blue-500" />, title: "Vue d'ensemble", desc: "Consultez les indicateurs clés : adhérents, contrats et remboursements." },
+          { icon: <Users className="h-4 w-4 text-green-500" />, title: "Gestion adhérents", desc: "Ajoutez ou gérez les salariés couverts depuis les actions rapides." },
+          { icon: <CreditCard className="h-4 w-4 text-purple-500" />, title: "Derniers bulletins", desc: "Suivez les dernières demandes de remboursement de vos salariés." },
+          { icon: <Clock className="h-4 w-4 text-orange-500" />, title: "En attente", desc: "Surveillez le nombre de demandes en attente de traitement." },
+        ]}
+      />
     </NoEntrepriseGuard>
   );
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, Plus, Download, Pencil, UserX, Trash2, Building2, Shield } from 'lucide-react';
+import { Upload, Plus, Download, Pencil, UserX, Trash2, Building2, Shield, Lock, Key } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
@@ -282,6 +283,27 @@ export function UsersPage() {
 
   return (
     <div className="space-y-6">
+      <FloatingHelp
+        title="Aide - Utilisateurs"
+        subtitle="Gestion des comptes et des accès"
+        tips={[
+          {
+            icon: <Shield className="h-4 w-4 text-blue-500" />,
+            title: "Rôles disponibles",
+            desc: "Admin, Agent assureur, Pharmacien, Médecin, Labo, Clinique, RH — chaque rôle a des permissions spécifiques sur la plateforme.",
+          },
+          {
+            icon: <Key className="h-4 w-4 text-green-500" />,
+            title: "Permissions individuelles",
+            desc: "Cliquez sur l'icône bouclier pour ajuster les permissions d'un utilisateur au-delà de celles de son rôle par défaut.",
+          },
+          {
+            icon: <Lock className="h-4 w-4 text-amber-500" />,
+            title: "Activation MFA",
+            desc: "L'authentification multi-facteurs (MFA) est fortement recommandée pour les comptes admin et agents assureur pour la sécurité des données.",
+          },
+        ]}
+      />
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader

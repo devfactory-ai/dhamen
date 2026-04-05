@@ -18,6 +18,8 @@ import {
 } from '../hooks/useSante';
 import { useToast } from '@/stores/toast';
 import { apiClient } from '@/lib/api-client';
+import { FloatingHelp } from '@/components/ui/floating-help';
+import { Filter, Eye, Download, Clock } from 'lucide-react';
 import type { SanteStatutDemande, SanteTypeSoin } from '@dhamen/shared';
 
 export function SanteDemandesPage() {
@@ -272,6 +274,33 @@ export function SanteDemandesPage() {
               }
             : undefined
         }
+      />
+
+      <FloatingHelp
+        title="Aide - Demandes"
+        subtitle="Gestion des demandes de remboursement"
+        tips={[
+          {
+            icon: <Filter className="h-4 w-4 text-blue-500" />,
+            title: "Filtrer les demandes",
+            desc: "Utilisez les filtres par statut et type de soin pour affiner votre recherche.",
+          },
+          {
+            icon: <Eye className="h-4 w-4 text-green-500" />,
+            title: "Traiter une demande",
+            desc: "Cliquez sur 'Traiter' pour examiner et valider une demande en attente.",
+          },
+          {
+            icon: <Download className="h-4 w-4 text-purple-500" />,
+            title: "Exporter les donnees",
+            desc: "Exportez la liste des demandes en CSV ou PDF via les boutons d'export.",
+          },
+          {
+            icon: <Clock className="h-4 w-4 text-orange-500" />,
+            title: "Score de fraude",
+            desc: "Le score de fraude indique le niveau de risque : vert (faible), jaune (moyen), rouge (eleve).",
+          },
+        ]}
       />
     </div>
   );

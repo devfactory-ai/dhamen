@@ -19,6 +19,8 @@ import {
 } from '../hooks/useBordereaux';
 import { useToast } from '@/stores/toast';
 import { apiClient } from '@/lib/api-client';
+import { FloatingHelp } from '@/components/ui/floating-help';
+import { FileText, CheckCircle, Download, RefreshCw } from 'lucide-react';
 
 export function SanteBordereauxPage() {
   const navigate = useNavigate();
@@ -242,6 +244,33 @@ export function SanteBordereauxPage() {
               }
             : undefined
         }
+      />
+
+      <FloatingHelp
+        title="Aide - Bordereaux"
+        subtitle="Gestion des bordereaux de remboursement"
+        tips={[
+          {
+            icon: <FileText className="h-4 w-4 text-blue-500" />,
+            title: "Generer un bordereau",
+            desc: "Cliquez sur 'Generer bordereau' pour creer un nouveau bordereau a partir des demandes validees.",
+          },
+          {
+            icon: <CheckCircle className="h-4 w-4 text-green-500" />,
+            title: "Cycle de vie",
+            desc: "Un bordereau passe par : Genere > Valide > Envoye > Paye.",
+          },
+          {
+            icon: <Download className="h-4 w-4 text-purple-500" />,
+            title: "Export bordereau",
+            desc: "Exportez chaque bordereau en CSV ou PDF pour l'envoi a l'assureur.",
+          },
+          {
+            icon: <RefreshCw className="h-4 w-4 text-orange-500" />,
+            title: "Suivi des statuts",
+            desc: "Utilisez le filtre par statut pour suivre les bordereaux en attente de traitement.",
+          },
+        ]}
       />
     </div>
   );

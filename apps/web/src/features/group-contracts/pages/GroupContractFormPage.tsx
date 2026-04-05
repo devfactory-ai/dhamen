@@ -19,6 +19,7 @@ import {
   User,
   Search,
 } from 'lucide-react';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1283,7 +1284,7 @@ export function GroupContractFormPage() {
                 <Input id="expiry_date" type="date" {...register('expiry_date')} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="global_ceiling">Plafond global annuel (DT)</Label>
+                <Label htmlFor="global_ceiling">Plafond global annuel (DT)<InfoTooltip text="Plafond maximum de remboursement par adherent et par an. Ce montant couvre l'ensemble des types de soins. Des sous-plafonds par garantie peuvent s'appliquer." /></Label>
                 <Input
                   id="global_ceiling"
                   type="number"
@@ -1295,7 +1296,7 @@ export function GroupContractFormPage() {
             </div>
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="carence_days">Jours de carence</Label>
+                <Label htmlFor="carence_days">Jours de carence<InfoTooltip text="Nombre de jours apres l'adhesion pendant lesquels les soins ne sont pas encore pris en charge. Permet d'eviter les adhesions opportunistes." /></Label>
                 <Input
                   id="carence_days"
                   type="number"
@@ -1607,7 +1608,7 @@ export function GroupContractFormPage() {
                       {/* Row 3: Letter keys */}
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <Label>Cles lettres</Label>
+                          <Label>Clés lettres<InfoTooltip text="Lettres-cles de la nomenclature CNAM (C1, C2, B, Z, KC, etc.) et leur valeur unitaire en millimes. Ces cles determinent le bareme de remboursement pour chaque type d'acte." /></Label>
                           <Button
                             type="button"
                             variant="ghost"

@@ -17,6 +17,7 @@ import {
   CheckCircle,
   XCircle,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -149,6 +150,33 @@ export default function SanteGarantiesPage() {
           }}
         />
       )}
+
+      <FloatingHelp
+        title="Aide - Garanties"
+        subtitle="Gestion des formules et couvertures"
+        tips={[
+          {
+            icon: <Shield className="h-4 w-4 text-blue-500" />,
+            title: "Formules de garantie",
+            desc: "Chaque formule definit les taux de couverture et plafonds par type de soin.",
+          },
+          {
+            icon: <Percent className="h-4 w-4 text-green-500" />,
+            title: "Taux de couverture",
+            desc: "Consultez le detail d'une formule pour voir les taux par type de soin.",
+          },
+          {
+            icon: <Plus className="h-4 w-4 text-purple-500" />,
+            title: "Creer une formule",
+            desc: "Cliquez sur 'Nouvelle formule' pour definir une nouvelle offre de couverture.",
+          },
+          {
+            icon: <Clock className="h-4 w-4 text-orange-500" />,
+            title: "Delai de carence",
+            desc: "Chaque couverture peut avoir un delai de carence avant prise en charge.",
+          },
+        ]}
+      />
     </div>
   );
 }

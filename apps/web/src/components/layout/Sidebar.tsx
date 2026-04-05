@@ -98,7 +98,7 @@ const navigationSections: NavSection[] = [
         permission: "insurers",
       },
       {
-        name: "Roles & Permissions",
+        name: "Rôles & Permissions",
         href: "/admin/roles",
         icon: ShieldIcon,
         roles: ["ADMIN"],

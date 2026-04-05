@@ -9,7 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
-import { Send, Loader2 } from 'lucide-react';
+import { Send, Loader2, FileText, Eye, Clock } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 
 interface Bordereau {
   id: string;
@@ -237,6 +238,16 @@ export function BordereauxPage() {
               }
             : undefined
         }
+      />
+
+      <FloatingHelp
+        title="Bordereaux"
+        tips={[
+          { icon: <FileText className="h-4 w-4 text-blue-500" />, title: "Qu'est-ce qu'un bordereau ?", desc: "Un bordereau regroupe les PEC d'une période pour facturation entre prestataire et assureur." },
+          { icon: <Send className="h-4 w-4 text-green-500" />, title: "Soumettre", desc: "Les bordereaux en brouillon peuvent être soumis à l'assureur pour validation et paiement." },
+          { icon: <Clock className="h-4 w-4 text-amber-500" />, title: "Suivi des statuts", desc: "Suivez le cycle : Brouillon, Soumis, Validé, Payé ou Contesté." },
+          { icon: <Eye className="h-4 w-4 text-purple-500" />, title: "Détails", desc: "Cliquez sur 'Détails' pour voir la liste des PEC incluses dans le bordereau." },
+        ]}
       />
     </div>
   );

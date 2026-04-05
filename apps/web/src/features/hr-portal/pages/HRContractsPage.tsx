@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Download, Calendar, Shield, Users } from 'lucide-react';
+import { FileText, Download, Calendar, Shield, Users, Eye, Clock } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -176,6 +177,15 @@ export function HRContractsPage() {
         emptyMessage="Aucun contrat trouvé"
       />
     </div>
+    <FloatingHelp
+      title="Contrats d'assurance"
+      tips={[
+        { icon: <FileText className="h-4 w-4 text-blue-500" />, title: "Détails contrat", desc: "Consultez le numéro, l'assureur et la période de chaque contrat." },
+        { icon: <Users className="h-4 w-4 text-green-500" />, title: "Effectif", desc: "Vérifiez le nombre de salariés couverts par contrat." },
+        { icon: <Shield className="h-4 w-4 text-purple-500" />, title: "Statut", desc: "Les contrats peuvent être actifs, suspendus ou expirés." },
+        { icon: <Clock className="h-4 w-4 text-orange-500" />, title: "Renouvellement", desc: "Surveillez les dates d'expiration pour anticiper les renouvellements." },
+      ]}
+    />
     </NoEntrepriseGuard>
   );
 }

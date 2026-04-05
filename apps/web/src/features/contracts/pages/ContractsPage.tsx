@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Download, Trash2, ArrowDown, ArrowUp } from 'lucide-react';
+import { Plus, Download, Trash2, ArrowDown, ArrowUp, Users, ShieldCheck, TrendingUp } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { DataTable } from '@/components/ui/data-table';
 import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { Badge } from '@/components/ui/badge';
@@ -334,6 +335,27 @@ export function ContractsPage() {
 
   return (
     <div className="space-y-6">
+      <FloatingHelp
+        title="Aide - Contrats"
+        subtitle="Comprendre la gestion des contrats d'assurance"
+        tips={[
+          {
+            icon: <Users className="h-4 w-4 text-blue-500" />,
+            title: "Individuel vs Groupe",
+            desc: "Un contrat individuel couvre un seul adhérent. Un contrat groupe est lié à une entreprise et couvre ses salariés et ayants droit.",
+          },
+          {
+            icon: <ShieldCheck className="h-4 w-4 text-green-500" />,
+            title: "Statuts des contrats",
+            desc: "Actif = en vigueur, Suspendu = temporairement gelé (impayés), Expiré = date de fin dépassée, Annulé = résilié définitivement.",
+          },
+          {
+            icon: <TrendingUp className="h-4 w-4 text-purple-500" />,
+            title: "Plafonds annuels",
+            desc: "Chaque contrat a un plafond annuel en TND. Une fois atteint, les remboursements sont suspendus jusqu'au renouvellement.",
+          },
+        ]}
+      />
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>

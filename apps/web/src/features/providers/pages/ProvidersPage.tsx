@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, Plus, Download, Eye, Pencil, Trash2, Stethoscope, Search, Filter, X } from 'lucide-react';
+import { Upload, Plus, Download, Eye, Pencil, Trash2, Stethoscope, Search, Filter, X, Handshake, FileSpreadsheet } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -301,6 +302,27 @@ export function ProvidersPage() {
 
   return (
     <div className="space-y-6">
+      <FloatingHelp
+        title="Aide - Praticiens"
+        subtitle="Gestion des prestataires de santé conventionnés"
+        tips={[
+          {
+            icon: <Handshake className="h-4 w-4 text-blue-500" />,
+            title: "Conventionnement",
+            desc: "Un praticien conventionné a un accord avec l'assureur sur les tarifs de remboursement. Vérifiez le statut avant toute PEC.",
+          },
+          {
+            icon: <Stethoscope className="h-4 w-4 text-green-500" />,
+            title: "Types de prestataires",
+            desc: "Pharmacie, médecin, labo, clinique, dentiste, opticien, kinésithérapeute — chaque type a ses propres barèmes de remboursement.",
+          },
+          {
+            icon: <FileSpreadsheet className="h-4 w-4 text-purple-500" />,
+            title: "Import en masse",
+            desc: "Utilisez l'import CSV pour ajouter plusieurs praticiens d'un coup. Le fichier doit contenir : nom, type, licence, ville, téléphone.",
+          },
+        ]}
+      />
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>

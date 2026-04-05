@@ -35,7 +35,11 @@ import {
   Search,
   Stethoscope,
   Plus,
+  ShieldCheck,
+  Info,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
+
 
 const PRIORITY_COLORS = {
   low: 'bg-gray-100 text-gray-800',
@@ -220,6 +224,27 @@ export function PreAuthorizationsPage() {
 
   return (
     <div className="space-y-6">
+      <FloatingHelp
+        title="Aide - Accords préalables"
+        subtitle="Comprendre les demandes d'autorisation"
+        tips={[
+          {
+            icon: <Info className="h-4 w-4 text-blue-500" />,
+            title: "Qu'est-ce qu'un accord préalable ?",
+            desc: "C'est une autorisation demandée avant un acte coûteux (hospitalisation, chirurgie, IRM). L'assureur confirme la prise en charge avant l'intervention.",
+          },
+          {
+            icon: <Clock className="h-4 w-4 text-amber-500" />,
+            title: "Délai de réponse",
+            desc: "Les demandes normales sont traitées sous 48-72h. Les urgences sont prioritaires et traitées dans la journée si soumises avant 14h.",
+          },
+          {
+            icon: <ShieldCheck className="h-4 w-4 text-green-500" />,
+            title: "Statuts de la demande",
+            desc: "En attente -> En examen -> Approuvé/Rejeté. Une demande approuvée a une période de validité : l'acte doit être réalisé dans ce délai.",
+          },
+        ]}
+      />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <PageHeader
           title="Accords préalables"

@@ -16,7 +16,9 @@ import {
   PauseCircle,
   RefreshCw,
   Eye,
+  Shield,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Input } from '../../../components/ui/input';
 import { Button } from '../../../components/ui/button';
@@ -462,6 +464,16 @@ export default function CardsManagementPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <FloatingHelp
+        title="Gestion des cartes virtuelles"
+        tips={[
+          { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez une carte par son numéro dans la barre de recherche." },
+          { icon: <Plus className="h-4 w-4 text-green-500" />, title: "Générer une carte", desc: "Cliquez sur 'Générer une carte' pour créer une nouvelle carte virtuelle pour un adhérent." },
+          { icon: <PauseCircle className="h-4 w-4 text-amber-500" />, title: "Suspendre / Réactiver", desc: "Suspendez temporairement une carte ou réactivez-la depuis le menu d'actions." },
+          { icon: <Shield className="h-4 w-4 text-red-500" />, title: "Révocation", desc: "La révocation est irréversible. Une carte révoquée ne pourra plus être utilisée." },
+        ]}
+      />
     </div>
   );
 }

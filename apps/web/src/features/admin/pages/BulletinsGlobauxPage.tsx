@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Download, RotateCcw, Eye, Trash2, ArrowDown, ArrowUp } from 'lucide-react';
+import { Download, RotateCcw, Eye, Trash2, ArrowDown, ArrowUp, Search, Filter, FileText, Clock } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
@@ -633,6 +634,15 @@ export function BulletinsGlobauxPage() {
           </div>
         </div>
       )}
+      <FloatingHelp
+        title="Bulletins de soins"
+        tips={[
+          { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez par nom, matricule ou numéro de bulletin." },
+          { icon: <Filter className="h-4 w-4 text-purple-500" />, title: "Filtres", desc: "Filtrez par statut, type de soins et plage de dates." },
+          { icon: <Download className="h-4 w-4 text-green-500" />, title: "Export", desc: "Exportez les bulletins filtrés au format CSV." },
+          { icon: <Eye className="h-4 w-4 text-orange-500" />, title: "Détails", desc: "Cliquez sur l'icône oeil pour voir le détail d'un bulletin." },
+        ]}
+      />
     </div>
   );
 }

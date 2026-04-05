@@ -9,7 +9,8 @@ import { DataTable } from '@/components/ui/data-table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
-import { Download, CheckCircle, Loader2, Eye } from 'lucide-react';
+import { Download, CheckCircle, Loader2, Eye, AlertTriangle, Calendar } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 
 interface ReconciliationSummary {
   period: string;
@@ -313,6 +314,16 @@ export function ReconciliationPage() {
               }
             : undefined
         }
+      />
+
+      <FloatingHelp
+        title="Réconciliation"
+        tips={[
+          { icon: <Calendar className="h-4 w-4 text-blue-500" />, title: "Période", desc: "Sélectionnez la période pour afficher les rapprochements du mois correspondant." },
+          { icon: <CheckCircle className="h-4 w-4 text-green-500" />, title: "Rapprocher", desc: "Cliquez sur 'Rapprocher' pour valider la correspondance entre montants déclarés et vérifiés." },
+          { icon: <AlertTriangle className="h-4 w-4 text-amber-500" />, title: "Écarts", desc: "Les écarts positifs ou négatifs sont mis en évidence pour faciliter l'identification des anomalies." },
+          { icon: <Download className="h-4 w-4 text-orange-500" />, title: "Export", desc: "Exportez le rapport de réconciliation au format Excel pour archivage." },
+        ]}
       />
     </div>
   );

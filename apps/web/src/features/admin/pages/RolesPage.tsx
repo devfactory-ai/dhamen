@@ -15,7 +15,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Shield, ChevronRight, Lock, Check, X, Users, Plus, Pencil, Save, Trash2 } from 'lucide-react';
+import { Shield, ChevronRight, Lock, Check, X, Users, Plus, Pencil, Save, Trash2, Eye, AlertTriangle } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { useRoles, useRolePermissions, useUpdatePermissions, useCreateRole, useDeleteRole } from '../hooks/useRoles';
 import { HIDDEN_ROLES } from '@dhamen/shared';
 import { useToast } from '@/stores/toast';
@@ -681,6 +682,15 @@ export default function RolesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <FloatingHelp
+        title="Rôles & Permissions"
+        tips={[
+          { icon: <Shield className="h-4 w-4 text-blue-500" />, title: "Matrice", desc: "Sélectionnez un rôle pour voir et modifier ses permissions." },
+          { icon: <Lock className="h-4 w-4 text-orange-500" />, title: "Rôles protégés", desc: "Les rôles protégés nécessitent une confirmation par mot de passe." },
+          { icon: <Users className="h-4 w-4 text-green-500" />, title: "Utilisateurs", desc: "Vérifiez le nombre d'utilisateurs assignés à chaque rôle." },
+          { icon: <AlertTriangle className="h-4 w-4 text-red-500" />, title: "Suppression", desc: "Réassignez les utilisateurs avant de supprimer un rôle." },
+        ]}
+      />
     </div>
   );
 }

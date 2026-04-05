@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { apiClient } from '@/lib/api-client';
-import { Users, User, Baby, Heart, Calendar, UserCircle } from 'lucide-react';
+import { Users, User, Baby, Heart, Calendar, UserCircle, ShieldCheck, FileText } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 
 interface AyantDroit {
   nom: string;
@@ -192,6 +193,33 @@ export function AdhérentBeneficiariesPage() {
           ))}
         </div>
       )}
+
+      <FloatingHelp
+        title="Aide - Ayants droit"
+        subtitle="Gérez les personnes couvertes par votre contrat"
+        tips={[
+          {
+            icon: <Users className="h-4 w-4 text-blue-500" />,
+            title: "Personnes couvertes",
+            desc: "Votre contrat couvre l'assuré principal ainsi que ses ayants droit (conjoint, enfants, parents).",
+          },
+          {
+            icon: <Heart className="h-4 w-4 text-pink-500" />,
+            title: "Liens familiaux",
+            desc: "Chaque ayant droit est identifié par son lien de parenté : conjoint(e), enfant ou parent.",
+          },
+          {
+            icon: <ShieldCheck className="h-4 w-4 text-green-500" />,
+            title: "Couverture partagée",
+            desc: "Les plafonds de garantie sont partagés entre tous les bénéficiaires du contrat.",
+          },
+          {
+            icon: <FileText className="h-4 w-4 text-amber-500" />,
+            title: "Mise à jour",
+            desc: "Pour ajouter ou retirer un ayant droit, contactez votre employeur ou votre assureur.",
+          },
+        ]}
+      />
     </div>
   );
 }

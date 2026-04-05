@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, Plus, Download, Trash2 } from 'lucide-react';
+import { Upload, Plus, Download, Trash2, Filter, Search, Hash } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -267,6 +268,27 @@ export function AdherentsPage() {
 
   return (
     <div className="space-y-6">
+      <FloatingHelp
+        title="Aide - Adhérents"
+        subtitle="Conseils pour gérer efficacement vos adhérents"
+        tips={[
+          {
+            icon: <Filter className="h-4 w-4 text-blue-500" />,
+            title: "Filtrer par statut",
+            desc: "Utilisez la barre de recherche pour filtrer les adhérents actifs ou inactifs et identifier rapidement les dossiers incomplets.",
+          },
+          {
+            icon: <Download className="h-4 w-4 text-green-500" />,
+            title: "Export CSV complet",
+            desc: "Le bouton Exporter génère un fichier CSV avec tous les adhérents (pas seulement la page courante), utile pour les rapprochements avec la CNAM.",
+          },
+          {
+            icon: <Hash className="h-4 w-4 text-purple-500" />,
+            title: "Recherche par matricule",
+            desc: "Vous pouvez rechercher par numéro CIN, numéro adhérent ou nom pour retrouver rapidement un assuré ou ses ayants droit.",
+          },
+        ]}
+      />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <PageHeader
           title="Adhérents"

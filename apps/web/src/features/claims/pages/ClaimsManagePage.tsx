@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { useClaims, type Claim } from '../hooks/useClaims';
+import { FloatingHelp } from '@/components/ui/floating-help';
+import { Filter, CheckCircle, AlertTriangle, Eye } from 'lucide-react';
 
 const CLAIM_TYPES: Record<string, { label: string; color: string }> = {
   pharmacie: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
@@ -232,6 +234,16 @@ export function ClaimsManagePage() {
               }
             : undefined
         }
+      />
+
+      <FloatingHelp
+        title="Gestion des PEC"
+        tips={[
+          { icon: <Filter className="h-4 w-4 text-purple-500" />, title: "Filtrer par statut", desc: "Utilisez le filtre pour afficher les PEC soumises, en examen, approuvées ou rejetées." },
+          { icon: <CheckCircle className="h-4 w-4 text-green-500" />, title: "Traiter une PEC", desc: "Cliquez sur 'Traiter' pour valider ou rejeter une demande de prise en charge." },
+          { icon: <AlertTriangle className="h-4 w-4 text-amber-500" />, title: "Score anti-fraude", desc: "Consultez le score de fraude pour identifier les demandes suspectes (> 70 = risque élevé)." },
+          { icon: <Eye className="h-4 w-4 text-blue-500" />, title: "Détails", desc: "Cliquez sur 'Détails' pour voir le détail complet d'une PEC et son historique." },
+        ]}
       />
     </div>
   );

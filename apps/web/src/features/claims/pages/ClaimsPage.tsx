@@ -7,6 +7,9 @@ import { Button } from '@/components/ui/button';
 import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { useClaims, type Claim } from '../hooks/useClaims';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { FloatingHelp } from '@/components/ui/floating-help';
+import { RefreshCw, Clock, AlertCircle } from 'lucide-react';
+
 
 const CLAIM_TYPES: Record<string, { label: string; color: string }> = {
   pharmacie: { label: 'Pharmacie', color: 'bg-green-100 text-green-800' },
@@ -136,6 +139,27 @@ export function ClaimsPage() {
 
   return (
     <div className="space-y-6">
+      <FloatingHelp
+        title="Aide - Prises en Charge"
+        subtitle="Comprendre le cycle de vie des PEC"
+        tips={[
+          {
+            icon: <RefreshCw className="h-4 w-4 text-blue-500" />,
+            title: "Cycle de vie d'une PEC",
+            desc: "Soumise -> En examen -> Approuvée -> En paiement -> Payée. A chaque étape, le statut est mis à jour automatiquement.",
+          },
+          {
+            icon: <Clock className="h-4 w-4 text-amber-500" />,
+            title: "Délais de traitement",
+            desc: "Les PEC pharmacie sont traitées en temps réel. Les hospitalisations et actes spécialisés nécessitent un accord préalable (48-72h).",
+          },
+          {
+            icon: <AlertCircle className="h-4 w-4 text-red-500" />,
+            title: "PEC rejetée ?",
+            desc: "Vérifiez l'éligibilité de l'adhérent, le plafond restant du contrat, et la conformité de l'acte avec les garanties souscrites.",
+          },
+        ]}
+      />
       <PageHeader
         title="Prises en Charge"
         description={isProvider ? 'Gérer vos demandes de prise en charge' : 'Consulter et traiter les PEC'}

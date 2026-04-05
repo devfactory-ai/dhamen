@@ -34,6 +34,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { apiClient } from '@/lib/api-client';
+import { BarChart3, TrendingUp, ShieldAlert, Download } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
@@ -458,6 +460,33 @@ export function BIDashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <FloatingHelp
+        title="Aide - Business Intelligence"
+        subtitle="Tableau de bord analytique avancé"
+        tips={[
+          {
+            icon: <BarChart3 className="h-4 w-4 text-blue-500" />,
+            title: "KPIs en temps réel",
+            desc: "Visualisez les indicateurs clés : demandes, remboursements, taux d'acceptation et délais de traitement.",
+          },
+          {
+            icon: <TrendingUp className="h-4 w-4 text-green-500" />,
+            title: "Évolution mensuelle",
+            desc: "Analysez les tendances des montants demandés et remboursés mois par mois.",
+          },
+          {
+            icon: <ShieldAlert className="h-4 w-4 text-red-500" />,
+            title: "Suivi de la fraude",
+            desc: "Surveillez les alertes fraude par niveau et l'évolution des montants suspects.",
+          },
+          {
+            icon: <Download className="h-4 w-4 text-amber-500" />,
+            title: "Export des rapports",
+            desc: "Exportez vos données en PDF ou Excel pour les partager avec votre équipe.",
+          },
+        ]}
+      />
     </div>
   );
 }

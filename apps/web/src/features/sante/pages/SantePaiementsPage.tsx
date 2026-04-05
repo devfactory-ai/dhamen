@@ -20,6 +20,8 @@ import {
   type PaiementStatut,
 } from '../hooks/usePaiements';
 import { useToast } from '@/stores/toast';
+import { FloatingHelp } from '@/components/ui/floating-help';
+import { CreditCard, CheckCircle, Users, Clock } from 'lucide-react';
 
 export function SantePaiementsPage() {
   const navigate = useNavigate();
@@ -276,6 +278,33 @@ export function SantePaiementsPage() {
               }
             : undefined
         }
+      />
+
+      <FloatingHelp
+        title="Aide - Paiements"
+        subtitle="Gestion des paiements de remboursement"
+        tips={[
+          {
+            icon: <CheckCircle className="h-4 w-4 text-green-500" />,
+            title: "Valider un paiement",
+            desc: "Cliquez sur 'Valider' pour approuver un paiement en attente avant le reglement.",
+          },
+          {
+            icon: <CreditCard className="h-4 w-4 text-blue-500" />,
+            title: "Traitement par lot",
+            desc: "Selectionnez plusieurs paiements avec les cases a cocher pour un traitement groupe.",
+          },
+          {
+            icon: <Users className="h-4 w-4 text-purple-500" />,
+            title: "Beneficiaire",
+            desc: "Le paiement peut etre destine a un adherent ou a un praticien selon le type de demande.",
+          },
+          {
+            icon: <Clock className="h-4 w-4 text-orange-500" />,
+            title: "Suivi des statuts",
+            desc: "Filtrez par statut pour voir les paiements en attente, valides ou deja payes.",
+          },
+        ]}
       />
     </div>
   );

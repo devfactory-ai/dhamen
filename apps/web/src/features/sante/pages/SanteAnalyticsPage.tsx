@@ -29,7 +29,11 @@ import {
   Download,
   RefreshCw,
   Filter,
+  BarChart3,
+  PieChart as PieChartIcon,
+  Clock,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -514,6 +518,33 @@ export function SanteAnalyticsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <FloatingHelp
+        title="Aide - Analytics avancés"
+        subtitle="Analysez la performance de votre activité"
+        tips={[
+          {
+            icon: <BarChart3 className="h-4 w-4 text-blue-500" />,
+            title: "Vue d'ensemble",
+            desc: "Consultez l'activité quotidienne, la répartition par type de soin et par statut en un coup d'oeil.",
+          },
+          {
+            icon: <TrendingUp className="h-4 w-4 text-green-500" />,
+            title: "Tendances",
+            desc: "Suivez l'évolution du volume de demandes et des montants remboursés dans le temps.",
+          },
+          {
+            icon: <PieChartIcon className="h-4 w-4 text-purple-500" />,
+            title: "Répartition",
+            desc: "Analysez la distribution des demandes par type de soin et par statut de traitement.",
+          },
+          {
+            icon: <Clock className="h-4 w-4 text-amber-500" />,
+            title: "Période d'analyse",
+            desc: "Changez la période (semaine, mois, trimestre, année) pour affiner votre analyse.",
+          },
+        ]}
+      />
     </div>
   );
 }

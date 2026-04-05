@@ -7,6 +7,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import { BarChart3, Shield, AlertTriangle, Eye } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -477,6 +479,15 @@ export function InsurerDashboardPage() {
           </CardContent>
         </Card>
       </div>
+      <FloatingHelp
+        title="Tableau de bord assureur"
+        tips={[
+          { icon: <BarChart3 className="h-4 w-4 text-blue-500" />, title: "Indicateurs", desc: "Suivez les KPI : adhérents actifs, montants remboursés et taux d'approbation." },
+          { icon: <AlertTriangle className="h-4 w-4 text-red-500" />, title: "Alertes fraude", desc: "Les demandes suspectes sont signalées avec un score de fraude." },
+          { icon: <Eye className="h-4 w-4 text-green-500" />, title: "Demandes récentes", desc: "Cliquez sur une demande pour voir son détail complet." },
+          { icon: <Shield className="h-4 w-4 text-purple-500" />, title: "Bordereaux", desc: "Gérez les bordereaux en attente de validation pour le paiement." },
+        ]}
+      />
     </div>
   );
 }

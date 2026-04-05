@@ -7,7 +7,8 @@ import { DataTable } from '@/components/ui/data-table';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { apiClient } from '@/lib/api-client';
-import { FileText, Download, Eye, Pill, Stethoscope, FlaskConical, Building2 } from 'lucide-react';
+import { FileText, Download, Eye, Pill, Stethoscope, FlaskConical, Building2, Search, Clock, ShieldCheck } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import {
   Dialog,
   DialogContent,
@@ -302,6 +303,32 @@ export function AdhérentClaimsPage() {
           )}
         </DialogContent>
       </Dialog>
+      <FloatingHelp
+        title="Aide - Remboursements"
+        subtitle="Comprendre vos prises en charge"
+        tips={[
+          {
+            icon: <Search className="h-4 w-4 text-blue-500" />,
+            title: "Consulter les détails",
+            desc: "Cliquez sur le bouton 'Details' pour voir le détail des prestations d'une prise en charge.",
+          },
+          {
+            icon: <Clock className="h-4 w-4 text-amber-500" />,
+            title: "Suivi du statut",
+            desc: "Chaque demande passe par les statuts : En attente, Approuvé, Payé ou Refusé.",
+          },
+          {
+            icon: <Pill className="h-4 w-4 text-green-500" />,
+            title: "Types de soins",
+            desc: "Vos remboursements couvrent la pharmacie, les consultations, les analyses et les hospitalisations.",
+          },
+          {
+            icon: <ShieldCheck className="h-4 w-4 text-purple-500" />,
+            title: "Montant remboursé",
+            desc: "Le montant remboursé dépend de votre taux de couverture et du plafond de votre contrat.",
+          },
+        ]}
+      />
     </div>
   );
 }

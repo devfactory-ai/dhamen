@@ -33,6 +33,7 @@ import {
   XCircle,
   Eye,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 
 // Types
 interface ArchiveBulletin {
@@ -795,6 +796,16 @@ function BulletinsArchivePage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <FloatingHelp
+        title="Archives Bulletins"
+        tips={[
+          { icon: <FileSpreadsheet className="h-4 w-4 text-blue-500" />, title: "Import CSV", desc: "Importez vos bulletins historiques via un fichier CSV avec séparateur point-virgule." },
+          { icon: <Image className="h-4 w-4 text-green-500" />, title: "Upload scans", desc: "Téléchargez les scans des bulletins. Nommez-les avec le numéro de bulletin pour l'association automatique." },
+          { icon: <Search className="h-4 w-4 text-purple-500" />, title: "Recherche", desc: "Recherchez dans les archives par matricule, nom d'adhérent ou numéro de bulletin." },
+          { icon: <Archive className="h-4 w-4 text-orange-500" />, title: "Couverture", desc: "Consultez les statistiques pour suivre le taux de numérisation de vos archives." },
+        ]}
+      />
     </div>
   );
 }

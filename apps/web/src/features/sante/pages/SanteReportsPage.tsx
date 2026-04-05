@@ -41,6 +41,8 @@ import {
   type GeneratedReport,
 } from '../hooks/useReports';
 import { useQueryClient } from '@tanstack/react-query';
+import { FloatingHelp } from '@/components/ui/floating-help';
+import { FileText, Download, Filter, Clock } from 'lucide-react';
 
 export function SanteReportsPage() {
   const [activeTab, setActiveTab] = useState('templates');
@@ -386,6 +388,33 @@ export function SanteReportsPage() {
         onParamsChange={setGenerateParams}
         onGenerate={handleGenerate}
         isGenerating={generateReport.isPending}
+      />
+
+      <FloatingHelp
+        title="Aide - Rapports"
+        subtitle="Generation de rapports PDF, Excel et CSV"
+        tips={[
+          {
+            icon: <FileText className="h-4 w-4 text-blue-500" />,
+            title: "Modeles de rapports",
+            desc: "Choisissez un modele parmi les categories disponibles et configurez les parametres.",
+          },
+          {
+            icon: <Filter className="h-4 w-4 text-purple-500" />,
+            title: "Filtrer par categorie",
+            desc: "Utilisez le filtre par categorie pour trouver rapidement le modele souhaite.",
+          },
+          {
+            icon: <Download className="h-4 w-4 text-green-500" />,
+            title: "Telecharger un rapport",
+            desc: "Une fois genere, telechargez le rapport depuis l'onglet Historique.",
+          },
+          {
+            icon: <Clock className="h-4 w-4 text-orange-500" />,
+            title: "Historique des rapports",
+            desc: "Consultez l'historique pour retrouver et re-telecharger vos rapports precedents.",
+          },
+        ]}
       />
     </div>
   );

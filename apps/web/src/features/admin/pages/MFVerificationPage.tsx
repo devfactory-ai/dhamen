@@ -33,7 +33,11 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowUp,
+  Search,
+  Filter,
+  Shield,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 
 interface MFVerification {
   id: string;
@@ -591,6 +595,15 @@ export function MFVerificationPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <FloatingHelp
+        title="Vérification Matricule Fiscal"
+        tips={[
+          { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez par nom du praticien, MF ou raison sociale." },
+          { icon: <Filter className="h-4 w-4 text-purple-500" />, title: "Filtres", desc: "Filtrez par statut : en attente, vérifié, rejeté ou expiré." },
+          { icon: <FileCheck className="h-4 w-4 text-green-500" />, title: "Vérification", desc: "Soumettez une nouvelle vérification MF pour un praticien." },
+          { icon: <Shield className="h-4 w-4 text-orange-500" />, title: "Validation", desc: "Approuvez ou rejetez les vérifications en attente." },
+        ]}
+      />
     </div>
   );
 }

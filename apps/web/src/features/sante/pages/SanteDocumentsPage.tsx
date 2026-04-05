@@ -19,6 +19,7 @@ import {
   XCircle,
   Clock,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -259,6 +260,33 @@ export function SanteDocumentsPage() {
         open={showOcrDialog}
         onClose={() => setShowOcrDialog(false)}
         document={selectedDocument}
+      />
+
+      <FloatingHelp
+        title="Aide - Documents"
+        subtitle="Upload, OCR et gestion des documents"
+        tips={[
+          {
+            icon: <Upload className="h-4 w-4 text-blue-500" />,
+            title: "Uploader un document",
+            desc: "Selectionnez une demande puis uploadez des justificatifs (JPEG, PNG, PDF, max 10MB).",
+          },
+          {
+            icon: <ScanLine className="h-4 w-4 text-green-500" />,
+            title: "OCR automatique",
+            desc: "Lancez l'OCR sur les images et PDF pour extraire automatiquement les montants et lignes.",
+          },
+          {
+            icon: <Eye className="h-4 w-4 text-purple-500" />,
+            title: "Previsualiser",
+            desc: "Cliquez sur l'icone oeil pour previsualiser un document sans le telecharger.",
+          },
+          {
+            icon: <Filter className="h-4 w-4 text-orange-500" />,
+            title: "Filtrer par type",
+            desc: "Utilisez le filtre par type de document pour retrouver rapidement vos fichiers.",
+          },
+        ]}
       />
     </div>
   );

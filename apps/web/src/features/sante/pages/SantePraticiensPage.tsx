@@ -5,7 +5,8 @@
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, MapPin, Phone, Building, Filter, X } from 'lucide-react';
+import { Search, MapPin, Phone, Building, Filter, X, Stethoscope, Users } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -252,6 +253,33 @@ export default function SantePraticiensPage() {
           )}
         </>
       )}
+
+      <FloatingHelp
+        title="Aide - Praticiens"
+        subtitle="Annuaire des praticiens conventionnes"
+        tips={[
+          {
+            icon: <Search className="h-4 w-4 text-blue-500" />,
+            title: "Rechercher un praticien",
+            desc: "Recherchez par nom ou specialite dans la barre de recherche.",
+          },
+          {
+            icon: <Filter className="h-4 w-4 text-purple-500" />,
+            title: "Filtres avances",
+            desc: "Filtrez par specialite, ville ou statut de conventionnement.",
+          },
+          {
+            icon: <Stethoscope className="h-4 w-4 text-green-500" />,
+            title: "Detail praticien",
+            desc: "Cliquez sur une carte pour voir les details et le taux de remboursement.",
+          },
+          {
+            icon: <Users className="h-4 w-4 text-orange-500" />,
+            title: "Conventionnement",
+            desc: "Le badge indique le statut : conventionne, partiellement ou non conventionne.",
+          },
+        ]}
+      />
     </div>
   );
 }
