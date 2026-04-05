@@ -3,8 +3,13 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 
-createRoot(document.getElementById('root')!).render(
+const root = createRoot(document.getElementById('root')!);
+root.render(
   <StrictMode>
     <App />
   </StrictMode>,
-)
+);
+
+// Masquer le loader une fois React monté
+const loader = document.getElementById('app-loader');
+if (loader) loader.remove();
