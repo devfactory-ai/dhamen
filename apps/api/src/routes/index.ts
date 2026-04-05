@@ -120,3 +120,6 @@ export { adminStats } from './admin-stats';
 
 // Praticien (provider portal)
 export { praticien } from './praticien';
+
+// Contact form (landing page)
+export { contact } from './contact';

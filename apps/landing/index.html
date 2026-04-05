@@ -1196,7 +1196,9 @@
       icon.textContent = 'menu';
     }
 
-    // ========== Contact Form → Brevo ==========
+    // ========== Contact Form → API Backend ==========
+    const API_BASE_URL = 'https://dhamen-api-staging.yassine-techini.workers.dev/api/v1';
+
     async function handleContactSubmit(e) {
       e.preventDefault();
       const form = e.target;
@@ -1217,24 +1219,12 @@
       btn.querySelector('span:last-child').textContent = translations[lang]['contact.form.sending'] || 'Envoi en cours...';
 
       try {
-        const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+        const res = await fetch(API_BASE_URL + '/contact', {
           method: 'POST',
           headers: {
-            'accept': 'application/json',
             'content-type': 'application/json',
-            'api-key': 'VITE_BREVO_API_KEY'
           },
-          body: JSON.stringify({
-            sender: { name: 'E-Santé Contact', email: 'contact@e-sante.com.tn' },
-            to: [{ email: 's.sirine@devfactory.ai', name: 'E-Santé' }],
-            replyTo: { email: email, name: firstName + ' ' + lastName },
-            subject: '[E-Santé Landing] Nouveau contact de ' + firstName + ' ' + lastName + ' (' + orgType + ')',
-            htmlContent: '<h3>Nouveau message depuis le site E-Santé</h3>' +
-              '<p><strong>Nom:</strong> ' + firstName + ' ' + lastName + '</p>' +
-              '<p><strong>Email:</strong> ' + email + '</p>' +
-              '<p><strong>Organisation:</strong> ' + orgType + '</p>' +
-              '<p><strong>Message:</strong></p><p>' + message.replace(/\n/g, '<br>') + '</p>'
-          })
+          body: JSON.stringify({ firstName, lastName, email, orgType, message })
         });
 
         if (res.ok) {

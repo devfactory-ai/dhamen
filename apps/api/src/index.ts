@@ -58,6 +58,7 @@ import {
   roles,
   adminStats,
   praticien,
+  contact,
 } from './routes';
 import type { Bindings, Variables } from './types';
 
@@ -224,6 +225,9 @@ api.route('/admin-stats', adminStats);
 
 // Praticien portal (provider-scoped routes)
 api.route('/praticien', praticien);
+
+// Contact form (landing page - no auth required)
+api.route('/contact', contact);
 
 // Root redirect
 app.get('/', (c) => {
