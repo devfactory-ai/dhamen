@@ -136,6 +136,7 @@ function BulletinHistory({ adherentId }: { adherentId: string }) {
 
   return (
     <div>
+      <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b text-left text-xs text-gray-500">
@@ -165,6 +166,7 @@ function BulletinHistory({ adherentId }: { adherentId: string }) {
           </tr>
         </tfoot>
       </table>
+      </div>
       {meta && meta.totalPages > 1 && (
         <div className="flex justify-center gap-2 mt-3">
           <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>Précédent</Button>
@@ -247,7 +249,7 @@ export default function AgentAdherentDetailPage() {
   return (
     <div className="space-y-6">
       {/* Breadcrumbs */}
-      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+      <nav className="flex flex-wrap items-center gap-1.5 text-sm text-gray-500">
         <Link to="/adherents/agent" className="hover:text-gray-900 transition-colors">
           Adhérents
         </Link>
@@ -262,7 +264,7 @@ export default function AgentAdherentDetailPage() {
         <div className="flex items-center gap-3">
           <Users className="w-6 h-6 text-gray-700" />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
+            <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">
               {adherent.firstName} {adherent.lastName}
             </h1>
             <div className="flex items-center gap-2 mt-1">
@@ -277,7 +279,7 @@ export default function AgentAdherentDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
           {canUpdate && (
             <Button
               variant="outline"
@@ -317,7 +319,7 @@ export default function AgentAdherentDetailPage() {
           {/* Informations */}
           <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
             <h3 className="text-sm font-semibold text-gray-700 mb-4">Informations</h3>
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-gray-500">Nom complet</span>
                 <p className="font-medium">{adherent.firstName} {adherent.lastName}</p>
@@ -350,7 +352,7 @@ export default function AgentAdherentDetailPage() {
           {/* Entreprise & Contrat */}
           <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
             <h3 className="text-sm font-semibold text-gray-700 mb-4">Entreprise & Contrat</h3>
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-gray-500">Entreprise</span>
                 <p className="font-medium">{adherent.companyName || '—'}</p>

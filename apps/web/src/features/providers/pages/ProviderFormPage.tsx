@@ -70,9 +70,9 @@ const SPECIALITIES: Record<string, { value: string; label: string }[]> = {
 };
 
 const providerFormSchema = z.object({
-  name: z.string().min(2, 'Minimum 2 caracteres'),
+  name: z.string().min(2, 'Minimum 2 caractères'),
   type: z.enum(['PHARMACY', 'DOCTOR', 'LAB', 'CLINIC', 'HOSPITAL', 'DENTIST', 'OPTICIAN', 'KINESITHERAPEUTE']),
-  licenseNo: z.string().min(1, 'Numero de licence requis'),
+  licenseNo: z.string().min(1, 'Numéro de licence requis'),
   speciality: z.string().optional(),
   mfNumber: z.string().optional(),
   address: z.string().min(5, 'Adresse requise'),
@@ -197,7 +197,7 @@ export function ProviderFormPage() {
         ]}
       />
 
-      <Card className="max-w-2xl">
+      <Card className="w-full max-w-2xl mx-auto">
         <CardHeader>
           <CardTitle>{isEditing ? 'Informations du praticien' : 'Informations du nouveau praticien'}</CardTitle>
           <CardDescription>
@@ -286,7 +286,7 @@ export function ProviderFormPage() {
                   <p className="text-destructive text-sm">{errors.licenseNo.message}</p>
                 )}
                 {isEditing && (
-                  <p className="text-muted-foreground text-xs">Le numero ne peut pas etre modifie</p>
+                  <p className="text-muted-foreground text-xs">Le numéro ne peut pas être modifié</p>
                 )}
               </div>
               <div className="space-y-2">
@@ -348,7 +348,7 @@ export function ProviderFormPage() {
             )}
 
             {/* Actions */}
-            <div className="flex justify-end gap-3 pt-4 border-t">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => navigate('/providers')}>
                 Annuler
               </Button>

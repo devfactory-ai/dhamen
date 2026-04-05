@@ -421,6 +421,12 @@ mfVerification.get(
     const page = parseInt(c.req.query('page') || '1');
     const limit = parseInt(c.req.query('limit') || '20');
     const status = c.req.query('status');
+    const sortBy = c.req.query('sortBy') || 'created_at';
+    const sortOrder = (c.req.query('sortOrder') || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+    const allowedSortColumns: Record<string, string> = {
+      created_at: 'pv.created_at',
+    };
+    const sortColumn = allowedSortColumns[sortBy] || 'pv.created_at';
     const offset = (page - 1) * limit;
 
     let query = `
@@ -437,7 +443,7 @@ mfVerification.get(
       params.push(status);
     }
 
-    query += ' ORDER BY pv.created_at DESC LIMIT ? OFFSET ?';
+    query += ` ORDER BY ${sortColumn} ${sortOrder} LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     const verifications = await getDb(c).prepare(query).bind(...params).all();

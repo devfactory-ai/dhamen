@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '@/stores/ui';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { NotificationBell } from './NotificationBell';
@@ -7,6 +8,7 @@ import { TenantBadge } from '@/components/TenantSelector';
 export function Header() {
   const { toggleSidebar } = useUIStore();
   const { logout, user } = useAuth();
+  const navigate = useNavigate();
 
   return (
     <header className="sticky top-0 z-40 flex h-16 items-center justify-between gap-4 border-b border-gray-200 bg-white px-4 lg:px-6">
@@ -110,7 +112,7 @@ export function Header() {
               <div className="border-t border-gray-100 py-2">
                 <button
                   type="button"
-                  onClick={logout}
+                  onClick={async () => { await logout(); navigate('/login'); }}
                   className="flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors w-full"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

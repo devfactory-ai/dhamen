@@ -5,6 +5,17 @@ import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import {
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+} from '@simplewebauthn/server';
+import type {
+  RegistrationResponseJSON,
+  AuthenticationResponseJSON,
+  AuthenticatorTransportFuture,
+} from '@simplewebauthn/server';
+import {
   setAccessTokenCookie,
   setRefreshTokenCookie,
   clearAuthCookies,
@@ -24,6 +35,7 @@ import {
 } from '../lib/totp';
 import { logAudit } from '../middleware/audit-trail';
 import { authMiddleware } from '../middleware/auth';
+import { generateId } from '../lib/ulid';
 import { verifyTurnstile } from '../lib/turnstile';
 import { hashPassword } from '../lib/password';
 import { NotificationService } from '../services/notification.service';
@@ -236,12 +248,25 @@ auth.post('/login', zValidator('json', loginRequestSchema, validationHook), asyn
   // Resolve user permissions (role + individual overrides)
   const permissions = await buildUserPermissions(getDb(c), user.id, user.role);
 
+  // Check if user has any registered passkeys
+  let hasPasskey = false;
+  try {
+    const pkRow = await getDb(c)
+      .prepare('SELECT 1 FROM passkeys WHERE user_id = ? LIMIT 1')
+      .bind(user.id)
+      .first();
+    hasPasskey = !!pkRow;
+  } catch {
+    // passkeys table may not exist yet
+  }
+
   return success(c, {
     requiresMfa: false,
     expiresIn: jwtExpiresIn,
     user: userToPublic({ ...user, companyName }),
     tenantCode,
     permissions,
+    hasPasskey,
     // Also return tokens in body for localStorage fallback (cross-origin cookie issues)
     tokens: {
       accessToken,
@@ -444,10 +469,18 @@ auth.post('/mfa/verify', zValidator('json', mfaVerifyRequestSchema), async (c) =
   const mfaPermissions = await buildUserPermissions(getDb(c), user.id, user.role);
   const mfaCompanyName = await resolveCompanyName(getDb(c), user.companyId);
 
+  // Check if user has any registered passkeys
+  let mfaHasPasskey = false;
+  try {
+    const pkRow = await getDb(c).prepare('SELECT 1 FROM passkeys WHERE user_id = ? LIMIT 1').bind(user.id).first();
+    mfaHasPasskey = !!pkRow;
+  } catch { /* passkeys table may not exist */ }
+
   return success(c, {
     expiresIn: jwtExpiresIn,
     user: userToPublic({ ...user, companyName: mfaCompanyName }),
     permissions: mfaPermissions,
+    hasPasskey: mfaHasPasskey,
     // Also return tokens in body for localStorage fallback
     tokens: {
       accessToken,
@@ -548,10 +581,18 @@ auth.post('/mfa/backup', zValidator('json', backupCodeSchema), async (c) => {
   const permissions = await buildUserPermissions(getDb(c), user.id, user.role);
   const backupCompanyName = await resolveCompanyName(getDb(c), user.companyId);
 
+  // Check if user has any registered passkeys
+  let backupHasPasskey = false;
+  try {
+    const pkRow = await getDb(c).prepare('SELECT 1 FROM passkeys WHERE user_id = ? LIMIT 1').bind(user.id).first();
+    backupHasPasskey = !!pkRow;
+  } catch { /* passkeys table may not exist */ }
+
   return success(c, {
     expiresIn: jwtExpiresIn,
     user: userToPublic({ ...user, companyName: backupCompanyName }),
     permissions,
+    hasPasskey: backupHasPasskey,
     remainingBackupCodes: hashedCodes.length,
     warning: hashedCodes.length < 3 ? 'Attention: peu de codes de secours restants' : undefined,
     // Also return tokens in body for localStorage fallback
@@ -767,6 +808,41 @@ auth.post('/refresh', async (c) => {
 });
 
 /**
+ * POST /api/v1/auth/change-password
+ * Change password for the authenticated user
+ */
+auth.post('/change-password', authMiddleware(), zValidator('json', z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+})), async (c) => {
+  const { currentPassword, newPassword } = c.req.valid('json');
+  const currentUser = c.get('user');
+  const db = getDb(c);
+
+  const user = await findUserById(db, currentUser.sub);
+  if (!user) return unauthorized(c);
+
+  const isValid = await verifyPassword(currentPassword, user.passwordHash);
+  if (!isValid) {
+    return error(c, 'INVALID_PASSWORD', 'Mot de passe actuel incorrect', 400);
+  }
+
+  const newHash = await hashPassword(newPassword);
+  await updateUser(db, user.id, { passwordHash: newHash });
+
+  await logAudit(db, {
+    userId: user.id,
+    action: 'auth.password_changed',
+    entityType: 'user',
+    entityId: user.id,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, { message: 'Mot de passe modifie avec succes' });
+});
+
+/**
  * POST /api/v1/auth/logout
  * Logout user and revoke refresh token
  */
@@ -817,6 +893,96 @@ auth.get('/me', authMiddleware(), async (c) => {
 });
 
 /**
+ * PUT /api/v1/auth/me
+ * Update current user profile (firstName, lastName, phone)
+ */
+auth.put('/me', authMiddleware(), zValidator('json', z.object({
+  firstName: z.string().min(1).optional(),
+  lastName: z.string().min(1).optional(),
+  phone: z.string().optional(),
+})), async (c) => {
+  const currentUser = c.get('user');
+  const data = c.req.valid('json');
+  const db = getDb(c);
+
+  await updateUser(db, currentUser.sub, data);
+
+  const user = await findUserById(db, currentUser.sub);
+  if (!user) return unauthorized(c);
+
+  const meCompanyName = await resolveCompanyName(db, user.companyId);
+  return success(c, { user: userToPublic({ ...user, companyName: meCompanyName }) });
+});
+
+/**
+ * POST /api/v1/auth/me/avatar
+ * Upload avatar image for the current user (max 2MB, JPEG/PNG/WebP)
+ */
+auth.post('/me/avatar', authMiddleware(), async (c) => {
+  const currentUser = c.get('user');
+  const db = getDb(c);
+
+  const contentType = c.req.header('Content-Type') || '';
+  if (!contentType.includes('multipart/form-data')) {
+    return error(c, 'INVALID_CONTENT_TYPE', 'Content-Type doit etre multipart/form-data', 400);
+  }
+
+  const formData = await c.req.formData();
+  const file = formData.get('avatar');
+  if (!file || !(file instanceof File)) {
+    return error(c, 'NO_FILE', 'Aucun fichier envoye', 400);
+  }
+
+  // Validate file type
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    return error(c, 'INVALID_FILE_TYPE', 'Format accepte: JPEG, PNG ou WebP', 400);
+  }
+
+  // Validate file size (2MB max)
+  if (file.size > 2 * 1024 * 1024) {
+    return error(c, 'FILE_TOO_LARGE', 'Taille maximale: 2 Mo', 400);
+  }
+
+  const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+  const key = `avatars/${currentUser.sub}.${ext}`;
+
+  // Upload to R2
+  await c.env.STORAGE.put(key, file.stream(), {
+    httpMetadata: { contentType: file.type },
+  });
+
+  // Build public URL
+  const apiBase = c.env.API_BASE_URL || `https://${c.req.header('Host')}`;
+  const avatarUrl = `${apiBase}/api/v1/auth/me/avatar/${currentUser.sub}.${ext}`;
+
+  // Update user record
+  await updateUser(db, currentUser.sub, { avatarUrl });
+
+  return success(c, { avatarUrl });
+});
+
+/**
+ * GET /api/v1/auth/me/avatar/:filename
+ * Serve avatar image from R2
+ */
+auth.get('/me/avatar/:filename', async (c) => {
+  const filename = c.req.param('filename');
+  const key = `avatars/${filename}`;
+
+  const object = await c.env.STORAGE.get(key);
+  if (!object) {
+    return c.notFound();
+  }
+
+  const headers = new Headers();
+  headers.set('Content-Type', object.httpMetadata?.contentType || 'image/jpeg');
+  headers.set('Cache-Control', 'public, max-age=86400');
+
+  return new Response(object.body, { headers });
+});
+
+/**
  * POST /api/v1/auth/mfa/email/send
  * Send 6-digit verification code via email
  */
@@ -849,11 +1015,11 @@ auth.post('/mfa/email/send', zValidator('json', mfaEmailSendSchema, validationHo
   await c.env.CACHE.put(`mfa_email:${user.id}`, code, { expirationTtl: 300 });
   await c.env.CACHE.put(countKey, String(currentCount + 1), { expirationTtl: 300 });
 
-  // Send email via Resend
+  // Send email via Brevo
   const notifService = new NotificationService({
     DB: getDb(c),
     CACHE: c.env.CACHE,
-    RESEND_API_KEY: c.env.RESEND_API_KEY,
+    BREVO_API_KEY: c.env.BREVO_API_KEY,
   });
 
   await notifService.sendMfaCode(user.email, code, user.firstName || 'Utilisateur');
@@ -977,11 +1143,19 @@ auth.post('/mfa/email/verify', zValidator('json', mfaEmailVerifySchema, validati
   const permissions = await buildUserPermissions(getDb(c), user.id, user.role);
   const emailVerifyCompanyName = await resolveCompanyName(getDb(c), user.companyId);
 
+  // Check if user has any registered passkeys
+  let emailHasPasskey = false;
+  try {
+    const pkRow = await getDb(c).prepare('SELECT 1 FROM passkeys WHERE user_id = ? LIMIT 1').bind(user.id).first();
+    emailHasPasskey = !!pkRow;
+  } catch { /* passkeys table may not exist */ }
+
   return success(c, {
     expiresIn: jwtExpiresIn,
     user: userToPublic({ ...user, companyName: emailVerifyCompanyName }),
     permissions,
     tenantCode,
+    hasPasskey: emailHasPasskey,
     tokens: { accessToken, refreshToken },
   });
 });
@@ -1021,7 +1195,7 @@ auth.post('/mfa/email/enable', authMiddleware(), async (c) => {
   const notifService = new NotificationService({
     DB: getDb(c),
     CACHE: c.env.CACHE,
-    RESEND_API_KEY: c.env.RESEND_API_KEY,
+    BREVO_API_KEY: c.env.BREVO_API_KEY,
   });
 
   await notifService.sendMfaCode(user.email, code, user.firstName || 'Utilisateur');
@@ -1161,7 +1335,7 @@ auth.post('/password-reset/request', zValidator('json', passwordResetRequestSche
     const notifService = new NotificationService({
       DB: getDb(c),
       CACHE: c.env.CACHE,
-      RESEND_API_KEY: c.env.RESEND_API_KEY,
+      BREVO_API_KEY: c.env.BREVO_API_KEY,
     });
 
     await notifService.sendPasswordResetEmail(user.email, resetUrl, user.firstName || 'Utilisateur');
@@ -1251,7 +1425,7 @@ auth.post('/magic-link/send', zValidator('json', magicLinkSendSchema, validation
     const notifService = new NotificationService({
       DB: getDb(c),
       CACHE: c.env.CACHE,
-      RESEND_API_KEY: c.env.RESEND_API_KEY,
+      BREVO_API_KEY: c.env.BREVO_API_KEY,
     });
 
     await notifService.sendMagicLinkEmail(user.email, loginUrl, user.firstName || 'Utilisateur');
@@ -1412,6 +1586,473 @@ auth.get('/permissions', authMiddleware(), async (c) => {
   const permissions = await buildUserPermissions(db, currentUser.sub, currentUser.role);
 
   return success(c, { permissions });
+});
+
+// ============================================
+// PASSKEY / WEBAUTHN ROUTES
+// ============================================
+
+/**
+ * Helper to resolve WebAuthn RP ID and expected origins based on environment
+ */
+function getWebAuthnConfig(c: { env: Bindings; req: { header: (name: string) => string | undefined } }) {
+  const rpName = c.env.WEBAUTHN_RP_NAME || 'E-Sante';
+  const configuredRpID = c.env.WEBAUTHN_RP_ID || 'localhost';
+
+  // Detect if request comes from localhost (dev frontend pointing to staging API)
+  const origin = c.req.header('Origin') || '';
+  const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
+  const rpID = isLocalhost ? 'localhost' : configuredRpID;
+
+  // Build expected origins based on RP ID
+  const expectedOrigins: string[] = [];
+  if (isLocalhost) {
+    expectedOrigins.push('http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173');
+  } else {
+    // Production/staging: accept all subdomains + pages.dev previews
+    expectedOrigins.push(
+      `https://${rpID}`,
+      `https://app.${rpID}`,
+      `https://app-staging.${rpID}`,
+      `https://staging.${rpID}`,
+      'https://dhamen-web-staging.pages.dev',
+      'https://dhamen-web.pages.dev',
+    );
+  }
+
+  return { rpID, rpName, expectedOrigins };
+}
+
+/**
+ * POST /auth/passkey/register/options
+ * Generate WebAuthn registration options for the authenticated user
+ */
+auth.post('/passkey/register/options', authMiddleware(), async (c) => {
+  const currentUser = c.get('user');
+  const db = getDb(c);
+
+  const user = await findUserById(db, currentUser.sub);
+  if (!user) return unauthorized(c);
+
+  const { rpID, rpName } = getWebAuthnConfig(c);
+
+  // Get existing passkeys to exclude
+  let existingCredentials: { credential_id: string; transports: string | null }[] = [];
+  try {
+    const { results } = await db
+      .prepare('SELECT credential_id, transports FROM passkeys WHERE user_id = ?')
+      .bind(user.id)
+      .all<{ credential_id: string; transports: string | null }>();
+    existingCredentials = results || [];
+  } catch {
+    // Table may not exist yet
+  }
+
+  const options = await generateRegistrationOptions({
+    rpName,
+    rpID,
+    userName: user.email,
+    userDisplayName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
+    excludeCredentials: existingCredentials.map((cred) => ({
+      id: cred.credential_id,
+      transports: cred.transports ? JSON.parse(cred.transports) as AuthenticatorTransportFuture[] : undefined,
+    })),
+    authenticatorSelection: {
+      residentKey: 'preferred',
+      userVerification: 'preferred',
+    },
+    attestationType: 'none',
+  });
+
+  // Store challenge in KV (5 minutes TTL)
+  await c.env.CACHE.put(`webauthn_reg:${user.id}`, options.challenge, {
+    expirationTtl: 300,
+  });
+
+  return success(c, options);
+});
+
+/**
+ * POST /auth/passkey/register/verify
+ * Verify WebAuthn registration response and store the credential
+ */
+auth.post('/passkey/register/verify', authMiddleware(), async (c) => {
+  const currentUser = c.get('user');
+  const db = getDb(c);
+
+  const body = await c.req.json<{ response: RegistrationResponseJSON; name?: string }>();
+
+  // Retrieve stored challenge
+  const expectedChallenge = await c.env.CACHE.get(`webauthn_reg:${currentUser.sub}`);
+  if (!expectedChallenge) {
+    return error(c, 'CHALLENGE_EXPIRED', 'Challenge expire, veuillez reessayer', 400);
+  }
+
+  const { rpID, expectedOrigins } = getWebAuthnConfig(c);
+
+  let verification;
+  try {
+    verification = await verifyRegistrationResponse({
+      response: body.response,
+      expectedChallenge,
+      expectedOrigin: expectedOrigins,
+      expectedRPID: rpID,
+      requireUserVerification: false,
+    });
+  } catch (err) {
+    return error(c, 'REGISTRATION_FAILED', `Verification echouee: ${(err as Error).message}`, 400);
+  }
+
+  if (!verification.verified || !verification.registrationInfo) {
+    return error(c, 'REGISTRATION_FAILED', 'La verification de la passkey a echoue', 400);
+  }
+
+  const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
+
+  // Store passkey in DB
+  const passkeyId = generateId();
+  try {
+    await db
+      .prepare(
+        `INSERT INTO passkeys (id, user_id, credential_id, public_key, counter, device_type, backed_up, transports, name)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        passkeyId,
+        currentUser.sub,
+        credential.id,
+        credential.publicKey,
+        credential.counter,
+        credentialDeviceType,
+        credentialBackedUp ? 1 : 0,
+        credential.transports ? JSON.stringify(credential.transports) : null,
+        body.name || 'Ma Passkey'
+      )
+      .run();
+  } catch (err) {
+    return error(c, 'STORAGE_ERROR', `Erreur lors de l'enregistrement: ${(err as Error).message}`, 500);
+  }
+
+  // Clean up challenge
+  await c.env.CACHE.delete(`webauthn_reg:${currentUser.sub}`);
+
+  // Audit log
+  await logAudit(getDb(c), {
+    userId: currentUser.sub,
+    action: 'auth.passkey_registered',
+    entityType: 'passkey',
+    entityId: passkeyId,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, {
+    id: passkeyId,
+    name: body.name || 'Ma Passkey',
+    deviceType: credentialDeviceType,
+    backedUp: credentialBackedUp,
+    createdAt: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /auth/passkey/login/options
+ * Generate WebAuthn authentication options (public, no auth required)
+ */
+auth.post('/passkey/login/options', async (c) => {
+  const db = getDb(c);
+  const { rpID } = getWebAuthnConfig(c);
+
+  let email: string | undefined;
+  try {
+    const body = await c.req.json<{ email?: string }>();
+    email = body.email;
+  } catch {
+    // No body is fine — discoverable credential flow
+  }
+
+  let allowCredentials: { id: string; transports?: AuthenticatorTransportFuture[] }[] | undefined;
+  let hasPasskeys = false;
+
+  if (email) {
+    const user = await findUserByEmail(db, email);
+    if (user) {
+      try {
+        const { results } = await db
+          .prepare('SELECT credential_id, transports FROM passkeys WHERE user_id = ?')
+          .bind(user.id)
+          .all<{ credential_id: string; transports: string | null }>();
+        allowCredentials = (results || []).map((cred) => ({
+          id: cred.credential_id,
+          transports: cred.transports ? JSON.parse(cred.transports) as AuthenticatorTransportFuture[] : undefined,
+        }));
+        hasPasskeys = (allowCredentials.length > 0);
+      } catch {
+        // Table may not exist
+      }
+    }
+    // If email was provided but no passkeys found, return early
+    if (!hasPasskeys) {
+      return error(c, 'PASSKEY_NOT_FOUND', 'Aucune Passkey enregistree pour ce compte. Connectez-vous avec vos identifiants puis creez une Passkey.', 404);
+    }
+  } else {
+    // Discoverable credentials: check if ANY passkeys exist
+    try {
+      const { results } = await db
+        .prepare('SELECT COUNT(*) as cnt FROM passkeys')
+        .all<{ cnt: number }>();
+      hasPasskeys = (results?.[0]?.cnt ?? 0) > 0;
+    } catch {
+      // Table may not exist
+    }
+    if (!hasPasskeys) {
+      return error(c, 'PASSKEY_NOT_FOUND', 'Aucune Passkey enregistree. Connectez-vous avec vos identifiants puis creez une Passkey.', 404);
+    }
+  }
+
+  const options = await generateAuthenticationOptions({
+    rpID,
+    userVerification: 'preferred',
+    allowCredentials,
+  });
+
+  // Store challenge in KV
+  await c.env.CACHE.put(`webauthn_auth:${options.challenge}`, email || '', {
+    expirationTtl: 300,
+  });
+
+  return success(c, options);
+});
+
+/**
+ * POST /auth/passkey/login/verify
+ * Verify WebAuthn authentication response and issue tokens
+ */
+auth.post('/passkey/login/verify', async (c) => {
+  const db = getDb(c);
+  const body = await c.req.json<{ response: AuthenticationResponseJSON }>();
+
+  const { rpID, expectedOrigins } = getWebAuthnConfig(c);
+
+  // Find passkey by credential ID
+  let passkey: {
+    id: string;
+    user_id: string;
+    credential_id: string;
+    public_key: ArrayBuffer;
+    counter: number;
+    transports: string | null;
+  } | null = null;
+
+  try {
+    passkey = await db
+      .prepare('SELECT id, user_id, credential_id, public_key, counter, transports FROM passkeys WHERE credential_id = ?')
+      .bind(body.response.id)
+      .first();
+  } catch {
+    return error(c, 'PASSKEY_NOT_FOUND', 'Passkey non trouvee', 404);
+  }
+
+  if (!passkey) {
+    return error(c, 'PASSKEY_NOT_FOUND', 'Passkey non trouvee. Connectez-vous avec vos identifiants.', 404);
+  }
+
+  // Retrieve stored challenge
+  const challengeFromResponse = body.response.response.clientDataJSON;
+  // We need to find the challenge — decode clientDataJSON to extract it
+  let challengeStr: string;
+  try {
+    const clientDataBytes = Uint8Array.from(atob(challengeFromResponse.replace(/-/g, '+').replace(/_/g, '/')), (ch) => ch.charCodeAt(0));
+    const clientData = JSON.parse(new TextDecoder().decode(clientDataBytes));
+    challengeStr = clientData.challenge;
+  } catch {
+    return error(c, 'INVALID_RESPONSE', 'Reponse WebAuthn invalide', 400);
+  }
+
+  const storedEmail = await c.env.CACHE.get(`webauthn_auth:${challengeStr}`);
+  if (storedEmail === null) {
+    return error(c, 'CHALLENGE_EXPIRED', 'Challenge expire, veuillez reessayer', 400);
+  }
+
+  // Load user
+  const user = await findUserById(db, passkey.user_id);
+  if (!user) {
+    return error(c, 'USER_NOT_FOUND', 'Utilisateur non trouve', 404);
+  }
+
+  if (!user.isActive) {
+    return error(c, 'ACCOUNT_DISABLED', 'Compte desactive', 401);
+  }
+
+  let verification;
+  try {
+    verification = await verifyAuthenticationResponse({
+      response: body.response,
+      expectedChallenge: challengeStr,
+      expectedOrigin: expectedOrigins,
+      expectedRPID: rpID,
+      requireUserVerification: false,
+      credential: {
+        id: passkey.credential_id,
+        publicKey: new Uint8Array(passkey.public_key),
+        counter: passkey.counter,
+        transports: passkey.transports ? JSON.parse(passkey.transports) as AuthenticatorTransportFuture[] : undefined,
+      },
+    });
+  } catch (err) {
+    return error(c, 'AUTHENTICATION_FAILED', `Verification echouee: ${(err as Error).message}`, 400);
+  }
+
+  if (!verification.verified) {
+    return error(c, 'AUTHENTICATION_FAILED', 'La verification de la passkey a echoue', 401);
+  }
+
+  // Update passkey counter and last_used_at
+  try {
+    await db
+      .prepare('UPDATE passkeys SET counter = ?, last_used_at = datetime(\'now\'), updated_at = datetime(\'now\') WHERE id = ?')
+      .bind(verification.authenticationInfo.newCounter, passkey.id)
+      .run();
+  } catch {
+    // Non-critical
+  }
+
+  // Clean up challenge
+  await c.env.CACHE.delete(`webauthn_auth:${challengeStr}`);
+
+  // Issue JWT tokens (same flow as password login, MFA is bypassed)
+  const jwtExpiresIn = Number.parseInt(c.env.JWT_EXPIRES_IN, 10) || 900;
+  const refreshExpiresIn = Number.parseInt(c.env.REFRESH_EXPIRES_IN, 10) || 86400;
+
+  const accessToken = await signJWT(
+    {
+      id: user.id,
+      sub: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+      providerId: user.providerId ?? undefined,
+      insurerId: user.insurerId ?? undefined,
+      companyId: user.companyId ?? undefined,
+    },
+    c.env.JWT_SECRET,
+    jwtExpiresIn
+  );
+
+  const refreshToken = await signRefreshToken(user.id, c.env.JWT_SECRET, refreshExpiresIn);
+
+  await c.env.CACHE.put(`refresh:${user.id}`, refreshToken, {
+    expirationTtl: refreshExpiresIn,
+  });
+
+  const isProd = isProduction(c);
+  setAccessTokenCookie(c, accessToken, jwtExpiresIn, isProd);
+  setRefreshTokenCookie(c, refreshToken, refreshExpiresIn, isProd);
+
+  await updateUser(db, user.id, { lastLoginAt: new Date().toISOString() });
+
+  // Audit log
+  await logAudit(db, {
+    userId: user.id,
+    action: 'auth.passkey_login',
+    entityType: 'user',
+    entityId: user.id,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  // Resolve tenant code
+  let tenantCode: string | null = null;
+  if (user.insurerId) {
+    const insurer = await db.prepare('SELECT code FROM insurers WHERE id = ?').bind(user.insurerId).first<{ code: string }>();
+    tenantCode = insurer?.code || null;
+  }
+
+  const companyName = await resolveCompanyName(db, user.companyId);
+  const permissions = await buildUserPermissions(db, user.id, user.role);
+
+  return success(c, {
+    requiresMfa: false,
+    authMethod: 'passkey',
+    expiresIn: jwtExpiresIn,
+    user: userToPublic({ ...user, companyName }),
+    tenantCode,
+    permissions,
+    tokens: {
+      accessToken,
+      refreshToken,
+    },
+  });
+});
+
+/**
+ * GET /auth/passkeys
+ * List all passkeys for the authenticated user
+ */
+auth.get('/passkeys', authMiddleware(), async (c) => {
+  const currentUser = c.get('user');
+  const db = getDb(c);
+
+  try {
+    const { results } = await db
+      .prepare('SELECT id, name, device_type, backed_up, transports, last_used_at, created_at FROM passkeys WHERE user_id = ? ORDER BY created_at DESC')
+      .bind(currentUser.sub)
+      .all<{
+        id: string;
+        name: string | null;
+        device_type: string;
+        backed_up: number;
+        transports: string | null;
+        last_used_at: string | null;
+        created_at: string;
+      }>();
+
+    return success(
+      c,
+      (results || []).map((pk) => ({
+        id: pk.id,
+        name: pk.name,
+        deviceType: pk.device_type,
+        backedUp: pk.backed_up === 1,
+        transports: pk.transports ? JSON.parse(pk.transports) : [],
+        lastUsedAt: pk.last_used_at,
+        createdAt: pk.created_at,
+      }))
+    );
+  } catch {
+    return success(c, []);
+  }
+});
+
+/**
+ * DELETE /auth/passkeys/:id
+ * Remove a passkey
+ */
+auth.delete('/passkeys/:id', authMiddleware(), async (c) => {
+  const currentUser = c.get('user');
+  const passkeyId = c.req.param('id');
+  const db = getDb(c);
+
+  const result = await db
+    .prepare('DELETE FROM passkeys WHERE id = ? AND user_id = ?')
+    .bind(passkeyId, currentUser.sub)
+    .run();
+
+  if (!result.meta.changes || result.meta.changes === 0) {
+    return error(c, 'NOT_FOUND', 'Passkey non trouvee', 404);
+  }
+
+  await logAudit(db, {
+    userId: currentUser.sub,
+    action: 'auth.passkey_removed',
+    entityType: 'passkey',
+    entityId: passkeyId,
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
+  return success(c, { deleted: true });
 });
 
 export { auth };

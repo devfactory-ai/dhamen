@@ -69,9 +69,9 @@ export function resolveTenant(): TenantCode | null {
     // Ignore storage errors
   }
 
-  // 4. For localhost development, default to null (will need selection)
+  // 4. For localhost development, default to BH (single-tenant dev against staging API)
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return null;
+    return 'BH';
   }
 
   // 5. Staging/preview: default to BH (single-tenant staging)

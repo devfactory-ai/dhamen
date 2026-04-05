@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import type { UserPublic, LoginRequest } from '@dhamen/shared';
 import { apiClient } from '@/lib/api-client';
 import { setTokens, clearTokens, getUser, setUser, isAuthenticated, setPermissions, type UserPermissions } from '@/lib/auth';
@@ -13,6 +12,7 @@ interface LoginResponse {
   expiresIn?: number;
   user?: UserPublic;
   permissions?: UserPermissions;
+  hasPasskey?: boolean;
   tokens?: {
     accessToken: string;
     refreshToken: string;
@@ -24,7 +24,6 @@ export function useAuth() {
   const [user, setUserState] = useState<UserPublic | null>(getUser());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const navigate = useNavigate();
 
   useEffect(() => {
     // Check if user is authenticated on mount
@@ -49,19 +48,19 @@ export function useAuth() {
               ? response.error.message
               : 'Erreur de connexion';
           setError(errorMessage);
-          return { success: false, requiresMfa: false };
+          return { success: false, requiresMfa: false, redirectTo: undefined as string | undefined };
         }
 
         const data = response.data;
 
         // Handle MFA setup required
         if (data.requiresMfaSetup) {
-          return { success: true, requiresMfaSetup: true, mfaSetupToken: data.mfaSetupToken };
+          return { success: true, requiresMfaSetup: true, mfaSetupToken: data.mfaSetupToken, redirectTo: undefined as string | undefined };
         }
 
         // Handle MFA verification required
         if (data.requiresMfa) {
-          return { success: true, requiresMfa: true, mfaToken: data.mfaToken, mfaMethods: data.mfaMethods };
+          return { success: true, requiresMfa: true, mfaToken: data.mfaToken, mfaMethods: data.mfaMethods, redirectTo: undefined as string | undefined };
         }
 
         // Login successful - store tokens and user
@@ -78,31 +77,27 @@ export function useAuth() {
           localStorage.setItem('isAuthenticated', 'true');
           // Agents must select company + batch before working
           const agentRoles = ['INSURER_AGENT', 'INSURER_ADMIN'];
+          let redirectTo = '/dashboard';
           if (agentRoles.includes(data.user.role)) {
             useAgentContext.getState().clearIfDifferentUser(data.user.id);
-            // Re-read state after update
-            if (useAgentContext.getState().isContextReady()) {
-              navigate('/bulletins/saisie');
-            } else {
-              navigate('/select-context');
-            }
-          } else {
-            navigate('/dashboard');
+            redirectTo = useAgentContext.getState().isContextReady()
+              ? '/bulletins/saisie'
+              : '/select-context';
           }
-          return { success: true, requiresMfa: false };
+          return { success: true, requiresMfa: false, redirectTo, hasPasskey: data.hasPasskey };
         }
 
         setError('Réponse de connexion invalide');
-        return { success: false, requiresMfa: false };
+        return { success: false, requiresMfa: false, redirectTo: undefined as string | undefined };
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Erreur de connexion';
         setError(errorMessage);
-        return { success: false, requiresMfa: false };
+        return { success: false, requiresMfa: false, redirectTo: undefined as string | undefined };
       } finally {
         setIsLoading(false);
       }
     },
-    [navigate]
+    []
   );
 
   const logout = useCallback(async () => {
@@ -117,9 +112,8 @@ export function useAuth() {
       // Clear agent context (company + batch selection) so it doesn't leak between accounts
       useAgentContext.getState().clearContext();
       setIsLoading(false);
-      navigate('/login');
     }
-  }, [navigate]);
+  }, []);
 
   const fetchCurrentUser = useCallback(async () => {
     if (!isAuthenticated()) {

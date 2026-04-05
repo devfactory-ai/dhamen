@@ -207,7 +207,7 @@ export function ContractFormPage() {
         description={isEditing ? 'Modifier les informations du contrat' : 'Créer un nouveau contrat d\'assurance santé'}
       />
 
-      <Card className="max-w-3xl">
+      <Card className="w-full max-w-3xl mx-auto">
         <CardHeader>
           <CardTitle>{isEditing ? 'Informations du contrat' : 'Informations du nouveau contrat'}</CardTitle>
           <CardDescription>

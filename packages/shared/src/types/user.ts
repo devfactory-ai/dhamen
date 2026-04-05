@@ -36,6 +36,7 @@ export interface User {
   firstName: string;
   lastName: string;
   phone: string | null;
+  avatarUrl: string | null;
   mfaEnabled: boolean;
   mfaSecret: string | null;
   lastLoginAt: string | null;
@@ -55,6 +56,7 @@ export interface UserPublic {
   firstName: string;
   lastName: string;
   phone: string | null;
+  avatarUrl: string | null;
   mfaEnabled: boolean;
   lastLoginAt: string | null;
   isActive: boolean;

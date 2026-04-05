@@ -125,8 +125,8 @@ export function SanteAnalyticsPage() {
       {/* Header with controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <PageHeader
-          title="Analytics Avances"
-          description="Analyses detaillees et comparaisons de performance"
+          title="Analytics Avancés"
+          description="Analyses détaillées et comparaisons de performance"
         />
         <div className="flex items-center gap-2">
           <Select value={period} onValueChange={(v) => setPeriod(v as Period)}>
@@ -455,7 +455,7 @@ export function SanteAnalyticsPage() {
                     {formatPourcentage(kpis?.tauxRemboursementMoyen || 0)}
                   </div>
                   <p className="text-muted-foreground mt-2">
-                    {formatMontant(kpis?.montantTotalRembourse || 0)} rembourses
+                    {formatMontant(kpis?.montantTotalRembourse || 0)} remboursés
                   </p>
                 </div>
               </CardContent>

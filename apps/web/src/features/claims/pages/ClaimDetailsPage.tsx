@@ -166,7 +166,7 @@ export function ClaimDetailsPage() {
             <CardDescription>Informations de l'assuré</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Nom complet</p>
                 <p className="font-medium">
@@ -193,7 +193,7 @@ export function ClaimDetailsPage() {
             <CardDescription>Informations de la prise en charge</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Type de soin</p>
                 <span className={`inline-block mt-1 rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>

@@ -108,7 +108,7 @@ export function SanteReportsPage() {
       await downloadReport(report.id, `${report.templateNom}_${report.id}.${extension}`);
       toast.success('Téléchargement démarré');
     } catch {
-      toast.error('Erreur lors du telechargement');
+      toast.error('Erreur lors du téléchargement');
     }
   };
 
@@ -125,8 +125,8 @@ export function SanteReportsPage() {
   return (
     <div className="space-y-6 p-6">
       <PageHeader
-        title="Rapports Avances"
-        description="Generez des rapports PDF, Excel et CSV"
+        title="Rapports Avancés"
+        description="Générez des rapports PDF, Excel et CSV"
       />
 
       {/* Stats Cards */}
@@ -467,7 +467,7 @@ function GenerateReportDialog({
               )}
 
               {param.type === 'dateRange' && (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <Label className="text-xs text-muted-foreground">Du</Label>
                     <Input

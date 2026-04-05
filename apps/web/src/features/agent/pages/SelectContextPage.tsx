@@ -213,7 +213,7 @@ export default function SelectContextPage() {
                 disabled={!newBatchName.trim() || createBatch.isPending}
                 className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
-                {createBatch.isPending ? 'Creation...' : 'Creer'}
+                {createBatch.isPending ? 'Création...' : 'Créer'}
               </button>
             </div>
           )}
@@ -226,7 +226,7 @@ export default function SelectContextPage() {
             </div>
           ) : batches.length === 0 ? (
             <p className="py-8 text-center text-muted-foreground">
-              Aucun lot ouvert. Creez un nouveau lot pour commencer.
+              Aucun lot ouvert. Créez un nouveau lot pour commencer.
             </p>
           ) : (
             <div className="grid gap-2">

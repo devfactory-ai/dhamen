@@ -141,7 +141,7 @@ export function SanteDemandeProcessPage() {
           </CardHeader>
           <CardContent>
             <div className="rounded-lg bg-muted p-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-muted-foreground">Type de soin</p>
                   <p className="font-medium">{SANTE_TYPE_SOINS_LABELS[demande.typeSoin]}</p>

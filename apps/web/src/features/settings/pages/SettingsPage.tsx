@@ -1,16 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { usePasskey } from '@/features/auth/hooks/usePasskey';
 import { ROLE_LABELS } from '@dhamen/shared';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
 import {
-  Loader2, Shield, ShieldCheck, Lock, ChevronRight,
-  Camera, Settings2, Sun, Moon, Monitor, AlertTriangle, UserRound,
+  Loader2, Shield, ShieldCheck, Lock,
+  Camera, Settings2, Sun, Moon, Monitor, AlertTriangle, UserRound, Fingerprint, Trash2, Plus,
 } from 'lucide-react';
 
 export function SettingsPage() {
@@ -22,8 +23,46 @@ export function SettingsPage() {
   const [mfaStep, setMfaStep] = useState<'idle' | 'code_sent' | 'verifying'>('idle');
   const [mfaCode, setMfaCode] = useState('');
 
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
   // MFA is mandatory for all roles except ADMIN
   const isMfaRequired = user?.role !== 'ADMIN';
+
+  // Passkey management
+  const { supportsPasskey, registerPasskey, listPasskeys, deletePasskey, isLoading: passkeyActionLoading } = usePasskey();
+  const [passkeys, setPasskeys] = useState<{ id: string; name: string | null; deviceType: string; backedUp: boolean; transports: string[]; lastUsedAt: string | null; createdAt: string }[]>([]);
+  const [passkeysLoading, setPasskeysLoading] = useState(false);
+
+  const loadPasskeys = useCallback(async () => {
+    setPasskeysLoading(true);
+    const list = await listPasskeys();
+    setPasskeys(list);
+    setPasskeysLoading(false);
+  }, [listPasskeys]);
+
+  useEffect(() => {
+    loadPasskeys();
+  }, [loadPasskeys]);
+
+  const handleAddPasskey = async () => {
+    const result = await registerPasskey('Mon appareil');
+    if (result.success) {
+      toast.success('Passkey ajoutée avec succès');
+      loadPasskeys();
+    } else if (result.error) {
+      toast.error(result.error);
+    }
+  };
+
+  const handleDeletePasskey = async (id: string) => {
+    const ok = await deletePasskey(id);
+    if (ok) {
+      toast.success('Passkey supprimee');
+      setPasskeys((prev) => prev.filter((p) => p.id !== id));
+    } else {
+      toast.error('Erreur lors de la suppression');
+    }
+  };
 
   const queryClient = useQueryClient();
 
@@ -64,7 +103,7 @@ export function SettingsPage() {
 
   const updateProfileMutation = useMutation({
     mutationFn: async (data: { firstName: string; lastName: string; phone: string }) => {
-      const response = await apiClient.put<{ user: unknown }>('/users/me', data);
+      const response = await apiClient.put<{ user: unknown }>('/auth/me', data);
       if (!response.success) { throw new Error(response.error?.message); }
       return response.data;
     },
@@ -97,6 +136,30 @@ export function SettingsPage() {
       toast.error(error.message || 'Erreur lors du changement de mot de passe');
     },
   });
+
+  const uploadAvatarMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append('avatar', file);
+      const response = await apiClient.upload<{ avatarUrl: string }>('/auth/me/avatar', formData);
+      if (!response.success) { throw new Error(response.error?.message); }
+      return response.data;
+    },
+    onSuccess: () => {
+      fetchCurrentUser();
+      toast.success('Photo de profil mise à jour');
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Erreur lors de l\'upload');
+    },
+  });
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      uploadAvatarMutation.mutate(file);
+    }
+  };
 
   const mfaEnableSendMutation = useMutation({
     mutationFn: async () => {
@@ -228,12 +291,36 @@ export function SettingsPage() {
               {/* Avatar section */}
               <div className="flex items-center gap-4 rounded-2xl bg-gray-50 p-5 mb-5">
                 <div className="relative">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-blue-800 to-blue-950 text-xl font-bold text-white">
-                    {user?.firstName?.[0]}{user?.lastName?.[0]}
-                  </div>
-                  <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-white shadow-sm">
-                    <Camera className="h-3.5 w-3.5 text-gray-500" />
-                  </div>
+                  {user?.avatarUrl ? (
+                    <img
+                      src={user.avatarUrl}
+                      alt="Avatar"
+                      className="h-16 w-16 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-blue-800 to-blue-950 text-xl font-bold text-white">
+                      {user?.firstName?.[0]}{user?.lastName?.[0]}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => avatarInputRef.current?.click()}
+                    disabled={uploadAvatarMutation.isPending}
+                    className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-white shadow-sm hover:bg-gray-100 transition-colors cursor-pointer"
+                  >
+                    {uploadAvatarMutation.isPending ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-500" />
+                    ) : (
+                      <Camera className="h-3.5 w-3.5 text-gray-500" />
+                    )}
+                  </button>
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={handleAvatarChange}
+                  />
                 </div>
                 <div>
                   <p className="text-lg font-semibold text-gray-900">{user?.firstName} {user?.lastName}</p>
@@ -411,15 +498,83 @@ export function SettingsPage() {
                 )}
               </div>
 
-              {/* Sessions row */}
-              <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-4 cursor-pointer hover:bg-gray-100 transition-colors">
+              {/* Passkeys row */}
+              {supportsPasskey && (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Fingerprint className="h-5 w-5 text-gray-400" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-gray-900">Passkeys</p>
+                      <p className="text-xs text-gray-500">
+                        Connexion sans mot de passe avec empreinte, FaceID ou PIN
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddPasskey}
+                      disabled={passkeyActionLoading}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    >
+                      {passkeyActionLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Plus className="h-3.5 w-3.5" />
+                      )}
+                      Ajouter
+                    </button>
+                  </div>
+
+                  {/* Passkeys list */}
+                  {passkeysLoading ? (
+                    <div className="flex items-center justify-center py-3">
+                      <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                    </div>
+                  ) : passkeys.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-2">
+                      Aucune Passkey enregistrée
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {passkeys.map((pk) => (
+                        <div
+                          key={pk.id}
+                          className="flex items-center gap-3 rounded-lg bg-white border border-gray-100 px-3 py-2.5"
+                        >
+                          <Fingerprint className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {pk.name || 'Passkey'}
+                            </p>
+                            <p className="text-[11px] text-gray-400">
+                              {pk.deviceType === 'multiDevice' ? 'Synchronisee' : 'Appareil unique'}
+                              {pk.backedUp && ' · Sauvegardee'}
+                              {pk.lastUsedAt && ` · Derniere utilisation: ${new Date(pk.lastUsedAt).toLocaleDateString('fr-FR')}`}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePasskey(pk.id)}
+                            className="rounded-lg p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                            title="Supprimer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TODO: Sessions actives — nécessite stockage des sessions en base (appareil, IP, date, refresh token) */}
+              {/* <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-gray-50 px-4 py-4 cursor-pointer hover:bg-gray-100 transition-colors">
                 <Monitor className="h-5 w-5 text-gray-400" />
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-gray-900">Sessions actives</p>
-                  <p className="text-xs text-gray-500">Appareils connectés actuellement</p>
+                  <p className="text-xs text-gray-500">Appareils connectes actuellement</p>
                 </div>
                 <ChevronRight className="h-5 w-5 text-gray-400" />
-              </div>
+              </div> */}
             </div>
           )}
         </div>
@@ -539,7 +694,7 @@ export function SettingsPage() {
               </div>
               <button
                 type="button"
-                onClick={logout}
+                onClick={async () => { await logout(); navigate('/login'); }}
                 className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Déconnexion

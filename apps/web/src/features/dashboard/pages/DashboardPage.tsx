@@ -1,6 +1,7 @@
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { INSURER_ROLES, ADMIN_ROLES } from '@dhamen/shared';
 import type { Role } from '@dhamen/shared';
 import { apiClient } from '@/lib/api-client';
@@ -63,7 +64,7 @@ function StatCard({
         {isLoading ? (
           <div className="h-10 w-24 animate-pulse rounded bg-gray-200" />
         ) : (
-          <p className="text-4xl font-bold text-gray-900">
+          <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900">
             {value}
             {unit && <span className="ml-1 text-lg font-medium text-gray-400">{unit}</span>}
           </p>
@@ -432,6 +433,7 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const role = user?.role;
+  const { selectedCompany } = useAgentContext();
 
   const roleType = getRoleType(role);
   const roleConfig = role && roleStats[role] ? roleStats[role] : roleStats.INSURER_AGENT;
@@ -481,14 +483,17 @@ export function DashboardPage() {
 
   // Recent bulletins — providers use /praticien/actes, others use /analytics/recent-bulletins
   const { data: recentBulletins, isLoading: recentLoading } = useQuery({
-    queryKey: ['recent-bulletins', role],
+    queryKey: ['recent-bulletins', role, selectedCompany?.id],
     queryFn: async () => {
       if (isProvider) {
         const response = await apiClient.get<RecentBulletin[]>('/praticien/actes?page=1&limit=5');
         if (!response.success) return [];
         return Array.isArray(response.data) ? response.data : [];
       }
-      const response = await apiClient.get<RecentBulletin[]>('/analytics/recent-bulletins');
+      const params = new URLSearchParams();
+      if (selectedCompany?.id) params.set('companyId', selectedCompany.id);
+      const qs = params.toString();
+      const response = await apiClient.get<RecentBulletin[]>(`/analytics/recent-bulletins${qs ? `?${qs}` : ''}`);
       if (!response.success) return [];
       return response.data;
     },
@@ -682,7 +687,7 @@ export function DashboardPage() {
               const prefix = role ? ROLE_TO_PREFIX[role] : null;
               if (isAdminRole) navigate('/admin/bulletins');
               else if (prefix) navigate(`${prefix}/actes`);
-              else navigate('/bulletins/history');
+              else navigate('/bulletins/saisie?tab=liste');
             }}
             className="text-sm font-medium text-blue-600 hover:text-blue-700 cursor-pointer"
           >

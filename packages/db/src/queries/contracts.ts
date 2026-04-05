@@ -99,9 +99,11 @@ export async function listContracts(
     planType?: PlanType;
     page?: number;
     limit?: number;
+    sortBy?: 'start_date' | 'end_date' | 'created_at';
+    sortOrder?: 'asc' | 'desc';
   } = {}
 ): Promise<{ data: Contract[]; total: number }> {
-  const { insurerId, adherentId, status, planType, page = 1, limit = 20 } = options;
+  const { insurerId, adherentId, status, planType, page = 1, limit = 20, sortBy, sortOrder = 'desc' } = options;
   const offset = (page - 1) * limit;
 
   let whereClause = '1=1';
@@ -129,9 +131,13 @@ export async function listContracts(
     .bind(...params)
     .first<{ count: number }>();
 
+  const ALLOWED_SORT_COLUMNS = ['start_date', 'end_date', 'created_at'] as const;
+  const orderColumn = sortBy && ALLOWED_SORT_COLUMNS.includes(sortBy) ? sortBy : 'created_at';
+  const orderDirection = sortOrder === 'asc' ? 'ASC' : 'DESC';
+
   const { results } = await db
     .prepare(
-      `SELECT * FROM contracts WHERE ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+      `SELECT * FROM contracts WHERE ${whereClause} ORDER BY ${orderColumn} ${orderDirection} LIMIT ? OFFSET ?`
     )
     .bind(...params, limit, offset)
     .all<ContractRow>();

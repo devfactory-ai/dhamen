@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,13 +8,6 @@ import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/ui/data-table';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,9 +54,9 @@ const careTypeLabels: Record<string, string> = {
 };
 
 const statusConfig: Record<string, { label: string; variant: string; icon: typeof CheckCircle }> = {
-  approved: { label: 'Approuve', variant: 'default', icon: CheckCircle },
-  reimbursed: { label: 'Rembourse', variant: 'success', icon: CreditCard },
-  rejected: { label: 'Rejete', variant: 'destructive', icon: XCircle },
+  approved: { label: 'Approuvé', variant: 'default', icon: CheckCircle },
+  reimbursed: { label: 'Remboursé', variant: 'success', icon: CreditCard },
+  rejected: { label: 'Rejeté', variant: 'destructive', icon: XCircle },
 };
 
 function formatAmount(amount: number | null | undefined): string {
@@ -93,6 +87,9 @@ export default function BulletinsHistoryPage() {
     sortOrder: 'desc',
   });
   const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [careTypeDropdownOpen, setCareTypeDropdownOpen] = useState(false);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -142,7 +139,7 @@ export default function BulletinsHistoryPage() {
     setExporting(true);
     try {
       await exportHistoryCSV(activeFilters, token);
-      toast.success('Export CSV telecharge');
+      toast.success('Export CSV téléchargé');
     } catch {
       toast.error('Erreur lors de l\'export CSV');
     } finally {
@@ -150,11 +147,25 @@ export default function BulletinsHistoryPage() {
     }
   }, [filters, token]);
 
+  // Debounce search input → auto-trigger search after 400ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Sync debounced search into filters
+  useEffect(() => {
+    setFilters((prev) => ({ ...prev, search: debouncedSearch || undefined, page: 1 }));
+  }, [debouncedSearch]);
+
   // Reset all state when company changes
   useEffect(() => {
     setSelectedIds([]);
     setFilters({ page: 1, limit: 20, sortBy: 'bulletin_date', sortOrder: 'desc' });
     setSearchInput('');
+    setDebouncedSearch('');
   }, [selectedCompany?.id]);
 
   const currentPageIds = (historyData?.data || []).map((b) => b.id);
@@ -228,14 +239,14 @@ export default function BulletinsHistoryPage() {
     },
     {
       key: 'totalAmount',
-      header: 'Declare',
+      header: 'Déclaré',
       render: (row: HistoryBulletin) => (
         <span className="text-sm text-right font-medium">{formatAmount(row.totalAmount)}</span>
       ),
     },
     {
       key: 'reimbursedAmount',
-      header: 'Rembourse',
+      header: 'Remboursé',
       render: (row: HistoryBulletin) => (
         <span className={`text-sm text-right font-medium ${row.reimbursedAmount && row.reimbursedAmount > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
           {formatAmount(row.reimbursedAmount)}
@@ -279,17 +290,17 @@ export default function BulletinsHistoryPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total rembourse</CardTitle>
+              <CardTitle className="text-sm font-medium">Total remboursé</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-green-600">{formatAmount(stats.totalReimbursed)}</div>
-              <p className="text-xs text-muted-foreground">sur {formatAmount(stats.totalDeclared)} declare</p>
+              <p className="text-xs text-muted-foreground">sur {formatAmount(stats.totalDeclared)} déclaré</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Bulletins approuves</CardTitle>
+              <CardTitle className="text-sm font-medium">Bulletins approuvés</CardTitle>
               <CheckCircle className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
@@ -299,22 +310,22 @@ export default function BulletinsHistoryPage() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Bulletins rembourses</CardTitle>
+              <CardTitle className="text-sm font-medium">Bulletins remboursés</CardTitle>
               <CreditCard className="h-4 w-4 text-blue-500" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.byStatus.reimbursed || 0}</div>
-              <p className="text-xs text-muted-foreground">paiement effectue</p>
+              <p className="text-xs text-muted-foreground">paiement effectué</p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Bulletins rejetes</CardTitle>
+              <CardTitle className="text-sm font-medium">Bulletins rejetés</CardTitle>
               <XCircle className="h-4 w-4 text-red-500" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-red-600">{stats.byStatus.rejected || 0}</div>
-              <p className="text-xs text-muted-foreground">non rembourses</p>
+              <p className="text-xs text-muted-foreground">non remboursés</p>
             </CardContent>
           </Card>
         </div>
@@ -322,7 +333,7 @@ export default function BulletinsHistoryPage() {
 
       {/* Filters */}
       <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 items-end">
             <div className="md:col-span-2">
               <Label>Recherche</Label>
               <div className="flex gap-2 mt-1">
@@ -359,37 +370,57 @@ export default function BulletinsHistoryPage() {
             </div>
             <div>
               <Label>Type de soin</Label>
-              <Select value={filters.careType || 'all'} onValueChange={(v) => updateFilter('careType', v === 'all' ? undefined : v)}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Tous" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tous</SelectItem>
+              <div className="mt-1">
+                <FilterDropdown
+                  label="Type"
+                  value={filters.careType ? careTypeLabels[filters.careType] || filters.careType : 'Tous'}
+                  open={careTypeDropdownOpen}
+                  onToggle={() => setCareTypeDropdownOpen(!careTypeDropdownOpen)}
+                  onClose={() => setCareTypeDropdownOpen(false)}
+                  menuWidth="w-48"
+                >
+                  <FilterOption selected={!filters.careType} onClick={() => { updateFilter('careType', undefined); setCareTypeDropdownOpen(false); }}>
+                    Tous
+                  </FilterOption>
                   {Object.entries(careTypeLabels).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                    <FilterOption key={key} selected={filters.careType === key} onClick={() => { updateFilter('careType', key); setCareTypeDropdownOpen(false); }}>
+                      {label}
+                    </FilterOption>
                   ))}
-                </SelectContent>
-              </Select>
+                </FilterDropdown>
+              </div>
             </div>
             <div>
               <Label>Statut</Label>
-              <Select value={filters.status || 'all'} onValueChange={(v) => updateFilter('status', v === 'all' ? undefined : v)}>
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="Tous" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tous</SelectItem>
-                  <SelectItem value="approved">Approuve</SelectItem>
-                  <SelectItem value="reimbursed">Rembourse</SelectItem>
-                  <SelectItem value="rejected">Rejete</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="mt-1">
+                <FilterDropdown
+                  label="Statut"
+                  value={filters.status ? (statusConfig[filters.status]?.label || filters.status) : 'Tous'}
+                  open={statusDropdownOpen}
+                  onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                  onClose={() => setStatusDropdownOpen(false)}
+                  menuWidth="w-48"
+                >
+                  <FilterOption selected={!filters.status} onClick={() => { updateFilter('status', undefined); setStatusDropdownOpen(false); }}>
+                    Tous
+                  </FilterOption>
+                  <FilterOption selected={filters.status === 'approved'} onClick={() => { updateFilter('status', 'approved'); setStatusDropdownOpen(false); }}>
+                    Approuvé
+                  </FilterOption>
+                  <FilterOption selected={filters.status === 'reimbursed'} onClick={() => { updateFilter('status', 'reimbursed'); setStatusDropdownOpen(false); }}>
+                    Remboursé
+                  </FilterOption>
+                  <FilterOption selected={filters.status === 'rejected'} onClick={() => { updateFilter('status', 'rejected'); setStatusDropdownOpen(false); }}>
+                    Rejeté
+                  </FilterOption>
+                </FilterDropdown>
+              </div>
             </div>
           </div>
-          <div className="flex gap-2 mt-4">
+          <div className="flex flex-wrap gap-2 mt-4">
             <Button variant="outline" size="sm" onClick={resetFilters}>
               <RotateCcw className="mr-2 h-4 w-4" />
-              Reinitialiser
+              Réinitialiser
             </Button>
             <Button
               variant="outline"
@@ -436,7 +467,7 @@ export default function BulletinsHistoryPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
             <AlertDialogDescription>
-              Vous etes sur le point de supprimer {selectedIds.length} bulletin(s) de soins.
+              Vous êtes sur le point de supprimer {selectedIds.length} bulletin(s) de soins.
               Cette action est irréversible.
             </AlertDialogDescription>
           </AlertDialogHeader>

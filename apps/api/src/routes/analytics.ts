@@ -525,35 +525,44 @@ analytics.get(
     const { getDb } = await import('../lib/db');
     const db = getDb(c);
     const user = c.get('user');
+    const companyId = c.req.query('companyId');
 
     try {
-      let whereClause = '';
+      const conditions: string[] = [];
       const params: string[] = [];
 
       // HR: filter by company
       if (user.role === 'HR' && user.companyId) {
-        whereClause = 'WHERE a.company_id = ?';
+        conditions.push('a.company_id = ?');
         params.push(user.companyId);
       }
       // Provider: filter by provider_id, actes_bulletin.provider_id, OR created_by
       else if (['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN'].includes(user.role)) {
         if (user.providerId) {
-          whereClause = `WHERE (
+          conditions.push(`(
             bs.provider_id = ?
             OR bs.created_by = ?
             OR bs.id IN (SELECT ab.bulletin_id FROM actes_bulletin ab WHERE ab.provider_id = ?)
-          )`;
+          )`);
           params.push(user.providerId, user.id, user.providerId);
         } else {
-          whereClause = 'WHERE bs.created_by = ?';
+          conditions.push('bs.created_by = ?');
           params.push(user.id);
         }
       }
       // Filter by insurer for non-admin roles
       else if (user.role !== 'ADMIN' && user.insurerId) {
-        whereClause = 'WHERE co.insurer_id = ?';
+        conditions.push('co.insurer_id = ?');
         params.push(user.insurerId);
       }
+
+      // Filter by selected company (agents, insurer admins)
+      if (companyId && ['INSURER_AGENT', 'INSURER_ADMIN', 'ADMIN'].includes(user.role)) {
+        conditions.push('a.company_id = ?');
+        params.push(companyId);
+      }
+
+      const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
 
       const rows = await db
         .prepare(`

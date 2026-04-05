@@ -117,7 +117,7 @@ export function CardVerificationResult({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-muted-foreground">Nom complet</p>
               <p className="font-semibold text-lg">
@@ -149,7 +149,7 @@ export function CardVerificationResult({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-muted-foreground">N° Carte</p>
               <p className="font-mono font-semibold">{card.cardNumber}</p>
@@ -181,7 +181,7 @@ export function CardVerificationResult({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-muted-foreground">Assureur</p>
               <p className="font-semibold">{card.contract.insurerName}</p>

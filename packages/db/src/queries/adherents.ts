@@ -278,12 +278,39 @@ export async function updateAdherent(
 }
 
 export async function softDeleteAdherent(db: D1Database, id: string): Promise<boolean> {
+  const now = new Date().toISOString();
   const result = await db
     .prepare(
-      'UPDATE adherents SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
+      'UPDATE adherents SET deleted_at = ?, is_active = 0, updated_at = ? WHERE id = ? AND deleted_at IS NULL'
     )
-    .bind(new Date().toISOString(), new Date().toISOString(), id)
+    .bind(now, now, id)
     .run();
+
+  // Also soft-delete ayants droit
+  await db
+    .prepare(
+      'UPDATE adherents SET deleted_at = ?, is_active = 0, updated_at = ? WHERE parent_adherent_id = ? AND deleted_at IS NULL'
+    )
+    .bind(now, now, id)
+    .run();
+
+  // Also delete associated bulletins and their actes
+  try {
+    await db
+      .prepare(
+        'DELETE FROM actes_bulletin WHERE bulletin_id IN (SELECT id FROM bulletins_soins WHERE adherent_id = ?)'
+      )
+      .bind(id)
+      .run();
+    await db
+      .prepare(
+        'DELETE FROM bulletins_soins WHERE adherent_id = ?'
+      )
+      .bind(id)
+      .run();
+  } catch {
+    // Tables may not exist on all tenants — ignore
+  }
 
   return result.meta.changes > 0;
 }

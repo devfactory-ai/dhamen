@@ -96,7 +96,7 @@ export function BordereauDetailsPage() {
       });
 
       if (!response.success) {
-        throw new Error(response.error?.message || 'Erreur lors du telechargement');
+        throw new Error(response.error?.message || 'Erreur lors du téléchargement');
       }
 
       const url = window.URL.createObjectURL(response.data);
@@ -110,7 +110,7 @@ export function BordereauDetailsPage() {
 
       toast.success('PDF téléchargé avec succès');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Erreur lors du telechargement');
+      toast.error(error instanceof Error ? error.message : 'Erreur lors du téléchargement');
     } finally {
       setDownloadingPdf(false);
     }
@@ -218,7 +218,7 @@ export function BordereauDetailsPage() {
             <CardDescription>Details du bordereau</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Assureur</p>
                 <p className="font-medium">{bordereau.insurerName}</p>
@@ -250,7 +250,7 @@ export function BordereauDetailsPage() {
             <CardDescription>Historique du bordereau</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Période debut</p>
                 <p className="font-medium">{formatDate(bordereau.periodStart)}</p>

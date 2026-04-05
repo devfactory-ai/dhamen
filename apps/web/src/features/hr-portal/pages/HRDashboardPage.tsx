@@ -171,7 +171,7 @@ export function HRDashboardPage() {
   return (
     <NoEntrepriseGuard>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <PageHeader
             title={`Bienvenue, ${user?.firstName || "RH"}`}
             description={
@@ -207,7 +207,7 @@ export function HRDashboardPage() {
         )}
 
         {/* Stats Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Adhérents</CardTitle>
@@ -331,7 +331,7 @@ export function HRDashboardPage() {
         </div>
 
         {/* Quick Actions */}
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           <Card
             className="cursor-pointer hover:bg-muted/50 transition-colors"
             onClick={() => navigate("/adherents/agent")}

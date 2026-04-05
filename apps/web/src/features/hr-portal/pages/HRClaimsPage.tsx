@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Download, CreditCard, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -50,17 +51,6 @@ export function HRClaimsPage() {
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 20;
-  const statusDropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
-        setStatusDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   const { data: claims, isLoading } = useQuery({
     queryKey: ['hr-claims', user?.companyId],
@@ -187,7 +177,7 @@ export function HRClaimsPage() {
   return (
     <NoEntrepriseGuard>
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <PageHeader
           title="Suivi des remboursements"
           description="Consultez les demandes de remboursement de vos salaries"
@@ -201,7 +191,7 @@ export function HRClaimsPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Total demandes</CardTitle>
@@ -269,47 +259,30 @@ export function HRClaimsPage() {
             </div>
 
             {/* Statut dropdown */}
-            <div className="relative shrink-0" ref={statusDropdownRef}>
-              <button
-                type="button"
-                onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-                className="flex items-center gap-2 w-full sm:w-auto px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
-              >
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Statut</span>
-                <span className="text-sm font-medium text-gray-900">
-                  {statusFilter === "all" ? "Tous" : statusFilter === "PENDING" ? "En attente" : statusFilter === "APPROVED" ? "Approuvé" : statusFilter === "PAID" ? "Payé" : "Rejeté"}
-                </span>
-                <svg className={`w-3.5 h-3.5 text-gray-400 ml-auto sm:ml-1 transition-transform ${statusDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
-                </svg>
-              </button>
-              {statusDropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 w-full sm:w-48 py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50">
-                  {([
-                    { value: "all" as const, label: "Tous", color: null },
-                    { value: "PENDING" as const, label: "En attente", color: "bg-amber-400" },
-                    { value: "APPROVED" as const, label: "Approuvé", color: "bg-emerald-500" },
-                    { value: "PAID" as const, label: "Payé", color: "bg-blue-500" },
-                    { value: "REJECTED" as const, label: "Rejeté", color: "bg-red-400" },
-                  ]).map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => { setStatusFilter(opt.value); setStatusDropdownOpen(false); setPage(1); }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${statusFilter === opt.value ? "text-blue-600 font-semibold bg-blue-50/50" : "text-gray-700"}`}
-                    >
-                      {opt.color && <span className={`w-2 h-2 rounded-full ${opt.color}`} />}
-                      {opt.label}
-                      {statusFilter === opt.value && (
-                        <svg className="w-4 h-4 ml-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <FilterDropdown
+              label="Statut"
+              value={statusFilter === "all" ? "Tous" : statusFilter === "PENDING" ? "En attente" : statusFilter === "APPROVED" ? "Approuvé" : statusFilter === "PAID" ? "Payé" : "Rejeté"}
+              open={statusDropdownOpen}
+              onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
+              onClose={() => setStatusDropdownOpen(false)}
+            >
+              {([
+                { value: "all" as const, label: "Tous", color: null },
+                { value: "PENDING" as const, label: "En attente", color: "bg-amber-400" },
+                { value: "APPROVED" as const, label: "Approuvé", color: "bg-emerald-500" },
+                { value: "PAID" as const, label: "Payé", color: "bg-blue-500" },
+                { value: "REJECTED" as const, label: "Rejeté", color: "bg-red-400" },
+              ]).map((opt) => (
+                <FilterOption
+                  key={opt.value}
+                  selected={statusFilter === opt.value}
+                  onClick={() => { setStatusFilter(opt.value); setStatusDropdownOpen(false); setPage(1); }}
+                  color={opt.color ?? undefined}
+                >
+                  {opt.label}
+                </FilterOption>
+              ))}
+            </FilterDropdown>
           </div>
         </div>
 

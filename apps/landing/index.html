@@ -3,153 +3,309 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>E-Santé - Plateforme de Digitalisation Santé en Tunisie</title>
+  <title>E-Santé - Plateforme de Digitalisation Santé propulsée par l'IA</title>
   <meta name="description" content="E-Santé est une plateforme de digitalisation du secteur de la santé en Tunisie. Agents IA, automatisation des processus et gestion intelligente pour assureurs, prestataires et adhérents.">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏥</text></svg>">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%231a2332'/%3E%3Ctext x='50' y='54' text-anchor='middle' dominant-baseline='central' font-family='Manrope,Arial,sans-serif' font-weight='800' font-size='38' fill='white'%3EBH%3C/text%3E%3Cline x1='22' y1='72' x2='78' y2='72' stroke='%232563eb' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Material Symbols -->
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
+
+  <!-- Tailwind CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
+          fontFamily: {
+            display: ['Manrope', 'Noto Sans Arabic', 'sans-serif'],
+            body: ['Inter', 'Noto Sans Arabic', 'sans-serif'],
+          },
           colors: {
-            primary: { 50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd', 400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a' },
-            secondary: { 50: '#f0fdf4', 100: '#dcfce7', 200: '#bbf7d0', 300: '#86efac', 400: '#4ade80', 500: '#22c55e', 600: '#16a34a', 700: '#15803d', 800: '#166534', 900: '#14532d' }
-          }
+            primary: '#040d1b',
+            secondary: '#0051d5',
+            'secondary-container': '#316bf3',
+            'on-tertiary': '#009d6d',
+            surface: '#f7f9fb',
+            'surface-container': '#eceef0',
+            'surface-container-low': '#f2f4f6',
+            'surface-lowest': '#ffffff',
+            'on-surface': '#191c1e',
+            'on-surface-variant': '#45474c',
+            outline: '#75777d',
+            'outline-variant': '#c5c6cc',
+          },
         }
       }
     }
   </script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+
   <style>
-    body { font-family: 'Inter', 'Noto Sans Arabic', sans-serif; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { font-family: 'Inter', 'Noto Sans Arabic', sans-serif; background: #f7f9fb; color: #191c1e; }
     [dir="rtl"] body { font-family: 'Noto Sans Arabic', 'Inter', sans-serif; }
-    .gradient-bg { background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #22c55e 100%); }
-    .glass { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); }
+    h1, h2, h3, h4, h5, h6 { font-family: 'Manrope', 'Noto Sans Arabic', sans-serif; }
+    [dir="rtl"] h1, [dir="rtl"] h2, [dir="rtl"] h3, [dir="rtl"] h4 { font-family: 'Noto Sans Arabic', 'Manrope', sans-serif; }
+
+    /* Stitch Design Tokens */
+    .ghost-shadow { box-shadow: 0 12px 40px -10px rgba(25, 28, 30, 0.08); }
+    .ghost-shadow-lg { box-shadow: 0 20px 60px -15px rgba(25, 28, 30, 0.12); }
+    .signature-gradient { background: linear-gradient(135deg, #0051d5 0%, #316bf3 100%); }
+    .glass-nav { background: rgba(255, 255, 255, 0.72); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+    .glass-card { background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+    .text-gradient { background: linear-gradient(135deg, #0051d5 0%, #316bf3 60%, #009d6d 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+
+    /* Animations */
     .animate-float { animation: float 6s ease-in-out infinite; }
     @keyframes float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-20px); } }
-    .lang-btn.active { background-color: #2563eb; color: white; }
+    @keyframes fadeInUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in-up { animation: fadeInUp 0.6s ease-out forwards; }
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+    /* Language button */
+    .lang-btn.active { background: #0051d5; color: #fff; }
+
+    /* Active nav link */
+    .nav-link.active { color: #0051d5; border-bottom: 2px solid #0051d5; padding-bottom: 2px; }
+
+    /* RTL helpers */
     [dir="rtl"] .flip-rtl { transform: scaleX(-1); }
+    [dir="rtl"] .rtl-space-reverse > * + * { margin-right: 0.5rem; margin-left: 0; }
+
+    /* Partner logos grayscale */
+    .partner-logo { filter: grayscale(100%) opacity(0.5); transition: all 0.4s ease; }
+    .partner-logo:hover { filter: grayscale(0%) opacity(1); }
+
+    /* Bento card hover */
+    .bento-card { transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+    .bento-card:hover { transform: translateY(-4px); }
+    .bento-navy:hover { background: #040d1b; color: #fff; }
+    .bento-navy:hover .bento-icon { color: #316bf3; }
+    .bento-navy:hover .bento-desc { color: rgba(255,255,255,0.7); }
+
+    /* Step connector */
+    .step-connector { position: relative; }
+    .step-connector::after {
+      content: '';
+      position: absolute;
+      top: 28px;
+      left: 100%;
+      width: calc(100% - 56px);
+      height: 2px;
+      background: linear-gradient(90deg, #0051d5, #c5c6cc);
+      z-index: 0;
+    }
+    [dir="rtl"] .step-connector::after { left: auto; right: 100%; background: linear-gradient(270deg, #0051d5, #c5c6cc); }
+    .step-connector:last-child::after { display: none; }
+
+    /* Security viz animation */
+    @keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
+    .scan-line { animation: scan 3s ease-in-out infinite alternate; }
+
+    /* Mobile menu */
+    .mobile-menu { transform: translateX(-100%); transition: transform 0.3s ease; }
+    .mobile-menu.open { transform: translateX(0); }
+    [dir="rtl"] .mobile-menu { transform: translateX(100%); }
+    [dir="rtl"] .mobile-menu.open { transform: translateX(0); }
+
+    /* Form focus */
+    input:focus, select:focus, textarea:focus { outline: none; box-shadow: 0 0 0 3px rgba(0, 81, 213, 0.15); border-color: #0051d5; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #f2f4f6; }
+    ::-webkit-scrollbar-thumb { background: #c5c6cc; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #75777d; }
   </style>
 </head>
-<body class="bg-gray-50">
-  <!-- Navigation -->
-  <nav class="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100">
+<body>
+
+  <!-- ==================== NAVBAR ==================== -->
+  <nav class="fixed top-0 left-0 right-0 z-50 glass-nav">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex justify-between items-center h-16">
-        <div class="flex items-center space-x-3 rtl:space-x-reverse">
-          <div class="w-10 h-10 bg-primary-600 rounded-xl flex items-center justify-center">
-            <span class="text-white font-bold text-xl">E</span>
+        <!-- Logo -->
+        <a href="#" class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl flex items-center justify-center" style="background:#1a2332">
+            <span class="text-white font-extrabold text-sm font-display">BH</span>
           </div>
-          <span class="text-2xl font-bold text-gray-900">E-Santé</span>
-          <span class="text-sm text-gray-500 hidden sm:inline">الصحة الإلكترونية</span>
+          <div class="flex flex-col leading-tight">
+            <span class="text-lg font-extrabold text-primary font-display">E-Santé</span>
+            <span class="text-[10px] font-medium text-on-surface-variant tracking-wider">BH Assurance</span>
+          </div>
+        </a>
+
+        <!-- Desktop Menu -->
+        <div class="hidden md:flex items-center gap-8">
+          <a href="#solutions" class="nav-link text-on-surface-variant hover:text-secondary text-sm font-medium transition-colors" data-i18n="nav.solutions">Solutions</a>
+          <a href="#features" class="nav-link text-on-surface-variant hover:text-secondary text-sm font-medium transition-colors" data-i18n="nav.features">Fonctionnalités</a>
+          <a href="#security" class="nav-link text-on-surface-variant hover:text-secondary text-sm font-medium transition-colors" data-i18n="nav.security">Sécurité</a>
+          <a href="#contact" class="nav-link text-on-surface-variant hover:text-secondary text-sm font-medium transition-colors" data-i18n="nav.contact">Contact</a>
         </div>
-        <div class="hidden md:flex items-center space-x-8 rtl:space-x-reverse">
-          <a href="#features" class="text-gray-600 hover:text-primary-600 transition" data-i18n="nav.features">Fonctionnalités</a>
-          <a href="#how-it-works" class="text-gray-600 hover:text-primary-600 transition" data-i18n="nav.howItWorks">Comment ça marche</a>
-          <a href="#pricing" class="text-gray-600 hover:text-primary-600 transition" data-i18n="nav.pricing">Tarifs</a>
-          <a href="#contact" class="text-gray-600 hover:text-primary-600 transition" data-i18n="nav.contact">Contact</a>
-        </div>
-        <div class="flex items-center space-x-4 rtl:space-x-reverse">
+
+        <!-- Right side -->
+        <div class="flex items-center gap-3">
           <!-- Language Switcher -->
-          <div class="flex items-center space-x-1 rtl:space-x-reverse bg-gray-100 rounded-lg p-1">
-            <button onclick="setLanguage('fr')" class="lang-btn px-2 py-1 text-xs font-medium rounded transition active" data-lang="fr">FR</button>
-            <button onclick="setLanguage('en')" class="lang-btn px-2 py-1 text-xs font-medium rounded transition" data-lang="en">EN</button>
-            <button onclick="setLanguage('ar')" class="lang-btn px-2 py-1 text-xs font-medium rounded transition" data-lang="ar">ع</button>
+          <div class="flex items-center bg-surface-container rounded-lg p-0.5">
+            <button onclick="setLanguage('fr')" class="lang-btn px-2.5 py-1 text-xs font-medium rounded-md transition active" data-lang="fr">FR</button>
+            <button onclick="setLanguage('en')" class="lang-btn px-2.5 py-1 text-xs font-medium rounded-md transition" data-lang="en">EN</button>
+            <button onclick="setLanguage('ar')" class="lang-btn px-2.5 py-1 text-xs font-medium rounded-md transition" data-lang="ar">ع</button>
           </div>
-          <a href="https://dhamen-web.pages.dev/login" class="text-primary-600 font-medium hover:text-primary-700 transition hidden sm:inline" data-i18n="nav.login">Connexion</a>
-          <a href="https://dhamen-web.pages.dev/login" class="bg-primary-600 text-white px-5 py-2.5 rounded-lg font-medium hover:bg-primary-700 transition shadow-lg shadow-primary-600/25" data-i18n="nav.start">
-            Démarrer
+
+          <a href="https://app-staging.e-sante.com.tn/login" class="hidden sm:inline-flex items-center gap-1.5 text-secondary text-sm font-semibold hover:text-secondary-container transition-colors" data-i18n="nav.login">
+            Connexion
           </a>
+
+          <!-- Mobile burger -->
+          <button onclick="toggleMobileMenu()" class="md:hidden w-9 h-9 flex items-center justify-center rounded-lg hover:bg-surface-container transition">
+            <span class="material-symbols-outlined text-on-surface" id="menuIcon">menu</span>
+          </button>
         </div>
+      </div>
+    </div>
+
+    <!-- Mobile Menu -->
+    <div id="mobileMenu" class="mobile-menu fixed inset-0 top-16 bg-white z-40 p-6 md:hidden">
+      <div class="flex flex-col gap-6">
+        <a href="#solutions" onclick="closeMobileMenu()" class="text-on-surface text-lg font-medium" data-i18n="nav.solutions">Solutions</a>
+        <a href="#features" onclick="closeMobileMenu()" class="text-on-surface text-lg font-medium" data-i18n="nav.features">Fonctionnalités</a>
+        <a href="#security" onclick="closeMobileMenu()" class="text-on-surface text-lg font-medium" data-i18n="nav.security">Sécurité</a>
+        <a href="#contact" onclick="closeMobileMenu()" class="text-on-surface text-lg font-medium" data-i18n="nav.contact">Contact</a>
+        <hr class="border-outline-variant">
+        <a href="https://app-staging.e-sante.com.tn/login" class="signature-gradient text-white text-center px-6 py-3 rounded-xl font-semibold" data-i18n="nav.login">Connexion</a>
       </div>
     </div>
   </nav>
 
-  <!-- Hero Section -->
-  <section class="gradient-bg min-h-screen flex items-center pt-16">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-      <div class="grid lg:grid-cols-2 gap-12 items-center">
+  <!-- ==================== HERO ==================== -->
+  <section class="relative min-h-screen flex items-center pt-16 overflow-hidden" style="background: linear-gradient(160deg, #040d1b 0%, #0a1a33 40%, #0051d5 100%);">
+    <!-- Background decoration -->
+    <div class="absolute inset-0 overflow-hidden">
+      <div class="absolute top-20 left-10 w-72 h-72 bg-secondary/20 rounded-full blur-3xl"></div>
+      <div class="absolute bottom-20 right-10 w-96 h-96 bg-secondary-container/10 rounded-full blur-3xl"></div>
+      <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-on-tertiary/5 rounded-full blur-3xl"></div>
+    </div>
+
+    <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
+      <div class="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+        <!-- Left: Text -->
         <div class="text-white">
-          <div class="inline-flex items-center px-4 py-2 bg-white/20 rounded-full text-sm mb-6">
-            <span class="w-2 h-2 bg-green-400 rounded-full mr-2 rtl:ml-2 rtl:mr-0 animate-pulse"></span>
+          <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm text-sm mb-8">
+            <span class="w-2 h-2 bg-on-tertiary rounded-full pulse-dot"></span>
             <span data-i18n="hero.badge">Plateforme IA-Native 100% Tunisienne</span>
           </div>
-          <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">
+
+          <h1 class="text-4xl sm:text-5xl lg:text-[3.5rem] font-extrabold leading-[1.1] mb-6 font-display">
             <span data-i18n="hero.title1">La Digitalisation Santé</span><br>
-            <span class="text-secondary-300" data-i18n="hero.title2">Propulsée par l'IA</span>
+            <span class="text-gradient" style="-webkit-text-fill-color: transparent; background: linear-gradient(135deg, #60a5fa 0%, #009d6d 100%); -webkit-background-clip: text; background-clip: text;" data-i18n="hero.title2">Propulsée par l'IA</span>
           </h1>
-          <p class="text-xl text-blue-100 mb-8 max-w-xl" data-i18n="hero.description">
-            E-Santé est une plateforme de digitalisation du secteur de la santé. Nos agents IA automatisent la vérification d'éligibilité, la tarification, la détection de fraude et la réconciliation financière.
+
+          <p class="text-lg text-blue-100/80 mb-10 max-w-lg leading-relaxed" data-i18n="hero.description">
+            E-Santé est la plateforme de tiers payant santé propulsée par l'intelligence artificielle. Automatisez la vérification d'éligibilité, la tarification, la détection de fraude et la réconciliation financière.
           </p>
-          <div class="flex flex-col sm:flex-row gap-4">
-            <a href="https://dhamen-web.pages.dev/login" class="bg-white text-primary-700 px-8 py-4 rounded-xl font-semibold text-lg hover:bg-gray-100 transition shadow-xl text-center" data-i18n="hero.cta1">
+
+          <div class="flex flex-col sm:flex-row gap-4 mb-14">
+            <a href="#solutions" class="inline-flex items-center justify-center gap-2 bg-white text-primary px-7 py-3.5 rounded-xl font-semibold text-base hover:bg-surface transition ghost-shadow-lg" data-i18n="hero.cta1">
+              <span class="material-symbols-outlined text-[20px]">explore</span>
+              Découvrir
+            </a>
+            <a href="https://app-staging.e-sante.com.tn/login" class="inline-flex items-center justify-center gap-2 bg-white/10 backdrop-blur-sm text-white px-7 py-3.5 rounded-xl font-semibold text-base hover:bg-white/20 transition" data-i18n="hero.cta2">
+              <span class="material-symbols-outlined text-[20px]">login</span>
               Accéder à la plateforme
             </a>
-            <a href="#demo" class="glass text-white px-8 py-4 rounded-xl font-semibold text-lg hover:bg-white/20 transition border border-white/30 text-center" data-i18n="hero.cta2">
-              Voir la démo
-            </a>
           </div>
-          <div class="mt-12 flex items-center gap-8">
+
+          <!-- Stats -->
+          <div class="flex items-center gap-8 sm:gap-10">
             <div>
-              <div class="text-3xl font-bold">50+</div>
-              <div class="text-blue-200 text-sm" data-i18n="hero.stat1">Assureurs partenaires</div>
+              <div class="text-3xl font-extrabold font-display">50+</div>
+              <div class="text-blue-200/60 text-sm mt-0.5" data-i18n="hero.stat1">Assureurs partenaires</div>
             </div>
-            <div class="w-px h-12 bg-white/30"></div>
+            <div class="w-px h-10 bg-white/20"></div>
             <div>
-              <div class="text-3xl font-bold">2000+</div>
-              <div class="text-blue-200 text-sm" data-i18n="hero.stat2">Prestataires connectés</div>
+              <div class="text-3xl font-extrabold font-display">2000+</div>
+              <div class="text-blue-200/60 text-sm mt-0.5" data-i18n="hero.stat2">Prestataires connectés</div>
             </div>
-            <div class="w-px h-12 bg-white/30"></div>
+            <div class="w-px h-10 bg-white/20"></div>
             <div>
-              <div class="text-3xl font-bold">500K+</div>
-              <div class="text-blue-200 text-sm" data-i18n="hero.stat3">Adhérents couverts</div>
+              <div class="text-3xl font-extrabold font-display">500K+</div>
+              <div class="text-blue-200/60 text-sm mt-0.5" data-i18n="hero.stat3">Adhérents couverts</div>
             </div>
           </div>
         </div>
+
+        <!-- Right: Dashboard Card -->
         <div class="relative hidden lg:block">
-          <div class="absolute inset-0 bg-gradient-to-r from-primary-600/50 to-transparent rounded-3xl rtl:bg-gradient-to-l"></div>
-          <div class="glass rounded-3xl p-8 animate-float">
-            <div class="bg-white rounded-2xl shadow-2xl p-6">
-              <div class="flex items-center justify-between mb-6">
-                <h3 class="font-semibold text-gray-900" data-i18n="dashboard.title">Tableau de bord</h3>
-                <span class="text-xs text-green-600 bg-green-100 px-2 py-1 rounded-full" data-i18n="dashboard.live">En direct</span>
+          <div class="animate-float">
+            <div class="bg-white rounded-2xl ghost-shadow-lg p-6">
+              <div class="flex items-center justify-between mb-5">
+                <h3 class="font-semibold text-on-surface font-display" data-i18n="dashboard.title">Tableau de bord</h3>
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium text-on-tertiary bg-emerald-50 px-2.5 py-1 rounded-full">
+                  <span class="w-1.5 h-1.5 bg-on-tertiary rounded-full pulse-dot"></span>
+                  <span data-i18n="dashboard.live">En direct</span>
+                </span>
               </div>
-              <div class="space-y-4">
-                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div class="space-y-3">
+                <!-- Item 1 -->
+                <div class="flex items-center justify-between p-3 bg-surface-container-low rounded-xl">
                   <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <div class="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+                      <span class="material-symbols-outlined text-secondary text-xl">verified</span>
                     </div>
                     <div>
-                      <div class="font-medium text-sm" data-i18n="dashboard.item1.title">Éligibilité vérifiée</div>
-                      <div class="text-xs text-gray-500">Pharmacie El Medina</div>
+                      <div class="font-medium text-sm text-on-surface" data-i18n="dashboard.item1.title">Éligibilité vérifiée</div>
+                      <div class="text-xs text-on-surface-variant">Pharmacie El Medina</div>
                     </div>
                   </div>
-                  <span class="text-green-600 font-semibold">OK</span>
+                  <span class="text-on-tertiary font-semibold text-sm">OK</span>
                 </div>
-                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <!-- Item 2 -->
+                <div class="flex items-center justify-between p-3 bg-surface-container-low rounded-xl">
                   <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                      <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <div class="w-10 h-10 bg-emerald-50 rounded-lg flex items-center justify-center">
+                      <span class="material-symbols-outlined text-on-tertiary text-xl">payments</span>
                     </div>
                     <div>
-                      <div class="font-medium text-sm" data-i18n="dashboard.item2.title">Remboursement traité</div>
-                      <div class="text-xs text-gray-500">Dr. Karim Mansouri</div>
+                      <div class="font-medium text-sm text-on-surface" data-i18n="dashboard.item2.title">Remboursement traité</div>
+                      <div class="text-xs text-on-surface-variant">Dr. Karim Mansouri</div>
                     </div>
                   </div>
-                  <span class="text-gray-900 font-semibold">450 TND</span>
+                  <span class="text-on-surface font-semibold text-sm">450 TND</span>
                 </div>
-                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <!-- Item 3 -->
+                <div class="flex items-center justify-between p-3 bg-surface-container-low rounded-xl">
                   <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                      <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    <div class="w-10 h-10 bg-violet-50 rounded-lg flex items-center justify-center">
+                      <span class="material-symbols-outlined text-violet-600 text-xl">description</span>
                     </div>
                     <div>
-                      <div class="font-medium text-sm" data-i18n="dashboard.item3.title">Bordereau généré</div>
-                      <div class="text-xs text-gray-500">STAR Assurances</div>
+                      <div class="font-medium text-sm text-on-surface" data-i18n="dashboard.item3.title">Bordereau généré</div>
+                      <div class="text-xs text-on-surface-variant">BH Assurances</div>
                     </div>
                   </div>
-                  <span class="text-blue-600 font-semibold">PDF</span>
+                  <span class="text-secondary font-semibold text-sm">PDF</span>
+                </div>
+              </div>
+              <!-- Mini chart -->
+              <div class="mt-4 pt-4 border-t border-outline-variant/30">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs text-on-surface-variant" data-i18n="dashboard.transactions">Transactions aujourd'hui</span>
+                  <span class="text-xs font-semibold text-on-tertiary">+12.5%</span>
+                </div>
+                <div class="flex items-end gap-1 h-8">
+                  <div class="flex-1 bg-secondary/20 rounded-sm" style="height:40%"></div>
+                  <div class="flex-1 bg-secondary/20 rounded-sm" style="height:60%"></div>
+                  <div class="flex-1 bg-secondary/30 rounded-sm" style="height:45%"></div>
+                  <div class="flex-1 bg-secondary/30 rounded-sm" style="height:80%"></div>
+                  <div class="flex-1 bg-secondary/40 rounded-sm" style="height:55%"></div>
+                  <div class="flex-1 bg-secondary/40 rounded-sm" style="height:70%"></div>
+                  <div class="flex-1 bg-secondary/50 rounded-sm" style="height:90%"></div>
+                  <div class="flex-1 signature-gradient rounded-sm" style="height:100%"></div>
                 </div>
               </div>
             </div>
@@ -159,386 +315,529 @@
     </div>
   </section>
 
-  <!-- Features Section -->
-  <section id="features" class="py-24 bg-white">
+  <!-- ==================== PARTNERS ==================== -->
+  <section class="py-16 bg-surface-lowest">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="text-center mb-16">
-        <h2 class="text-3xl sm:text-4xl font-bold text-gray-900 mb-4" data-i18n="features.title">Des agents IA spécialisés</h2>
-        <p class="text-xl text-gray-600 max-w-2xl mx-auto" data-i18n="features.subtitle">Notre plateforme intègre des agents d'intelligence artificielle pour automatiser et optimiser chaque étape du parcours santé.</p>
-      </div>
-      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-        <!-- Feature 1 -->
-        <div class="bg-gray-50 rounded-2xl p-8 hover:shadow-xl transition group">
-          <div class="w-14 h-14 bg-primary-100 rounded-xl flex items-center justify-center mb-6 group-hover:bg-primary-600 transition">
-            <svg class="w-7 h-7 text-primary-600 group-hover:text-white transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+      <p class="text-center text-sm font-medium text-on-surface-variant mb-10 tracking-wide uppercase" data-i18n="partners.title">Confiance Institutionnelle</p>
+      <div class="flex flex-wrap items-center justify-center gap-12 sm:gap-16">
+        <div class="partner-logo flex flex-col items-center gap-2 cursor-default">
+          <div class="w-14 h-14 rounded-xl bg-surface-container flex items-center justify-center">
+            <span class="material-symbols-outlined text-3xl text-on-surface-variant">shield</span>
           </div>
-          <h3 class="text-xl font-semibold text-gray-900 mb-3" data-i18n="features.f1.title">Agent d'Éligibilité</h3>
-          <p class="text-gray-600" data-i18n="features.f1.desc">Agent IA vérifiant en temps réel l'éligibilité des adhérents avec réponse en moins de 100ms.</p>
+          <span class="text-xs font-medium text-on-surface-variant">BH Assurance</span>
         </div>
-        <!-- Feature 2 -->
-        <div class="bg-gray-50 rounded-2xl p-8 hover:shadow-xl transition group">
-          <div class="w-14 h-14 bg-secondary-100 rounded-xl flex items-center justify-center mb-6 group-hover:bg-secondary-600 transition">
-            <svg class="w-7 h-7 text-secondary-600 group-hover:text-white transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+        <div class="partner-logo flex flex-col items-center gap-2 cursor-default">
+          <div class="w-14 h-14 rounded-xl bg-surface-container flex items-center justify-center">
+            <span class="material-symbols-outlined text-3xl text-on-surface-variant">account_balance</span>
           </div>
-          <h3 class="text-xl font-semibold text-gray-900 mb-3" data-i18n="features.f2.title">Agent de Tarification</h3>
-          <p class="text-gray-600" data-i18n="features.f2.desc">Agent IA calculant automatiquement les prises en charge selon les barèmes et conventions.</p>
+          <span class="text-xs font-medium text-on-surface-variant">BH Bank</span>
         </div>
-        <!-- Feature 3 -->
-        <div class="bg-gray-50 rounded-2xl p-8 hover:shadow-xl transition group">
-          <div class="w-14 h-14 bg-purple-100 rounded-xl flex items-center justify-center mb-6 group-hover:bg-purple-600 transition">
-            <svg class="w-7 h-7 text-purple-600 group-hover:text-white transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+        <div class="partner-logo flex flex-col items-center gap-2 cursor-default">
+          <div class="w-14 h-14 rounded-xl bg-surface-container flex items-center justify-center">
+            <span class="material-symbols-outlined text-3xl text-on-surface-variant">credit_card</span>
           </div>
-          <h3 class="text-xl font-semibold text-gray-900 mb-3" data-i18n="features.f3.title">Agent Anti-Fraude</h3>
-          <p class="text-gray-600" data-i18n="features.f3.desc">Agent IA détectant les anomalies et comportements suspects pour prévenir la fraude.</p>
+          <span class="text-xs font-medium text-on-surface-variant">Tunisie Monétique</span>
         </div>
-        <!-- Feature 4 -->
-        <div class="bg-gray-50 rounded-2xl p-8 hover:shadow-xl transition group">
-          <div class="w-14 h-14 bg-orange-100 rounded-xl flex items-center justify-center mb-6 group-hover:bg-orange-600 transition">
-            <svg class="w-7 h-7 text-orange-600 group-hover:text-white transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        <div class="partner-logo flex flex-col items-center gap-2 cursor-default">
+          <div class="w-14 h-14 rounded-xl bg-surface-container flex items-center justify-center">
+            <span class="material-symbols-outlined text-3xl text-on-surface-variant">local_hospital</span>
           </div>
-          <h3 class="text-xl font-semibold text-gray-900 mb-3" data-i18n="features.f4.title">Agent de Réconciliation</h3>
-          <p class="text-gray-600" data-i18n="features.f4.desc">Agent IA rapprochant automatiquement les demandes, paiements et bordereaux.</p>
-        </div>
-        <!-- Feature 5 -->
-        <div class="bg-gray-50 rounded-2xl p-8 hover:shadow-xl transition group">
-          <div class="w-14 h-14 bg-pink-100 rounded-xl flex items-center justify-center mb-6 group-hover:bg-pink-600 transition">
-            <svg class="w-7 h-7 text-pink-600 group-hover:text-white transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-          </div>
-          <h3 class="text-xl font-semibold text-gray-900 mb-3" data-i18n="features.f5.title">OCR & Extraction IA</h3>
-          <p class="text-gray-600" data-i18n="features.f5.desc">Extraction intelligente des données depuis ordonnances, factures et documents médicaux.</p>
-        </div>
-        <!-- Feature 6 -->
-        <div class="bg-gray-50 rounded-2xl p-8 hover:shadow-xl transition group">
-          <div class="w-14 h-14 bg-cyan-100 rounded-xl flex items-center justify-center mb-6 group-hover:bg-cyan-600 transition">
-            <svg class="w-7 h-7 text-cyan-600 group-hover:text-white transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-          </div>
-          <h3 class="text-xl font-semibold text-gray-900 mb-3" data-i18n="features.f6.title">Application Mobile</h3>
-          <p class="text-gray-600" data-i18n="features.f6.desc">Application mobile pour les adhérents avec suivi des remboursements et carte virtuelle.</p>
+          <span class="text-xs font-medium text-on-surface-variant">CNAM</span>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- How it works -->
-  <section id="how-it-works" class="py-24 bg-gray-50">
+  <!-- ==================== SOLUTIONS (Bento Grid) ==================== -->
+  <section id="solutions" class="py-24 bg-surface">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="text-center mb-16">
-        <h2 class="text-3xl sm:text-4xl font-bold text-gray-900 mb-4" data-i18n="howItWorks.title">Comment ça marche ?</h2>
-        <p class="text-xl text-gray-600 max-w-2xl mx-auto" data-i18n="howItWorks.subtitle">Un processus digitalisé et piloté par des agents IA pour tous les acteurs de la santé.</p>
+        <p class="text-sm font-semibold text-secondary uppercase tracking-wider mb-3" data-i18n="solutions.label">Solutions</p>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-primary font-display mb-4" data-i18n="solutions.title">Une plateforme pour chaque acteur</h2>
+        <p class="text-lg text-on-surface-variant max-w-2xl mx-auto" data-i18n="solutions.subtitle">Des outils spécialisés pour digitaliser le parcours santé de bout en bout.</p>
       </div>
-      <div class="grid md:grid-cols-4 gap-8">
-        <div class="text-center">
-          <div class="w-16 h-16 bg-primary-600 rounded-full flex items-center justify-center mx-auto mb-6 text-white text-2xl font-bold">1</div>
-          <h3 class="text-lg font-semibold text-gray-900 mb-2" data-i18n="howItWorks.step1.title">Vérification</h3>
-          <p class="text-gray-600" data-i18n="howItWorks.step1.desc">L'adhérent présente sa carte. Le prestataire vérifie l'éligibilité en temps réel.</p>
+
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <!-- Assureurs (large) -->
+        <div class="bento-card bento-navy lg:col-span-2 bg-surface-lowest rounded-2xl p-8 ghost-shadow cursor-default">
+          <div class="flex items-start gap-5">
+            <div class="w-14 h-14 signature-gradient rounded-xl flex items-center justify-center flex-shrink-0">
+              <span class="material-symbols-outlined text-white text-2xl">assured_workload</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-bold text-on-surface font-display mb-2" data-i18n="solutions.insurers.title">Assureurs & Mutuelles</h3>
+              <p class="text-on-surface-variant bento-desc leading-relaxed" data-i18n="solutions.insurers.desc">Pilotez vos contrats, gérez vos adhérents, automatisez les bordereaux et bénéficiez d'un score anti-fraude IA sur chaque transaction. Tableau de bord analytique en temps réel.</p>
+            </div>
+          </div>
         </div>
-        <div class="text-center">
-          <div class="w-16 h-16 bg-primary-600 rounded-full flex items-center justify-center mx-auto mb-6 text-white text-2xl font-bold">2</div>
-          <h3 class="text-lg font-semibold text-gray-900 mb-2" data-i18n="howItWorks.step2.title">Prise en charge</h3>
-          <p class="text-gray-600" data-i18n="howItWorks.step2.desc">Calcul automatique du montant couvert et du ticket modérateur.</p>
+
+        <!-- Entreprises -->
+        <div class="bento-card bg-surface-lowest rounded-2xl p-8 ghost-shadow cursor-default">
+          <div class="w-12 h-12 bg-violet-50 rounded-xl flex items-center justify-center mb-4">
+            <span class="material-symbols-outlined text-violet-600 text-2xl bento-icon">business</span>
+          </div>
+          <h3 class="text-lg font-bold text-on-surface font-display mb-2" data-i18n="solutions.companies.title">Entreprises</h3>
+          <p class="text-sm text-on-surface-variant bento-desc leading-relaxed" data-i18n="solutions.companies.desc">Portail RH dédié pour gérer les contrats groupe, les adhérents et suivre les remboursements de vos collaborateurs.</p>
         </div>
-        <div class="text-center">
-          <div class="w-16 h-16 bg-primary-600 rounded-full flex items-center justify-center mx-auto mb-6 text-white text-2xl font-bold">3</div>
-          <h3 class="text-lg font-semibold text-gray-900 mb-2" data-i18n="howItWorks.step3.title">Traitement IA</h3>
-          <p class="text-gray-600" data-i18n="howItWorks.step3.desc">Les agents IA valident, détectent les anomalies et optimisent le traitement.</p>
+
+        <!-- Praticiens -->
+        <div class="bento-card bg-surface-lowest rounded-2xl p-8 ghost-shadow cursor-default">
+          <div class="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center mb-4">
+            <span class="material-symbols-outlined text-on-tertiary text-2xl bento-icon">stethoscope</span>
+          </div>
+          <h3 class="text-lg font-bold text-on-surface font-display mb-2" data-i18n="solutions.providers.title">Praticiens</h3>
+          <p class="text-sm text-on-surface-variant bento-desc leading-relaxed" data-i18n="solutions.providers.desc">Pharmaciens, médecins, laboratoires et cliniques : vérifiez l'éligibilité, saisissez les actes et recevez vos paiements rapidement.</p>
         </div>
-        <div class="text-center">
-          <div class="w-16 h-16 bg-secondary-600 rounded-full flex items-center justify-center mx-auto mb-6 text-white text-2xl font-bold">4</div>
-          <h3 class="text-lg font-semibold text-gray-900 mb-2" data-i18n="howItWorks.step4.title">Paiement</h3>
-          <p class="text-gray-600" data-i18n="howItWorks.step4.desc">Règlement rapide du prestataire via bordereau automatisé.</p>
+
+        <!-- Adhérents (full width gradient) -->
+        <div class="bento-card lg:col-span-2 signature-gradient rounded-2xl p-8 cursor-default relative overflow-hidden">
+          <div class="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+          <div class="relative flex items-start gap-5">
+            <div class="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center flex-shrink-0">
+              <span class="material-symbols-outlined text-white text-2xl">favorite</span>
+            </div>
+            <div>
+              <h3 class="text-xl font-bold text-white font-display mb-2" data-i18n="solutions.adherents.title">Adhérents & Patients</h3>
+              <p class="text-blue-100/80 leading-relaxed" data-i18n="solutions.adherents.desc">Application mobile pour suivre vos remboursements, consulter vos garanties, présenter votre carte virtuelle et localiser les prestataires conventionnés.</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Pricing -->
-  <section id="pricing" class="py-24 bg-white">
+  <!-- ==================== AI AGENTS (Features) ==================== -->
+  <section id="features" class="py-24 bg-surface-lowest">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="text-center mb-16">
-        <h2 class="text-3xl sm:text-4xl font-bold text-gray-900 mb-4" data-i18n="pricing.title">Tarification simple et transparente</h2>
-        <p class="text-xl text-gray-600 max-w-2xl mx-auto" data-i18n="pricing.subtitle">Des forfaits adaptés à la taille de votre organisation.</p>
+        <p class="text-sm font-semibold text-secondary uppercase tracking-wider mb-3" data-i18n="features.label">Intelligence Artificielle</p>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-primary font-display mb-4" data-i18n="features.title">Des agents IA spécialisés</h2>
+        <p class="text-lg text-on-surface-variant max-w-2xl mx-auto" data-i18n="features.subtitle">Notre plateforme intègre des agents d'intelligence artificielle pour automatiser et optimiser chaque étape du parcours santé.</p>
       </div>
-      <div class="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-        <!-- Starter -->
-        <div class="bg-gray-50 rounded-2xl p-8 border border-gray-200">
-          <h3 class="text-xl font-semibold text-gray-900 mb-2" data-i18n="pricing.starter.name">Starter</h3>
-          <p class="text-gray-600 mb-6" data-i18n="pricing.starter.desc">Pour les petites structures</p>
-          <div class="mb-6">
-            <span class="text-4xl font-bold text-gray-900">299</span>
-            <span class="text-gray-600" data-i18n="pricing.currency">TND/mois</span>
+
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- Agent 1: Éligibilité -->
+        <div class="group bg-surface rounded-2xl p-7 ghost-shadow hover:ghost-shadow-lg transition-all duration-300 hover:-translate-y-1">
+          <div class="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center mb-5 group-hover:signature-gradient transition-all duration-300">
+            <span class="material-symbols-outlined text-secondary text-2xl group-hover:text-white transition-colors duration-300">verified_user</span>
           </div>
-          <ul class="space-y-3 mb-8">
-            <li class="flex items-center gap-2 text-gray-600">
-              <svg class="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-              <span data-i18n="pricing.starter.f1">Jusqu'à 1000 transactions/mois</span>
-            </li>
-            <li class="flex items-center gap-2 text-gray-600">
-              <svg class="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-              <span data-i18n="pricing.starter.f2">Vérification d'éligibilité</span>
-            </li>
-            <li class="flex items-center gap-2 text-gray-600">
-              <svg class="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-              <span data-i18n="pricing.starter.f3">Support email</span>
-            </li>
-          </ul>
-          <a href="#contact" class="block text-center bg-gray-900 text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-800 transition" data-i18n="pricing.cta">Commencer</a>
+          <h3 class="text-lg font-bold text-on-surface font-display mb-2" data-i18n="features.f1.title">Agent Éligibilité</h3>
+          <p class="text-sm text-on-surface-variant leading-relaxed" data-i18n="features.f1.desc">Vérification en temps réel de l'éligibilité des adhérents avec réponse en moins de 100ms grâce au cache distribué.</p>
         </div>
-        <!-- Pro -->
-        <div class="bg-primary-600 rounded-2xl p-8 text-white relative overflow-hidden">
-          <div class="absolute top-0 ltr:right-0 rtl:left-0 bg-secondary-500 text-white text-xs px-3 py-1 ltr:rounded-bl-lg rtl:rounded-br-lg font-medium" data-i18n="pricing.popular">Populaire</div>
-          <h3 class="text-xl font-semibold mb-2" data-i18n="pricing.pro.name">Professionnel</h3>
-          <p class="text-blue-100 mb-6" data-i18n="pricing.pro.desc">Pour les cliniques et pharmacies</p>
-          <div class="mb-6">
-            <span class="text-4xl font-bold">799</span>
-            <span class="text-blue-100" data-i18n="pricing.currency">TND/mois</span>
+
+        <!-- Agent 2: Tarification -->
+        <div class="group bg-surface rounded-2xl p-7 ghost-shadow hover:ghost-shadow-lg transition-all duration-300 hover:-translate-y-1">
+          <div class="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center mb-5">
+            <span class="material-symbols-outlined text-on-tertiary text-2xl">calculate</span>
           </div>
-          <ul class="space-y-3 mb-8">
-            <li class="flex items-center gap-2">
-              <svg class="w-5 h-5 text-secondary-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-              <span data-i18n="pricing.pro.f1">Transactions illimitées</span>
-            </li>
-            <li class="flex items-center gap-2">
-              <svg class="w-5 h-5 text-secondary-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-              <span data-i18n="pricing.pro.f2">Détection de fraude IA</span>
-            </li>
-            <li class="flex items-center gap-2">
-              <svg class="w-5 h-5 text-secondary-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-              <span data-i18n="pricing.pro.f3">Rapports avancés</span>
-            </li>
-            <li class="flex items-center gap-2">
-              <svg class="w-5 h-5 text-secondary-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-              <span data-i18n="pricing.pro.f4">Support prioritaire</span>
-            </li>
-          </ul>
-          <a href="#contact" class="block text-center bg-white text-primary-600 px-6 py-3 rounded-lg font-medium hover:bg-gray-100 transition" data-i18n="pricing.cta">Commencer</a>
+          <h3 class="text-lg font-bold text-on-surface font-display mb-2" data-i18n="features.f2.title">Agent Tarification</h3>
+          <p class="text-sm text-on-surface-variant leading-relaxed" data-i18n="features.f2.desc">Calcul automatique des prises en charge selon les barèmes, conventions et plafonds de garantie.</p>
         </div>
-        <!-- Enterprise -->
-        <div class="bg-gray-50 rounded-2xl p-8 border border-gray-200">
-          <h3 class="text-xl font-semibold text-gray-900 mb-2" data-i18n="pricing.enterprise.name">Entreprise</h3>
-          <p class="text-gray-600 mb-6" data-i18n="pricing.enterprise.desc">Pour les assureurs et grands groupes</p>
-          <div class="mb-6">
-            <span class="text-4xl font-bold text-gray-900" data-i18n="pricing.enterprise.price">Sur devis</span>
+
+        <!-- Agent 3: Anti-Fraude -->
+        <div class="group bg-surface rounded-2xl p-7 ghost-shadow hover:ghost-shadow-lg transition-all duration-300 hover:-translate-y-1">
+          <div class="w-12 h-12 bg-red-50 rounded-xl flex items-center justify-center mb-5">
+            <span class="material-symbols-outlined text-red-500 text-2xl">gpp_maybe</span>
           </div>
-          <ul class="space-y-3 mb-8">
-            <li class="flex items-center gap-2 text-gray-600">
-              <svg class="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-              <span data-i18n="pricing.enterprise.f1">Multi-entités</span>
-            </li>
-            <li class="flex items-center gap-2 text-gray-600">
-              <svg class="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-              <span data-i18n="pricing.enterprise.f2">API complète</span>
-            </li>
-            <li class="flex items-center gap-2 text-gray-600">
-              <svg class="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-              <span data-i18n="pricing.enterprise.f3">Intégration sur mesure</span>
-            </li>
-            <li class="flex items-center gap-2 text-gray-600">
-              <svg class="w-5 h-5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-              <span data-i18n="pricing.enterprise.f4">Account manager dédié</span>
-            </li>
-          </ul>
-          <a href="#contact" class="block text-center bg-gray-900 text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-800 transition" data-i18n="pricing.contact">Nous contacter</a>
+          <h3 class="text-lg font-bold text-on-surface font-display mb-2" data-i18n="features.f3.title">Agent Anti-Fraude</h3>
+          <p class="text-sm text-on-surface-variant leading-relaxed" data-i18n="features.f3.desc">Détection des anomalies et comportements suspects avec score de confiance 0-100 sur chaque transaction.</p>
+        </div>
+
+        <!-- Agent 4: Réconciliation -->
+        <div class="group bg-surface rounded-2xl p-7 ghost-shadow hover:ghost-shadow-lg transition-all duration-300 hover:-translate-y-1">
+          <div class="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center mb-5">
+            <span class="material-symbols-outlined text-orange-500 text-2xl">account_tree</span>
+          </div>
+          <h3 class="text-lg font-bold text-on-surface font-display mb-2" data-i18n="features.f4.title">Agent Réconciliation</h3>
+          <p class="text-sm text-on-surface-variant leading-relaxed" data-i18n="features.f4.desc">Rapprochement automatique des demandes, paiements et bordereaux avec génération de rapports.</p>
+        </div>
+
+        <!-- Agent 5: OCR -->
+        <div class="group bg-surface rounded-2xl p-7 ghost-shadow hover:ghost-shadow-lg transition-all duration-300 hover:-translate-y-1">
+          <div class="w-12 h-12 bg-pink-50 rounded-xl flex items-center justify-center mb-5">
+            <span class="material-symbols-outlined text-pink-500 text-2xl">document_scanner</span>
+          </div>
+          <h3 class="text-lg font-bold text-on-surface font-display mb-2" data-i18n="features.f5.title">OCR & Extraction IA</h3>
+          <p class="text-sm text-on-surface-variant leading-relaxed" data-i18n="features.f5.desc">Extraction intelligente des données depuis ordonnances, factures et documents médicaux via Workers AI.</p>
+        </div>
+
+        <!-- Agent 6: Mobile -->
+        <div class="group bg-surface rounded-2xl p-7 ghost-shadow hover:ghost-shadow-lg transition-all duration-300 hover:-translate-y-1">
+          <div class="w-12 h-12 bg-cyan-50 rounded-xl flex items-center justify-center mb-5">
+            <span class="material-symbols-outlined text-cyan-500 text-2xl">smartphone</span>
+          </div>
+          <h3 class="text-lg font-bold text-on-surface font-display mb-2" data-i18n="features.f6.title">Application Mobile</h3>
+          <p class="text-sm text-on-surface-variant leading-relaxed" data-i18n="features.f6.desc">Application mobile pour les adhérents avec suivi des remboursements, carte virtuelle et notifications push.</p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- CTA -->
-  <section class="py-24 gradient-bg">
-    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-      <h2 class="text-3xl sm:text-4xl font-bold text-white mb-6" data-i18n="cta.title">Prêt à digitaliser votre activité santé ?</h2>
-      <p class="text-xl text-blue-100 mb-8" data-i18n="cta.subtitle">Rejoignez les prestataires et assureurs qui utilisent nos agents IA pour transformer leurs opérations.</p>
+  <!-- ==================== HOW IT WORKS ==================== -->
+  <section id="how-it-works" class="py-24 bg-surface">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center mb-16">
+        <p class="text-sm font-semibold text-secondary uppercase tracking-wider mb-3" data-i18n="howItWorks.label">Processus</p>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-primary font-display mb-4" data-i18n="howItWorks.title">Comment ça marche ?</h2>
+        <p class="text-lg text-on-surface-variant max-w-2xl mx-auto" data-i18n="howItWorks.subtitle">Un processus digitalisé et piloté par des agents IA pour tous les acteurs de la santé.</p>
+      </div>
+
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
+        <!-- Step 1 -->
+        <div class="step-connector text-center">
+          <div class="w-14 h-14 signature-gradient rounded-2xl flex items-center justify-center mx-auto mb-5 relative z-10">
+            <span class="material-symbols-outlined text-white text-2xl">badge</span>
+          </div>
+          <h3 class="text-base font-bold text-on-surface font-display mb-2" data-i18n="howItWorks.step1.title">Vérification</h3>
+          <p class="text-sm text-on-surface-variant" data-i18n="howItWorks.step1.desc">L'adhérent présente sa carte. Le prestataire vérifie l'éligibilité en temps réel.</p>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="step-connector text-center">
+          <div class="w-14 h-14 signature-gradient rounded-2xl flex items-center justify-center mx-auto mb-5 relative z-10">
+            <span class="material-symbols-outlined text-white text-2xl">medical_services</span>
+          </div>
+          <h3 class="text-base font-bold text-on-surface font-display mb-2" data-i18n="howItWorks.step2.title">Prise en charge</h3>
+          <p class="text-sm text-on-surface-variant" data-i18n="howItWorks.step2.desc">Calcul automatique du montant couvert et du ticket modérateur.</p>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="step-connector text-center">
+          <div class="w-14 h-14 signature-gradient rounded-2xl flex items-center justify-center mx-auto mb-5 relative z-10">
+            <span class="material-symbols-outlined text-white text-2xl">psychology</span>
+          </div>
+          <h3 class="text-base font-bold text-on-surface font-display mb-2" data-i18n="howItWorks.step3.title">Traitement IA</h3>
+          <p class="text-sm text-on-surface-variant" data-i18n="howItWorks.step3.desc">Les agents IA valident, détectent les anomalies et optimisent le traitement.</p>
+        </div>
+
+        <!-- Step 4 -->
+        <div class="step-connector text-center">
+          <div class="w-14 h-14 bg-on-tertiary rounded-2xl flex items-center justify-center mx-auto mb-5 relative z-10">
+            <span class="material-symbols-outlined text-white text-2xl">payments</span>
+          </div>
+          <h3 class="text-base font-bold text-on-surface font-display mb-2" data-i18n="howItWorks.step4.title">Paiement</h3>
+          <p class="text-sm text-on-surface-variant" data-i18n="howItWorks.step4.desc">Règlement rapide du prestataire via bordereau automatisé.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== INNOVATION & SÉCURITÉ ==================== -->
+  <section id="security" class="py-24 bg-primary relative overflow-hidden">
+    <!-- Background decoration -->
+    <div class="absolute inset-0">
+      <div class="absolute top-0 right-0 w-96 h-96 bg-secondary/10 rounded-full blur-3xl"></div>
+      <div class="absolute bottom-0 left-0 w-72 h-72 bg-on-tertiary/5 rounded-full blur-3xl"></div>
+    </div>
+
+    <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="grid lg:grid-cols-2 gap-16 items-center">
+        <!-- Left: Content -->
+        <div>
+          <p class="text-sm font-semibold text-secondary-container uppercase tracking-wider mb-3" data-i18n="security.label">Innovation & Sécurité</p>
+          <h2 class="text-3xl sm:text-4xl font-extrabold text-white font-display mb-6" data-i18n="security.title">Sécurité de niveau entreprise</h2>
+          <p class="text-lg text-blue-100/60 mb-10 leading-relaxed" data-i18n="security.subtitle">Vos données de santé sont protégées par les standards les plus exigeants de l'industrie.</p>
+
+          <div class="space-y-6">
+            <!-- AES-256 -->
+            <div class="flex items-start gap-4">
+              <div class="w-11 h-11 bg-white/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                <span class="material-symbols-outlined text-secondary-container">lock</span>
+              </div>
+              <div>
+                <h4 class="text-white font-bold font-display mb-1" data-i18n="security.f1.title">Chiffrement AES-256</h4>
+                <p class="text-sm text-blue-100/50" data-i18n="security.f1.desc">Toutes les données sensibles sont chiffrées au repos et en transit.</p>
+              </div>
+            </div>
+            <!-- RGPD -->
+            <div class="flex items-start gap-4">
+              <div class="w-11 h-11 bg-white/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                <span class="material-symbols-outlined text-on-tertiary">policy</span>
+              </div>
+              <div>
+                <h4 class="text-white font-bold font-display mb-1" data-i18n="security.f2.title">Conformité RGPD</h4>
+                <p class="text-sm text-blue-100/50" data-i18n="security.f2.desc">Protection des données personnelles conforme aux normes européennes.</p>
+              </div>
+            </div>
+            <!-- Audit Trail -->
+            <div class="flex items-start gap-4">
+              <div class="w-11 h-11 bg-white/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                <span class="material-symbols-outlined text-orange-400">history</span>
+              </div>
+              <div>
+                <h4 class="text-white font-bold font-display mb-1" data-i18n="security.f3.title">Audit Trail Complet</h4>
+                <p class="text-sm text-blue-100/50" data-i18n="security.f3.desc">Traçabilité totale de chaque action : qui, quand, quoi, avec historique immuable.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Security Visualization -->
+        <div class="hidden lg:flex justify-center">
+          <div class="relative w-80 h-80">
+            <!-- Central shield -->
+            <div class="absolute inset-0 flex items-center justify-center">
+              <div class="w-40 h-40 bg-white/5 rounded-3xl backdrop-blur-sm border border-white/10 flex items-center justify-center">
+                <span class="material-symbols-outlined text-secondary-container" style="font-size:64px">shield_with_heart</span>
+              </div>
+            </div>
+            <!-- Orbiting elements -->
+            <div class="absolute top-4 left-1/2 -translate-x-1/2 w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center animate-bounce" style="animation-delay:0s;animation-duration:3s">
+              <span class="material-symbols-outlined text-on-tertiary text-lg">encrypted</span>
+            </div>
+            <div class="absolute bottom-4 left-4 w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center animate-bounce" style="animation-delay:1s;animation-duration:3s">
+              <span class="material-symbols-outlined text-secondary-container text-lg">fingerprint</span>
+            </div>
+            <div class="absolute bottom-4 right-4 w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center animate-bounce" style="animation-delay:2s;animation-duration:3s">
+              <span class="material-symbols-outlined text-orange-400 text-lg">key</span>
+            </div>
+            <div class="absolute top-1/2 -translate-y-1/2 left-0 w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center animate-bounce" style="animation-delay:0.5s;animation-duration:3s">
+              <span class="material-symbols-outlined text-pink-400 text-lg">vpn_lock</span>
+            </div>
+            <div class="absolute top-1/2 -translate-y-1/2 right-0 w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center animate-bounce" style="animation-delay:1.5s;animation-duration:3s">
+              <span class="material-symbols-outlined text-cyan-400 text-lg">admin_panel_settings</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== CTA ==================== -->
+  <section class="py-24 relative overflow-hidden" style="background: linear-gradient(135deg, #0051d5 0%, #316bf3 50%, #009d6d 100%);">
+    <div class="absolute inset-0">
+      <div class="absolute top-0 left-0 w-96 h-96 bg-white/5 rounded-full blur-3xl"></div>
+      <div class="absolute bottom-0 right-0 w-72 h-72 bg-white/5 rounded-full blur-3xl"></div>
+    </div>
+    <div class="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+      <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white font-display mb-6" data-i18n="cta.title">Prêt à digitaliser votre activité santé ?</h2>
+      <p class="text-lg text-white/70 mb-10 max-w-2xl mx-auto" data-i18n="cta.subtitle">Rejoignez les prestataires et assureurs qui utilisent nos agents IA pour transformer leurs opérations.</p>
       <div class="flex flex-col sm:flex-row gap-4 justify-center">
-        <a href="https://dhamen-web.pages.dev/login" class="bg-white text-primary-700 px-8 py-4 rounded-xl font-semibold text-lg hover:bg-gray-100 transition shadow-xl" data-i18n="cta.btn1">
-          Commencer gratuitement
+        <a href="https://app-staging.e-sante.com.tn/login" class="inline-flex items-center justify-center gap-2 bg-white text-primary px-8 py-4 rounded-xl font-semibold text-lg hover:bg-surface transition ghost-shadow-lg" data-i18n="cta.btn1">
+          <span class="material-symbols-outlined">rocket_launch</span>
+          Commencer maintenant
         </a>
-        <a href="#contact" class="glass text-white px-8 py-4 rounded-xl font-semibold text-lg hover:bg-white/20 transition border border-white/30" data-i18n="cta.btn2">
+        <a href="#contact" class="inline-flex items-center justify-center gap-2 bg-white/15 backdrop-blur-sm text-white px-8 py-4 rounded-xl font-semibold text-lg hover:bg-white/25 transition" data-i18n="cta.btn2">
+          <span class="material-symbols-outlined">chat</span>
           Demander une démo
         </a>
       </div>
     </div>
   </section>
 
-  <!-- Contact -->
-  <section id="contact" class="py-24 bg-gray-50">
+  <!-- ==================== CONTACT ==================== -->
+  <section id="contact" class="py-24 bg-surface">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="grid lg:grid-cols-2 gap-12">
+      <div class="grid lg:grid-cols-2 gap-12 lg:gap-16">
+        <!-- Left: Info -->
         <div>
-          <h2 class="text-3xl sm:text-4xl font-bold text-gray-900 mb-6" data-i18n="contact.title">Contactez-nous</h2>
-          <p class="text-xl text-gray-600 mb-8" data-i18n="contact.subtitle">Notre équipe est disponible pour répondre à toutes vos questions et vous accompagner dans votre projet.</p>
+          <p class="text-sm font-semibold text-secondary uppercase tracking-wider mb-3" data-i18n="contact.label">Contact</p>
+          <h2 class="text-3xl sm:text-4xl font-extrabold text-primary font-display mb-4" data-i18n="contact.title">Contactez-nous</h2>
+          <p class="text-lg text-on-surface-variant mb-10 leading-relaxed" data-i18n="contact.subtitle">Notre équipe est disponible pour répondre à toutes vos questions et vous accompagner dans votre projet de digitalisation.</p>
+
           <div class="space-y-6">
             <div class="flex items-center gap-4">
-              <div class="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center">
-                <svg class="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+              <div class="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0">
+                <span class="material-symbols-outlined text-secondary">mail</span>
               </div>
               <div>
-                <div class="font-medium text-gray-900">Email</div>
-                <div class="text-gray-600">contact@e-sante.tn</div>
+                <div class="font-semibold text-on-surface font-display">Email</div>
+                <a href="mailto:contact@e-sante.com.tn" class="text-on-surface-variant hover:text-secondary transition-colors">contact@e-sante.com.tn</a>
               </div>
             </div>
             <div class="flex items-center gap-4">
-              <div class="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center">
-                <svg class="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/></svg>
+              <div class="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center flex-shrink-0">
+                <span class="material-symbols-outlined text-on-tertiary">call</span>
               </div>
               <div>
-                <div class="font-medium text-gray-900" data-i18n="contact.phone">Téléphone</div>
-                <div class="text-gray-600">+216 71 123 456</div>
+                <div class="font-semibold text-on-surface font-display" data-i18n="contact.phone">Téléphone</div>
+                <a href="tel:+21671123456" class="text-on-surface-variant hover:text-secondary transition-colors">+216 71 123 456</a>
               </div>
             </div>
             <div class="flex items-center gap-4">
-              <div class="w-12 h-12 bg-primary-100 rounded-xl flex items-center justify-center">
-                <svg class="w-6 h-6 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+              <div class="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center flex-shrink-0">
+                <span class="material-symbols-outlined text-orange-500">location_on</span>
               </div>
               <div>
-                <div class="font-medium text-gray-900" data-i18n="contact.address">Adresse</div>
-                <div class="text-gray-600">Centre Urbain Nord, Tunis 1082</div>
+                <div class="font-semibold text-on-surface font-display" data-i18n="contact.address">Adresse</div>
+                <span class="text-on-surface-variant">Centre Urbain Nord, Tunis 1082</span>
               </div>
             </div>
           </div>
         </div>
-        <div class="bg-white rounded-2xl p-8 shadow-xl">
-          <form class="space-y-6">
-            <div class="grid sm:grid-cols-2 gap-6">
+
+        <!-- Right: Form -->
+        <div class="bg-surface-lowest rounded-2xl p-8 ghost-shadow-lg">
+          <form id="contactForm" class="space-y-5" onsubmit="handleContactSubmit(event)">
+            <div class="grid sm:grid-cols-2 gap-5">
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2" data-i18n="contact.form.firstName">Prénom</label>
-                <input type="text" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent" data-i18n-placeholder="contact.form.firstNamePlaceholder" placeholder="Votre prénom">
+                <label class="block text-sm font-medium text-on-surface mb-1.5" data-i18n="contact.form.firstName">Prénom</label>
+                <input type="text" name="firstName" required class="w-full px-4 py-3 rounded-xl bg-surface border-0 text-on-surface placeholder:text-outline text-sm" data-i18n-placeholder="contact.form.firstNamePlaceholder" placeholder="Votre prénom">
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2" data-i18n="contact.form.lastName">Nom</label>
-                <input type="text" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent" data-i18n-placeholder="contact.form.lastNamePlaceholder" placeholder="Votre nom">
+                <label class="block text-sm font-medium text-on-surface mb-1.5" data-i18n="contact.form.lastName">Nom</label>
+                <input type="text" name="lastName" required class="w-full px-4 py-3 rounded-xl bg-surface border-0 text-on-surface placeholder:text-outline text-sm" data-i18n-placeholder="contact.form.lastNamePlaceholder" placeholder="Votre nom">
               </div>
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Email</label>
-              <input type="email" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent" data-i18n-placeholder="contact.form.emailPlaceholder" placeholder="votre@email.com">
+              <label class="block text-sm font-medium text-on-surface mb-1.5">Email</label>
+              <input type="email" name="email" required class="w-full px-4 py-3 rounded-xl bg-surface border-0 text-on-surface placeholder:text-outline text-sm" data-i18n-placeholder="contact.form.emailPlaceholder" placeholder="votre@email.com">
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2" data-i18n="contact.form.orgType">Type d'organisation</label>
-              <select class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent">
-                <option data-i18n="contact.form.select">Sélectionnez...</option>
-                <option data-i18n="contact.form.pharmacy">Pharmacie</option>
-                <option data-i18n="contact.form.clinic">Clinique / Hôpital</option>
-                <option data-i18n="contact.form.cabinet">Cabinet médical</option>
-                <option data-i18n="contact.form.lab">Laboratoire</option>
-                <option data-i18n="contact.form.insurer">Assureur / Mutuelle</option>
-                <option data-i18n="contact.form.other">Autre</option>
+              <label class="block text-sm font-medium text-on-surface mb-1.5" data-i18n="contact.form.orgType">Type d'organisation</label>
+              <select name="orgType" required class="w-full px-4 py-3 rounded-xl bg-surface border-0 text-on-surface text-sm">
+                <option value="" data-i18n="contact.form.select">Sélectionnez...</option>
+                <option value="pharmacy" data-i18n="contact.form.pharmacy">Pharmacie</option>
+                <option value="clinic" data-i18n="contact.form.clinic">Clinique / Hôpital</option>
+                <option value="cabinet" data-i18n="contact.form.cabinet">Cabinet médical</option>
+                <option value="lab" data-i18n="contact.form.lab">Laboratoire</option>
+                <option value="insurer" data-i18n="contact.form.insurer">Assureur / Mutuelle</option>
+                <option value="company" data-i18n="contact.form.company">Entreprise</option>
+                <option value="other" data-i18n="contact.form.other">Autre</option>
               </select>
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2" data-i18n="contact.form.message">Message</label>
-              <textarea rows="4" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-transparent" data-i18n-placeholder="contact.form.messagePlaceholder" placeholder="Comment pouvons-nous vous aider ?"></textarea>
+              <label class="block text-sm font-medium text-on-surface mb-1.5" data-i18n="contact.form.message">Message</label>
+              <textarea name="message" rows="4" required class="w-full px-4 py-3 rounded-xl bg-surface border-0 text-on-surface placeholder:text-outline text-sm resize-none" data-i18n-placeholder="contact.form.messagePlaceholder" placeholder="Comment pouvons-nous vous aider ?"></textarea>
             </div>
-            <button type="submit" class="w-full bg-primary-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-primary-700 transition" data-i18n="contact.form.submit">Envoyer</button>
+            <button type="submit" id="contactSubmitBtn" class="w-full signature-gradient text-white px-6 py-3.5 rounded-xl font-semibold text-sm hover:opacity-90 transition flex items-center justify-center gap-2">
+              <span class="material-symbols-outlined text-[18px]">send</span>
+              <span data-i18n="contact.form.submit">Envoyer</span>
+            </button>
+            <div id="contactFeedback" class="hidden text-center text-sm py-2 rounded-xl"></div>
           </form>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Footer -->
-  <footer class="bg-gray-900 text-white py-16">
+  <!-- ==================== FOOTER ==================== -->
+  <footer class="bg-primary text-white py-16">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="grid md:grid-cols-4 gap-12">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-10 lg:gap-12">
+        <!-- Col 1: Brand -->
         <div>
-          <div class="flex items-center space-x-3 rtl:space-x-reverse mb-6">
-            <div class="w-10 h-10 bg-primary-600 rounded-xl flex items-center justify-center">
-              <span class="text-white font-bold text-xl">E</span>
+          <div class="flex items-center gap-2.5 mb-5">
+            <div class="w-9 h-9 rounded-xl flex items-center justify-center" style="background:#1a2332">
+              <span class="text-white font-extrabold text-sm font-display">BH</span>
             </div>
-            <span class="text-2xl font-bold">E-Santé</span>
+            <div class="flex flex-col leading-tight">
+              <span class="text-lg font-extrabold font-display">E-Santé</span>
+              <span class="text-[10px] font-medium text-blue-100/50 tracking-wider">BH Assurance</span>
+            </div>
           </div>
-          <p class="text-gray-400 mb-6" data-i18n="footer.tagline">La plateforme de digitalisation santé propulsée par l'IA en Tunisie.</p>
-          <div class="flex space-x-4 rtl:space-x-reverse">
-            <a href="#" class="w-10 h-10 bg-gray-800 rounded-lg flex items-center justify-center hover:bg-primary-600 transition">
-              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+          <p class="text-sm text-blue-100/50 mb-6 leading-relaxed" data-i18n="footer.tagline">La plateforme de digitalisation santé propulsée par l'IA en Tunisie.</p>
+          <div class="flex items-center gap-3">
+            <a href="#" class="w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center hover:bg-secondary transition">
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
             </a>
-            <a href="#" class="w-10 h-10 bg-gray-800 rounded-lg flex items-center justify-center hover:bg-primary-600 transition">
-              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/></svg>
+            <a href="#" class="w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center hover:bg-secondary transition">
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/></svg>
             </a>
-            <a href="#" class="w-10 h-10 bg-gray-800 rounded-lg flex items-center justify-center hover:bg-primary-600 transition">
-              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+            <a href="#" class="w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center hover:bg-secondary transition">
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
             </a>
           </div>
         </div>
+
+        <!-- Col 2: Produit -->
         <div>
-          <h4 class="font-semibold mb-6" data-i18n="footer.product">Produit</h4>
-          <ul class="space-y-4 text-gray-400">
-            <li><a href="#features" class="hover:text-white transition" data-i18n="nav.features">Fonctionnalités</a></li>
-            <li><a href="#pricing" class="hover:text-white transition" data-i18n="nav.pricing">Tarifs</a></li>
-            <li><a href="#" class="hover:text-white transition">API</a></li>
-            <li><a href="#" class="hover:text-white transition" data-i18n="footer.security">Sécurité</a></li>
+          <h4 class="font-semibold font-display mb-5" data-i18n="footer.product">Produit</h4>
+          <ul class="space-y-3 text-sm text-blue-100/50">
+            <li><a href="#solutions" class="hover:text-white transition-colors" data-i18n="nav.solutions">Solutions</a></li>
+            <li><a href="#features" class="hover:text-white transition-colors" data-i18n="nav.features">Fonctionnalités</a></li>
+            <li><a href="#" class="hover:text-white transition-colors">API</a></li>
+            <li><a href="#security" class="hover:text-white transition-colors" data-i18n="nav.security">Sécurité</a></li>
           </ul>
         </div>
+
+        <!-- Col 3: Entreprise -->
         <div>
-          <h4 class="font-semibold mb-6" data-i18n="footer.company">Entreprise</h4>
-          <ul class="space-y-4 text-gray-400">
-            <li><a href="#" class="hover:text-white transition" data-i18n="footer.about">À propos</a></li>
-            <li><a href="#" class="hover:text-white transition" data-i18n="footer.careers">Carrières</a></li>
-            <li><a href="#" class="hover:text-white transition" data-i18n="footer.partners">Partenaires</a></li>
-            <li><a href="#contact" class="hover:text-white transition" data-i18n="nav.contact">Contact</a></li>
+          <h4 class="font-semibold font-display mb-5" data-i18n="footer.company">Entreprise</h4>
+          <ul class="space-y-3 text-sm text-blue-100/50">
+            <li><a href="#" class="hover:text-white transition-colors" data-i18n="footer.about">À propos</a></li>
+            <li><a href="#" class="hover:text-white transition-colors" data-i18n="footer.careers">Carrières</a></li>
+            <li><a href="#" class="hover:text-white transition-colors" data-i18n="footer.partners">Partenaires</a></li>
+            <li><a href="#contact" class="hover:text-white transition-colors" data-i18n="nav.contact">Contact</a></li>
           </ul>
         </div>
+
+        <!-- Col 4: Légal -->
         <div>
-          <h4 class="font-semibold mb-6" data-i18n="footer.legal">Légal</h4>
-          <ul class="space-y-4 text-gray-400">
-            <li><a href="#" class="hover:text-white transition" data-i18n="footer.terms">CGU</a></li>
-            <li><a href="#" class="hover:text-white transition" data-i18n="footer.privacy">Politique de confidentialité</a></li>
-            <li><a href="#" class="hover:text-white transition" data-i18n="footer.legalNotice">Mentions légales</a></li>
+          <h4 class="font-semibold font-display mb-5" data-i18n="footer.legal">Légal</h4>
+          <ul class="space-y-3 text-sm text-blue-100/50">
+            <li><a href="#" class="hover:text-white transition-colors" data-i18n="footer.terms">CGU</a></li>
+            <li><a href="#" class="hover:text-white transition-colors" data-i18n="footer.privacy">Politique de confidentialité</a></li>
+            <li><a href="#" class="hover:text-white transition-colors" data-i18n="footer.legalNotice">Mentions légales</a></li>
           </ul>
         </div>
       </div>
-      <div class="border-t border-gray-800 mt-12 pt-8 text-center text-gray-400">
-        <p data-i18n="footer.copyright">© 2025 E-Santé. Tous droits réservés. Fait avec ❤️ en Tunisie.</p>
+
+      <div class="border-t border-white/10 mt-12 pt-8 text-center text-sm text-blue-100/40">
+        <p data-i18n="footer.copyright">&copy; 2025 E-Santé. Tous droits réservés.</p>
       </div>
     </div>
   </footer>
 
-  <!-- i18n Script -->
+  <!-- ==================== SCRIPTS ==================== -->
   <script>
+    // ========== i18n ==========
     const translations = {
       fr: {
-        // Navigation
+        "nav.solutions": "Solutions",
         "nav.features": "Fonctionnalités",
-        "nav.howItWorks": "Comment ça marche",
-        "nav.pricing": "Tarifs",
+        "nav.security": "Sécurité",
         "nav.contact": "Contact",
         "nav.login": "Connexion",
-        "nav.start": "Démarrer",
 
-        // Hero
         "hero.badge": "Plateforme IA-Native 100% Tunisienne",
         "hero.title1": "La Digitalisation Santé",
         "hero.title2": "Propulsée par l'IA",
-        "hero.description": "E-Santé est une plateforme de digitalisation du secteur de la santé. Nos agents IA automatisent la vérification d'éligibilité, la tarification, la détection de fraude et la réconciliation financière.",
-        "hero.cta1": "Accéder à la plateforme",
-        "hero.cta2": "Voir la démo",
+        "hero.description": "E-Santé est la plateforme de tiers payant santé propulsée par l'intelligence artificielle. Automatisez la vérification d'éligibilité, la tarification, la détection de fraude et la réconciliation financière.",
+        "hero.cta1": "Découvrir",
+        "hero.cta2": "Accéder à la plateforme",
         "hero.stat1": "Assureurs partenaires",
         "hero.stat2": "Prestataires connectés",
         "hero.stat3": "Adhérents couverts",
 
-        // Dashboard
         "dashboard.title": "Tableau de bord",
         "dashboard.live": "En direct",
         "dashboard.item1.title": "Éligibilité vérifiée",
         "dashboard.item2.title": "Remboursement traité",
         "dashboard.item3.title": "Bordereau généré",
+        "dashboard.transactions": "Transactions aujourd'hui",
 
-        // Features
+        "partners.title": "Confiance Institutionnelle",
+
+        "solutions.label": "Solutions",
+        "solutions.title": "Une plateforme pour chaque acteur",
+        "solutions.subtitle": "Des outils spécialisés pour digitaliser le parcours santé de bout en bout.",
+        "solutions.insurers.title": "Assureurs & Mutuelles",
+        "solutions.insurers.desc": "Pilotez vos contrats, gérez vos adhérents, automatisez les bordereaux et bénéficiez d'un score anti-fraude IA sur chaque transaction. Tableau de bord analytique en temps réel.",
+        "solutions.companies.title": "Entreprises",
+        "solutions.companies.desc": "Portail RH dédié pour gérer les contrats groupe, les adhérents et suivre les remboursements de vos collaborateurs.",
+        "solutions.providers.title": "Praticiens",
+        "solutions.providers.desc": "Pharmaciens, médecins, laboratoires et cliniques : vérifiez l'éligibilité, saisissez les actes et recevez vos paiements rapidement.",
+        "solutions.adherents.title": "Adhérents & Patients",
+        "solutions.adherents.desc": "Application mobile pour suivre vos remboursements, consulter vos garanties, présenter votre carte virtuelle et localiser les prestataires conventionnés.",
+
+        "features.label": "Intelligence Artificielle",
         "features.title": "Des agents IA spécialisés",
         "features.subtitle": "Notre plateforme intègre des agents d'intelligence artificielle pour automatiser et optimiser chaque étape du parcours santé.",
-        "features.f1.title": "Agent d'Éligibilité",
-        "features.f1.desc": "Agent IA vérifiant en temps réel l'éligibilité des adhérents avec réponse en moins de 100ms.",
-        "features.f2.title": "Agent de Tarification",
-        "features.f2.desc": "Agent IA calculant automatiquement les prises en charge selon les barèmes et conventions.",
+        "features.f1.title": "Agent Éligibilité",
+        "features.f1.desc": "Vérification en temps réel de l'éligibilité des adhérents avec réponse en moins de 100ms grâce au cache distribué.",
+        "features.f2.title": "Agent Tarification",
+        "features.f2.desc": "Calcul automatique des prises en charge selon les barèmes, conventions et plafonds de garantie.",
         "features.f3.title": "Agent Anti-Fraude",
-        "features.f3.desc": "Agent IA détectant les anomalies et comportements suspects pour prévenir la fraude.",
-        "features.f4.title": "Agent de Réconciliation",
-        "features.f4.desc": "Agent IA rapprochant automatiquement les demandes, paiements et bordereaux.",
+        "features.f3.desc": "Détection des anomalies et comportements suspects avec score de confiance 0-100 sur chaque transaction.",
+        "features.f4.title": "Agent Réconciliation",
+        "features.f4.desc": "Rapprochement automatique des demandes, paiements et bordereaux avec génération de rapports.",
         "features.f5.title": "OCR & Extraction IA",
-        "features.f5.desc": "Extraction intelligente des données depuis ordonnances, factures et documents médicaux.",
+        "features.f5.desc": "Extraction intelligente des données depuis ordonnances, factures et documents médicaux via Workers AI.",
         "features.f6.title": "Application Mobile",
-        "features.f6.desc": "Application mobile pour les adhérents avec suivi des remboursements et carte virtuelle.",
+        "features.f6.desc": "Application mobile pour les adhérents avec suivi des remboursements, carte virtuelle et notifications push.",
 
-        // How it works
+        "howItWorks.label": "Processus",
         "howItWorks.title": "Comment ça marche ?",
         "howItWorks.subtitle": "Un processus digitalisé et piloté par des agents IA pour tous les acteurs de la santé.",
         "howItWorks.step1.title": "Vérification",
@@ -550,41 +849,24 @@
         "howItWorks.step4.title": "Paiement",
         "howItWorks.step4.desc": "Règlement rapide du prestataire via bordereau automatisé.",
 
-        // Pricing
-        "pricing.title": "Tarification simple et transparente",
-        "pricing.subtitle": "Des forfaits adaptés à la taille de votre organisation.",
-        "pricing.currency": "TND/mois",
-        "pricing.popular": "Populaire",
-        "pricing.cta": "Commencer",
-        "pricing.contact": "Nous contacter",
-        "pricing.starter.name": "Starter",
-        "pricing.starter.desc": "Pour les petites structures",
-        "pricing.starter.f1": "Jusqu'à 1000 transactions/mois",
-        "pricing.starter.f2": "Vérification d'éligibilité",
-        "pricing.starter.f3": "Support email",
-        "pricing.pro.name": "Professionnel",
-        "pricing.pro.desc": "Pour les cliniques et pharmacies",
-        "pricing.pro.f1": "Transactions illimitées",
-        "pricing.pro.f2": "Détection de fraude IA",
-        "pricing.pro.f3": "Rapports avancés",
-        "pricing.pro.f4": "Support prioritaire",
-        "pricing.enterprise.name": "Entreprise",
-        "pricing.enterprise.desc": "Pour les assureurs et grands groupes",
-        "pricing.enterprise.price": "Sur devis",
-        "pricing.enterprise.f1": "Multi-entités",
-        "pricing.enterprise.f2": "API complète",
-        "pricing.enterprise.f3": "Intégration sur mesure",
-        "pricing.enterprise.f4": "Account manager dédié",
+        "security.label": "Innovation & Sécurité",
+        "security.title": "Sécurité de niveau entreprise",
+        "security.subtitle": "Vos données de santé sont protégées par les standards les plus exigeants de l'industrie.",
+        "security.f1.title": "Chiffrement AES-256",
+        "security.f1.desc": "Toutes les données sensibles sont chiffrées au repos et en transit.",
+        "security.f2.title": "Conformité RGPD",
+        "security.f2.desc": "Protection des données personnelles conforme aux normes européennes.",
+        "security.f3.title": "Audit Trail Complet",
+        "security.f3.desc": "Traçabilité totale de chaque action : qui, quand, quoi, avec historique immuable.",
 
-        // CTA
         "cta.title": "Prêt à digitaliser votre activité santé ?",
         "cta.subtitle": "Rejoignez les prestataires et assureurs qui utilisent nos agents IA pour transformer leurs opérations.",
-        "cta.btn1": "Commencer gratuitement",
+        "cta.btn1": "Commencer maintenant",
         "cta.btn2": "Demander une démo",
 
-        // Contact
+        "contact.label": "Contact",
         "contact.title": "Contactez-nous",
-        "contact.subtitle": "Notre équipe est disponible pour répondre à toutes vos questions et vous accompagner dans votre projet.",
+        "contact.subtitle": "Notre équipe est disponible pour répondre à toutes vos questions et vous accompagner dans votre projet de digitalisation.",
         "contact.phone": "Téléphone",
         "contact.address": "Adresse",
         "contact.form.firstName": "Prénom",
@@ -599,15 +881,17 @@
         "contact.form.cabinet": "Cabinet médical",
         "contact.form.lab": "Laboratoire",
         "contact.form.insurer": "Assureur / Mutuelle",
+        "contact.form.company": "Entreprise",
         "contact.form.other": "Autre",
         "contact.form.message": "Message",
         "contact.form.messagePlaceholder": "Comment pouvons-nous vous aider ?",
         "contact.form.submit": "Envoyer",
+        "contact.form.sending": "Envoi en cours...",
+        "contact.form.success": "Message envoyé avec succès !",
+        "contact.form.error": "Erreur lors de l'envoi. Veuillez réessayer.",
 
-        // Footer
         "footer.tagline": "La plateforme de digitalisation santé propulsée par l'IA en Tunisie.",
         "footer.product": "Produit",
-        "footer.security": "Sécurité",
         "footer.company": "Entreprise",
         "footer.about": "À propos",
         "footer.careers": "Carrières",
@@ -616,52 +900,63 @@
         "footer.terms": "CGU",
         "footer.privacy": "Politique de confidentialité",
         "footer.legalNotice": "Mentions légales",
-        "footer.copyright": "© 2025 E-Santé. Tous droits réservés. Fait avec ❤️ en Tunisie."
+        "footer.copyright": "\u00a9 2025 E-Santé. Tous droits réservés."
       },
       en: {
-        // Navigation
+        "nav.solutions": "Solutions",
         "nav.features": "Features",
-        "nav.howItWorks": "How it works",
-        "nav.pricing": "Pricing",
+        "nav.security": "Security",
         "nav.contact": "Contact",
         "nav.login": "Login",
-        "nav.start": "Get Started",
 
-        // Hero
         "hero.badge": "AI-Native 100% Tunisian Platform",
         "hero.title1": "Healthcare Digitalization",
         "hero.title2": "Powered by AI",
-        "hero.description": "E-Santé is a healthcare digitalization platform. Our AI agents automate eligibility verification, pricing, fraud detection and financial reconciliation.",
-        "hero.cta1": "Access the platform",
-        "hero.cta2": "Watch demo",
+        "hero.description": "E-Santé is the AI-powered third-party healthcare payment platform. Automate eligibility verification, pricing, fraud detection and financial reconciliation.",
+        "hero.cta1": "Discover",
+        "hero.cta2": "Access Platform",
         "hero.stat1": "Partner insurers",
         "hero.stat2": "Connected providers",
         "hero.stat3": "Covered beneficiaries",
 
-        // Dashboard
         "dashboard.title": "Dashboard",
         "dashboard.live": "Live",
         "dashboard.item1.title": "Eligibility verified",
         "dashboard.item2.title": "Reimbursement processed",
         "dashboard.item3.title": "Statement generated",
+        "dashboard.transactions": "Transactions today",
 
-        // Features
+        "partners.title": "Institutional Trust",
+
+        "solutions.label": "Solutions",
+        "solutions.title": "A platform for every stakeholder",
+        "solutions.subtitle": "Specialized tools to digitalize the healthcare journey end-to-end.",
+        "solutions.insurers.title": "Insurers & Mutuals",
+        "solutions.insurers.desc": "Manage your contracts, beneficiaries, automate statements and benefit from an AI anti-fraud score on every transaction. Real-time analytics dashboard.",
+        "solutions.companies.title": "Companies",
+        "solutions.companies.desc": "Dedicated HR portal to manage group contracts, beneficiaries and track employee reimbursements.",
+        "solutions.providers.title": "Providers",
+        "solutions.providers.desc": "Pharmacists, doctors, labs and clinics: verify eligibility, submit claims and receive payments quickly.",
+        "solutions.adherents.title": "Beneficiaries & Patients",
+        "solutions.adherents.desc": "Mobile app to track reimbursements, view coverage, present virtual card and locate network providers.",
+
+        "features.label": "Artificial Intelligence",
         "features.title": "Specialized AI Agents",
         "features.subtitle": "Our platform integrates AI agents to automate and optimize every step of the healthcare journey.",
         "features.f1.title": "Eligibility Agent",
-        "features.f1.desc": "AI agent verifying member eligibility in real-time with response in less than 100ms.",
+        "features.f1.desc": "Real-time member eligibility verification with response in under 100ms using distributed cache.",
         "features.f2.title": "Pricing Agent",
-        "features.f2.desc": "AI agent automatically calculating coverage according to rates and agreements.",
+        "features.f2.desc": "Automatic coverage calculation according to rates, agreements and coverage limits.",
         "features.f3.title": "Anti-Fraud Agent",
-        "features.f3.desc": "AI agent detecting anomalies and suspicious behavior to prevent fraud.",
+        "features.f3.desc": "Anomaly and suspicious behavior detection with 0-100 confidence score on every transaction.",
         "features.f4.title": "Reconciliation Agent",
-        "features.f4.desc": "AI agent automatically matching claims, payments and statements.",
+        "features.f4.desc": "Automatic matching of claims, payments and statements with report generation.",
         "features.f5.title": "OCR & AI Extraction",
-        "features.f5.desc": "Intelligent data extraction from prescriptions, invoices and medical documents.",
+        "features.f5.desc": "Intelligent data extraction from prescriptions, invoices and medical documents via Workers AI.",
         "features.f6.title": "Mobile Application",
-        "features.f6.desc": "Mobile app for beneficiaries with reimbursement tracking and virtual card.",
+        "features.f6.desc": "Mobile app for beneficiaries with reimbursement tracking, virtual card and push notifications.",
 
-        // How it works
+        "howItWorks.label": "Process",
         "howItWorks.title": "How does it work?",
         "howItWorks.subtitle": "A digitalized process driven by AI agents for all healthcare stakeholders.",
         "howItWorks.step1.title": "Verification",
@@ -673,41 +968,24 @@
         "howItWorks.step4.title": "Payment",
         "howItWorks.step4.desc": "Quick settlement to the provider via automated statement.",
 
-        // Pricing
-        "pricing.title": "Simple and transparent pricing",
-        "pricing.subtitle": "Plans adapted to the size of your organization.",
-        "pricing.currency": "TND/month",
-        "pricing.popular": "Popular",
-        "pricing.cta": "Get started",
-        "pricing.contact": "Contact us",
-        "pricing.starter.name": "Starter",
-        "pricing.starter.desc": "For small structures",
-        "pricing.starter.f1": "Up to 1000 transactions/month",
-        "pricing.starter.f2": "Eligibility verification",
-        "pricing.starter.f3": "Email support",
-        "pricing.pro.name": "Professional",
-        "pricing.pro.desc": "For clinics and pharmacies",
-        "pricing.pro.f1": "Unlimited transactions",
-        "pricing.pro.f2": "AI fraud detection",
-        "pricing.pro.f3": "Advanced reports",
-        "pricing.pro.f4": "Priority support",
-        "pricing.enterprise.name": "Enterprise",
-        "pricing.enterprise.desc": "For insurers and large groups",
-        "pricing.enterprise.price": "Custom quote",
-        "pricing.enterprise.f1": "Multi-entity",
-        "pricing.enterprise.f2": "Complete API",
-        "pricing.enterprise.f3": "Custom integration",
-        "pricing.enterprise.f4": "Dedicated account manager",
+        "security.label": "Innovation & Security",
+        "security.title": "Enterprise-grade security",
+        "security.subtitle": "Your health data is protected by the most demanding industry standards.",
+        "security.f1.title": "AES-256 Encryption",
+        "security.f1.desc": "All sensitive data is encrypted at rest and in transit.",
+        "security.f2.title": "GDPR Compliance",
+        "security.f2.desc": "Personal data protection compliant with European standards.",
+        "security.f3.title": "Complete Audit Trail",
+        "security.f3.desc": "Full traceability of every action: who, when, what, with immutable history.",
 
-        // CTA
         "cta.title": "Ready to digitalize your healthcare operations?",
         "cta.subtitle": "Join providers and insurers using our AI agents to transform their operations.",
-        "cta.btn1": "Start for free",
+        "cta.btn1": "Get started now",
         "cta.btn2": "Request a demo",
 
-        // Contact
+        "contact.label": "Contact",
         "contact.title": "Contact us",
-        "contact.subtitle": "Our team is available to answer all your questions and support you in your project.",
+        "contact.subtitle": "Our team is available to answer all your questions and support you in your digitalization project.",
         "contact.phone": "Phone",
         "contact.address": "Address",
         "contact.form.firstName": "First name",
@@ -722,15 +1000,17 @@
         "contact.form.cabinet": "Medical office",
         "contact.form.lab": "Laboratory",
         "contact.form.insurer": "Insurer / Mutual",
+        "contact.form.company": "Company",
         "contact.form.other": "Other",
         "contact.form.message": "Message",
         "contact.form.messagePlaceholder": "How can we help you?",
         "contact.form.submit": "Send",
+        "contact.form.sending": "Sending...",
+        "contact.form.success": "Message sent successfully!",
+        "contact.form.error": "Error sending message. Please try again.",
 
-        // Footer
         "footer.tagline": "The AI-powered healthcare digitalization platform in Tunisia.",
         "footer.product": "Product",
-        "footer.security": "Security",
         "footer.company": "Company",
         "footer.about": "About",
         "footer.careers": "Careers",
@@ -739,52 +1019,63 @@
         "footer.terms": "Terms of Service",
         "footer.privacy": "Privacy Policy",
         "footer.legalNotice": "Legal Notice",
-        "footer.copyright": "© 2025 E-Santé. All rights reserved. Made with ❤️ in Tunisia."
+        "footer.copyright": "\u00a9 2025 E-Santé. All rights reserved."
       },
       ar: {
-        // Navigation
+        "nav.solutions": "الحلول",
         "nav.features": "المميزات",
-        "nav.howItWorks": "كيف يعمل",
-        "nav.pricing": "الأسعار",
+        "nav.security": "الأمان",
         "nav.contact": "اتصل بنا",
         "nav.login": "تسجيل الدخول",
-        "nav.start": "ابدأ الآن",
 
-        // Hero
         "hero.badge": "منصة ذكاء اصطناعي تونسية 100%",
         "hero.title1": "رقمنة قطاع الصحة",
         "hero.title2": "بقوة الذكاء الاصطناعي",
-        "hero.description": "الصحة الإلكترونية منصة لرقمنة قطاع الصحة. وكلاؤنا الأذكياء يؤتمتون التحقق من الأهلية والتسعير وكشف الاحتيال والمطابقة المالية.",
-        "hero.cta1": "الوصول إلى المنصة",
-        "hero.cta2": "مشاهدة العرض",
+        "hero.description": "الصحة الإلكترونية هي منصة الدفع الصحي من الطرف الثالث المدعومة بالذكاء الاصطناعي. أتمتة التحقق من الأهلية والتسعير وكشف الاحتيال والمطابقة المالية.",
+        "hero.cta1": "اكتشف",
+        "hero.cta2": "الوصول إلى المنصة",
         "hero.stat1": "شركات تأمين شريكة",
         "hero.stat2": "مقدمي خدمات متصلين",
         "hero.stat3": "منخرطين مغطين",
 
-        // Dashboard
         "dashboard.title": "لوحة التحكم",
         "dashboard.live": "مباشر",
         "dashboard.item1.title": "تم التحقق من الأهلية",
         "dashboard.item2.title": "تمت معالجة التعويض",
         "dashboard.item3.title": "تم إنشاء الكشف",
+        "dashboard.transactions": "المعاملات اليوم",
 
-        // Features
+        "partners.title": "ثقة مؤسسية",
+
+        "solutions.label": "الحلول",
+        "solutions.title": "منصة لكل فاعل",
+        "solutions.subtitle": "أدوات متخصصة لرقمنة مسار الصحة من البداية إلى النهاية.",
+        "solutions.insurers.title": "شركات التأمين والتعاضديات",
+        "solutions.insurers.desc": "إدارة العقود والمنخرطين وأتمتة الكشوفات مع نقاط مكافحة الاحتيال بالذكاء الاصطناعي. لوحة تحليلات في الوقت الفعلي.",
+        "solutions.companies.title": "المؤسسات",
+        "solutions.companies.desc": "بوابة موارد بشرية مخصصة لإدارة عقود المجموعات والمنخرطين ومتابعة تعويضات الموظفين.",
+        "solutions.providers.title": "الممارسون",
+        "solutions.providers.desc": "الصيادلة والأطباء والمختبرات والعيادات: تحقق من الأهلية وأدخل الأعمال واحصل على مدفوعاتك بسرعة.",
+        "solutions.adherents.title": "المنخرطون والمرضى",
+        "solutions.adherents.desc": "تطبيق جوال لمتابعة التعويضات والاطلاع على الضمانات وتقديم البطاقة الافتراضية وتحديد مقدمي الخدمات المتعاقدين.",
+
+        "features.label": "الذكاء الاصطناعي",
         "features.title": "وكلاء ذكاء اصطناعي متخصصون",
         "features.subtitle": "منصتنا تدمج وكلاء ذكاء اصطناعي لأتمتة وتحسين كل خطوة في مسار الرعاية الصحية.",
         "features.f1.title": "وكيل الأهلية",
-        "features.f1.desc": "وكيل ذكاء اصطناعي يتحقق من أهلية المنخرطين في الوقت الفعلي بأقل من 100 مللي ثانية.",
+        "features.f1.desc": "التحقق في الوقت الفعلي من أهلية المنخرطين بأقل من 100 مللي ثانية عبر ذاكرة التخزين الموزعة.",
         "features.f2.title": "وكيل التسعير",
-        "features.f2.desc": "وكيل ذكاء اصطناعي يحسب التغطية تلقائياً وفق التعريفات والاتفاقيات.",
+        "features.f2.desc": "حساب تلقائي للتغطية وفق التعريفات والاتفاقيات وسقوف الضمان.",
         "features.f3.title": "وكيل مكافحة الاحتيال",
-        "features.f3.desc": "وكيل ذكاء اصطناعي يكشف الشذوذ والسلوكيات المشبوهة لمنع الاحتيال.",
+        "features.f3.desc": "كشف الشذوذ والسلوكيات المشبوهة مع نقاط ثقة 0-100 على كل معاملة.",
         "features.f4.title": "وكيل المطابقة",
-        "features.f4.desc": "وكيل ذكاء اصطناعي يطابق تلقائياً المطالبات والمدفوعات والكشوفات.",
+        "features.f4.desc": "مطابقة تلقائية للمطالبات والمدفوعات والكشوفات مع إنشاء التقارير.",
         "features.f5.title": "OCR واستخراج ذكي",
-        "features.f5.desc": "استخراج ذكي للبيانات من الوصفات والفواتير والوثائق الطبية.",
+        "features.f5.desc": "استخراج ذكي للبيانات من الوصفات والفواتير والوثائق الطبية عبر Workers AI.",
         "features.f6.title": "تطبيق الجوال",
-        "features.f6.desc": "تطبيق جوال للمنخرطين مع تتبع التعويضات والبطاقة الافتراضية.",
+        "features.f6.desc": "تطبيق جوال للمنخرطين مع تتبع التعويضات والبطاقة الافتراضية والإشعارات الفورية.",
 
-        // How it works
+        "howItWorks.label": "العملية",
         "howItWorks.title": "كيف يعمل؟",
         "howItWorks.subtitle": "عملية رقمية يقودها وكلاء الذكاء الاصطناعي لجميع أطراف قطاع الصحة.",
         "howItWorks.step1.title": "التحقق",
@@ -796,41 +1087,24 @@
         "howItWorks.step4.title": "الدفع",
         "howItWorks.step4.desc": "تسوية سريعة لمقدم الخدمة عبر كشف مؤتمت.",
 
-        // Pricing
-        "pricing.title": "أسعار بسيطة وشفافة",
-        "pricing.subtitle": "باقات تتناسب مع حجم مؤسستك.",
-        "pricing.currency": "دينار/شهر",
-        "pricing.popular": "الأكثر شعبية",
-        "pricing.cta": "ابدأ",
-        "pricing.contact": "اتصل بنا",
-        "pricing.starter.name": "المبتدئ",
-        "pricing.starter.desc": "للهياكل الصغيرة",
-        "pricing.starter.f1": "حتى 1000 معاملة/شهر",
-        "pricing.starter.f2": "التحقق من الأهلية",
-        "pricing.starter.f3": "دعم البريد الإلكتروني",
-        "pricing.pro.name": "المحترف",
-        "pricing.pro.desc": "للعيادات والصيدليات",
-        "pricing.pro.f1": "معاملات غير محدودة",
-        "pricing.pro.f2": "كشف الاحتيال بالذكاء الاصطناعي",
-        "pricing.pro.f3": "تقارير متقدمة",
-        "pricing.pro.f4": "دعم ذو أولوية",
-        "pricing.enterprise.name": "المؤسسات",
-        "pricing.enterprise.desc": "لشركات التأمين والمجموعات الكبيرة",
-        "pricing.enterprise.price": "حسب الطلب",
-        "pricing.enterprise.f1": "متعدد الكيانات",
-        "pricing.enterprise.f2": "واجهة برمجة كاملة",
-        "pricing.enterprise.f3": "تكامل مخصص",
-        "pricing.enterprise.f4": "مدير حساب مخصص",
+        "security.label": "الابتكار والأمان",
+        "security.title": "أمان على مستوى المؤسسات",
+        "security.subtitle": "بياناتك الصحية محمية بأعلى معايير الصناعة.",
+        "security.f1.title": "تشفير AES-256",
+        "security.f1.desc": "جميع البيانات الحساسة مشفرة أثناء التخزين والنقل.",
+        "security.f2.title": "توافق RGPD",
+        "security.f2.desc": "حماية البيانات الشخصية متوافقة مع المعايير الأوروبية.",
+        "security.f3.title": "سجل تدقيق كامل",
+        "security.f3.desc": "تتبع كامل لكل إجراء: من ومتى وماذا، مع تاريخ غير قابل للتغيير.",
 
-        // CTA
         "cta.title": "مستعد لرقمنة نشاطك الصحي؟",
         "cta.subtitle": "انضم إلى مقدمي الخدمات وشركات التأمين الذين يستخدمون وكلاءنا الأذكياء لتحويل عملياتهم.",
-        "cta.btn1": "ابدأ مجانًا",
+        "cta.btn1": "ابدأ الآن",
         "cta.btn2": "اطلب عرضًا توضيحيًا",
 
-        // Contact
+        "contact.label": "اتصل بنا",
         "contact.title": "اتصل بنا",
-        "contact.subtitle": "فريقنا متاح للإجابة على جميع أسئلتك ومساعدتك في مشروعك.",
+        "contact.subtitle": "فريقنا متاح للإجابة على جميع أسئلتك ومساعدتك في مشروع الرقمنة الخاص بك.",
         "contact.phone": "الهاتف",
         "contact.address": "العنوان",
         "contact.form.firstName": "الاسم الأول",
@@ -845,15 +1119,17 @@
         "contact.form.cabinet": "عيادة طبية",
         "contact.form.lab": "مختبر",
         "contact.form.insurer": "شركة تأمين / تعاضدية",
+        "contact.form.company": "مؤسسة",
         "contact.form.other": "أخرى",
         "contact.form.message": "الرسالة",
         "contact.form.messagePlaceholder": "كيف يمكننا مساعدتك؟",
         "contact.form.submit": "إرسال",
+        "contact.form.sending": "جاري الإرسال...",
+        "contact.form.success": "تم إرسال الرسالة بنجاح!",
+        "contact.form.error": "خطأ في الإرسال. يرجى المحاولة مرة أخرى.",
 
-        // Footer
         "footer.tagline": "منصة رقمنة الصحة المدعومة بالذكاء الاصطناعي في تونس.",
         "footer.product": "المنتج",
-        "footer.security": "الأمان",
         "footer.company": "الشركة",
         "footer.about": "من نحن",
         "footer.careers": "الوظائف",
@@ -862,7 +1138,7 @@
         "footer.terms": "شروط الاستخدام",
         "footer.privacy": "سياسة الخصوصية",
         "footer.legalNotice": "الإشعارات القانونية",
-        "footer.copyright": "© 2025 الصحة الإلكترونية. جميع الحقوق محفوظة. صنع بـ ❤️ في تونس."
+        "footer.copyright": "\u00a9 2025 الصحة الإلكترونية. جميع الحقوق محفوظة."
       }
     };
 
@@ -872,16 +1148,15 @@
       currentLang = lang;
       localStorage.setItem('dhamen-lang', lang);
 
-      // Update direction for Arabic
       document.documentElement.lang = lang;
       document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
 
-      // Update active button
+      // Active button
       document.querySelectorAll('.lang-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.lang === lang);
       });
 
-      // Update all translatable elements
+      // Text content
       document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.dataset.i18n;
         if (translations[lang] && translations[lang][key]) {
@@ -889,7 +1164,7 @@
         }
       });
 
-      // Update placeholders
+      // Placeholders
       document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
         const key = el.dataset.i18nPlaceholder;
         if (translations[lang] && translations[lang][key]) {
@@ -897,7 +1172,7 @@
         }
       });
 
-      // Update page title
+      // Page title
       const titles = {
         fr: "E-Santé - Plateforme de Digitalisation Santé propulsée par l'IA",
         en: "E-Santé - AI-Powered Healthcare Digitalization Platform",
@@ -906,9 +1181,104 @@
       document.title = titles[lang];
     }
 
-    // Initialize on load
+    // ========== Mobile Menu ==========
+    function toggleMobileMenu() {
+      const menu = document.getElementById('mobileMenu');
+      const icon = document.getElementById('menuIcon');
+      menu.classList.toggle('open');
+      icon.textContent = menu.classList.contains('open') ? 'close' : 'menu';
+    }
+
+    function closeMobileMenu() {
+      const menu = document.getElementById('mobileMenu');
+      const icon = document.getElementById('menuIcon');
+      menu.classList.remove('open');
+      icon.textContent = 'menu';
+    }
+
+    // ========== Contact Form → Brevo ==========
+    async function handleContactSubmit(e) {
+      e.preventDefault();
+      const form = e.target;
+      const btn = document.getElementById('contactSubmitBtn');
+      const feedback = document.getElementById('contactFeedback');
+      const lang = currentLang;
+
+      const firstName = form.firstName.value.trim();
+      const lastName = form.lastName.value.trim();
+      const email = form.email.value.trim();
+      const orgType = form.orgType.value;
+      const message = form.message.value.trim();
+
+      if (!firstName || !lastName || !email || !orgType || !message) return;
+
+      // Show loading
+      btn.disabled = true;
+      btn.querySelector('span:last-child').textContent = translations[lang]['contact.form.sending'] || 'Envoi en cours...';
+
+      try {
+        const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'content-type': 'application/json',
+            'api-key': 'BREVO_API_KEY'
+          },
+          body: JSON.stringify({
+            sender: { name: 'E-Santé Contact', email: 'contact@e-sante.com.tn' },
+            to: [{ email: 's.sirine@devfactory.ai', name: 'E-Santé' }],
+            replyTo: { email: email, name: firstName + ' ' + lastName },
+            subject: '[E-Santé Landing] Nouveau contact de ' + firstName + ' ' + lastName + ' (' + orgType + ')',
+            htmlContent: '<h3>Nouveau message depuis le site E-Santé</h3>' +
+              '<p><strong>Nom:</strong> ' + firstName + ' ' + lastName + '</p>' +
+              '<p><strong>Email:</strong> ' + email + '</p>' +
+              '<p><strong>Organisation:</strong> ' + orgType + '</p>' +
+              '<p><strong>Message:</strong></p><p>' + message.replace(/\n/g, '<br>') + '</p>'
+          })
+        });
+
+        if (res.ok) {
+          feedback.textContent = translations[lang]['contact.form.success'] || 'Message envoyé avec succès !';
+          feedback.className = 'text-center text-sm py-2 rounded-xl text-on-tertiary bg-emerald-50';
+          form.reset();
+        } else {
+          throw new Error('API error');
+        }
+      } catch (err) {
+        feedback.textContent = translations[lang]['contact.form.error'] || 'Erreur lors de l\'envoi.';
+        feedback.className = 'text-center text-sm py-2 rounded-xl text-red-600 bg-red-50';
+      }
+
+      feedback.classList.remove('hidden');
+      btn.disabled = false;
+      btn.querySelector('span:last-child').textContent = translations[lang]['contact.form.submit'] || 'Envoyer';
+
+      setTimeout(() => { feedback.classList.add('hidden'); }, 5000);
+    }
+
+    // ========== Scroll Spy ==========
+    function initScrollSpy() {
+      const sections = document.querySelectorAll('section[id]');
+      const navLinks = document.querySelectorAll('.nav-link');
+
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const id = entry.target.id;
+            navLinks.forEach(link => {
+              link.classList.toggle('active', link.getAttribute('href') === '#' + id);
+            });
+          }
+        });
+      }, { rootMargin: '-20% 0px -60% 0px' });
+
+      sections.forEach(section => observer.observe(section));
+    }
+
+    // ========== Init ==========
     document.addEventListener('DOMContentLoaded', () => {
       setLanguage(currentLang);
+      initScrollSpy();
     });
   </script>
 </body>

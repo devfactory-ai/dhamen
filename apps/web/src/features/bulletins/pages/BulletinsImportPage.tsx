@@ -1247,7 +1247,7 @@ export default function BulletinsImportPage() {
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="rounded-xl bg-gray-50 p-4 text-center">
                 <p className="text-2xl font-bold text-gray-900">{validCount}</p>
                 <p className="text-xs text-gray-500">Bulletins valides</p>
@@ -1345,7 +1345,7 @@ export default function BulletinsImportPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="rounded-xl bg-green-50 p-4 text-center">
                 <p className="text-2xl font-bold text-green-700">{existingBulletins.length}</p>
                 <p className="text-xs text-green-600">Adhérents existants</p>
@@ -1467,7 +1467,7 @@ export default function BulletinsImportPage() {
                   </p>
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                 <div className="rounded-xl bg-green-50 p-4 text-center">
                   <p className="text-2xl font-bold text-green-700">{importResult.total_imported}</p>
                   <p className="text-xs text-green-600">Bulletins importés</p>
@@ -1664,7 +1664,7 @@ export default function BulletinsImportPage() {
                     </div>
 
                     {/* Adherent info */}
-                    <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                       <div className="rounded-xl bg-gray-50 p-4">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Adhérent</p>
                         <p className="text-sm font-semibold text-gray-900">
@@ -1682,7 +1682,7 @@ export default function BulletinsImportPage() {
                     </div>
 
                     {/* Amounts */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="rounded-xl border border-gray-200 p-4">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Frais engagés</p>
                         <p className="text-xl font-bold text-gray-900">

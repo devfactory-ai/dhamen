@@ -183,7 +183,7 @@ export function SanteDemandeDetailsPage() {
             <CardDescription>Details de l'assure</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">ID Adhérent</p>
                 <p className="font-medium">{demande.adhérentId}</p>
@@ -208,7 +208,7 @@ export function SanteDemandeDetailsPage() {
             <CardDescription>Informations de la demande de remboursement</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Type de soin</p>
                 <span className="inline-block mt-1 rounded-full bg-blue-100 px-2 py-1 text-blue-800 text-xs">

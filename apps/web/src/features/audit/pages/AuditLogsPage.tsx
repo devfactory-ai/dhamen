@@ -18,11 +18,15 @@ import {
   CheckCircle,
   XCircle,
   ChevronDown,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { PageHeader } from '../../../components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Badge } from '../../../components/ui/badge';
 import { Input } from '../../../components/ui/input';
+import { FilterDropdown, FilterOption } from '../../../components/ui/filter-dropdown';
 import { apiClient } from '../../../lib/api-client';
 
 interface AuditEntry {
@@ -83,11 +87,17 @@ export function AuditLogsPage() {
   const [selectedCriticality, setSelectedCriticality] = useState<string>('');
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  const [actionDropdownOpen, setActionDropdownOpen] = useState(false);
+  const [entityTypeDropdownOpen, setEntityTypeDropdownOpen] = useState(false);
+  const [resultDropdownOpen, setResultDropdownOpen] = useState(false);
+  const [moduleDropdownOpen, setModuleDropdownOpen] = useState(false);
+  const [criticalityDropdownOpen, setCriticalityDropdownOpen] = useState(false);
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const limit = 20;
 
   // Fetch audit logs
   const { data: logsData, isLoading } = useQuery({
-    queryKey: ['audit', 'logs', searchText, selectedAction, selectedEntityType, selectedResult, selectedModule, selectedCriticality, page],
+    queryKey: ['audit', 'logs', searchText, selectedAction, selectedEntityType, selectedResult, selectedModule, selectedCriticality, sortOrder, page],
     queryFn: async () => {
       const params = new URLSearchParams({
         limit: limit.toString(),
@@ -100,6 +110,8 @@ export function AuditLogsPage() {
       else if (selectedEntityType) params.append('entityType', selectedEntityType);
       if (selectedResult) params.append('result', selectedResult);
       if (selectedCriticality) params.append('criticality', selectedCriticality);
+      params.append('sortBy', 'timestamp');
+      params.append('sortOrder', sortOrder);
 
       const response = await apiClient.get<{
         success: boolean;
@@ -299,80 +311,74 @@ export function AuditLogsPage() {
               </div>
             </div>
 
-            <select
-              value={selectedAction}
-              onChange={(e) => {
-                setSelectedAction(e.target.value);
-                setPage(0);
-              }}
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+            <FilterDropdown
+              label="Action"
+              value={selectedAction ? (actions.find((a: { code: string; label: string }) => a.code === selectedAction)?.label || selectedAction) : 'Toutes les actions'}
+              open={actionDropdownOpen}
+              onToggle={() => setActionDropdownOpen(!actionDropdownOpen)}
+              onClose={() => setActionDropdownOpen(false)}
+              menuWidth="w-56"
             >
-              <option value="">Toutes les actions</option>
+              <FilterOption selected={!selectedAction} onClick={() => { setSelectedAction(''); setPage(0); setActionDropdownOpen(false); }}>Toutes les actions</FilterOption>
               {actions.map((action: { code: string; category: string; label: string }) => (
-                <option key={action.code} value={action.code}>
-                  {action.label}
-                </option>
+                <FilterOption key={action.code} selected={selectedAction === action.code} onClick={() => { setSelectedAction(action.code); setPage(0); setActionDropdownOpen(false); }}>{action.label}</FilterOption>
               ))}
-            </select>
+            </FilterDropdown>
 
-            <select
-              value={selectedEntityType}
-              onChange={(e) => {
-                setSelectedEntityType(e.target.value);
-                setPage(0);
-              }}
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+            <FilterDropdown
+              label="Type"
+              value={selectedEntityType ? (entityTypes.find((t: { code: string; label: string }) => t.code === selectedEntityType)?.label || selectedEntityType) : 'Tous les types'}
+              open={entityTypeDropdownOpen}
+              onToggle={() => setEntityTypeDropdownOpen(!entityTypeDropdownOpen)}
+              onClose={() => setEntityTypeDropdownOpen(false)}
+              menuWidth="w-48"
             >
-              <option value="">Tous les types</option>
+              <FilterOption selected={!selectedEntityType} onClick={() => { setSelectedEntityType(''); setPage(0); setEntityTypeDropdownOpen(false); }}>Tous les types</FilterOption>
               {entityTypes.map((type: { code: string; label: string }) => (
-                <option key={type.code} value={type.code}>
-                  {type.label}
-                </option>
+                <FilterOption key={type.code} selected={selectedEntityType === type.code} onClick={() => { setSelectedEntityType(type.code); setPage(0); setEntityTypeDropdownOpen(false); }}>{type.label}</FilterOption>
               ))}
-            </select>
+            </FilterDropdown>
 
-            <select
-              value={selectedResult}
-              onChange={(e) => {
-                setSelectedResult(e.target.value);
-                setPage(0);
-              }}
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+            <FilterDropdown
+              label="Résultat"
+              value={selectedResult === 'success' ? 'Succès' : selectedResult === 'failure' ? 'Échec' : 'Tous les résultats'}
+              open={resultDropdownOpen}
+              onToggle={() => setResultDropdownOpen(!resultDropdownOpen)}
+              onClose={() => setResultDropdownOpen(false)}
+              menuWidth="w-48"
             >
-              <option value="">Tous les résultats</option>
-              <option value="success">Succès</option>
-              <option value="failure">Échec</option>
-            </select>
+              <FilterOption selected={!selectedResult} onClick={() => { setSelectedResult(''); setPage(0); setResultDropdownOpen(false); }}>Tous les résultats</FilterOption>
+              <FilterOption selected={selectedResult === 'success'} onClick={() => { setSelectedResult('success'); setPage(0); setResultDropdownOpen(false); }}>Succès</FilterOption>
+              <FilterOption selected={selectedResult === 'failure'} onClick={() => { setSelectedResult('failure'); setPage(0); setResultDropdownOpen(false); }}>Échec</FilterOption>
+            </FilterDropdown>
 
-            <select
-              value={selectedModule}
-              onChange={(e) => {
-                setSelectedModule(e.target.value);
-                setPage(0);
-              }}
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+            <FilterDropdown
+              label="Module"
+              value={MODULE_OPTIONS.find((o) => o.value === selectedModule)?.label || 'Tous les modules'}
+              open={moduleDropdownOpen}
+              onToggle={() => setModuleDropdownOpen(!moduleDropdownOpen)}
+              onClose={() => setModuleDropdownOpen(false)}
+              menuWidth="w-48"
             >
               {MODULE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
+                <FilterOption key={opt.value} selected={selectedModule === opt.value} onClick={() => { setSelectedModule(opt.value); setPage(0); setModuleDropdownOpen(false); }}>{opt.label}</FilterOption>
               ))}
-            </select>
+            </FilterDropdown>
 
-            <select
-              value={selectedCriticality}
-              onChange={(e) => {
-                setSelectedCriticality(e.target.value);
-                setPage(0);
-              }}
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+            <FilterDropdown
+              label="Criticité"
+              value={selectedCriticality ? ({ critique: 'Critique', haute: 'Haute', moyenne: 'Moyenne', normale: 'Normale' }[selectedCriticality] || selectedCriticality) : 'Toutes criticités'}
+              open={criticalityDropdownOpen}
+              onToggle={() => setCriticalityDropdownOpen(!criticalityDropdownOpen)}
+              onClose={() => setCriticalityDropdownOpen(false)}
+              menuWidth="w-48"
             >
-              <option value="">Toutes criticités</option>
-              <option value="critique">Critique</option>
-              <option value="haute">Haute</option>
-              <option value="moyenne">Moyenne</option>
-              <option value="normale">Normale</option>
-            </select>
+              <FilterOption selected={!selectedCriticality} onClick={() => { setSelectedCriticality(''); setPage(0); setCriticalityDropdownOpen(false); }}>Toutes criticités</FilterOption>
+              <FilterOption selected={selectedCriticality === 'critique'} onClick={() => { setSelectedCriticality('critique'); setPage(0); setCriticalityDropdownOpen(false); }}>Critique</FilterOption>
+              <FilterOption selected={selectedCriticality === 'haute'} onClick={() => { setSelectedCriticality('haute'); setPage(0); setCriticalityDropdownOpen(false); }}>Haute</FilterOption>
+              <FilterOption selected={selectedCriticality === 'moyenne'} onClick={() => { setSelectedCriticality('moyenne'); setPage(0); setCriticalityDropdownOpen(false); }}>Moyenne</FilterOption>
+              <FilterOption selected={selectedCriticality === 'normale'} onClick={() => { setSelectedCriticality('normale'); setPage(0); setCriticalityDropdownOpen(false); }}>Normale</FilterOption>
+            </FilterDropdown>
           </div>
         </CardContent>
       </Card>
@@ -380,13 +386,23 @@ export function AuditLogsPage() {
       {/* Logs Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Événements
-            <span className="text-sm font-normal text-gray-500">
-              ({totalLogs.toLocaleString()} résultats)
-            </span>
-          </CardTitle>
+          <div className="flex items-center justify-between w-full">
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Événements
+              <span className="text-sm font-normal text-gray-500">
+                ({totalLogs.toLocaleString()} résultats)
+              </span>
+            </CardTitle>
+            <button
+              onClick={() => { setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc'); setPage(0); }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
+              title={sortOrder === 'desc' ? 'Plus récent en premier' : 'Plus ancien en premier'}
+            >
+              {sortOrder === 'desc' ? <ArrowDown className="h-4 w-4" /> : <ArrowUp className="h-4 w-4" />}
+              {sortOrder === 'desc' ? 'Plus récent' : 'Plus ancien'}
+            </button>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -460,7 +476,7 @@ export function AuditLogsPage() {
 
                   {expandedRow === log.id && (
                     <div className="bg-gray-50 p-4 border-t">
-                      <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                         <div>
                           <span className="font-medium">ID Événement:</span>
                           <span className="ml-2 font-mono text-gray-600">{log.id}</span>

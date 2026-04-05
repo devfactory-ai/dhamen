@@ -806,14 +806,15 @@ export function MedicationsPage() {
             Base de données des médicaments - Sources: PCT & AMM (DPM Tunisie)
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <Button
             variant="outline"
             className="gap-2"
             onClick={() => navigate('/admin/medications/families/new')}
           >
             <Package className="w-4 h-4" />
-            Nouvelle famille
+            <span className="hidden sm:inline">Nouvelle famille</span>
+            <span className="sm:hidden">Famille</span>
           </Button>
           <Button
             className="gap-2 bg-slate-900 hover:bg-[#19355d]"
@@ -827,17 +828,20 @@ export function MedicationsPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="medications" className="gap-2">
-            <Pill className="h-4 w-4" />
-            Médicaments
+          <TabsTrigger value="medications" className="gap-1.5 sm:gap-2 px-2 sm:px-3 text-xs sm:text-sm">
+            <Pill className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">Médicaments</span>
+            <span className="sm:hidden">Médic.</span>
           </TabsTrigger>
-          <TabsTrigger value="baremes" className="gap-2">
-            <TrendingUp className="h-4 w-4" />
-            Barèmes familles
+          <TabsTrigger value="baremes" className="gap-1.5 sm:gap-2 px-2 sm:px-3 text-xs sm:text-sm">
+            <TrendingUp className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">Barèmes familles</span>
+            <span className="sm:hidden">Barèmes</span>
           </TabsTrigger>
-          <TabsTrigger value="history" className="gap-2">
-            <History className="h-4 w-4" />
-            Historique imports
+          <TabsTrigger value="history" className="gap-1.5 sm:gap-2 px-2 sm:px-3 text-xs sm:text-sm">
+            <History className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">Historique imports</span>
+            <span className="sm:hidden">Imports</span>
           </TabsTrigger>
         </TabsList>
 
@@ -874,7 +878,7 @@ export function MedicationsPage() {
                 )}
               </div>
               {/* Filters */}
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <Select
                   value={familyFilter || "all"}
                   onValueChange={(v) => {
@@ -882,7 +886,7 @@ export function MedicationsPage() {
                     setMedsPage(1);
                   }}
                 >
-                  <SelectTrigger className="h-10 min-w-[160px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
+                  <SelectTrigger className="h-10 w-full sm:w-auto sm:min-w-[160px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
                     <SelectValue placeholder="Toutes familles" />
                   </SelectTrigger>
                   <SelectContent>
@@ -901,7 +905,7 @@ export function MedicationsPage() {
                     setMedsPage(1);
                   }}
                 >
-                  <SelectTrigger className="h-10 min-w-[130px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
+                  <SelectTrigger className="h-10 w-[calc(50%-4px)] sm:w-auto sm:min-w-[130px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
                     <SelectValue placeholder="G/P/B" />
                   </SelectTrigger>
                   <SelectContent>
@@ -918,7 +922,7 @@ export function MedicationsPage() {
                     setMedsPage(1);
                   }}
                 >
-                  <SelectTrigger className="h-10 min-w-[140px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
+                  <SelectTrigger className="h-10 w-[calc(50%-4px)] sm:w-auto sm:min-w-[140px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
                     <SelectValue placeholder="VEIC" />
                   </SelectTrigger>
                   <SelectContent>
@@ -931,7 +935,7 @@ export function MedicationsPage() {
                 </Select>
                 <Input
                   placeholder="Classe AMM..."
-                  className="h-10 min-w-[150px] max-w-[180px] rounded-xl bg-[#f3f4f5] border-0 text-sm"
+                  className="h-10 w-full sm:w-auto sm:min-w-[150px] sm:max-w-[180px] rounded-xl bg-[#f3f4f5] border-0 text-sm"
                   value={ammClasseFilter}
                   onChange={(e) => {
                     setAmmClasseFilter(e.target.value);
@@ -940,12 +944,12 @@ export function MedicationsPage() {
                 />
               </div>
             </div>
-            <div className="flex items-center gap-4 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 px-6 text-white shadow-sm">
+            <div className="flex items-center gap-4 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 px-6 py-4 md:py-0 text-white shadow-sm shrink-0">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-white">
                   Total Médicaments
                 </p>
-                <p className="text-2xl font-bold text-[30px]">
+                <p className="text-2xl sm:text-[30px] font-bold">
                   {(medicationsData?.meta?.total || 0).toLocaleString("fr-TN")}
                 </p>
               </div>
@@ -971,7 +975,7 @@ export function MedicationsPage() {
 
         <TabsContent value="baremes" className="space-y-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5" />
                 Taux de remboursement par famille
@@ -1024,7 +1028,7 @@ export function MedicationsPage() {
 
       {/* Import Dialog */}
       <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-full max-w-lg">
           <DialogHeader>
             <DialogTitle>Importer des médicaments</DialogTitle>
           </DialogHeader>
@@ -1101,7 +1105,7 @@ export function MedicationsPage() {
           if (!open) setSelectedBaremeForHistory(null);
         }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-full max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CalendarDays className="h-5 w-5" />
@@ -1179,7 +1183,7 @@ export function MedicationsPage() {
           }
         }}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="w-full max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldCheck className="h-5 w-5" />

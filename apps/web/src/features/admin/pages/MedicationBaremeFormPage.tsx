@@ -136,7 +136,7 @@ export default function MedicationBaremeFormPage() {
         ]}
       />
 
-      <div className="max-w-2xl">
+      <div className="w-full max-w-2xl mx-auto">
         <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm space-y-5">
           <div>
             <Label>Famille de médicaments</Label>
@@ -169,7 +169,7 @@ export default function MedicationBaremeFormPage() {
               className="mt-1.5"
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label>Plafond par acte (TND, optionnel)</Label>
               <Input
@@ -195,7 +195,7 @@ export default function MedicationBaremeFormPage() {
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label>Date d'effet</Label>
               <Input
@@ -225,7 +225,7 @@ export default function MedicationBaremeFormPage() {
             />
           </div>
 
-          <div className="flex items-center gap-3 pt-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 pt-2">
             <Button
               onClick={() => saveMutation.mutate()}
               disabled={saveMutation.isPending || !form.medicationFamilyId || !form.tauxRemboursement || !form.dateEffet}

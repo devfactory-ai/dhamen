@@ -324,7 +324,7 @@ export function SanteContreVisiteDetailsPage() {
             <CardDescription>Details de la demande originale</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Numéro</p>
                 <p className="font-mono font-medium">{cv.demande.numéroDemande}</p>
@@ -432,7 +432,7 @@ export function SanteContreVisiteDetailsPage() {
               <p className="text-muted-foreground">Aucun praticien assigne</p>
             )}
 
-            <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t">
               <div>
                 <p className="text-sm text-muted-foreground">Date planifiée</p>
                 <p className="font-medium">{formatDate(cv.datePlanifiee)}</p>
@@ -473,7 +473,7 @@ export function SanteContreVisiteDetailsPage() {
                     <p className="whitespace-pre-wrap">{cv.rapport}</p>
                   </div>
                   {cv.conclusion && (
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <p className="text-sm text-muted-foreground">Conclusion</p>
                         <Badge variant={cv.conclusion === 'confirme' ? 'success' : cv.conclusion === 'non_confirme' ? 'destructive' : 'secondary'}>

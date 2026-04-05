@@ -77,7 +77,7 @@ export function CompanyDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <PageHeader
           title={company.name}
           description={company.matricule_fiscal ? `MF: ${company.matricule_fiscal}` : 'Fiche entreprise'}
@@ -93,7 +93,7 @@ export function CompanyDetailPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
         <Card>
           <CardContent className="flex items-center gap-4 p-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-100">
@@ -180,7 +180,7 @@ export function CompanyDetailPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Effectif</p>
-              <p className="font-medium">{company.employee_count || '-'}</p>
+              <p className="font-medium">{stats?.totalAdherents ?? company.employee_count ?? '-'}</p>
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Adresse</p>

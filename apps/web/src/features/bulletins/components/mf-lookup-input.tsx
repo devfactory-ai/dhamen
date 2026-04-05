@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, AlertTriangle, XCircle, Loader2, ShieldCheck, Search } from 'lucide-react';
 import { validerMatriculeFiscal } from '@dhamen/shared';
+import { useDropdownPortal } from '@/hooks/useDropdownPortal';
 
 interface ProviderInfo {
   id: string;
@@ -238,9 +240,10 @@ export function MfLookupInput({
     && lookupStatus !== 'found' && lookupStatus !== 'registered'
     && !selectedFromDropdown;
   const hasResults = searchResults && searchResults.length > 0;
+  const { triggerRef: portalTriggerRef, position: portalPos } = useDropdownPortal(shouldShowDropdown);
 
   return (
-    <div className={cn('relative', className)}>
+    <div className={cn('relative', className)} ref={portalTriggerRef}>
       {/* Input with search icon */}
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -278,8 +281,8 @@ export function MfLookupInput({
       </div>
 
       {/* Autocomplete dropdown */}
-      {shouldShowDropdown && (
-        <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-52 overflow-y-auto">
+      {shouldShowDropdown && portalPos && createPortal(
+        <div className="fixed z-[9999] bg-white border rounded-lg shadow-lg max-h-52 overflow-y-auto" style={{ top: portalPos.top, left: portalPos.left, width: portalPos.width }}>
           {hasResults ? (
             searchResults.map((p) => (
               <button
@@ -315,7 +318,8 @@ export function MfLookupInput({
               Aucun praticien trouvé
             </div>
           ) : null}
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Status messages */}

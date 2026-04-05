@@ -413,7 +413,7 @@ export function ContractForm({ contract, onSubmit, onCancel, isLoading }: Contra
         </div>
       </div>
 
-      <div className="flex justify-end gap-3 pt-4 border-t">
+      <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t">
         <Button type="button" variant="outline" onClick={onCancel}>
           Annuler
         </Button>

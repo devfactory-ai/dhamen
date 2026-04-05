@@ -95,6 +95,8 @@ export const contractFiltersSchema = z.object({
   adherentId: z.string().optional(),
   status: contractStatusSchema.optional(),
   planType: planTypeSchema.optional(),
+  sortBy: z.enum(['start_date', 'end_date', 'created_at']).optional(),
+  sortOrder: z.enum(['asc', 'desc']).optional().default('desc'),
 });
 
 export type ContractCreateInput = z.infer<typeof contractCreateSchema>;

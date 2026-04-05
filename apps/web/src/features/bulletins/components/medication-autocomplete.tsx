@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { Pill, Loader2, Search } from 'lucide-react';
+import { useDropdownPortal } from '@/hooks/useDropdownPortal';
 
 interface MedicationResult {
   id: string;
@@ -131,8 +133,11 @@ export function MedicationAutocomplete({
     return (priceInMills / 1000).toFixed(3);
   };
 
+  const dropdownVisible = isOpen && debouncedQuery.length >= 2;
+  const { triggerRef: portalTriggerRef, position: portalPos } = useDropdownPortal(dropdownVisible);
+
   return (
-    <div ref={containerRef} className={cn('relative', className)}>
+    <div ref={(el) => { (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el; (portalTriggerRef as React.MutableRefObject<HTMLDivElement | null>).current = el; }} className={cn('relative', className)}>
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
         <input
@@ -159,8 +164,8 @@ export function MedicationAutocomplete({
         )}
       </div>
 
-      {isOpen && debouncedQuery.length >= 2 && (
-        <div className="absolute z-50 mt-1 w-full max-h-72 overflow-y-auto rounded-xl border bg-white shadow-lg">
+      {dropdownVisible && portalPos && createPortal(
+        <div className="fixed z-[9999] max-h-72 overflow-y-auto rounded-xl border bg-white shadow-lg" style={{ top: portalPos.top, left: portalPos.left, width: portalPos.width }}>
           {!results?.length && !isFetching && (
             <div className="px-3 py-4 text-sm text-gray-500 text-center">
               Aucun médicament trouvé pour « {debouncedQuery} »
@@ -211,7 +216,8 @@ export function MedicationAutocomplete({
               </div>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -10,13 +10,7 @@ import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   usePreAuthorizations,
@@ -36,6 +30,8 @@ import {
   FileText,
   AlertTriangle,
   ArrowUpRight,
+  ArrowDown,
+  ArrowUp,
   Search,
   Stethoscope,
   Plus,
@@ -58,13 +54,19 @@ export function PreAuthorizationsPage() {
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<PreAuthFilters>({});
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const [careTypeDropdownOpen, setCareTypeDropdownOpen] = useState(false);
+  const [priorityDropdownOpen, setPriorityDropdownOpen] = useState(false);
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   const isAgent = ['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user?.role || '');
 
   const { data, isLoading } = usePreAuthorizations(page, 20, {
     ...filters,
     search: searchTerm || undefined,
-  });
+    sortBy: 'created_at',
+    sortOrder,
+  } as PreAuthFilters & { sortBy: string; sortOrder: string });
   const { data: stats } = usePreAuthStats();
 
   const formatDate = (dateString: string | null) => {
@@ -87,7 +89,15 @@ export function PreAuthorizationsPage() {
   const columns = [
     {
       key: 'preauth',
-      header: 'Demande',
+      header: (
+        <button
+          onClick={() => { setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc'); setPage(1); }}
+          className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors"
+        >
+          Demande
+          {sortOrder === 'desc' ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+        </button>
+      ),
       render: (preAuth: PreAuthorization) => (
         <div>
           <p className="font-medium">
@@ -210,7 +220,7 @@ export function PreAuthorizationsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <PageHeader
           title="Accords préalables"
           description="Gestion des demandes d'autorisation préalable"
@@ -224,7 +234,7 @@ export function PreAuthorizationsPage() {
 
       {/* Stats Cards */}
       {stats && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="font-medium text-sm">En attente</CardTitle>
@@ -297,8 +307,8 @@ export function PreAuthorizationsPage() {
       {/* Filters */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="relative flex-1 min-w-[200px]">
+          <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-4">
+            <div className="relative flex-1 min-w-0 sm:min-w-[200px]">
               <Search className="text-muted-foreground absolute top-2.5 left-2.5 h-4 w-4" />
               <Input
                 placeholder="Rechercher par adhérent, numéro..."
@@ -308,73 +318,122 @@ export function PreAuthorizationsPage() {
               />
             </div>
 
-            <Select
-              value={filters.status || ''}
-              onValueChange={(value) =>
-                setFilters((prev) => ({ ...prev, status: (value || undefined) as PreAuthFilters['status'] }))
-              }
+            <FilterDropdown
+              label="Statut"
+              value={filters.status ? getPreAuthStatusLabel(filters.status) : 'Tous les statuts'}
+              open={statusDropdownOpen}
+              onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
+              onClose={() => setStatusDropdownOpen(false)}
+              menuWidth="w-52"
             >
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Tous les statuts" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Tous les statuts</SelectItem>
-                <SelectItem value="draft">Brouillon</SelectItem>
-                <SelectItem value="pending">En attente</SelectItem>
-                <SelectItem value="under_review">En cours d'examen</SelectItem>
-                <SelectItem value="additional_info">Info demandée</SelectItem>
-                <SelectItem value="medical_review">Revue médicale</SelectItem>
-                <SelectItem value="approved">Approuvé</SelectItem>
-                <SelectItem value="partially_approved">Partiellement approuvé</SelectItem>
-                <SelectItem value="rejected">Rejeté</SelectItem>
-                <SelectItem value="expired">Expiré</SelectItem>
-                <SelectItem value="cancelled">Annulé</SelectItem>
-                <SelectItem value="used">Utilisé</SelectItem>
-              </SelectContent>
-            </Select>
+              <FilterOption selected={!filters.status} onClick={() => { setFilters((prev) => ({ ...prev, status: undefined })); setStatusDropdownOpen(false); }}>
+                Tous les statuts
+              </FilterOption>
+              <FilterOption selected={filters.status === 'draft'} onClick={() => { setFilters((prev) => ({ ...prev, status: 'draft' as PreAuthFilters['status'] })); setStatusDropdownOpen(false); }}>
+                Brouillon
+              </FilterOption>
+              <FilterOption selected={filters.status === 'pending'} onClick={() => { setFilters((prev) => ({ ...prev, status: 'pending' as PreAuthFilters['status'] })); setStatusDropdownOpen(false); }}>
+                En attente
+              </FilterOption>
+              <FilterOption selected={filters.status === 'under_review'} onClick={() => { setFilters((prev) => ({ ...prev, status: 'under_review' as PreAuthFilters['status'] })); setStatusDropdownOpen(false); }}>
+                En cours d'examen
+              </FilterOption>
+              <FilterOption selected={filters.status === 'additional_info'} onClick={() => { setFilters((prev) => ({ ...prev, status: 'additional_info' as PreAuthFilters['status'] })); setStatusDropdownOpen(false); }}>
+                Info demandée
+              </FilterOption>
+              <FilterOption selected={filters.status === 'medical_review'} onClick={() => { setFilters((prev) => ({ ...prev, status: 'medical_review' as PreAuthFilters['status'] })); setStatusDropdownOpen(false); }}>
+                Revue médicale
+              </FilterOption>
+              <FilterOption selected={filters.status === 'approved'} onClick={() => { setFilters((prev) => ({ ...prev, status: 'approved' as PreAuthFilters['status'] })); setStatusDropdownOpen(false); }}>
+                Approuvé
+              </FilterOption>
+              <FilterOption selected={filters.status === 'partially_approved'} onClick={() => { setFilters((prev) => ({ ...prev, status: 'partially_approved' as PreAuthFilters['status'] })); setStatusDropdownOpen(false); }}>
+                Partiellement approuvé
+              </FilterOption>
+              <FilterOption selected={filters.status === 'rejected'} onClick={() => { setFilters((prev) => ({ ...prev, status: 'rejected' as PreAuthFilters['status'] })); setStatusDropdownOpen(false); }}>
+                Rejeté
+              </FilterOption>
+              <FilterOption selected={filters.status === 'expired'} onClick={() => { setFilters((prev) => ({ ...prev, status: 'expired' as PreAuthFilters['status'] })); setStatusDropdownOpen(false); }}>
+                Expiré
+              </FilterOption>
+              <FilterOption selected={filters.status === 'cancelled'} onClick={() => { setFilters((prev) => ({ ...prev, status: 'cancelled' as PreAuthFilters['status'] })); setStatusDropdownOpen(false); }}>
+                Annulé
+              </FilterOption>
+              <FilterOption selected={filters.status === 'used'} onClick={() => { setFilters((prev) => ({ ...prev, status: 'used' as PreAuthFilters['status'] })); setStatusDropdownOpen(false); }}>
+                Utilisé
+              </FilterOption>
+            </FilterDropdown>
 
-            <Select
-              value={filters.careType || ''}
-              onValueChange={(value) =>
-                setFilters((prev) => ({ ...prev, careType: (value || undefined) as PreAuthFilters['careType'] }))
-              }
+            <FilterDropdown
+              label="Type"
+              value={filters.careType ? getCareTypeLabel(filters.careType) : 'Tous les types'}
+              open={careTypeDropdownOpen}
+              onToggle={() => setCareTypeDropdownOpen(!careTypeDropdownOpen)}
+              onClose={() => setCareTypeDropdownOpen(false)}
+              menuWidth="w-48"
             >
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Tous les types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Tous les types</SelectItem>
-                <SelectItem value="hospitalization">Hospitalisation</SelectItem>
-                <SelectItem value="surgery">Chirurgie</SelectItem>
-                <SelectItem value="mri">IRM</SelectItem>
-                <SelectItem value="scanner">Scanner</SelectItem>
-                <SelectItem value="specialized_exam">Examen spécialisé</SelectItem>
-                <SelectItem value="dental_prosthesis">Prothèse dentaire</SelectItem>
-                <SelectItem value="optical">Optique</SelectItem>
-                <SelectItem value="physical_therapy">Kinésithérapie</SelectItem>
-                <SelectItem value="chronic_treatment">Traitement chronique</SelectItem>
-                <SelectItem value="expensive_medication">Médicament coûteux</SelectItem>
-                <SelectItem value="other">Autre</SelectItem>
-              </SelectContent>
-            </Select>
+              <FilterOption selected={!filters.careType} onClick={() => { setFilters((prev) => ({ ...prev, careType: undefined })); setCareTypeDropdownOpen(false); }}>
+                Tous les types
+              </FilterOption>
+              <FilterOption selected={filters.careType === 'hospitalization'} onClick={() => { setFilters((prev) => ({ ...prev, careType: 'hospitalization' as PreAuthFilters['careType'] })); setCareTypeDropdownOpen(false); }}>
+                Hospitalisation
+              </FilterOption>
+              <FilterOption selected={filters.careType === 'surgery'} onClick={() => { setFilters((prev) => ({ ...prev, careType: 'surgery' as PreAuthFilters['careType'] })); setCareTypeDropdownOpen(false); }}>
+                Chirurgie
+              </FilterOption>
+              <FilterOption selected={filters.careType === 'mri'} onClick={() => { setFilters((prev) => ({ ...prev, careType: 'mri' as PreAuthFilters['careType'] })); setCareTypeDropdownOpen(false); }}>
+                IRM
+              </FilterOption>
+              <FilterOption selected={filters.careType === 'scanner'} onClick={() => { setFilters((prev) => ({ ...prev, careType: 'scanner' as PreAuthFilters['careType'] })); setCareTypeDropdownOpen(false); }}>
+                Scanner
+              </FilterOption>
+              <FilterOption selected={filters.careType === 'specialized_exam'} onClick={() => { setFilters((prev) => ({ ...prev, careType: 'specialized_exam' as PreAuthFilters['careType'] })); setCareTypeDropdownOpen(false); }}>
+                Examen spécialisé
+              </FilterOption>
+              <FilterOption selected={filters.careType === 'dental_prosthesis'} onClick={() => { setFilters((prev) => ({ ...prev, careType: 'dental_prosthesis' as PreAuthFilters['careType'] })); setCareTypeDropdownOpen(false); }}>
+                Prothèse dentaire
+              </FilterOption>
+              <FilterOption selected={filters.careType === 'optical'} onClick={() => { setFilters((prev) => ({ ...prev, careType: 'optical' as PreAuthFilters['careType'] })); setCareTypeDropdownOpen(false); }}>
+                Optique
+              </FilterOption>
+              <FilterOption selected={filters.careType === 'physical_therapy'} onClick={() => { setFilters((prev) => ({ ...prev, careType: 'physical_therapy' as PreAuthFilters['careType'] })); setCareTypeDropdownOpen(false); }}>
+                Kinésithérapie
+              </FilterOption>
+              <FilterOption selected={filters.careType === 'chronic_treatment'} onClick={() => { setFilters((prev) => ({ ...prev, careType: 'chronic_treatment' as PreAuthFilters['careType'] })); setCareTypeDropdownOpen(false); }}>
+                Traitement chronique
+              </FilterOption>
+              <FilterOption selected={filters.careType === 'expensive_medication'} onClick={() => { setFilters((prev) => ({ ...prev, careType: 'expensive_medication' as PreAuthFilters['careType'] })); setCareTypeDropdownOpen(false); }}>
+                Médicament coûteux
+              </FilterOption>
+              <FilterOption selected={filters.careType === 'other'} onClick={() => { setFilters((prev) => ({ ...prev, careType: 'other' as PreAuthFilters['careType'] })); setCareTypeDropdownOpen(false); }}>
+                Autre
+              </FilterOption>
+            </FilterDropdown>
 
-            <Select
-              value={filters.priority || ''}
-              onValueChange={(value) =>
-                setFilters((prev) => ({ ...prev, priority: value || undefined }))
-              }
+            <FilterDropdown
+              label="Priorité"
+              value={filters.priority === 'urgent' ? 'Urgent' : filters.priority === 'high' ? 'Haute' : filters.priority === 'normal' ? 'Normale' : filters.priority === 'low' ? 'Basse' : 'Toutes priorités'}
+              open={priorityDropdownOpen}
+              onToggle={() => setPriorityDropdownOpen(!priorityDropdownOpen)}
+              onClose={() => setPriorityDropdownOpen(false)}
+              menuWidth="w-48"
             >
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Toutes priorités" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Toutes priorités</SelectItem>
-                <SelectItem value="urgent">Urgent</SelectItem>
-                <SelectItem value="high">Haute</SelectItem>
-                <SelectItem value="normal">Normale</SelectItem>
-                <SelectItem value="low">Basse</SelectItem>
-              </SelectContent>
-            </Select>
+              <FilterOption selected={!filters.priority} onClick={() => { setFilters((prev) => ({ ...prev, priority: undefined })); setPriorityDropdownOpen(false); }}>
+                Toutes priorités
+              </FilterOption>
+              <FilterOption selected={filters.priority === 'urgent'} onClick={() => { setFilters((prev) => ({ ...prev, priority: 'urgent' })); setPriorityDropdownOpen(false); }}>
+                Urgent
+              </FilterOption>
+              <FilterOption selected={filters.priority === 'high'} onClick={() => { setFilters((prev) => ({ ...prev, priority: 'high' })); setPriorityDropdownOpen(false); }}>
+                Haute
+              </FilterOption>
+              <FilterOption selected={filters.priority === 'normal'} onClick={() => { setFilters((prev) => ({ ...prev, priority: 'normal' })); setPriorityDropdownOpen(false); }}>
+                Normale
+              </FilterOption>
+              <FilterOption selected={filters.priority === 'low'} onClick={() => { setFilters((prev) => ({ ...prev, priority: 'low' })); setPriorityDropdownOpen(false); }}>
+                Basse
+              </FilterOption>
+            </FilterDropdown>
 
             {Object.keys(filters).some((k) => filters[k as keyof PreAuthFilters]) && (
               <Button
@@ -393,6 +452,7 @@ export function PreAuthorizationsPage() {
       </Card>
 
       {/* Data Table */}
+      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
       <DataTable
         columns={columns}
         data={data?.data || []}
@@ -405,6 +465,7 @@ export function PreAuthorizationsPage() {
         }}
         emptyMessage="Aucune demande d'accord préalable trouvée"
       />
+      </div>
     </div>
   );
 }

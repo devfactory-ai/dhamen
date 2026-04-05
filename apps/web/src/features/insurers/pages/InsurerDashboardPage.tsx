@@ -358,13 +358,13 @@ export function InsurerDashboardPage() {
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground mb-2">
-                  {stats.bordereauEnAttente} bordereau(x) a valider pour paiement
+                  {stats.bordereauEnAttente} bordereau(x) à valider pour paiement
                 </p>
                 <button
                   className="text-sm text-primary hover:underline"
                   onClick={() => navigate('/sante/bordereaux')}
                 >
-                  Gerer les bordereaux
+                  Gérer les bordereaux
                 </button>
               </CardContent>
             </Card>
@@ -433,7 +433,7 @@ export function InsurerDashboardPage() {
             <div className="text-center">
               <div className="text-3xl">📊</div>
               <h3 className="mt-2 font-medium">Rapports</h3>
-              <p className="text-sm text-muted-foreground">Generer des rapports</p>
+              <p className="text-sm text-muted-foreground">Générer des rapports</p>
             </div>
           </CardContent>
         </Card>
@@ -446,7 +446,7 @@ export function InsurerDashboardPage() {
             <div className="text-center">
               <div className="text-3xl">💰</div>
               <h3 className="mt-2 font-medium">Bordereaux</h3>
-              <p className="text-sm text-muted-foreground">Gerer les paiements</p>
+              <p className="text-sm text-muted-foreground">Gérer les paiements</p>
             </div>
           </CardContent>
         </Card>

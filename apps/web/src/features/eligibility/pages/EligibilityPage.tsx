@@ -164,7 +164,7 @@ export function EligibilityPage() {
           <CardDescription>Entrez le numéro CIN de l'adhérent</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4">
+          <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
               <Input
                 placeholder="N° CIN (ex: 12345678)"
@@ -238,7 +238,7 @@ export function EligibilityPage() {
                 <CardTitle>Informations Adhérent</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label className="text-muted-foreground">Nom complet</Label>
                     <p className="font-medium">{data.adherent.firstName} {data.adherent.lastName}</p>
@@ -266,7 +266,7 @@ export function EligibilityPage() {
                   <CardTitle>Contrat</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <Label className="text-muted-foreground">N° Contrat</Label>
                       <p className="font-medium">{data.contract.number || '—'}</p>

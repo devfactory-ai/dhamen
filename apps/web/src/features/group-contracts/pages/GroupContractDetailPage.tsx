@@ -161,17 +161,17 @@ export function GroupContractDetailPage() {
 
   return (
     <div className="space-y-6">
-      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+      <nav className="flex flex-wrap items-center gap-1.5 text-sm text-gray-500">
         <Link to="/group-contracts" className="hover:text-gray-900 transition-colors">Contrats Groupe</Link>
         <ChevronRight className="w-4 h-4" />
         <span className="text-gray-900 font-medium">Détails</span>
       </nav>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <PageHeader
           title={`Contrat ${contract.contract_number}`}
           description={contract.company_name}
         />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           {contract.status === 'active' && (
           <Button
             variant="outline"

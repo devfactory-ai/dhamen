@@ -23,6 +23,7 @@
     "@dhamen/db": "workspace:*",
     "@dhamen/shared": "workspace:*",
     "@hono/zod-validator": "^0.4.1",
+    "@simplewebauthn/server": "^11",
     "hono": "^4.6.12",
     "pako": "^2.1.0",
     "ulid": "^2.3.0",

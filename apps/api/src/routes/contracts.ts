@@ -28,7 +28,7 @@ contracts.get(
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('query', contractFiltersSchema.merge(paginationSchema)),
   async (c) => {
-    const { insurerId, adherentId, status, planType, page, limit } = c.req.valid('query');
+    const { insurerId, adherentId, status, planType, page, limit, sortBy, sortOrder } = c.req.valid('query');
     const user = c.get('user');
 
     // Filter by insurer if user is insurer role
@@ -44,6 +44,8 @@ contracts.get(
       planType,
       page,
       limit,
+      sortBy,
+      sortOrder,
     });
 
     return paginated(c, data, {

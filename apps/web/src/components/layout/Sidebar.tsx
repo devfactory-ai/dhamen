@@ -119,7 +119,7 @@ const navigationSections: NavSection[] = [
         adminOnly: true,
       },
       {
-        name: "Verification MF",
+        name: "Vérification MF",
         href: "/admin/mf-verification",
         icon: DocumentCheckIcon,
         roles: ["ADMIN"],

@@ -169,7 +169,7 @@ export function PermissionsDrawer({ userId, onClose }: PermissionsDrawerProps) {
                 {/* Add form */}
                 {showAddForm && (
                   <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/50 p-4 space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Ressource</label>
                         <select

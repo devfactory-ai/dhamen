@@ -160,7 +160,7 @@ export function SantePaiementDetailsPage() {
             <CardDescription>Details du paiement</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Numéro</p>
                 <p className="font-medium">{paiement.numéroPaiement}</p>
@@ -189,7 +189,7 @@ export function SantePaiementDetailsPage() {
             <CardDescription>Informations du destinataire</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">ID</p>
                 <p className="font-medium">{paiement.bénéficiaireId}</p>

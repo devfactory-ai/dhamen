@@ -31,9 +31,9 @@ const careTypeLabels: Record<string, string> = {
 };
 
 const statusConfig: Record<string, { label: string; variant: string; icon: typeof CheckCircle }> = {
-  approved: { label: 'Approuve', variant: 'default', icon: CheckCircle },
-  reimbursed: { label: 'Rembourse', variant: 'success', icon: CreditCard },
-  rejected: { label: 'Rejete', variant: 'destructive', icon: XCircle },
+  approved: { label: 'Approuvé', variant: 'default', icon: CheckCircle },
+  reimbursed: { label: 'Remboursé', variant: 'success', icon: CreditCard },
+  rejected: { label: 'Rejeté', variant: 'destructive', icon: XCircle },
 };
 
 function formatAmount(amount: number | null | undefined): string {
@@ -139,7 +139,7 @@ export default function BulletinHistoryDetailPage() {
             <CardTitle>Informations</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Adherent</p>
                 <p className="font-medium">{detail.adherent.firstName} {detail.adherent.lastName}</p>
@@ -276,7 +276,7 @@ export default function BulletinHistoryDetailPage() {
                     onClick={() => scanBlobUrl && window.open(scanBlobUrl, '_blank')}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    Telecharger
+                    Télécharger
                   </Button>
                 </div>
               ) : (

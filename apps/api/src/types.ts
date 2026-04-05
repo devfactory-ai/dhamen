@@ -72,10 +72,14 @@ export interface Bindings {
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_FROM_NUMBER?: string;
-  RESEND_API_KEY?: string;
+  BREVO_API_KEY?: string;
 
   // Cloudflare Turnstile
   TURNSTILE_SECRET_KEY?: string;
+
+  // WebAuthn / Passkey
+  WEBAUTHN_RP_NAME?: string;
+  WEBAUTHN_RP_ID?: string;
 
   // Webhooks
   WEBHOOK_SECRET?: string;

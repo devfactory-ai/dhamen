@@ -116,13 +116,13 @@ export function PraticienActeDetailPage() {
         </span>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
         {/* Adherent info */}
         <div className="rounded-xl border border-gray-200 bg-white p-6 space-y-4">
           <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
             <User className="h-5 w-5 text-gray-400" /> Informations adhérent
           </h2>
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-gray-500">Nom complet</p>
               <p className="font-medium">{`${d.adherent_first_name || ''} ${d.adherent_last_name || ''}`.trim() || '\u2014'}</p>
@@ -147,7 +147,7 @@ export function PraticienActeDetailPage() {
           <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
             <FileText className="h-5 w-5 text-gray-400" /> Détails du bulletin
           </h2>
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-gray-500">Type de soin</p>
               <p className="font-medium">{CARE_TYPE_LABELS[careType] ?? (careType || '\u2014')}</p>
@@ -177,7 +177,7 @@ export function PraticienActeDetailPage() {
           <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
             <CreditCard className="h-5 w-5 text-gray-400" /> Informations financières
           </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             <div className="rounded-lg bg-gray-50 p-4">
               <p className="text-xs text-gray-500">Montant total</p>
               <p className="text-lg font-bold">{d.total_amount != null ? formatAmount(Number(d.total_amount)) : '\u2014'}</p>

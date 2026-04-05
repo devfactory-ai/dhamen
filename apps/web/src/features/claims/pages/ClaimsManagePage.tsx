@@ -5,7 +5,7 @@ import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { useClaims, type Claim } from '../hooks/useClaims';
 
 const CLAIM_TYPES: Record<string, { label: string; color: string }> = {
@@ -31,6 +31,7 @@ export function ClaimsManagePage() {
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('soumise');
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
 
   const { data, isLoading } = useClaims(page, 20, { statut: statusFilter });
 
@@ -202,16 +203,18 @@ export function ClaimsManagePage() {
 
       {/* Filters */}
       <div className="flex gap-4">
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Statut" />
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(CLAIM_STATUS).map(([value, { label }]) => (
-              <SelectItem key={value} value={value}>{label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <FilterDropdown
+          label="Statut"
+          value={CLAIM_STATUS[statusFilter]?.label ?? statusFilter}
+          open={statusDropdownOpen}
+          onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
+          onClose={() => setStatusDropdownOpen(false)}
+          menuWidth="w-48"
+        >
+          {Object.entries(CLAIM_STATUS).map(([value, { label }]) => (
+            <FilterOption key={value} selected={statusFilter === value} onClick={() => { setStatusFilter(value); setStatusDropdownOpen(false); }}>{label}</FilterOption>
+          ))}
+        </FilterDropdown>
       </div>
 
       <DataTable

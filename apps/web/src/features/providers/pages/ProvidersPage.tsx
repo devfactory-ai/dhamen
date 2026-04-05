@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Upload, Plus, Download, Eye, Pencil, Trash2, Stethoscope, Search, Filter, X } from 'lucide-react';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -83,6 +84,10 @@ export function ProvidersPage() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [search, setSearch] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
+  const [specialityDropdownOpen, setSpecialityDropdownOpen] = useState(false);
+  const [cityDropdownOpen, setCityDropdownOpen] = useState(false);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<Provider | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isExporting, setIsExporting] = useState(false);
@@ -304,7 +309,7 @@ export function ProvidersPage() {
             Gérer les praticiens de santé conventionnés
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {canDelete && selectedIds.size > 0 && (
             <Button
               variant="outline"
@@ -356,7 +361,7 @@ export function ProvidersPage() {
             className="space-y-4"
           >
             {/* Search bar + Rechercher + Filtres toggle */}
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <input
@@ -385,73 +390,65 @@ export function ProvidersPage() {
 
             {/* Expandable filters */}
             {showFilters && (
-              <div className="grid gap-3 md:grid-cols-5 pt-4 border-t">
+              <div className="flex flex-wrap gap-3 pt-4 border-t">
                 {/* Type */}
-                <div className="relative">
-                  <select
-                    value={typeFilter || ""}
-                    onChange={(e) => { setTypeFilter(e.target.value || undefined); setPage(1); }}
-                    className="w-full h-10 px-4 pr-8 rounded-xl bg-[#f3f4f5] text-sm text-gray-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  >
-                    <option value="">Tous les types</option>
-                    {Object.entries(PROVIDER_TYPES).map(([key, { label }]) => (
-                      <option key={key} value={key}>{label}</option>
-                    ))}
-                  </select>
-                  <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
-                  </svg>
-                </div>
+                <FilterDropdown
+                  label="Type"
+                  value={typeFilter ? (PROVIDER_TYPES[typeFilter]?.label ?? typeFilter) : 'Tous les types'}
+                  open={typeDropdownOpen}
+                  onToggle={() => setTypeDropdownOpen(!typeDropdownOpen)}
+                  onClose={() => setTypeDropdownOpen(false)}
+                  menuWidth="w-48"
+                >
+                  <FilterOption selected={!typeFilter} onClick={() => { setTypeFilter(undefined); setPage(1); setTypeDropdownOpen(false); }}>Tous les types</FilterOption>
+                  {Object.entries(PROVIDER_TYPES).map(([key, { label }]) => (
+                    <FilterOption key={key} selected={typeFilter === key} onClick={() => { setTypeFilter(key); setPage(1); setTypeDropdownOpen(false); }}>{label}</FilterOption>
+                  ))}
+                </FilterDropdown>
 
                 {/* Spécialité */}
-                <div className="relative">
-                  <select
-                    value={specialityFilter || ""}
-                    onChange={(e) => { setSpecialityFilter(e.target.value || undefined); setPage(1); }}
-                    className="w-full h-10 px-4 pr-8 rounded-xl bg-[#f3f4f5] text-sm text-gray-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  >
-                    <option value="">Toutes spécialités</option>
-                    {SPECIALITES_PROVIDER.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                  <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
-                  </svg>
-                </div>
+                <FilterDropdown
+                  label="Spécialité"
+                  value={specialityFilter || 'Toutes'}
+                  open={specialityDropdownOpen}
+                  onToggle={() => setSpecialityDropdownOpen(!specialityDropdownOpen)}
+                  onClose={() => setSpecialityDropdownOpen(false)}
+                  menuWidth="w-56"
+                >
+                  <FilterOption selected={!specialityFilter} onClick={() => { setSpecialityFilter(undefined); setPage(1); setSpecialityDropdownOpen(false); }}>Toutes spécialités</FilterOption>
+                  {SPECIALITES_PROVIDER.map((s) => (
+                    <FilterOption key={s} selected={specialityFilter === s} onClick={() => { setSpecialityFilter(s); setPage(1); setSpecialityDropdownOpen(false); }}>{s}</FilterOption>
+                  ))}
+                </FilterDropdown>
 
                 {/* Ville */}
-                <div className="relative">
-                  <select
-                    value={cityFilter || ""}
-                    onChange={(e) => { setCityFilter(e.target.value || undefined); setPage(1); }}
-                    className="w-full h-10 px-4 pr-8 rounded-xl bg-[#f3f4f5] text-sm text-gray-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  >
-                    <option value="">Toutes villes</option>
-                    {VILLES_TUNISIE.map((v) => (
-                      <option key={v} value={v}>{v}</option>
-                    ))}
-                  </select>
-                  <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
-                  </svg>
-                </div>
+                <FilterDropdown
+                  label="Ville"
+                  value={cityFilter || 'Toutes'}
+                  open={cityDropdownOpen}
+                  onToggle={() => setCityDropdownOpen(!cityDropdownOpen)}
+                  onClose={() => setCityDropdownOpen(false)}
+                  menuWidth="w-48"
+                >
+                  <FilterOption selected={!cityFilter} onClick={() => { setCityFilter(undefined); setPage(1); setCityDropdownOpen(false); }}>Toutes villes</FilterOption>
+                  {VILLES_TUNISIE.map((v) => (
+                    <FilterOption key={v} selected={cityFilter === v} onClick={() => { setCityFilter(v); setPage(1); setCityDropdownOpen(false); }}>{v}</FilterOption>
+                  ))}
+                </FilterDropdown>
 
                 {/* Statut */}
-                <div className="relative">
-                  <select
-                    value={statusFilter || ""}
-                    onChange={(e) => { setStatusFilter(e.target.value || undefined); setPage(1); }}
-                    className="w-full h-10 px-4 pr-8 rounded-xl bg-[#f3f4f5] text-sm text-gray-700 appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  >
-                    <option value="">Tous</option>
-                    <option value="active">Actif</option>
-                    <option value="inactive">Inactif</option>
-                  </select>
-                  <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
-                  </svg>
-                </div>
+                <FilterDropdown
+                  label="Statut"
+                  value={statusFilter === 'active' ? 'Actif' : statusFilter === 'inactive' ? 'Inactif' : 'Tous'}
+                  open={statusDropdownOpen}
+                  onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                  onClose={() => setStatusDropdownOpen(false)}
+                  menuWidth="w-40"
+                >
+                  <FilterOption selected={!statusFilter} onClick={() => { setStatusFilter(undefined); setPage(1); setStatusDropdownOpen(false); }}>Tous</FilterOption>
+                  <FilterOption selected={statusFilter === 'active'} onClick={() => { setStatusFilter('active'); setPage(1); setStatusDropdownOpen(false); }}>Actif</FilterOption>
+                  <FilterOption selected={statusFilter === 'inactive'} onClick={() => { setStatusFilter('inactive'); setPage(1); setStatusDropdownOpen(false); }}>Inactif</FilterOption>
+                </FilterDropdown>
 
                 {/* Effacer */}
                 {(typeFilter || specialityFilter || cityFilter || statusFilter || search) && (
@@ -477,7 +474,7 @@ export function ProvidersPage() {
         </div>
 
         {/* Total card */}
-        <div className="flex items-center gap-4 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 px-6 text-white shadow-sm">
+        <div className="flex items-center gap-4 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 px-6 py-4 md:py-0 text-white shadow-sm shrink-0">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-white">
               Total Praticiens

@@ -111,7 +111,7 @@ export default function MedicationDetailPage() {
           <h4 className="mb-4 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
             Identification
           </h4>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <DetailField label="Nom commercial" value={med.brand_name} />
             <DetailField label="DCI" value={med.dci} />
             <DetailField label="Code PCT" value={med.code_pct} />
@@ -126,7 +126,7 @@ export default function MedicationDetailPage() {
           <h4 className="mb-4 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
             Informations pharmaceutiques
           </h4>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <DetailField label="Dosage" value={med.dosage} />
             <DetailField label="Forme" value={med.form} />
             <DetailField label="Conditionnement" value={med.packaging} />
@@ -144,7 +144,7 @@ export default function MedicationDetailPage() {
           <h4 className="mb-4 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
             Classification
           </h4>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p className="text-xs text-muted-foreground">G/P/B</p>
               {med.gpb ? (
@@ -179,7 +179,7 @@ export default function MedicationDetailPage() {
           <h4 className="mb-4 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
             Tarification & Remboursement
           </h4>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <DetailField label="Prix public" value={formatPrice(med.price_public)} />
             <DetailField label="Prix hospitalier" value={formatPrice(med.price_hospital)} />
             <DetailField label="Prix référence" value={formatPrice(med.price_reference)} />

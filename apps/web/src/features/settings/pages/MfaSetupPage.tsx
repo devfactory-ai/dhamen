@@ -136,7 +136,7 @@ export function MfaSetupPage() {
               {/* Step 2 — Verify */}
               <div className="space-y-2 pt-2">
                 <Label htmlFor="mfaCode" className="text-sm font-medium">
-                  2. Entrez le code a 6 chiffres genere :
+                  2. Entrez le code à 6 chiffres généré :
                 </Label>
                 <Input
                   id="mfaCode"
@@ -159,7 +159,7 @@ export function MfaSetupPage() {
                   <p className="text-xs text-yellow-700 mb-2">
                     Conservez ces codes en lieu sûr. Ils vous permettront de vous connecter si vous perdez l'accès à votre application.
                   </p>
-                  <div className="grid grid-cols-2 gap-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
                     {mfaSetupData.backupCodes.map((code, i) => (
                       <code key={i} className="text-xs font-mono">{code}</code>
                     ))}

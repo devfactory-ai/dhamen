@@ -295,6 +295,7 @@ class ApiClient {
         headers: { 'Content-Type': 'application/json', ...tenantHeaders },
         body: JSON.stringify({ refreshToken }),
         signal: controller.signal,
+        credentials: 'include',
       });
 
       if (!response.ok) {

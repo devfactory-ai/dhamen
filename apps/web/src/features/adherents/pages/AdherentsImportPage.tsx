@@ -489,7 +489,7 @@ export function AdhérentsImportPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
         <PageHeader
           title="Importation de données"
           description="Mettez à jour votre base de données en important vos fichiers CSV ou Excel. Assurez-vous que le format respecte les spécifications techniques."
@@ -503,12 +503,13 @@ export function AdhérentsImportPage() {
           className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors shrink-0"
         >
           <Download className="h-4 w-4" />
-          Télécharger le template
+          <span className="hidden sm:inline">Télécharger le template</span>
+          <span className="sm:hidden">Template</span>
         </button>
       </div>
 
       {/* Main 2-column layout */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
 
         {/* LEFT COLUMN — Configuration de l'import */}
         <div className="space-y-5">
@@ -555,7 +556,7 @@ export function AdhérentsImportPage() {
 
                 {/* Parse results */}
                 {parsedData && (
-                  <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-100">
+                  <div className="flex flex-wrap items-center gap-3 sm:gap-4 mt-4 pt-4 border-t border-gray-100">
                     <div className="flex items-center gap-1.5">
                       <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                       <span className="text-sm font-medium text-emerald-700">{parsedData.valid.length} valides</span>
@@ -579,7 +580,7 @@ export function AdhérentsImportPage() {
               onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
               onDragLeave={() => setIsDragging(false)}
               onDrop={handleDrop}
-              className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-10 cursor-pointer transition-all ${
+              className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 sm:p-10 cursor-pointer transition-all ${
                 isDragging
                   ? 'border-blue-400 bg-blue-50/50'
                   : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50/50'
@@ -630,7 +631,7 @@ export function AdhérentsImportPage() {
           </Button>
 
           {/* Help card */}
-          <div className="rounded-xl bg-gradient-to-br from-gray-900 to-gray-800 p-6 text-white relative overflow-hidden">
+          <div className="rounded-xl bg-gradient-to-br from-gray-900 to-gray-800 p-4 sm:p-6 text-white relative overflow-hidden">
             <div className="absolute right-4 bottom-2 opacity-10">
               <HelpCircle className="h-24 w-24" />
             </div>
@@ -647,20 +648,20 @@ export function AdhérentsImportPage() {
           {/* Structure de fichier requise */}
           <Card>
             <CardContent className="p-0">
-              <div className="flex items-start justify-between p-5 pb-3">
+              <div className="flex flex-col sm:flex-row items-start justify-between gap-2 p-4 sm:p-5 pb-3">
                 <div>
-                  <h2 className="text-lg font-semibold text-gray-900">Structure de fichier requise</h2>
+                  <h2 className="text-base sm:text-lg font-semibold text-gray-900">Structure de fichier requise</h2>
                   <p className="text-xs text-gray-400 mt-0.5">
                     Format CSV (UTF-8) ou Excel (.xlsx) — Acorad auto-détecté
                   </p>
                 </div>
-                <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
+                <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700 shrink-0">
                   E-Santé v1.0
                 </span>
               </div>
 
-              <div className="px-5 pb-5">
-                <table className="w-full text-sm">
+              <div className="px-3 sm:px-5 pb-5 overflow-x-auto">
+                <table className="w-full text-sm min-w-[500px]">
                   <thead>
                     <tr className="border-b border-gray-100">
                       <th className="pb-2 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Colonne</th>
@@ -699,17 +700,19 @@ export function AdhérentsImportPage() {
           {/* Aperçu du fichier */}
           <Card>
             <CardContent className="p-0">
-              <div className="flex items-center gap-2 p-5 pb-3">
-                <Eye className="h-4 w-4 text-blue-600" />
-                <h3 className="text-sm font-semibold text-gray-900">Aperçu du fichier</h3>
-                <span className="text-xs text-gray-400 ml-1">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 p-4 sm:p-5 pb-3">
+                <div className="flex items-center gap-2">
+                  <Eye className="h-4 w-4 text-blue-600" />
+                  <h3 className="text-sm font-semibold text-gray-900">Aperçu du fichier</h3>
+                </div>
+                <span className="text-xs text-gray-400">
                   {previewRows.length > 0
                     ? `${previewRows.length} premières lignes sur ${parsedData?.valid.length ?? 0}`
                     : 'L\'aperçu s\'affichera ici une fois le fichier sélectionné.'}
                 </span>
               </div>
 
-              <div className="px-5 pb-5">
+              <div className="px-3 sm:px-5 pb-5">
                 {previewRows.length > 0 ? (
                   <div className="overflow-auto rounded-lg border border-gray-100 max-h-56">
                     <table className="w-full text-xs">
@@ -770,7 +773,7 @@ export function AdhérentsImportPage() {
       {parsedData && parsedData.invalid.length > 0 && (
         <Card ref={errorsRef} className="border-amber-200">
           <CardContent className="p-0">
-            <div className="p-5 pb-3">
+            <div className="p-4 sm:p-5 pb-3">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-amber-500" />
                 <h3 className="text-sm font-semibold text-gray-900">
@@ -779,7 +782,7 @@ export function AdhérentsImportPage() {
               </div>
               <p className="text-xs text-gray-400 mt-1">Ces lignes ne seront pas importées</p>
             </div>
-            <div className="px-5 pb-5">
+            <div className="px-3 sm:px-5 pb-5">
               <div className="max-h-52 overflow-auto rounded-lg border border-gray-100">
                 <Table>
                   <TableHeader>
@@ -819,7 +822,7 @@ export function AdhérentsImportPage() {
       {importResult && (
         <Card ref={resultRef} className={importResult.errors.length > 0 ? 'border-amber-200' : 'border-emerald-200'}>
           <CardContent className="p-0">
-            <div className="p-5 pb-3">
+            <div className="p-4 sm:p-5 pb-3">
               <div className="flex items-center gap-2">
                 {importResult.errors.length === 0 ? (
                   <CheckCircle2 className="h-5 w-5 text-emerald-500" />
@@ -829,8 +832,8 @@ export function AdhérentsImportPage() {
                 <h3 className="text-sm font-semibold text-gray-900">Résultat de l'import</h3>
               </div>
             </div>
-            <div className="px-5 pb-5">
-              <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="px-3 sm:px-5 pb-5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                 <div className="rounded-xl border border-gray-100 bg-emerald-50 p-4 text-center">
                   <p className="text-2xl font-bold text-emerald-600">{importResult.success}</p>
                   <p className="text-xs text-emerald-700 mt-1">Importés</p>

@@ -119,7 +119,7 @@ export function SanteDocumentsPage() {
 
     try {
       await deleteMutation.mutateAsync(documentId);
-      toast({ title: 'Document supprime', variant: 'success' });
+      toast({ title: 'Document supprimé', variant: 'success' });
       refetch();
     } catch (error) {
       toast({
@@ -136,7 +136,7 @@ export function SanteDocumentsPage() {
     } catch (error) {
       toast({
         title: 'Erreur',
-        description: 'Erreur lors du telechargement',
+        description: 'Erreur lors du téléchargement',
         variant: 'destructive',
       });
     }

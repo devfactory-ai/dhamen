@@ -1502,55 +1502,42 @@ bulletinsAgent.post('/create', async (c) => {
 
     const adherentSelectCols = 'a.id, a.first_name, a.last_name, a.national_id_hash';
 
-    if (user.insurerId) {
+    // Clean matricule for matching (strip whitespace)
+    const cleanMatricule = adherentMatricule.replace(/\s+/g, '');
+
+    const insurerFilter = user.insurerId
+      ? `AND (co.insurer_id = ? OR a.company_id IS NULL OR a.company_id = '__INDIVIDUAL__')`
+      : '';
+    const joinClause = user.insurerId
+      ? 'LEFT JOIN companies co ON a.company_id = co.id'
+      : '';
+
+    // Step 1: Exact matricule match
+    adherentResult = await db
+      .prepare(
+        `SELECT ${adherentSelectCols} FROM adherents a ${joinClause} WHERE REPLACE(a.matricule, ' ', '') = ? AND a.deleted_at IS NULL ${insurerFilter}`
+      )
+      .bind(...(user.insurerId ? [cleanMatricule, user.insurerId] : [cleanMatricule]))
+      .first();
+
+    // Step 2: National ID fallback
+    if (!adherentResult && adherentNationalId) {
       adherentResult = await db
         .prepare(
-          `SELECT ${adherentSelectCols} FROM adherents a LEFT JOIN companies co ON a.company_id = co.id WHERE a.matricule = ? AND (co.insurer_id = ? OR a.company_id IS NULL OR a.company_id = '__INDIVIDUAL__')`
+          `SELECT ${adherentSelectCols} FROM adherents a ${joinClause} WHERE (a.national_id_encrypted LIKE ? OR a.national_id_hash = ?) AND a.deleted_at IS NULL ${insurerFilter}`
         )
-        .bind(adherentMatricule, user.insurerId)
+        .bind(...(user.insurerId ? [`%${adherentNationalId}%`, adherentNationalId, user.insurerId] : [`%${adherentNationalId}%`, adherentNationalId]))
         .first();
+    }
 
-      if (!adherentResult && adherentNationalId) {
-        adherentResult = await db
-          .prepare(
-            `SELECT ${adherentSelectCols} FROM adherents a LEFT JOIN companies co ON a.company_id = co.id WHERE (a.national_id_encrypted LIKE ? OR a.national_id_hash = ?) AND (co.insurer_id = ? OR a.company_id IS NULL OR a.company_id = '__INDIVIDUAL__')`
-          )
-          .bind(`%${adherentNationalId}%`, adherentNationalId, user.insurerId)
-          .first();
-      }
-
-      if (!adherentResult && adherentFirstName && adherentLastName) {
-        adherentResult = await db
-          .prepare(
-            `SELECT ${adherentSelectCols} FROM adherents a LEFT JOIN companies co ON a.company_id = co.id WHERE a.first_name = ? AND a.last_name = ? AND (co.insurer_id = ? OR a.company_id IS NULL OR a.company_id = '__INDIVIDUAL__')`
-          )
-          .bind(adherentFirstName, adherentLastName, user.insurerId)
-          .first();
-      }
-    } else {
-      // ADMIN without insurer — no filter
+    // Step 3: Name fallback (case-insensitive)
+    if (!adherentResult && adherentFirstName && adherentLastName) {
       adherentResult = await db
-        .prepare(`SELECT ${adherentSelectCols} FROM adherents a WHERE a.matricule = ?`)
-        .bind(adherentMatricule)
+        .prepare(
+          `SELECT ${adherentSelectCols} FROM adherents a ${joinClause} WHERE LOWER(a.first_name) = LOWER(?) AND LOWER(a.last_name) = LOWER(?) AND a.deleted_at IS NULL ${insurerFilter}`
+        )
+        .bind(...(user.insurerId ? [adherentFirstName, adherentLastName, user.insurerId] : [adherentFirstName, adherentLastName]))
         .first();
-
-      if (!adherentResult && adherentNationalId) {
-        adherentResult = await db
-          .prepare(
-            `SELECT ${adherentSelectCols} FROM adherents a WHERE a.national_id_encrypted LIKE ? OR a.national_id_hash = ?`
-          )
-          .bind(`%${adherentNationalId}%`, adherentNationalId)
-          .first();
-      }
-
-      if (!adherentResult && adherentFirstName && adherentLastName) {
-        adherentResult = await db
-          .prepare(
-            `SELECT ${adherentSelectCols} FROM adherents a WHERE a.first_name = ? AND a.last_name = ?`
-          )
-          .bind(adherentFirstName, adherentLastName)
-          .first();
-      }
     }
 
     let adherentAutoCreated = false;

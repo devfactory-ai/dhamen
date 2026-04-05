@@ -103,7 +103,7 @@ export function SantePaiementProcessPage() {
   if (paiement.statut !== 'valide') {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <p className="text-muted-foreground">Ce paiement ne peut pas etre traite (statut: {PAIEMENT_STATUTS_LABELS[paiement.statut]})</p>
+        <p className="text-muted-foreground">Ce paiement ne peut pas être traité (statut : {PAIEMENT_STATUTS_LABELS[paiement.statut]})</p>
         <Button onClick={() => navigate('/sante/paiements')}>Retour aux paiements</Button>
       </div>
     );

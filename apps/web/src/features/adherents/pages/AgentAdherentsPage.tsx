@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DataTable } from '@/components/ui/data-table';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -78,32 +79,8 @@ export function AgentAdherentsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'incomplete'>('all');
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
-  const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [companyFilter, setCompanyFilter] = useState<string | undefined>(undefined);
   const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false);
-  const companyDropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!statusDropdownOpen) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
-        setStatusDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [statusDropdownOpen]);
-
-  useEffect(() => {
-    if (!companyDropdownOpen) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (companyDropdownRef.current && !companyDropdownRef.current.contains(e.target as Node)) {
-        setCompanyDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [companyDropdownOpen]);
 
   // Dialogs
   const [deleteConfirm, setDeleteConfirm] = useState<AgentAdherent | null>(null);
@@ -329,7 +306,7 @@ export function AgentAdherentsPage() {
                 : 'Gérez votre base de données d\'assures et leurs plafonds de consommation.'}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {selectedIds.size > 0 && canDelete && (
             <Button
               variant="outline"
@@ -422,95 +399,56 @@ export function AgentAdherentsPage() {
             </div>
 
             {/* Statut dropdown */}
-            <div className="relative shrink-0" ref={statusDropdownRef}>
-              <button
-                type="button"
-                onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-                className="flex items-center gap-2 w-full sm:w-auto px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
-              >
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Statut</span>
-                <span className="text-sm font-medium text-gray-900">
-                  {statusFilter === "all" ? "Tous" : statusFilter === "active" ? "Actifs" : statusFilter === "inactive" ? "Inactifs" : "Incomplets"}
-                </span>
-                <svg className={`w-3.5 h-3.5 text-gray-400 ml-auto sm:ml-1 transition-transform ${statusDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
-                </svg>
-              </button>
-              {statusDropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 w-full sm:w-48 py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50">
-                  {([
-                    { value: "all" as const, label: "Tous", color: null },
-                    { value: "active" as const, label: "Actifs", color: "bg-emerald-500" },
-                    { value: "inactive" as const, label: "Inactifs", color: "bg-red-400" },
-                    { value: "incomplete" as const, label: "Dossier incomplet", color: "bg-amber-400" },
-                  ]).map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => { setStatusFilter(opt.value); setStatusDropdownOpen(false); setPage(1); }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${statusFilter === opt.value ? "text-blue-600 font-semibold bg-blue-50/50" : "text-gray-700"}`}
-                    >
-                      {opt.color && <span className={`w-2 h-2 rounded-full ${opt.color}`} />}
-                      {opt.label}
-                      {statusFilter === opt.value && (
-                        <svg className="w-4 h-4 ml-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <FilterDropdown
+              label="Statut"
+              value={statusFilter === "all" ? "Tous" : statusFilter === "active" ? "Actifs" : statusFilter === "inactive" ? "Inactifs" : "Incomplets"}
+              open={statusDropdownOpen}
+              onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
+              onClose={() => setStatusDropdownOpen(false)}
+            >
+              {([
+                { value: "all" as const, label: "Tous", color: null },
+                { value: "active" as const, label: "Actifs", color: "bg-emerald-500" },
+                { value: "inactive" as const, label: "Inactifs", color: "bg-red-400" },
+                { value: "incomplete" as const, label: "Dossier incomplet", color: "bg-amber-400" },
+              ]).map((opt) => (
+                <FilterOption
+                  key={opt.value}
+                  selected={statusFilter === opt.value}
+                  onClick={() => { setStatusFilter(opt.value); setStatusDropdownOpen(false); setPage(1); }}
+                  color={opt.color ?? undefined}
+                >
+                  {opt.label}
+                </FilterOption>
+              ))}
+            </FilterDropdown>
 
             {/* Entreprise dropdown — ADMIN only (hidden for HR) */}
             {isAdmin && !isHR && (
-            <div className="relative shrink-0" ref={companyDropdownRef}>
-              <button
-                type="button"
-                onClick={() => { setCompanyDropdownOpen(!companyDropdownOpen); setStatusDropdownOpen(false); }}
-                className="flex items-center gap-2 w-full sm:w-auto px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
+            <FilterDropdown
+              label="Entreprise"
+              value={selectedCompanyName || "Toutes"}
+              open={companyDropdownOpen}
+              onToggle={() => { setCompanyDropdownOpen(!companyDropdownOpen); setStatusDropdownOpen(false); }}
+              onClose={() => setCompanyDropdownOpen(false)}
+              menuWidth="w-64"
+            >
+              <FilterOption
+                selected={!companyFilter}
+                onClick={() => { setCompanyFilter(undefined); setCompanyDropdownOpen(false); setPage(1); }}
               >
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Entreprise</span>
-                <span className="text-sm font-medium text-gray-900 truncate max-w-[140px]">
-                  {selectedCompanyName || "Toutes"}
-                </span>
-                <svg className={`w-3.5 h-3.5 text-gray-400 ml-auto sm:ml-1 transition-transform ${companyDropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
-                </svg>
-              </button>
-              {companyDropdownOpen && (
-                <div className="absolute top-full right-0 sm:left-0 mt-1 w-64 max-h-72 overflow-y-auto py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50">
-                  <button
-                    type="button"
-                    onClick={() => { setCompanyFilter(undefined); setCompanyDropdownOpen(false); setPage(1); }}
-                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${!companyFilter ? "text-blue-600 font-semibold bg-blue-50/50" : "text-gray-700"}`}
-                  >
-                    Toutes les entreprises
-                    {!companyFilter && (
-                      <svg className="w-4 h-4 ml-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />
-                      </svg>
-                    )}
-                  </button>
-                  {(companiesList ?? []).map((c: { id: string; name: string }) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => { setCompanyFilter(c.id); setCompanyDropdownOpen(false); setPage(1); }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${companyFilter === c.id ? "text-blue-600 font-semibold bg-blue-50/50" : "text-gray-700"}`}
-                    >
-                      <span className="truncate">{c.name}</span>
-                      {companyFilter === c.id && (
-                        <svg className="w-4 h-4 ml-auto shrink-0 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+                Toutes les entreprises
+              </FilterOption>
+              {(companiesList ?? []).map((c: { id: string; name: string }) => (
+                <FilterOption
+                  key={c.id}
+                  selected={companyFilter === c.id}
+                  onClick={() => { setCompanyFilter(c.id); setCompanyDropdownOpen(false); setPage(1); }}
+                >
+                  <span className="truncate">{c.name}</span>
+                </FilterOption>
+              ))}
+            </FilterDropdown>
             )}
           </div>
         </div>

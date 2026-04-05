@@ -47,13 +47,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../../../components/ui/dropdown-menu';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../../components/ui/select';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import {
   useCards,
   useSuspendCard,
@@ -75,6 +69,7 @@ export default function CardsManagementPage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [selectedCard, setSelectedCard] = useState<VirtualCard | null>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
@@ -278,25 +273,29 @@ export default function CardsManagementPage() {
                 />
               </div>
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Statut" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous les statuts</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="suspended">Suspendue</SelectItem>
-                <SelectItem value="revoked">Révoquée</SelectItem>
-                <SelectItem value="expired">Expirée</SelectItem>
-              </SelectContent>
-            </Select>
+            <FilterDropdown
+              label="Statut"
+              value={
+                { all: 'Tous les statuts', active: 'Active', suspended: 'Suspendue', revoked: 'Révoquée', expired: 'Expirée' }[statusFilter] || 'Tous les statuts'
+              }
+              open={statusDropdownOpen}
+              onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
+              onClose={() => setStatusDropdownOpen(false)}
+              menuWidth="w-48"
+            >
+              <FilterOption selected={statusFilter === 'all'} onClick={() => { setStatusFilter('all'); setStatusDropdownOpen(false); }}>Tous les statuts</FilterOption>
+              <FilterOption selected={statusFilter === 'active'} onClick={() => { setStatusFilter('active'); setStatusDropdownOpen(false); }}>Active</FilterOption>
+              <FilterOption selected={statusFilter === 'suspended'} onClick={() => { setStatusFilter('suspended'); setStatusDropdownOpen(false); }}>Suspendue</FilterOption>
+              <FilterOption selected={statusFilter === 'revoked'} onClick={() => { setStatusFilter('revoked'); setStatusDropdownOpen(false); }}>Révoquée</FilterOption>
+              <FilterOption selected={statusFilter === 'expired'} onClick={() => { setStatusFilter('expired'); setStatusDropdownOpen(false); }}>Expirée</FilterOption>
+            </FilterDropdown>
           </div>
         </CardContent>
       </Card>
 
       {/* Table */}
       <Card>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>

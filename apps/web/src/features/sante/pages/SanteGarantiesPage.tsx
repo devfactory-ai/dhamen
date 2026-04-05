@@ -70,12 +70,12 @@ export default function SanteGarantiesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <PageHeader
           title="Formules de Garantie"
           description="Gérer les formules et taux de couverture"
         />
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <label className="flex items-center gap-2 text-sm">
             <Switch checked={showInactive} onCheckedChange={setShowInactive} />
             Afficher inactives
@@ -127,7 +127,7 @@ export default function SanteGarantiesPage() {
 
       {/* Detail Dialog */}
       <Dialog open={!!selectedFormuleId} onOpenChange={() => setSelectedFormuleId(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="w-full max-w-2xl">
           <DialogHeader>
             <DialogTitle>Detail Formule</DialogTitle>
           </DialogHeader>
@@ -186,7 +186,7 @@ function FormuleCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-4 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div className="flex items-center gap-2">
             <DollarSign className="h-4 w-4 text-muted-foreground" />
             <div>
@@ -248,7 +248,7 @@ function FormuleDetailView({ formule }: { formule: FormuleDetail }) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <p className="text-sm text-muted-foreground">Code</p>
           <p className="font-mono font-medium">{formule.code}</p>
@@ -300,7 +300,7 @@ function CouvertureRow({ couverture }: { couverture: SanteCouverture }) {
   const typeSoin = TYPE_SOIN_OPTIONS.find((t) => t.value === couverture.typeSoin);
 
   return (
-    <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/50">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2 px-3 rounded-lg bg-muted/50">
       <div className="flex items-center gap-3">
         {couverture.estActif ? (
           <CheckCircle className="h-4 w-4 text-green-600" />
@@ -309,7 +309,7 @@ function CouvertureRow({ couverture }: { couverture: SanteCouverture }) {
         )}
         <span className="font-medium">{typeSoin?.label || couverture.typeSoin}</span>
       </div>
-      <div className="flex items-center gap-6 text-sm">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-sm">
         <div className="flex items-center gap-1">
           <Percent className="h-3 w-3 text-muted-foreground" />
           <span>{formatTaux(couverture.tauxCouverture)}</span>
@@ -376,7 +376,7 @@ function CreateFormuleDialog({
           <DialogTitle>Nouvelle Formule</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Code</label>
               <Input
@@ -406,7 +406,7 @@ function CreateFormuleDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Tarif mensuel (TND)</label>
               <Input
@@ -435,7 +435,7 @@ function CreateFormuleDialog({
               Annuler
             </Button>
             <Button type="submit" disabled={createFormule.isPending}>
-              {createFormule.isPending ? 'Creation...' : 'Créer'}
+              {createFormule.isPending ? 'Création...' : 'Créer'}
             </Button>
           </DialogFooter>
         </form>
@@ -506,7 +506,7 @@ function EditFormuleDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Tarif mensuel (TND)</label>
               <Input

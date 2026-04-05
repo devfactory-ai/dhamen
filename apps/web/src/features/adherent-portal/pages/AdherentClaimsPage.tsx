@@ -44,8 +44,8 @@ const CLAIM_TYPES = {
 
 const CLAIM_STATUS = {
   PENDING: { label: 'En attente', variant: 'warning' as const },
-  APPROVED: { label: 'Approuve', variant: 'success' as const },
-  REJECTED: { label: 'Refuse', variant: 'destructive' as const },
+  APPROVED: { label: 'Approuvé', variant: 'success' as const },
+  REJECTED: { label: 'Refusé', variant: 'destructive' as const },
   PAID: { label: 'Payé', variant: 'default' as const },
 };
 
@@ -237,7 +237,7 @@ export function AdhérentClaimsPage() {
           </DialogHeader>
           {selectedClaim && (
             <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Date</p>
                   <p className="font-medium">{formatDate(selectedClaim.date)}</p>

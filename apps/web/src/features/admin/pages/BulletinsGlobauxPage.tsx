@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Download, RotateCcw, Eye, Trash2 } from 'lucide-react';
+import { Download, RotateCcw, Eye, Trash2, ArrowDown, ArrowUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { apiClient } from '@/lib/api-client';
 import { usePermissions } from '@/hooks/usePermissions';
 
@@ -145,33 +146,10 @@ export function BulletinsGlobauxPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleteBulletinId, setDeleteBulletinId] = useState<string | null>(null);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
-  const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [careTypeDropdownOpen, setCareTypeDropdownOpen] = useState(false);
-  const careTypeDropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!statusDropdownOpen) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
-        setStatusDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [statusDropdownOpen]);
-
-  useEffect(() => {
-    if (!careTypeDropdownOpen) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (careTypeDropdownRef.current && !careTypeDropdownRef.current.contains(e.target as Node)) {
-        setCareTypeDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [careTypeDropdownOpen]);
 
   const queryParams = new URLSearchParams();
   queryParams.set('page', String(page));
@@ -181,6 +159,8 @@ export function BulletinsGlobauxPage() {
   if (dateFrom) queryParams.set('dateFrom', dateFrom);
   if (dateTo) queryParams.set('dateTo', dateTo);
   if (careType) queryParams.set('careType', careType);
+  queryParams.set('sortBy', 'care_date');
+  queryParams.set('sortOrder', sortOrder);
 
   const invalidateAllBulletinQueries = () => {
     queryClient.invalidateQueries({ queryKey: ['admin-bulletins'] });
@@ -200,7 +180,7 @@ export function BulletinsGlobauxPage() {
   };
 
   const { data, isLoading } = useQuery<BulletinsResponse>({
-    queryKey: ['admin-bulletins', page, search, status, dateFrom, dateTo, careType],
+    queryKey: ['admin-bulletins', page, search, status, dateFrom, dateTo, careType, sortOrder],
     queryFn: async () => {
       const res = await apiClient.get<BulletinsResponse>(
         `/bulletins-soins/admin/all?${queryParams.toString()}`
@@ -372,7 +352,15 @@ export function BulletinsGlobauxPage() {
     },
     {
       key: 'careDate',
-      header: 'Date soins',
+      header: (
+        <button
+          onClick={() => { setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc'); setPage(1); }}
+          className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors"
+        >
+          Date soins
+          {sortOrder === 'desc' ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+        </button>
+      ),
       render: (row: BulletinRow) => (
         <span className="text-sm text-gray-600">{formatDate(row.careDate)}</span>
       ),
@@ -446,7 +434,7 @@ export function BulletinsGlobauxPage() {
           <h1 className="text-2xl font-bold text-gray-900">Bulletins de soins</h1>
           <p className="mt-1 text-sm text-gray-500">Vue globale de tous les bulletins de soins</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {canDelete && selectedIds.size > 0 && (
             <Button
               variant="outline"
@@ -506,77 +494,44 @@ export function BulletinsGlobauxPage() {
             </div>
 
             {/* Status dropdown */}
-            <div className="relative shrink-0" ref={statusDropdownRef}>
-              <button
-                type="button"
-                onClick={() => { setStatusDropdownOpen(!statusDropdownOpen); setCareTypeDropdownOpen(false); }}
-                className="flex items-center gap-2 w-full sm:w-auto px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
-              >
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Statut</span>
-                <span className="text-sm font-medium text-gray-900">
-                  {STATUS_OPTIONS.find(o => o.value === status)?.label || 'Tous'}
-                </span>
-                <svg className={`w-3.5 h-3.5 text-gray-400 ml-auto sm:ml-1 transition-transform ${statusDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
-                </svg>
-              </button>
-              {statusDropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 w-full sm:w-48 py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50">
-                  {STATUS_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => { setStatus(opt.value); setStatusDropdownOpen(false); setPage(1); }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${status === opt.value ? 'text-blue-600 font-semibold bg-blue-50/50' : 'text-gray-700'}`}
-                    >
-                      {opt.color && <span className={`w-2 h-2 rounded-full ${opt.color}`} />}
-                      {opt.label}
-                      {status === opt.value && (
-                        <svg className="w-4 h-4 ml-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <FilterDropdown
+              label="Statut"
+              value={STATUS_OPTIONS.find(o => o.value === status)?.label || 'Tous'}
+              open={statusDropdownOpen}
+              onToggle={() => { setStatusDropdownOpen(!statusDropdownOpen); setCareTypeDropdownOpen(false); }}
+              onClose={() => setStatusDropdownOpen(false)}
+            >
+              {STATUS_OPTIONS.map((opt) => (
+                <FilterOption
+                  key={opt.value}
+                  selected={status === opt.value}
+                  onClick={() => { setStatus(opt.value); setStatusDropdownOpen(false); setPage(1); }}
+                  color={opt.color ?? undefined}
+                >
+                  {opt.label}
+                </FilterOption>
+              ))}
+            </FilterDropdown>
 
             {/* Care type dropdown */}
-            <div className="relative shrink-0" ref={careTypeDropdownRef}>
-              <button
-                type="button"
-                onClick={() => { setCareTypeDropdownOpen(!careTypeDropdownOpen); setStatusDropdownOpen(false); }}
-                className="flex items-center gap-2 w-full sm:w-auto px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
-              >
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Type</span>
-                <span className="text-sm font-medium text-gray-900">
-                  {CARE_TYPE_OPTIONS.find(o => o.value === careType)?.label || 'Tous'}
-                </span>
-                <svg className={`w-3.5 h-3.5 text-gray-400 ml-auto sm:ml-1 transition-transform ${careTypeDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
-                </svg>
-              </button>
-              {careTypeDropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 w-full sm:w-52 py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50">
-                  {CARE_TYPE_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => { setCareType(opt.value); setCareTypeDropdownOpen(false); setPage(1); }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${careType === opt.value ? 'text-blue-600 font-semibold bg-blue-50/50' : 'text-gray-700'}`}
-                    >
-                      {opt.label}
-                      {careType === opt.value && (
-                        <svg className="w-4 h-4 ml-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <FilterDropdown
+              label="Type"
+              value={CARE_TYPE_OPTIONS.find(o => o.value === careType)?.label || 'Tous'}
+              open={careTypeDropdownOpen}
+              onToggle={() => { setCareTypeDropdownOpen(!careTypeDropdownOpen); setStatusDropdownOpen(false); }}
+              onClose={() => setCareTypeDropdownOpen(false)}
+              menuWidth="w-52"
+            >
+              {CARE_TYPE_OPTIONS.map((opt) => (
+                <FilterOption
+                  key={opt.value}
+                  selected={careType === opt.value}
+                  onClick={() => { setCareType(opt.value); setCareTypeDropdownOpen(false); setPage(1); }}
+                >
+                  {opt.label}
+                </FilterOption>
+              ))}
+            </FilterDropdown>
           </div>
 
           {/* Date filters row */}

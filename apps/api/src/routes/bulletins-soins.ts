@@ -693,7 +693,7 @@ bulletinsSoins.post('/submit', async (c) => {
   // Handle file uploads
   const uploadedFiles: { url: string; filename: string }[] = [];
 
-  for (const [key, value] of formData.entries()) {
+  for (const [key, value] of formData?.entries()) {
     if (key.startsWith('scan_') && typeof value === 'object' && 'arrayBuffer' in value) {
       const file = value as File;
       if (file.size > 0) {
@@ -2511,6 +2511,16 @@ bulletinsSoins.get('/admin/all', async (c) => {
   const careType = url.searchParams.get('careType');
   const dateFrom = url.searchParams.get('dateFrom');
   const dateTo = url.searchParams.get('dateTo');
+  const sortBy = url.searchParams.get('sortBy') || 'created_at';
+  const sortOrder = (url.searchParams.get('sortOrder') || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  const allowedSortColumns: Record<string, string> = {
+    care_date: 'bs.bulletin_date',
+    bulletin_date: 'bs.bulletin_date',
+    created_at: 'bs.created_at',
+    total_amount: 'bs.total_amount',
+    status: 'bs.status',
+  };
+  const sortColumn = allowedSortColumns[sortBy] || 'bs.created_at';
 
   try {
     const conditions: string[] = [];
@@ -2561,7 +2571,7 @@ bulletinsSoins.get('/admin/all', async (c) => {
         LEFT JOIN adherents a ON bs.adherent_id = a.id
         LEFT JOIN users u ON bs.created_by = u.id
         ${whereClause}
-        ORDER BY bs.created_at DESC
+        ORDER BY ${sortColumn} ${sortOrder}
         LIMIT ? OFFSET ?
       `)
       .bind(...params, limit, offset)

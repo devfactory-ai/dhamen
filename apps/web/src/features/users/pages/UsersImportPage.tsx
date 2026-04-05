@@ -290,7 +290,7 @@ export function UsersImportPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
               <div className="p-4 bg-green-50 rounded-lg text-center">
                 <p className="text-2xl font-bold text-green-600">{importResult.success}</p>
                 <p className="text-sm text-green-700">Importés</p>

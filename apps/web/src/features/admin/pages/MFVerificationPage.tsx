@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/ui/data-table';
@@ -30,6 +31,8 @@ import {
   FileCheck,
   Building,
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
 } from 'lucide-react';
 
 interface MFVerification {
@@ -77,10 +80,10 @@ export function MFVerificationPage() {
   const { hasPermission } = usePermissions();
   const canCreate = hasPermission('providers', 'create');
   const canApprove = hasPermission('providers', 'update');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
-  const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [showVerifyDialog, setShowVerifyDialog] = useState(false);
   const [showActionDialog, setShowActionDialog] = useState(false);
   const [selectedVerification, setSelectedVerification] = useState<MFVerification | null>(null);
@@ -96,25 +99,15 @@ export function MFVerificationPage() {
     expiresAt: '',
   });
 
-  // Click outside to close dropdown
-  useEffect(() => {
-    if (!statusDropdownOpen) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
-        setStatusDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [statusDropdownOpen]);
-
   // Fetch verifications
   const { data: verifications, isLoading } = useQuery({
-    queryKey: ['mf-verifications', statusFilter],
+    queryKey: ['mf-verifications', statusFilter, sortOrder],
     queryFn: async () => {
-      const url = statusFilter && statusFilter !== 'all'
-        ? `/mf-verification?status=${statusFilter}`
-        : '/mf-verification';
+      const params = new URLSearchParams();
+      if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter);
+      params.set('sortBy', 'created_at');
+      params.set('sortOrder', sortOrder);
+      const url = `/mf-verification?${params.toString()}`;
       const response = await apiClient.get<{ data: MFVerification[]; meta: { total: number } }>(url);
       if (!response.success) throw new Error(response.error?.message);
       return response.data;
@@ -239,7 +232,15 @@ export function MFVerificationPage() {
     },
     {
       key: 'created_at',
-      header: 'Date soumission',
+      header: (
+        <button
+          onClick={() => { setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc'); }}
+          className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors"
+        >
+          Date soumission
+          {sortOrder === 'desc' ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+        </button>
+      ),
       render: (row: MFVerification) => (
         <span className="text-sm text-gray-700">
           {new Date(row.created_at).toLocaleDateString('fr-TN')}
@@ -402,93 +403,30 @@ export function MFVerificationPage() {
             </div>
 
             {/* Statut dropdown */}
-            <div className="relative shrink-0" ref={statusDropdownRef}>
-              <button
-                type="button"
-                onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-                className="flex items-center gap-2 w-full sm:w-auto px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
-              >
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                  Statut
-                </span>
-                <span className="text-sm font-medium text-gray-900">
-                  {statusFilter === "all"
-                    ? "Tous"
-                    : statusConfig[statusFilter as keyof typeof statusConfig]
-                        ?.label || statusFilter}
-                </span>
-                <svg
-                  className={`w-3.5 h-3.5 text-gray-400 ml-auto sm:ml-1 transition-transform ${statusDropdownOpen ? "rotate-180" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+            <FilterDropdown
+              label="Statut"
+              value={statusFilter === "all" ? "Tous" : statusConfig[statusFilter as keyof typeof statusConfig]?.label || statusFilter}
+              open={statusDropdownOpen}
+              onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
+              onClose={() => setStatusDropdownOpen(false)}
+            >
+              {[
+                { value: "all", label: "Tous", color: null },
+                { value: "pending", label: "En attente", color: "bg-yellow-500" },
+                { value: "verified", label: "Vérifiés", color: "bg-emerald-500" },
+                { value: "rejected", label: "Rejetés", color: "bg-red-400" },
+                { value: "expired", label: "Expirés", color: "bg-gray-400" },
+              ].map((opt) => (
+                <FilterOption
+                  key={opt.value}
+                  selected={statusFilter === opt.value}
+                  onClick={() => { setStatusFilter(opt.value); setStatusDropdownOpen(false); }}
+                  color={opt.color ?? undefined}
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="m19 9-7 7-7-7"
-                  />
-                </svg>
-              </button>
-              {statusDropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 w-full sm:w-48 py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50">
-                  {[
-                    { value: "all", label: "Tous", color: null },
-                    {
-                      value: "pending",
-                      label: "En attente",
-                      color: "bg-yellow-500",
-                    },
-                    {
-                      value: "verified",
-                      label: "Vérifiés",
-                      color: "bg-emerald-500",
-                    },
-                    {
-                      value: "rejected",
-                      label: "Rejetés",
-                      color: "bg-red-400",
-                    },
-                    {
-                      value: "expired",
-                      label: "Expirés",
-                      color: "bg-gray-400",
-                    },
-                  ].map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => {
-                        setStatusFilter(opt.value);
-                        setStatusDropdownOpen(false);
-                      }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${statusFilter === opt.value ? "text-blue-600 font-semibold bg-blue-50/50" : "text-gray-700"}`}
-                    >
-                      {opt.color && (
-                        <span className={`w-2 h-2 rounded-full ${opt.color}`} />
-                      )}
-                      {opt.label}
-                      {statusFilter === opt.value && (
-                        <svg
-                          className="w-4 h-4 ml-auto text-blue-600"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="m4.5 12.75 6 6 9-13.5"
-                          />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+                  {opt.label}
+                </FilterOption>
+              ))}
+            </FilterDropdown>
           </div>
         </div>
       </div>

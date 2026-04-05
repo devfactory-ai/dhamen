@@ -48,7 +48,7 @@ export default function ProviderDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <PageHeader
           title={provider.name}
           description={provider.speciality || typeInfo.label}
@@ -57,7 +57,7 @@ export default function ProviderDetailPage() {
             { label: provider.name },
           ]}
         />
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {canUpdate && (
             <Button
               variant="outline"
@@ -84,7 +84,7 @@ export default function ProviderDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Nom</p>
                 <p className="font-medium">{provider.name}</p>

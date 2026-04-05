@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -99,6 +100,8 @@ function BulletinsArchivePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchYear, setSearchYear] = useState<string>('');
   const [hasScans, setHasScans] = useState<string>('');
+  const [yearDropdownOpen, setYearDropdownOpen] = useState(false);
+  const [hasScansDropdownOpen, setHasScansDropdownOpen] = useState(false);
   const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -221,22 +224,26 @@ function BulletinsArchivePage() {
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="stats" className="gap-2">
+        <TabsList className="w-full sm:w-auto">
+          <TabsTrigger value="stats" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
             <Archive className="h-4 w-4" />
-            Statistiques
+            <span className="hidden sm:inline">Statistiques</span>
+            <span className="sm:hidden">Stats</span>
           </TabsTrigger>
-          <TabsTrigger value="import" className="gap-2">
+          <TabsTrigger value="import" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
             <FileSpreadsheet className="h-4 w-4" />
-            Import CSV
+            <span className="hidden sm:inline">Import CSV</span>
+            <span className="sm:hidden">Import</span>
           </TabsTrigger>
-          <TabsTrigger value="scans" className="gap-2">
+          <TabsTrigger value="scans" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
             <Image className="h-4 w-4" />
-            Upload Scans
+            <span className="hidden sm:inline">Upload Scans</span>
+            <span className="sm:hidden">Scans</span>
           </TabsTrigger>
-          <TabsTrigger value="search" className="gap-2">
+          <TabsTrigger value="search" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
             <Search className="h-4 w-4" />
-            Recherche
+            <span className="hidden sm:inline">Recherche</span>
+            <span className="sm:hidden">Rech.</span>
           </TabsTrigger>
         </TabsList>
 
@@ -249,7 +256,7 @@ function BulletinsArchivePage() {
           ) : stats ? (
             <>
               {/* Overview Cards */}
-              <div className="grid gap-4 md:grid-cols-4">
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -381,7 +388,7 @@ function BulletinsArchivePage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Nom du lot</Label>
                   <Input
@@ -438,7 +445,7 @@ function BulletinsArchivePage() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="flex flex-col sm:flex-row justify-end gap-2">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -563,7 +570,7 @@ function BulletinsArchivePage() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="flex flex-col sm:flex-row justify-end gap-2">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -619,8 +626,8 @@ function BulletinsArchivePage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="md:col-span-2">
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
+                <div className="sm:col-span-2">
                   <Input
                     placeholder="Rechercher (matricule, nom, numéro bulletin...)"
                     value={searchQuery}
@@ -633,28 +640,48 @@ function BulletinsArchivePage() {
                     }}
                   />
                 </div>
-                <Select value={searchYear} onValueChange={(v) => { setSearchYear(v); setCurrentPage(1); }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Année" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Toutes</SelectItem>
-                    <SelectItem value="2023">2023</SelectItem>
-                    <SelectItem value="2024">2024</SelectItem>
-                    <SelectItem value="2025">2025</SelectItem>
-                    <SelectItem value="2026">2026</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={hasScans} onValueChange={(v) => { setHasScans(v); setCurrentPage(1); }}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Scans" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Tous</SelectItem>
-                    <SelectItem value="true">Avec scan</SelectItem>
-                    <SelectItem value="false">Sans scan</SelectItem>
-                  </SelectContent>
-                </Select>
+                <FilterDropdown
+                  label="Année"
+                  value={searchYear && searchYear !== 'all' ? searchYear : 'Toutes'}
+                  open={yearDropdownOpen}
+                  onToggle={() => setYearDropdownOpen(!yearDropdownOpen)}
+                  onClose={() => setYearDropdownOpen(false)}
+                  menuWidth="w-48"
+                >
+                  <FilterOption selected={!searchYear || searchYear === 'all'} onClick={() => { setSearchYear('all'); setCurrentPage(1); setYearDropdownOpen(false); }}>
+                    Toutes
+                  </FilterOption>
+                  <FilterOption selected={searchYear === '2023'} onClick={() => { setSearchYear('2023'); setCurrentPage(1); setYearDropdownOpen(false); }}>
+                    2023
+                  </FilterOption>
+                  <FilterOption selected={searchYear === '2024'} onClick={() => { setSearchYear('2024'); setCurrentPage(1); setYearDropdownOpen(false); }}>
+                    2024
+                  </FilterOption>
+                  <FilterOption selected={searchYear === '2025'} onClick={() => { setSearchYear('2025'); setCurrentPage(1); setYearDropdownOpen(false); }}>
+                    2025
+                  </FilterOption>
+                  <FilterOption selected={searchYear === '2026'} onClick={() => { setSearchYear('2026'); setCurrentPage(1); setYearDropdownOpen(false); }}>
+                    2026
+                  </FilterOption>
+                </FilterDropdown>
+                <FilterDropdown
+                  label="Scans"
+                  value={hasScans === 'true' ? 'Avec scan' : hasScans === 'false' ? 'Sans scan' : 'Tous'}
+                  open={hasScansDropdownOpen}
+                  onToggle={() => setHasScansDropdownOpen(!hasScansDropdownOpen)}
+                  onClose={() => setHasScansDropdownOpen(false)}
+                  menuWidth="w-48"
+                >
+                  <FilterOption selected={!hasScans || hasScans === 'all'} onClick={() => { setHasScans('all'); setCurrentPage(1); setHasScansDropdownOpen(false); }}>
+                    Tous
+                  </FilterOption>
+                  <FilterOption selected={hasScans === 'true'} onClick={() => { setHasScans('true'); setCurrentPage(1); setHasScansDropdownOpen(false); }}>
+                    Avec scan
+                  </FilterOption>
+                  <FilterOption selected={hasScans === 'false'} onClick={() => { setHasScans('false'); setCurrentPage(1); setHasScansDropdownOpen(false); }}>
+                    Sans scan
+                  </FilterOption>
+                </FilterDropdown>
               </div>
 
               <Button onClick={() => { setCurrentPage(1); doSearch(); }} disabled={searchLoading}>

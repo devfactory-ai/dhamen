@@ -301,15 +301,16 @@ export function AdherentsPage() {
       </div>
 
       {/* Search */}
-      <div className="flex gap-4">
+      <div className="flex flex-col sm:flex-row gap-4">
         <Input
           placeholder="Rechercher par nom, CIN ou N° adhérent..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="max-w-sm"
+          className="w-full sm:max-w-sm"
         />
       </div>
 
+      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
       <DataTable
         columns={columns}
         data={currentRows}
@@ -326,6 +327,7 @@ export function AdherentsPage() {
             : undefined
         }
       />
+      </div>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteConfirm} onOpenChange={() => setDeleteConfirm(null)}>

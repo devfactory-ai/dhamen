@@ -327,7 +327,7 @@ function TendancesChart({ data }: { data: StatsTendance[] }) {
         <span>{data[0]?.date}</span>
         <span>{data[data.length - 1]?.date}</span>
       </div>
-      <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t">
         <div>
           <p className="text-sm text-muted-foreground">Total demandes</p>
           <p className="text-lg font-semibold">{data.reduce((s, d) => s + d.demandes, 0)}</p>

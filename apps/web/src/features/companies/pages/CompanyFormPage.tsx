@@ -250,7 +250,7 @@ export function CompanyFormPage() {
               {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
             </div>
 
-            <div className="flex justify-end gap-3 pt-4">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-4">
               <Button type="button" variant="outline" onClick={() => navigate('/companies')}>
                 Annuler
               </Button>

@@ -197,7 +197,7 @@ export function InsurerFormPage() {
         description={isEditing ? 'Modifier les informations de la compagnie' : 'Ajouter une nouvelle compagnie partenaire'}
       />
 
-      <Card className="max-w-2xl">
+      <Card className="w-full max-w-2xl mx-auto">
         <CardHeader>
           <CardTitle>{isEditing ? 'Informations de l\'assureur' : 'Informations du nouvel assureur'}</CardTitle>
           <CardDescription>
@@ -302,7 +302,7 @@ export function InsurerFormPage() {
             </div>
 
             {/* Convention */}
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="dateDebutConvention">Début convention</Label>
                 <Input id="dateDebutConvention" type="date" {...register('dateDebutConvention')} />
@@ -392,7 +392,7 @@ export function InsurerFormPage() {
             )}
 
             {/* Actions */}
-            <div className="flex justify-end gap-3 pt-4 border-t">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => navigate('/insurers')}>
                 Annuler
               </Button>

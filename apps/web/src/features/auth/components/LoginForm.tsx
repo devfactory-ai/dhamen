@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginRequestSchema, type LoginRequest } from '@dhamen/shared';
@@ -44,6 +45,7 @@ const DEMO_PASSWORD = 'Password123!';
 
 export function LoginForm() {
   const { login, isLoading, error } = useAuth();
+  const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
 
@@ -61,7 +63,10 @@ export function LoginForm() {
   });
 
   const onSubmit = async (data: LoginRequest) => {
-    await login(data);
+    const result = await login(data);
+    if (result.redirectTo) {
+      navigate(result.redirectTo);
+    }
   };
 
   const fillDemoAccount = (email: string) => {
@@ -80,7 +85,7 @@ export function LoginForm() {
           <div className="h-px flex-1 bg-gray-200" />
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {DEMO_ACCOUNTS.map((account) => (
             <button
               key={account.email}
@@ -121,7 +126,7 @@ export function LoginForm() {
         {/* HR Demo Accounts */}
         <div className="pt-3 border-t border-gray-100">
           <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-2 text-center">Comptes RH Entreprises</p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {DEMO_HR_ACCOUNTS.map((account) => (
               <button
                 key={account.email}
@@ -152,7 +157,7 @@ export function LoginForm() {
         {/* Insurance Agent Demo Accounts */}
         <div className="pt-3 border-t border-gray-100">
           <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-2 text-center">Agents Assurance</p>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {DEMO_AGENT_ACCOUNTS.map((account) => (
               <button
                 key={account.email}
@@ -186,7 +191,7 @@ export function LoginForm() {
         {/* Adhérent Demo Accounts */}
         <div className="pt-3 border-t border-gray-100">
           <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-2 text-center">Comptes Adhérents</p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {DEMO_ADHERENT_ACCOUNTS.map((account) => (
               <button
                 key={account.email}

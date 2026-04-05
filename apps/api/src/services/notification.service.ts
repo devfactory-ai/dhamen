@@ -2,7 +2,7 @@
  * Notification Service
  *
  * Handles sending notifications via multiple channels:
- * - Email (SendGrid/Resend)
+ * - Email (Brevo/SendGrid)
  * - SMS (Twilio)
  * - In-App notifications
  * - Push notifications (FCM - future)
@@ -91,7 +91,7 @@ interface NotificationEnv {
   TWILIO_ACCOUNT_SID?: string;
   TWILIO_AUTH_TOKEN?: string;
   TWILIO_FROM_NUMBER?: string;
-  RESEND_API_KEY?: string;
+  BREVO_API_KEY?: string;
 }
 
 export class NotificationService {
@@ -101,7 +101,7 @@ export class NotificationService {
   private twilioSid?: string;
   private twilioToken?: string;
   private twilioFrom?: string;
-  private resendKey?: string;
+  private brevoKey?: string;
 
   constructor(env: NotificationEnv) {
     this.db = env.DB;
@@ -110,7 +110,7 @@ export class NotificationService {
     this.twilioSid = env.TWILIO_ACCOUNT_SID;
     this.twilioToken = env.TWILIO_AUTH_TOKEN;
     this.twilioFrom = env.TWILIO_FROM_NUMBER;
-    this.resendKey = env.RESEND_API_KEY;
+    this.brevoKey = env.BREVO_API_KEY;
   }
 
   /**
@@ -240,11 +240,11 @@ export class NotificationService {
   }
 
   /**
-   * Send email via SendGrid or Resend
+   * Send email via Brevo or SendGrid
    */
   private async sendEmail(params: EmailParams): Promise<void> {
-    if (this.resendKey) {
-      await this.sendEmailViaResend(params);
+    if (this.brevoKey) {
+      await this.sendEmailViaBrevo(params);
     } else if (this.sendgridKey) {
       await this.sendEmailViaSendGrid(params);
     } else {
@@ -252,25 +252,26 @@ export class NotificationService {
     }
   }
 
-  private async sendEmailViaResend(params: EmailParams): Promise<void> {
-    const response = await fetch('https://api.resend.com/emails', {
+  private async sendEmailViaBrevo(params: EmailParams): Promise<void> {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${this.resendKey}`,
-        'Content-Type': 'application/json',
+        'accept': 'application/json',
+        'content-type': 'application/json',
+        'api-key': this.brevoKey!,
       },
       body: JSON.stringify({
-        from: 'E-Santé <noreply@tnc.trading>',
-        to: [params.to],
+        sender: { name: 'E-Santé', email: 'contact@e-sante.com.tn' },
+        to: [{ email: params.to }],
         subject: params.subject,
-        text: params.body,
-        html: params.html,
+        textContent: params.body,
+        htmlContent: params.html || params.body,
       }),
     });
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`Resend error: ${error}`);
+      throw new Error(`Brevo error: ${error}`);
     }
   }
 

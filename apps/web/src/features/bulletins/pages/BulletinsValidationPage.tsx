@@ -32,6 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
 import { usePermissions } from '@/hooks/usePermissions';
@@ -182,7 +183,7 @@ const statusConfig: Record<BulletinStatus, {
     icon: CheckCircle2,
     variant: 'success',
     color: 'text-green-600 bg-green-50',
-    description: 'Paiement effectue',
+    description: 'Paiement effectué',
   },
   rejected: {
     label: 'Rejeté',
@@ -231,6 +232,7 @@ export function BulletinsValidationPage() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [newStatus, setNewStatus] = useState<BulletinStatus | ''>('');
   const [missingDocuments, setMissingDocuments] = useState('');
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
 
   // Fetch bulletins
   const { data: bulletinsData, isLoading } = useQuery({
@@ -279,7 +281,7 @@ export function BulletinsValidationPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bulletins-validation'] });
       queryClient.invalidateQueries({ queryKey: ['bulletins-validation-stats'] });
-      toast.success('Bulletin approuve avec succes!');
+      toast.success('Bulletin approuvé avec succès !');
       setShowApproveDialog(false);
       setShowDetailsDialog(false);
       setSelectedBulletin(null);
@@ -670,7 +672,7 @@ export function BulletinsValidationPage() {
 
       {/* Filters */}
       <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-          <div className="flex flex-wrap gap-4">
+          <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-4">
             <div className="flex-1 min-w-0">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -682,26 +684,40 @@ export function BulletinsValidationPage() {
                 />
               </div>
             </div>
-            <div className="w-48">
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Tous les statuts" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tous les statuts</SelectItem>
-                  <SelectItem value="pending">A traiter</SelectItem>
-                  <SelectItem value="scan_uploaded">Scan soumis</SelectItem>
-                  <SelectItem value="paper_received">Papier reçu</SelectItem>
-                  <SelectItem value="paper_incomplete">Dossier incomplet</SelectItem>
-                  <SelectItem value="paper_complete">Dossier complet</SelectItem>
-                  <SelectItem value="processing">En traitement</SelectItem>
-                  <SelectItem value="approved">Approuvé</SelectItem>
-                  <SelectItem value="pending_payment">En attente paiement</SelectItem>
-                  <SelectItem value="reimbursed">Remboursé</SelectItem>
-                  <SelectItem value="rejected">Rejeté</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <FilterDropdown
+              label="Statut"
+              value={
+                {
+                  all: 'Tous les statuts',
+                  pending: 'A traiter',
+                  scan_uploaded: 'Scan soumis',
+                  paper_received: 'Papier reçu',
+                  paper_incomplete: 'Dossier incomplet',
+                  paper_complete: 'Dossier complet',
+                  processing: 'En traitement',
+                  approved: 'Approuvé',
+                  pending_payment: 'En attente paiement',
+                  reimbursed: 'Remboursé',
+                  rejected: 'Rejeté',
+                }[statusFilter] || 'Tous les statuts'
+              }
+              open={statusDropdownOpen}
+              onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
+              onClose={() => setStatusDropdownOpen(false)}
+              menuWidth="w-56"
+            >
+              <FilterOption selected={statusFilter === 'all'} onClick={() => { setStatusFilter('all'); setStatusDropdownOpen(false); }}>Tous les statuts</FilterOption>
+              <FilterOption selected={statusFilter === 'pending'} onClick={() => { setStatusFilter('pending'); setStatusDropdownOpen(false); }}>A traiter</FilterOption>
+              <FilterOption selected={statusFilter === 'scan_uploaded'} onClick={() => { setStatusFilter('scan_uploaded'); setStatusDropdownOpen(false); }}>Scan soumis</FilterOption>
+              <FilterOption selected={statusFilter === 'paper_received'} onClick={() => { setStatusFilter('paper_received'); setStatusDropdownOpen(false); }}>Papier reçu</FilterOption>
+              <FilterOption selected={statusFilter === 'paper_incomplete'} onClick={() => { setStatusFilter('paper_incomplete'); setStatusDropdownOpen(false); }}>Dossier incomplet</FilterOption>
+              <FilterOption selected={statusFilter === 'paper_complete'} onClick={() => { setStatusFilter('paper_complete'); setStatusDropdownOpen(false); }}>Dossier complet</FilterOption>
+              <FilterOption selected={statusFilter === 'processing'} onClick={() => { setStatusFilter('processing'); setStatusDropdownOpen(false); }}>En traitement</FilterOption>
+              <FilterOption selected={statusFilter === 'approved'} onClick={() => { setStatusFilter('approved'); setStatusDropdownOpen(false); }}>Approuvé</FilterOption>
+              <FilterOption selected={statusFilter === 'pending_payment'} onClick={() => { setStatusFilter('pending_payment'); setStatusDropdownOpen(false); }}>En attente paiement</FilterOption>
+              <FilterOption selected={statusFilter === 'reimbursed'} onClick={() => { setStatusFilter('reimbursed'); setStatusDropdownOpen(false); }}>Remboursé</FilterOption>
+              <FilterOption selected={statusFilter === 'rejected'} onClick={() => { setStatusFilter('rejected'); setStatusDropdownOpen(false); }}>Rejeté</FilterOption>
+            </FilterDropdown>
           </div>
       </div>
 
@@ -727,7 +743,7 @@ export function BulletinsValidationPage() {
 
       {/* Details Dialog */}
       <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-full max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
@@ -770,7 +786,7 @@ export function BulletinsValidationPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <p className="text-sm text-muted-foreground">Adherent</p>
                       <p className="font-medium">{selectedBulletin.adherent_first_name} {selectedBulletin.adherent_last_name}</p>
@@ -816,7 +832,7 @@ export function BulletinsValidationPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <p className="text-sm text-muted-foreground">N Bulletin</p>
                       <p className="font-mono font-medium">{selectedBulletin.bulletin_number}</p>
@@ -918,7 +934,7 @@ export function BulletinsValidationPage() {
               </Card>
 
               {/* Actions */}
-              <div className="flex gap-2 pt-4 border-t">
+              <div className="flex flex-wrap gap-2 pt-4 border-t">
                 {selectedBulletin.scan_url && (
                   <Button variant="outline" onClick={() => handleViewScan(selectedBulletin)}>
                     <FileImage className="mr-2 h-4 w-4" />

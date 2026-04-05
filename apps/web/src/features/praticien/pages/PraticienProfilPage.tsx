@@ -126,7 +126,7 @@ export function PraticienProfilPage() {
         <CardContent>
           <dl className="divide-y divide-gray-100">
             {readOnlyRows.map(row => (
-              <div key={row.label} className="flex justify-between py-3">
+              <div key={row.label} className="flex flex-col sm:flex-row sm:justify-between py-3 gap-1">
                 <dt className="text-sm font-medium text-gray-500">{row.label}</dt>
                 <dd className="text-sm text-gray-900">{row.value}</dd>
               </div>
@@ -192,19 +192,19 @@ export function PraticienProfilPage() {
             </div>
           ) : (
             <dl className="divide-y divide-gray-100">
-              <div className="flex justify-between py-3">
+              <div className="flex flex-col sm:flex-row sm:justify-between py-3 gap-1">
                 <dt className="text-sm font-medium text-gray-500">Téléphone</dt>
                 <dd className="text-sm text-gray-900">{profil.phone || '—'}</dd>
               </div>
-              <div className="flex justify-between py-3">
+              <div className="flex flex-col sm:flex-row sm:justify-between py-3 gap-1">
                 <dt className="text-sm font-medium text-gray-500">Adresse</dt>
                 <dd className="text-sm text-gray-900">{profil.address || '—'}</dd>
               </div>
-              <div className="flex justify-between py-3">
+              <div className="flex flex-col sm:flex-row sm:justify-between py-3 gap-1">
                 <dt className="text-sm font-medium text-gray-500">Ville / Gouvernorat</dt>
                 <dd className="text-sm text-gray-900">{profil.city || '—'}</dd>
               </div>
-              <div className="flex justify-between py-3">
+              <div className="flex flex-col sm:flex-row sm:justify-between py-3 gap-1">
                 <dt className="text-sm font-medium text-gray-500">Email professionnel</dt>
                 <dd className="text-sm text-gray-900">{profil.email || '—'}</dd>
               </div>

@@ -45,7 +45,7 @@ roles.get('/', async (c) => {
     countMap[row.role] = row.count;
   }
 
-  const rolesList = ROLES.filter((role) => !HIDDEN_ROLES.includes(role)).map((role) => {
+  const builtInRoles = ROLES.filter((role) => !HIDDEN_ROLES.includes(role)).map((role) => {
     const permissions = getPermissions(role);
     const resourceCount = Object.keys(permissions).length;
     const actionCount = Object.values(permissions).reduce(
@@ -58,6 +58,7 @@ roles.get('/', async (c) => {
       label: ROLE_LABELS[role],
       description: ROLE_DESCRIPTIONS[role],
       isProtected: PROTECTED_ROLES.includes(role),
+      isCustom: false,
       userCount: countMap[role] ?? 0,
       permissionsSummary: {
         resources: resourceCount,
@@ -65,6 +66,36 @@ roles.get('/', async (c) => {
       },
     };
   });
+
+  // Fetch custom roles from DB
+  const customRolesResult = await db
+    .prepare('SELECT id, name, description, is_active, created_at FROM custom_roles ORDER BY created_at DESC')
+    .all<{ id: string; name: string; description: string; is_active: number; created_at: string }>();
+
+  // Count permissions per custom role
+  const permCountsResult = await db
+    .prepare(
+      `SELECT role_id, COUNT(DISTINCT resource) as resources, COUNT(*) as total_actions
+       FROM role_permission_overrides WHERE is_granted = 1 GROUP BY role_id`
+    )
+    .all<{ role_id: string; resources: number; total_actions: number }>();
+  const permCountMap: Record<string, { resources: number; totalActions: number }> = {};
+  for (const row of permCountsResult.results ?? []) {
+    permCountMap[row.role_id] = { resources: row.resources, totalActions: row.total_actions };
+  }
+
+  const customRoles = (customRolesResult.results ?? []).map((cr) => ({
+    id: cr.id,
+    label: cr.name,
+    description: cr.description,
+    isProtected: false,
+    isCustom: true,
+    isActive: cr.is_active === 1,
+    userCount: countMap[cr.id] ?? 0,
+    permissionsSummary: permCountMap[cr.id] ?? { resources: 0, totalActions: 0 },
+  }));
+
+  const rolesList = [...builtInRoles, ...customRoles];
 
   return success(c, {
     roles: rolesList,
@@ -77,22 +108,41 @@ roles.get('/', async (c) => {
  * GET /roles/:roleId/permissions — Permissions détaillées d'un rôle
  */
 roles.get('/:roleId/permissions', async (c) => {
-  const roleId = c.req.param('roleId') as Role;
+  const roleId = c.req.param('roleId');
   const db = getDb(c);
 
-  if (!ROLES.includes(roleId)) {
-    return error(c, 'ROLE_NOT_FOUND', `Rôle "${roleId}" introuvable`, 404);
+  const isBuiltIn = ROLES.includes(roleId as Role);
+
+  // Check if it's a custom role
+  let customRole: { id: string; name: string; description: string } | null = null;
+  if (!isBuiltIn) {
+    customRole = await db
+      .prepare('SELECT id, name, description FROM custom_roles WHERE id = ?')
+      .bind(roleId)
+      .first<{ id: string; name: string; description: string }>();
+
+    if (!customRole) {
+      return error(c, 'ROLE_NOT_FOUND', `Rôle "${roleId}" introuvable`, 404);
+    }
   }
 
-  const permissions = getPermissions(roleId);
-
-  // Build base matrix from static code permissions
+  // Build base matrix: built-in roles start from static permissions, custom roles start empty
   const matrix: Record<string, Record<string, boolean>> = {};
-  for (const resource of RESOURCES) {
-    matrix[resource] = {};
-    for (const action of ACTIONS) {
-      const resourceActions = permissions[resource];
-      matrix[resource][action] = resourceActions ? resourceActions.includes(action) : false;
+  if (isBuiltIn) {
+    const permissions = getPermissions(roleId as Role);
+    for (const resource of RESOURCES) {
+      matrix[resource] = {};
+      for (const action of ACTIONS) {
+        const resourceActions = permissions[resource];
+        matrix[resource][action] = resourceActions ? resourceActions.includes(action) : false;
+      }
+    }
+  } else {
+    for (const resource of RESOURCES) {
+      matrix[resource] = {};
+      for (const action of ACTIONS) {
+        matrix[resource][action] = false;
+      }
     }
   }
 
@@ -115,9 +165,10 @@ roles.get('/:roleId/permissions', async (c) => {
   return success(c, {
     role: {
       id: roleId,
-      label: ROLE_LABELS[roleId],
-      description: ROLE_DESCRIPTIONS[roleId],
-      isProtected: PROTECTED_ROLES.includes(roleId),
+      label: isBuiltIn ? ROLE_LABELS[roleId as Role] : customRole!.name,
+      description: isBuiltIn ? ROLE_DESCRIPTIONS[roleId as Role] : customRole!.description,
+      isProtected: isBuiltIn ? PROTECTED_ROLES.includes(roleId as Role) : false,
+      isCustom: !isBuiltIn,
     },
     permissions: matrix,
     resources: RESOURCES.map((r) => ({ id: r, label: RESOURCE_LABELS[r] })),

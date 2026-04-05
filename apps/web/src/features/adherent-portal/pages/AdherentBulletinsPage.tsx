@@ -1219,7 +1219,7 @@ export function AdhérentBulletinsPage() {
               <EstimatedDelay bulletin={selectedBulletin} />
 
               {/* Details Grid */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">N Bulletin</p>
                   <p className="font-mono font-medium">{selectedBulletin.bulletin_number}</p>
@@ -1294,7 +1294,7 @@ export function AdhérentBulletinsPage() {
               {(selectedBulletin.status === 'approved' || selectedBulletin.status === 'pending_payment' || selectedBulletin.status === 'reimbursed') && (
                 <div className="rounded-lg bg-green-50 border border-green-200 p-4">
                   <p className="text-sm font-medium text-green-800 mb-3">Informations de paiement</p>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     {selectedBulletin.approved_amount && (
                       <div>
                         <p className="text-green-600">Montant approuvé</p>

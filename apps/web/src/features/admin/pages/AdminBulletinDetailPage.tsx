@@ -222,7 +222,7 @@ export default function AdminBulletinDetailPage() {
             <CardTitle>Informations</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Adhérent</p>
                 <p className="font-medium">{detail.adherent.firstName} {detail.adherent.lastName}</p>

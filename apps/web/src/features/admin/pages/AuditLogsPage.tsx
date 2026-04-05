@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, RotateCcw, Eye, ChevronDown } from 'lucide-react';
+import { Download, RotateCcw, Eye, ArrowDown, ArrowUp } from 'lucide-react';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
@@ -131,19 +132,8 @@ export function AuditLogsPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [detailLog, setDetailLog] = useState<AuditEntry | null>(null);
 
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [entityTypeDropdownOpen, setEntityTypeDropdownOpen] = useState(false);
-  const entityTypeDropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!entityTypeDropdownOpen) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (entityTypeDropdownRef.current && !entityTypeDropdownRef.current.contains(e.target as Node)) {
-        setEntityTypeDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [entityTypeDropdownOpen]);
 
   const ENTITY_TYPE_OPTIONS = [
     { value: '', label: 'Tous' },
@@ -153,12 +143,13 @@ export function AuditLogsPage() {
   const offset = (page - 1) * limit;
 
   const { data, isLoading } = useQuery<AuditLogsResponse>({
-    queryKey: ['audit-logs', page, search, entityType, dateFrom, dateTo],
+    queryKey: ['audit-logs', page, search, entityType, dateFrom, dateTo, sortOrder],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set('limit', String(limit));
       params.set('offset', String(offset));
-      params.set('sortOrder', 'desc');
+      params.set('sortBy', 'timestamp');
+      params.set('sortOrder', sortOrder);
       if (search) params.set('search', search);
       if (entityType) params.set('entityType', entityType);
       if (dateFrom) params.set('startDate', dateFrom);
@@ -222,7 +213,15 @@ export function AuditLogsPage() {
   const columns = [
     {
       key: 'timestamp',
-      header: 'Date',
+      header: (
+        <button
+          onClick={() => { setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc'); setPage(1); }}
+          className="inline-flex items-center gap-1 hover:text-gray-900 transition-colors"
+        >
+          Date
+          {sortOrder === 'desc' ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+        </button>
+      ),
       render: (row: AuditEntry) => (
         <span className="text-sm text-gray-600 whitespace-nowrap">{formatDate(row.timestamp)}</span>
       ),
@@ -322,7 +321,7 @@ export function AuditLogsPage() {
             Historique de toutes les actions effectuées sur la plateforme
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {hasFilters && (
             <Button variant="outline" size="sm" onClick={resetFilters}>
               <RotateCcw className="mr-2 h-4 w-4" />
@@ -366,38 +365,24 @@ export function AuditLogsPage() {
             </div>
 
             {/* Entity type dropdown */}
-            <div className="relative shrink-0" ref={entityTypeDropdownRef}>
-              <button
-                type="button"
-                onClick={() => setEntityTypeDropdownOpen(!entityTypeDropdownOpen)}
-                className="flex items-center gap-2 w-full sm:w-auto px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
-              >
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Type</span>
-                <span className="text-sm font-medium text-gray-900">
-                  {ENTITY_TYPE_OPTIONS.find(o => o.value === entityType)?.label || 'Tous'}
-                </span>
-                <ChevronDown className={`w-3.5 h-3.5 text-gray-400 ml-auto sm:ml-1 transition-transform ${entityTypeDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
-              {entityTypeDropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 w-full sm:w-52 py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50 max-h-64 overflow-y-auto">
-                  {ENTITY_TYPE_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => { setEntityType(opt.value); setEntityTypeDropdownOpen(false); setPage(1); }}
-                      className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${entityType === opt.value ? 'text-blue-600 font-semibold bg-blue-50/50' : 'text-gray-700'}`}
-                    >
-                      {opt.label}
-                      {entityType === opt.value && (
-                        <svg className="w-4 h-4 ml-auto text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m4.5 12.75 6 6 9-13.5" />
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <FilterDropdown
+              label="Type"
+              value={ENTITY_TYPE_OPTIONS.find(o => o.value === entityType)?.label || 'Tous'}
+              open={entityTypeDropdownOpen}
+              onToggle={() => setEntityTypeDropdownOpen(!entityTypeDropdownOpen)}
+              onClose={() => setEntityTypeDropdownOpen(false)}
+              menuWidth="w-52"
+            >
+              {ENTITY_TYPE_OPTIONS.map((opt) => (
+                <FilterOption
+                  key={opt.value}
+                  selected={entityType === opt.value}
+                  onClick={() => { setEntityType(opt.value); setEntityTypeDropdownOpen(false); setPage(1); }}
+                >
+                  {opt.label}
+                </FilterOption>
+              ))}
+            </FilterDropdown>
           </div>
 
           {/* Date filters */}

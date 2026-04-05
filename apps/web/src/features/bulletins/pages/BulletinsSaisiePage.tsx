@@ -1,5 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { useDropdownPortal } from '@/hooks/useDropdownPortal';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -7,6 +10,7 @@ import { z } from 'zod';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { DataTable } from '@/components/ui/data-table';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -84,6 +88,9 @@ import {
   ChevronRight,
   XCircle,
   UserPlus,
+  Heart,
+  Baby,
+  Lock,
 } from 'lucide-react';
 
 // --- OCR Feedback types ---
@@ -92,6 +99,13 @@ interface OcrFeedbackState {
   donneesIa: Record<string, unknown>;
   /** Whether the feedback panel is visible */
   visible: boolean;
+}
+
+/** Single bulletin parsed from OCR (one item in donnees_ia array) */
+interface OcrBulletinItem {
+  infos_adherent: Record<string, unknown>;
+  volet_medical: Array<Record<string, unknown>>;
+  numero_bulletin?: string;
 }
 
 // Types
@@ -241,7 +255,9 @@ export function BulletinsSaisiePage() {
 
   const queryClient = useQueryClient();
   const { selectedCompany, selectedBatch, setBatch } = useAgentContext();
-  const [activeTab, setActiveTab] = useState("saisie");
+  const [searchParams] = useSearchParams();
+  const initialTab = useMemo(() => searchParams.get('tab') || 'saisie', []);
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedBulletins, setSelectedBulletins] = useState<string[]>([]);
@@ -255,11 +271,14 @@ export function BulletinsSaisiePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [batchSearch, setBatchSearch] = useState("");
   const [batchStatusFilter, setBatchStatusFilter] = useState("all");
+  const [batchStatusDropdownOpen, setBatchStatusDropdownOpen] = useState(false);
   const [batchPage, setBatchPage] = useState(1);
   const BATCH_PAGE_SIZE = 10;
   const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
   const [adherentSearch, setAdherentSearch] = useState("");
   const [showAdherentDropdown, setShowAdherentDropdown] = useState(false);
+  const adherentDropdownVisible = showAdherentDropdown && adherentSearch.length >= 2;
+  const { triggerRef: adherentPortalRef, position: adherentPortalPos } = useDropdownPortal(adherentDropdownVisible);
   const [selectedAdherentInfo, setSelectedAdherentInfo] =
     useState<AdherentSearchResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -275,6 +294,20 @@ export function BulletinsSaisiePage() {
   const [isSendingFeedback, setIsSendingFeedback] = useState(false);
   const [feedbackErrors, setFeedbackErrors] = useState<string[]>([]);
   const [feedbackComment, setFeedbackComment] = useState("");
+
+  // Multi-bulletin OCR state
+  const [ocrBulletins, setOcrBulletins] = useState<OcrBulletinItem[]>([]);
+  const [activeBulletinIndex, setActiveBulletinIndex] = useState(0);
+  const [savedBulletinIndices, setSavedBulletinIndices] = useState<Set<number>>(new Set());
+  /** Snapshot of form data for each saved bulletin (for readonly display) */
+  const [savedBulletinSnapshots, setSavedBulletinSnapshots] = useState<Record<number, BulletinFormData>>({});
+  /** Whether the active bulletin is in readonly mode (already saved) */
+  const isActiveBulletinSaved = savedBulletinIndices.has(activeBulletinIndex);
+  /** State for adding ayant droit inline */
+  const [isAddingAyantDroit, setIsAddingAyantDroit] = useState(false);
+  const [ayantDroitForm, setAyantDroitForm] = useState<{
+    firstName: string; lastName: string; dateOfBirth: string; email: string; gender: string;
+  }>({ firstName: '', lastName: '', dateOfBirth: '', email: '', gender: '' });
 
   const { data: adherentResults } = useSearchAdherents(adherentSearch);
   const { data: familleData } = useAdherentFamille(selectedAdherentInfo?.id);
@@ -388,6 +421,23 @@ export function BulletinsSaisiePage() {
     (sum, a) => sum + (Number(a.amount) || 0),
     0,
   );
+
+  // Pre-fill ayantDroitForm from OCR-detected beneficiary name
+  const watchedBenefName = watch("beneficiary_name");
+  useEffect(() => {
+    if (watchedBenefName && selectedAdherentInfo) {
+      const parts = watchedBenefName.trim().split(/\s+/);
+      if (parts.length >= 2) {
+        setAyantDroitForm((prev) => ({
+          ...prev,
+          lastName: parts[0]!,
+          firstName: parts.slice(1).join(" "),
+        }));
+      } else if (parts.length === 1) {
+        setAyantDroitForm((prev) => ({ ...prev, firstName: parts[0]!, lastName: '' }));
+      }
+    }
+  }, [watchedBenefName, selectedAdherentInfo]);
 
   // Estimate reimbursement in real-time
   const watchedMatricule = watch("adherent_matricule");
@@ -591,11 +641,42 @@ export function BulletinsSaisiePage() {
     onSuccess: (result: { success: boolean; data?: { warnings?: string[] } }) => {
       queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
       const responseWarnings = result?.data?.warnings;
-      if (responseWarnings && responseWarnings.length > 0) {
-        toast.warning(responseWarnings[0] || "Attention: remboursement approximatif");
+
+      // Multi-bulletin mode: mark current as saved and auto-advance
+      if (ocrBulletins.length > 1) {
+        // Snapshot current form data for readonly display
+        const currentFormData = watch();
+        setSavedBulletinSnapshots((prev) => ({ ...prev, [activeBulletinIndex]: { ...currentFormData } as BulletinFormData }));
+
+        const newSaved = new Set(savedBulletinIndices);
+        newSaved.add(activeBulletinIndex);
+        setSavedBulletinIndices(newSaved);
+
+        // Find next unsaved bulletin
+        const nextUnsaved = ocrBulletins.findIndex((_, i) => i !== activeBulletinIndex && !newSaved.has(i));
+
+        if (nextUnsaved !== -1) {
+          if (responseWarnings && responseWarnings.length > 0) {
+            toast.warning(responseWarnings[0] || "Attention: remboursement approximatif");
+          } else {
+            toast.success(`Bulletin ${activeBulletinIndex + 1}/${ocrBulletins.length} enregistré — passage au suivant`);
+          }
+          // Auto-switch to next unsaved bulletin
+          handleSwitchBulletin(nextUnsaved);
+          return;
+        }
+
+        // All bulletins saved
+        toast.success(`Tous les ${ocrBulletins.length} bulletins ont été enregistrés !`);
       } else {
-        toast.success("Bulletin saisi avec succès!");
+        if (responseWarnings && responseWarnings.length > 0) {
+          toast.warning(responseWarnings[0] || "Attention: remboursement approximatif");
+        } else {
+          toast.success("Bulletin saisi avec succès!");
+        }
       }
+
+      // Full cleanup
       reset();
       setSelectedFiles([]);
       setSelectedAdherentInfo(null);
@@ -608,6 +689,10 @@ export function BulletinsSaisiePage() {
       setAutoRegisterPraticien({});
       setFeedbackErrors([]);
       setFeedbackComment("");
+      setOcrBulletins([]);
+      setSavedBulletinIndices(new Set());
+      setSavedBulletinSnapshots({});
+      setActiveBulletinIndex(0);
       setActiveTab("liste");
     },
     onError: (error: Error) => {
@@ -722,7 +807,7 @@ export function BulletinsSaisiePage() {
 
       queryClient.invalidateQueries({ queryKey: ["agent-batches"] });
       queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
-      toast.success("Export CSV telecharge!");
+      toast.success("Export CSV téléchargé !");
       setShowExportDialog(false);
       setExportBatch(null);
     },
@@ -779,12 +864,12 @@ export function BulletinsSaisiePage() {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      toast.success("Export detaille telecharge!");
+      toast.success("Export détaillé téléchargé !");
       setShowExportDetailDialog(false);
       setExportBatch(null);
     },
     onError: (error: Error) => {
-      toast.error(error.message || "Erreur lors de l'export detaille");
+      toast.error(error.message || "Erreur lors de l'export détaillé");
     },
   });
 
@@ -998,11 +1083,12 @@ export function BulletinsSaisiePage() {
       console.log("[OCR] Raw API response:", JSON.stringify(result, null, 2));
 
       // Handle multiple response formats:
-      // New API: { success, donnees_ia: { infos_adherent, volet_medical } }
+      // New API (multi): { success, donnees_ia: [ { infos_adherent, volet_medical }, ... ] }
+      // New API (single): { success, donnees_ia: { infos_adherent, volet_medical } }
       // Alt API: { success, resultat: { infos_adherent, volet_medical } }
       // Old API: { raw_response: "```json\n{...}\n```" }
       // Backend proxy: { success, data: { infos_adherent, volet_medical } }
-      let parsed =
+      let rawParsed =
         result.donnees_ia || result.resultat || result.data || result;
 
       if (typeof result.raw_response === "string") {
@@ -1010,12 +1096,33 @@ export function BulletinsSaisiePage() {
           /```json\s*([\s\S]*?)\s*```/,
         );
         if (jsonMatch?.[1]) {
-          parsed = JSON.parse(jsonMatch[1]);
+          rawParsed = JSON.parse(jsonMatch[1]);
         }
       }
 
-      const info = parsed?.infos_adherent;
-      const actes = parsed?.volet_medical;
+      // Normalize to array of bulletins
+      const bulletinsArray: OcrBulletinItem[] = Array.isArray(rawParsed)
+        ? rawParsed.map((item: Record<string, unknown>) => ({
+            infos_adherent: (item.infos_adherent || {}) as Record<string, unknown>,
+            volet_medical: (item.volet_medical || []) as Array<Record<string, unknown>>,
+            numero_bulletin: (item.numero_bulletin as string) || (item.infos_adherent as Record<string, unknown>)?.numero_bulletin as string | undefined,
+          }))
+        : [{
+            infos_adherent: (rawParsed?.infos_adherent || {}) as Record<string, unknown>,
+            volet_medical: (rawParsed?.volet_medical || []) as Array<Record<string, unknown>>,
+            numero_bulletin: rawParsed?.numero_bulletin || rawParsed?.infos_adherent?.numero_bulletin,
+          }];
+
+      // Store all bulletins for multi-bulletin navigation
+      setOcrBulletins(bulletinsArray);
+      setActiveBulletinIndex(0);
+      setSavedBulletinIndices(new Set());
+      setSavedBulletinSnapshots({});
+
+      // Use first bulletin for initial form fill
+      const parsed = bulletinsArray[0]!;
+      const info = parsed.infos_adherent as Record<string, string>;
+      const actes = parsed.volet_medical as Array<Record<string, string | null>>;
 
       // Store raw OCR result for feedback panel
       setOcrFeedback({
@@ -1256,13 +1363,154 @@ export function BulletinsSaisiePage() {
       }
 
       toast.success(
-        "Analyse terminee — champs remplis automatiquement. Verifiez puis envoyez votre feedback.",
+        bulletinsArray.length > 1
+          ? `${bulletinsArray.length} bulletins détectés — naviguez entre eux ci-dessus`
+          : "Analyse terminée — champs remplis automatiquement. Vérifiez puis envoyez votre feedback.",
       );
     } catch (error) {
       console.error("OCR analysis error:", error);
       toast.error("Erreur lors de l'analyse du bulletin");
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  /** Switch to a different OCR-analyzed bulletin and fill the form */
+  const handleSwitchBulletin = (index: number) => {
+    if (index < 0 || index >= ocrBulletins.length || index === activeBulletinIndex) return;
+
+    // If switching to a saved bulletin, just update the index (detail view handles display)
+    if (savedBulletinIndices.has(index)) {
+      setActiveBulletinIndex(index);
+      return;
+    }
+
+    const bulletin = ocrBulletins[index]!;
+    const info = bulletin.infos_adherent as Record<string, string>;
+    const actes = bulletin.volet_medical as Array<Record<string, string | null>>;
+
+    // Full reset to clear ALL fields from previous bulletin
+    reset({
+      bulletin_number: "",
+      bulletin_date: new Date().toISOString().split("T")[0],
+      adherent_matricule: "",
+      adherent_first_name: "",
+      adherent_last_name: "",
+      adherent_national_id: "",
+      adherent_contract_number: "",
+      adherent_email: "",
+      adherent_address: "",
+      adherent_date_of_birth: "",
+      beneficiary_name: "",
+      beneficiary_id: "",
+      beneficiary_relationship: undefined,
+      beneficiary_email: "",
+      beneficiary_address: "",
+      beneficiary_date_of_birth: "",
+      care_type: undefined,
+      actes: [{ code: "", label: "", amount: 0, ref_prof_sant: "", nom_prof_sant: "", care_type: "consultation" as const, care_description: "", cod_msgr: "", lib_msgr: "" }],
+    });
+    setSelectedAdherentInfo(null);
+    setAdherentSearch("");
+    setOcrPraticienInfos({});
+    setMfStatuses({});
+    setActiveBulletinIndex(index);
+
+    // Update feedback panel
+    setOcrFeedback({
+      donneesIa: { infos_adherent: info || {}, volet_medical: actes || [] },
+      visible: true,
+    });
+
+    // Auto-fill bulletin number
+    const numeroBulletin = bulletin.numero_bulletin || info?.numero_bulletin;
+    if (numeroBulletin) {
+      setValue("bulletin_number", numeroBulletin);
+      setBulletinNumberFromOcr(true);
+    } else {
+      setBulletinNumberFromOcr(false);
+    }
+
+    // Auto-fill adherent fields
+    if (info) {
+      if (info.nom_prenom) {
+        const parts = info.nom_prenom.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          setValue("adherent_last_name", parts[0]!);
+          setValue("adherent_first_name", parts.slice(1).join(" "));
+        }
+      }
+      const matriculeRaw = [info.numero_adherent, info.numero_contrat].find((v) => v && v !== "illisible");
+      if (matriculeRaw) {
+        const matricule = matriculeRaw.replace(/\s+/g, "");
+        setValue("adherent_matricule", matricule);
+        setAdherentSearch(matricule);
+      }
+      if (info.numero_contrat && info.numero_contrat !== "illisible") {
+        setValue("adherent_contract_number", info.numero_contrat.replace(/\s+/g, ""));
+      }
+      if (info.date_signature) {
+        const dateParts = info.date_signature.split(/[.\/]/);
+        if (dateParts.length === 3) {
+          const year = dateParts[2]!.length === 2 ? `20${dateParts[2]}` : dateParts[2];
+          setValue("bulletin_date", `${year}-${dateParts[1]}-${dateParts[0]}`);
+        }
+      }
+      if (info.beneficiaire_coche) {
+        const benef = info.beneficiaire_coche.toLowerCase().trim();
+        if (benef.includes("conjoint")) setValue("beneficiary_relationship" as keyof BulletinFormData, "spouse");
+        else if (benef.includes("enfant")) setValue("beneficiary_relationship" as keyof BulletinFormData, "child");
+        else if (benef.includes("parent") || benef.includes("ascendant")) setValue("beneficiary_relationship" as keyof BulletinFormData, "parent");
+        else if (benef.includes("adh") || benef.includes("assur")) setValue("beneficiary_relationship" as keyof BulletinFormData, "self");
+      } else {
+        setValue("beneficiary_relationship" as keyof BulletinFormData, "self");
+      }
+      if (info.nom_beneficiaire) setValue("beneficiary_name", info.nom_beneficiaire.trim());
+    }
+
+    // Care type from first acte
+    const detectCareType = (typeSoin?: string | null): "consultation" | "pharmacy" | "lab" | "hospital" => {
+      if (!typeSoin) return "consultation";
+      const ts = typeSoin.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      if (ts.includes("pharmac") || ts.includes("medicament")) return "pharmacy";
+      if (ts.includes("labo") || ts.includes("analyse") || ts.includes("biolog")) return "lab";
+      if (ts.includes("hosp") || ts.includes("clinique")) return "hospital";
+      return "consultation";
+    };
+
+    if (Array.isArray(actes) && actes.length > 0 && actes[0]?.type_soin) {
+      setValue("care_type", detectCareType(actes[0].type_soin));
+    }
+
+    // Fill actes
+    if (Array.isArray(actes) && actes.length > 0) {
+      actes.forEach((acte, i) => {
+        const acteCareType = detectCareType(acte.type_soin);
+        const isPharmacy = acteCareType === "pharmacy";
+        const rawMontant = (acte.montant_facture || acte.montant_honoraires || "0")!.replace(/[^\d.,]/g, "").replace(",", ".");
+        const montant = parseFloat(rawMontant) || 0;
+        const mapped = acte.nature_acte ? mapNatureActeToCode(acte.nature_acte) : null;
+        const code = acte.matched_code || mapped?.code || "";
+        const label = acte.matched_label || mapped?.label || acte.nature_acte || "";
+        const nomPraticien = acte.nom_praticien || "";
+        const refProfSant = (acte.mf_extracted as string) || acte.matricule_fiscale || "";
+
+        if (refProfSant || nomPraticien) {
+          setOcrPraticienInfos((prev) => ({ ...prev, [i]: { nom: nomPraticien, mf: refProfSant, specialite: acte.nature_acte || undefined } }));
+        }
+
+        if (i === 0) {
+          setValue("actes.0.code", code);
+          setValue("actes.0.label", label);
+          setValue("actes.0.amount", isPharmacy ? montant : montant);
+          setValue("actes.0.nom_prof_sant", nomPraticien);
+          setValue("actes.0.ref_prof_sant", refProfSant);
+          setValue("actes.0.care_type", acteCareType);
+          if (acte.nature_acte && !isPharmacy) setValue("actes.0.care_description", acte.nature_acte);
+        } else {
+          appendActe({ code, label, amount: montant, nom_prof_sant: nomPraticien, ref_prof_sant: refProfSant, care_type: acteCareType, cod_msgr: "", lib_msgr: "", care_description: !isPharmacy ? (acte.nature_acte || "") : "" });
+        }
+      });
     }
   };
 
@@ -1293,7 +1541,7 @@ export function BulletinsSaisiePage() {
         }),
       });
       if (res.ok) {
-        toast.success("Feedback OCR envoye avec succes");
+        toast.success("Feedback OCR envoyé avec succès");
       } else {
         toast.error("Erreur lors de l'envoi du feedback");
       }
@@ -1366,6 +1614,46 @@ export function BulletinsSaisiePage() {
       toast.error(msg);
     } finally {
       setIsRegisteringAdherent(false);
+    }
+  };
+
+  /** Add ayant droit (conjoint or enfant) to an already-registered adherent */
+  const handleAddAyantDroit = async (lienParente: 'C' | 'E') => {
+    if (!selectedAdherentInfo?.id) return;
+    const { firstName, lastName, dateOfBirth, email, gender } = ayantDroitForm;
+    if (!firstName || !lastName || !dateOfBirth) {
+      toast.error("Nom, prénom et date de naissance sont requis");
+      return;
+    }
+    setIsAddingAyantDroit(true);
+    try {
+      const result = await apiClient.post<{
+        id: string; matricule: string; firstName: string; lastName: string; codeType: string;
+      }>(`/adherents/${selectedAdherentInfo.id}/add-ayant-droit`, {
+        lienParente,
+        firstName,
+        lastName,
+        dateOfBirth,
+        gender: gender || undefined,
+        email: (lienParente === 'C' && email) ? email : undefined,
+      });
+      if (result.success && result.data) {
+        toast.success(`${lienParente === 'C' ? 'Conjoint(e)' : 'Enfant'} ajouté(e) avec succès`);
+        // Refresh family data
+        queryClient.invalidateQueries({ queryKey: ['adherent-famille', selectedAdherentInfo.id] });
+        // Auto-select as beneficiary
+        setValue("beneficiary_name", `${firstName} ${lastName}`);
+        setValue("beneficiary_id", result.data.id);
+        // Reset form
+        setAyantDroitForm({ firstName: '', lastName: '', dateOfBirth: '', email: '', gender: '' });
+      } else if (!result.success) {
+        toast.error(result.error?.message || "Erreur lors de l'ajout");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur réseau";
+      toast.error(msg);
+    } finally {
+      setIsAddingAyantDroit(false);
     }
   };
 
@@ -1552,7 +1840,7 @@ export function BulletinsSaisiePage() {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div className="flex items-start justify-between">
+      <div className="grid col-span-1 md:flex md:items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
             Saisie des Bulletins de Soins
@@ -1562,7 +1850,7 @@ export function BulletinsSaisiePage() {
             Suivez les étapes pour une validation rapide.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="grid col-span-1 md:flex md:items-center gap-3">
           <a
             href="/bulletins/import-lot"
             className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2.5 text-sm font-medium text-white hover:from-amber-600 hover:to-orange-600 shadow-lg shadow-orange-500/25 transition-colors"
@@ -1609,7 +1897,7 @@ export function BulletinsSaisiePage() {
       </div>
 
       {/* Stats row */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
         {[
           {
             label: "Brouillons",
@@ -1634,7 +1922,7 @@ export function BulletinsSaisiePage() {
         ].map((stat) => (
           <div
             key={stat.label}
-            className="rounded-2xl border border-gray-200 bg-white px-5 py-4 flex items-center gap-3"
+            className="rounded-2xl border border-gray-200 bg-white px-5 py-4 grid-cols-1 grid md:flex items-center gap-3"
           >
             <div
               className={`flex h-10 w-10 items-center justify-center rounded-xl bg-${stat.color}-50`}
@@ -1658,7 +1946,7 @@ export function BulletinsSaisiePage() {
         onValueChange={setActiveTab}
         className="space-y-4"
       >
-        <div className="flex items-center gap-1 rounded-2xl bg-gray-100 p-1 w-fit">
+        <div className="flex flex-wrap items-center gap-1 rounded-2xl bg-gray-100 p-1 w-full sm:w-fit">
           {[
             { value: "saisie", label: "Nouveau bulletin" },
             {
@@ -1690,7 +1978,7 @@ export function BulletinsSaisiePage() {
         <TabsContent value="saisie">
           {/* Batch selector bar — always visible */}
           {selectedCompany && (
-            <div className="mb-4 flex items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3">
               {selectedBatch && selectedBatch.status !== "exported" ? (
                 <>
                   <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100">
@@ -1757,7 +2045,7 @@ export function BulletinsSaisiePage() {
                             }
                           }}
                         >
-                          <SelectTrigger className="w-[220px] rounded-xl">
+                          <SelectTrigger className="w-full sm:w-[220px] rounded-xl">
                             <SelectValue placeholder="Choisir un lot ouvert" />
                           </SelectTrigger>
                           <SelectContent>
@@ -1841,6 +2129,224 @@ export function BulletinsSaisiePage() {
                 }
               })}
             >
+              {/* Multi-bulletin selector — OUTSIDE fieldset so buttons stay clickable */}
+              {ocrBulletins.length > 1 && (
+                <div className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 p-4 mb-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white text-xs font-bold">
+                        {ocrBulletins.length}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">
+                          {ocrBulletins.length} bulletins détectés
+                        </p>
+                        <p className="text-[11px] text-gray-500">
+                          {savedBulletinIndices.size} enregistré{savedBulletinIndices.size !== 1 ? 's' : ''} sur {ocrBulletins.length}
+                        </p>
+                      </div>
+                    </div>
+                    {savedBulletinIndices.size === ocrBulletins.length && (
+                      <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
+                        <CheckCircle2 className="h-3 w-3 mr-1" />
+                        Tous enregistrés
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {ocrBulletins.map((b, idx) => {
+                      const isSaved = savedBulletinIndices.has(idx);
+                      const isActive = idx === activeBulletinIndex;
+                      const adhName = (b.infos_adherent?.nom_prenom as string) || `Bulletin ${idx + 1}`;
+                      const numBulletin = b.numero_bulletin || (b.infos_adherent?.numero_bulletin as string);
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleSwitchBulletin(idx)}
+                          className={cn(
+                            "relative flex-shrink-0 rounded-xl border-2 p-3 text-left transition-all min-w-[180px]",
+                            isActive
+                              ? isSaved
+                                ? "border-emerald-500 bg-emerald-50 shadow-md ring-2 ring-emerald-500/20"
+                                : "border-blue-500 bg-white shadow-md ring-2 ring-blue-500/20"
+                              : isSaved
+                                ? "border-emerald-300 bg-emerald-50/50 hover:border-emerald-400"
+                                : "border-gray-200 bg-white hover:border-blue-300 hover:shadow-sm"
+                          )}
+                        >
+                          <div className="absolute -top-1.5 -right-1.5">
+                            {isSaved ? (
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white">
+                                <Check className="h-3 w-3" />
+                              </span>
+                            ) : isActive ? (
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-white text-[10px] font-bold">
+                                {idx + 1}
+                              </span>
+                            ) : (
+                              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-gray-500 text-[10px] font-bold">
+                                {idx + 1}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs font-semibold text-gray-900 truncate pr-4">
+                            {adhName}
+                          </p>
+                          {numBulletin && (
+                            <p className="text-[10px] text-gray-500 mt-0.5 font-mono">
+                              N° {numBulletin}
+                            </p>
+                          )}
+                          <p className="text-[10px] mt-1">
+                            {(b.volet_medical?.length || 0)} acte{(b.volet_medical?.length || 0) !== 1 ? 's' : ''}
+                          </p>
+                          {isSaved && (
+                            <Badge className="mt-1.5 text-[9px] px-1.5 py-0 bg-emerald-100 text-emerald-700 border-emerald-200">
+                              Enregistré
+                            </Badge>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Detail view for saved bulletins */}
+              {isActiveBulletinSaved && savedBulletinSnapshots[activeBulletinIndex] ? (() => {
+                const snap = savedBulletinSnapshots[activeBulletinIndex]!;
+                return (
+                  <div className="space-y-4">
+                    {/* Header banner */}
+                    <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3">
+                      <Lock className="h-5 w-5 text-emerald-600 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-emerald-800">Bulletin enregistré</p>
+                        <p className="text-xs text-emerald-600">Sélectionnez un bulletin non enregistré pour continuer la saisie.</p>
+                      </div>
+                      <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 flex-shrink-0">
+                        <Check className="h-3 w-3 mr-1" /> Enregistré
+                      </Badge>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-3">
+                      <div className="lg:col-span-2 space-y-4">
+                        {/* Info bulletin */}
+                        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+                          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-blue-600" /> Informations du bulletin
+                          </h3>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                            <div>
+                              <p className="text-xs text-gray-500">N° Bulletin</p>
+                              <p className="font-medium text-gray-900 font-mono">{snap.bulletin_number}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-500">Date</p>
+                              <p className="font-medium text-gray-900">{snap.bulletin_date ? new Date(snap.bulletin_date).toLocaleDateString('fr-TN') : '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-500">Matricule</p>
+                              <p className="font-medium text-gray-900 font-mono">{snap.adherent_matricule}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Adherent info */}
+                        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+                          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <User className="h-4 w-4 text-blue-600" /> Adhérent
+                          </h3>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                            <div>
+                              <p className="text-xs text-gray-500">Nom</p>
+                              <p className="font-medium text-gray-900">{snap.adherent_last_name || '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-500">Prénom</p>
+                              <p className="font-medium text-gray-900">{snap.adherent_first_name || '—'}</p>
+                            </div>
+                            {snap.adherent_email && (
+                              <div>
+                                <p className="text-xs text-gray-500">Email</p>
+                                <p className="font-medium text-gray-900">{snap.adherent_email}</p>
+                              </div>
+                            )}
+                            {snap.beneficiary_relationship && snap.beneficiary_relationship !== 'self' && (
+                              <>
+                                <div>
+                                  <p className="text-xs text-gray-500">Bénéficiaire</p>
+                                  <p className="font-medium text-gray-900">{snap.beneficiary_name || '—'}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">Lien</p>
+                                  <Badge variant="outline" className="text-xs">
+                                    {snap.beneficiary_relationship === 'spouse' ? 'Conjoint(e)' : snap.beneficiary_relationship === 'child' ? 'Enfant' : snap.beneficiary_relationship}
+                                  </Badge>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Actes */}
+                        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+                          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <Stethoscope className="h-4 w-4 text-amber-600" /> Actes ({snap.actes?.length || 0})
+                          </h3>
+                          <div className="space-y-2">
+                            {snap.actes?.map((acte, i) => (
+                              <div key={i} className="flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50/50 px-4 py-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    {acte.code && <Badge variant="outline" className="text-[10px] px-1.5 font-mono">{acte.code}</Badge>}
+                                    <p className="text-sm font-medium text-gray-900 truncate">{acte.label}</p>
+                                  </div>
+                                  <div className="flex items-center gap-3 mt-1 text-[11px] text-gray-500">
+                                    {acte.nom_prof_sant && <span>Dr. {acte.nom_prof_sant}</span>}
+                                    {acte.ref_prof_sant && <span className="font-mono">{acte.ref_prof_sant}</span>}
+                                    <Badge variant="outline" className="text-[9px] px-1">
+                                      {careTypeConfig[acte.care_type as keyof typeof careTypeConfig]?.label || acte.care_type}
+                                    </Badge>
+                                  </div>
+                                </div>
+                                <p className="text-sm font-bold text-gray-900 ml-4 whitespace-nowrap">
+                                  {new Intl.NumberFormat('fr-TN', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(acte.amount)} DT
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex justify-end mt-3 pt-3 border-t border-gray-100">
+                            <div className="text-right">
+                              <p className="text-xs text-gray-500">Total</p>
+                              <p className="text-lg font-bold text-gray-900">
+                                {new Intl.NumberFormat('fr-TN', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(
+                                  (snap.actes || []).reduce((sum, a) => sum + (Number(a.amount) || 0), 0)
+                                )} DT
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right column */}
+                      <div className="space-y-4">
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/30 p-5">
+                          <div className="flex items-center gap-2 mb-3">
+                            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                            <p className="text-sm font-semibold text-emerald-800">Bulletin sauvegardé</p>
+                          </div>
+                          <p className="text-xs text-emerald-700">
+                            Ce bulletin a été enregistré avec succès. Il apparaît dans la liste des bulletins.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })() : (
+              /* Normal form for unsaved bulletins */
               <fieldset
                 disabled={isSubmitting || isRegisteringAdherent}
                 className="contents"
@@ -1973,7 +2479,7 @@ export function BulletinsSaisiePage() {
                                   </button>
                                 </div>
                                 <p className="text-sm text-amber-700">
-                                  Voici les donnees extraites. Cliquez sur un
+                                  Voici les données extraites. Cliquez sur un
                                   champ pour le signaler comme incorrect.
                                 </p>
 
@@ -2214,7 +2720,7 @@ export function BulletinsSaisiePage() {
                         </div>
                         <div className="space-y-4">
                           {/* Matricule search */}
-                          <div className="space-y-2 relative">
+                          <div className="space-y-2 relative" ref={adherentPortalRef}>
                             <Label className="text-sm text-gray-700">
                               Matricule *
                             </Label>
@@ -2256,22 +2762,22 @@ export function BulletinsSaisiePage() {
                                 }
                               />
                             </div>
-                            {showAdherentDropdown &&
-                              adherentSearch.length >= 2 &&
+                            {adherentDropdownVisible &&
                               adherentResults &&
                               adherentResults.length === 0 &&
-                              !selectedAdherentInfo && (
-                                <div className="absolute z-50 w-full mt-1 bg-white border border-red-200 rounded-lg shadow-lg px-3 py-2">
+                              !selectedAdherentInfo && adherentPortalPos && createPortal(
+                                <div className="fixed z-[9999] bg-white border border-red-200 rounded-lg shadow-lg px-3 py-2" style={{ top: adherentPortalPos.top, left: adherentPortalPos.left, width: adherentPortalPos.width }}>
                                   <p className="text-sm text-red-600 flex items-center gap-1.5">
                                     <Ban className="w-3.5 h-3.5" />
                                     Aucun adherent trouve avec cette matricule
                                   </p>
-                                </div>
+                                </div>,
+                                document.body
                               )}
-                            {showAdherentDropdown &&
+                            {adherentDropdownVisible &&
                               adherentResults &&
-                              adherentResults.length > 0 && (
-                                <div className="absolute z-50 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                              adherentResults.length > 0 && adherentPortalPos && createPortal(
+                                <div className="fixed z-[9999] bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto" style={{ top: adherentPortalPos.top, left: adherentPortalPos.left, width: adherentPortalPos.width }}>
                                   {adherentResults.map((a) => (
                                     <button
                                       key={a.id}
@@ -2328,7 +2834,8 @@ export function BulletinsSaisiePage() {
                                       )}
                                     </button>
                                   ))}
-                                </div>
+                                </div>,
+                                document.body
                               )}
                             {errors.adherent_matricule && (
                               <p className="text-sm text-destructive">
@@ -2632,7 +3139,7 @@ export function BulletinsSaisiePage() {
                                       </span>
                                     </div>
                                   </div>
-                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                                     {familleData.conjoint.dateOfBirth && (
                                       <div>
                                         <p className="text-gray-500">
@@ -2655,7 +3162,73 @@ export function BulletinsSaisiePage() {
                                     )}
                                   </div>
                                 </div>
+                              ) : selectedAdherentInfo ? (
+                                /* Adherent registered but conjoint NOT in family — offer to add */
+                                <div className="rounded-xl border border-purple-200 bg-purple-50/30 p-4 space-y-3">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <Heart className="h-4 w-4 text-purple-600" />
+                                    <p className="text-sm font-medium text-purple-800">
+                                      Conjoint(e) non enregistré(e) — ajouter aux ayants droit
+                                    </p>
+                                  </div>
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Prénom</Label>
+                                      <Input
+                                        placeholder="Prénom"
+                                        className="rounded-xl text-sm"
+                                        value={ayantDroitForm.firstName}
+                                        onChange={(e) => setAyantDroitForm((p) => ({ ...p, firstName: e.target.value }))}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Nom</Label>
+                                      <Input
+                                        placeholder="Nom"
+                                        className="rounded-xl text-sm"
+                                        value={ayantDroitForm.lastName}
+                                        onChange={(e) => setAyantDroitForm((p) => ({ ...p, lastName: e.target.value }))}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Date de naissance</Label>
+                                      <Input
+                                        type="date"
+                                        className="rounded-xl text-sm"
+                                        value={ayantDroitForm.dateOfBirth}
+                                        onChange={(e) => setAyantDroitForm((p) => ({ ...p, dateOfBirth: e.target.value }))}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Email</Label>
+                                      <Input
+                                        type="email"
+                                        placeholder="email@exemple.com"
+                                        className="rounded-xl text-sm"
+                                        value={ayantDroitForm.email}
+                                        onChange={(e) => setAyantDroitForm((p) => ({ ...p, email: e.target.value }))}
+                                      />
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center justify-end pt-1">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() => handleAddAyantDroit('C')}
+                                      disabled={isAddingAyantDroit}
+                                      className="gap-1.5 bg-purple-600 hover:bg-purple-700"
+                                    >
+                                      {isAddingAyantDroit ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <UserPlus className="h-3.5 w-3.5" />
+                                      )}
+                                      {isAddingAyantDroit ? "Ajout..." : "Ajouter comme conjoint(e)"}
+                                    </Button>
+                                  </div>
+                                </div>
                               ) : (
+                                /* Adherent NOT registered — simple manual input */
                                 <div className="rounded-xl border border-purple-200 bg-purple-50/30 p-4 space-y-3">
                                   <p className="text-sm font-medium text-purple-800">
                                     Saisir les informations du/de la conjoint(e)
@@ -2774,7 +3347,64 @@ export function BulletinsSaisiePage() {
                                     ))}
                                   </div>
                                 </div>
+                              ) : selectedAdherentInfo ? (
+                                /* Adherent registered but enfant NOT in family — offer to add */
+                                <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-4 space-y-3">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <Baby className="h-4 w-4 text-emerald-600" />
+                                    <p className="text-sm font-medium text-emerald-800">
+                                      Enfant non enregistré(e) — ajouter aux ayants droit
+                                    </p>
+                                  </div>
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Prénom</Label>
+                                      <Input
+                                        placeholder="Prénom"
+                                        className="rounded-xl text-sm"
+                                        value={ayantDroitForm.firstName}
+                                        onChange={(e) => setAyantDroitForm((p) => ({ ...p, firstName: e.target.value }))}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Nom</Label>
+                                      <Input
+                                        placeholder="Nom"
+                                        className="rounded-xl text-sm"
+                                        value={ayantDroitForm.lastName}
+                                        onChange={(e) => setAyantDroitForm((p) => ({ ...p, lastName: e.target.value }))}
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <Label className="text-xs text-gray-500">Date de naissance</Label>
+                                      <Input
+                                        type="date"
+                                        className="rounded-xl text-sm"
+                                        value={ayantDroitForm.dateOfBirth}
+                                        onChange={(e) => setAyantDroitForm((p) => ({ ...p, dateOfBirth: e.target.value }))}
+                                      />
+                                    </div>
+                                    {/* Pas de champ email pour les enfants */}
+                                  </div>
+                                  <div className="flex items-center justify-end pt-1">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      onClick={() => handleAddAyantDroit('E')}
+                                      disabled={isAddingAyantDroit}
+                                      className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                                    >
+                                      {isAddingAyantDroit ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <UserPlus className="h-3.5 w-3.5" />
+                                      )}
+                                      {isAddingAyantDroit ? "Ajout..." : "Ajouter comme enfant"}
+                                    </Button>
+                                  </div>
+                                </div>
                               ) : (
+                                /* Adherent NOT registered — simple manual input (no email for enfant) */
                                 <div className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-4 space-y-3">
                                   <p className="text-sm font-medium text-emerald-800">
                                     Saisir les informations de l'enfant
@@ -2808,17 +3438,7 @@ export function BulletinsSaisiePage() {
                                         )}
                                       />
                                     </div>
-                                    <div className="space-y-1">
-                                      <Label className="text-xs text-gray-500">
-                                        Email
-                                      </Label>
-                                      <Input
-                                        type="email"
-                                        placeholder="email@exemple.com"
-                                        className="rounded-xl text-sm"
-                                        {...register("beneficiary_email")}
-                                      />
-                                    </div>
+                                    {/* Pas de champ email pour les enfants */}
                                   </div>
                                 </div>
                               ))}
@@ -3511,7 +4131,7 @@ export function BulletinsSaisiePage() {
                       open={showScanPreview}
                       onOpenChange={setShowScanPreview}
                     >
-                      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+                      <DialogContent className="w-full max-w-4xl max-h-[90vh] flex flex-col">
                         <DialogHeader>
                           <DialogTitle>Aperçu des scans</DialogTitle>
                         </DialogHeader>
@@ -3646,6 +4266,7 @@ export function BulletinsSaisiePage() {
                   </div>
                 </div>
               </fieldset>
+              )}
             </form>
           )}
         </TabsContent>
@@ -3654,18 +4275,18 @@ export function BulletinsSaisiePage() {
         <TabsContent value="liste" className="space-y-4">
           <div className="rounded-2xl border border-gray-200 bg-white">
             {/* Header: title + search + actions */}
-            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+            <div className="iems-start flex-col sm:flex-row flex sm:items-center justify-between px-6 py-5 border-b border-gray-100">
               <h3 className="text-lg font-bold text-gray-900">
                 Bulletins récents
               </h3>
-              <div className="flex items-center gap-3">
+              <div className="md:flex md:items-center gap-3 grid-cols-1 grid ">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
                     placeholder="Rechercher un dossier..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9 w-64 rounded-xl border-gray-200 bg-gray-50 focus:bg-white"
+                    className="pl-9 w-full sm:w-64 rounded-xl border-gray-200 bg-gray-50 focus:bg-white"
                   />
                 </div>
                 {canDelete && selectedBulletins.length > 0 && (
@@ -3892,19 +4513,19 @@ export function BulletinsSaisiePage() {
                 className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
-            <select
-              value={batchStatusFilter}
-              onChange={(e) => {
-                setBatchStatusFilter(e.target.value);
-                setBatchPage(1);
-              }}
-              className="rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            <FilterDropdown
+              label="Statut"
+              value={{ all: 'Tous les statuts', open: 'Ouvert', closed: 'Fermé', exported: 'Exporté' }[batchStatusFilter] || 'Tous les statuts'}
+              open={batchStatusDropdownOpen}
+              onToggle={() => setBatchStatusDropdownOpen(!batchStatusDropdownOpen)}
+              onClose={() => setBatchStatusDropdownOpen(false)}
+              menuWidth="w-48"
             >
-              <option value="all">Tous les statuts</option>
-              <option value="open">Ouvert</option>
-              <option value="closed">Fermé</option>
-              <option value="exported">Exporté</option>
-            </select>
+              <FilterOption selected={batchStatusFilter === 'all'} onClick={() => { setBatchStatusFilter('all'); setBatchPage(1); setBatchStatusDropdownOpen(false); }}>Tous les statuts</FilterOption>
+              <FilterOption selected={batchStatusFilter === 'open'} onClick={() => { setBatchStatusFilter('open'); setBatchPage(1); setBatchStatusDropdownOpen(false); }}>Ouvert</FilterOption>
+              <FilterOption selected={batchStatusFilter === 'closed'} onClick={() => { setBatchStatusFilter('closed'); setBatchPage(1); setBatchStatusDropdownOpen(false); }}>Fermé</FilterOption>
+              <FilterOption selected={batchStatusFilter === 'exported'} onClick={() => { setBatchStatusFilter('exported'); setBatchPage(1); setBatchStatusDropdownOpen(false); }}>Exporté</FilterOption>
+            </FilterDropdown>
             {canDelete && selectedBatches.length > 0 && (
               <>
                 <button
@@ -4071,7 +4692,7 @@ export function BulletinsSaisiePage() {
       <Dialog open={showBatchDialog} onOpenChange={setShowBatchDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Creer un nouveau lot</DialogTitle>
+            <DialogTitle>Créer un nouveau lot</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -4115,12 +4736,12 @@ export function BulletinsSaisiePage() {
               {createBatchMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creation...
+                  Création...
                 </>
               ) : (
                 <>
                   <FolderPlus className="mr-2 h-4 w-4" />
-                  Creer le lot
+                  Créer le lot
                 </>
               )}
             </Button>
@@ -4221,7 +4842,7 @@ export function BulletinsSaisiePage() {
                   <Download className="mr-2 h-4 w-4" />
                   {exportBatch?.status === "exported"
                     ? "Re-exporter CSV"
-                    : "Telecharger CSV"}
+                    : "Télécharger CSV"}
                 </>
               )}
             </AlertDialogAction>
@@ -4236,13 +4857,13 @@ export function BulletinsSaisiePage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Exporter le bordereau detaille</AlertDialogTitle>
+            <AlertDialogTitle>Exporter le bordereau détaillé</AlertDialogTitle>
             <AlertDialogDescription>
-              Voulez-vous telecharger le bordereau detaille du lot "
+              Voulez-vous télécharger le bordereau détaillé du lot "
               {exportBatch?.name}" ?
               <br />
               Ce fichier contient toutes les lignes d&apos;actes avec les codes,
-              montants engages et rembourses.
+              montants engagés et remboursés.
               <br />
               <span className="font-medium">
                 {exportBatch?.bulletins_count} bulletins
@@ -4272,7 +4893,7 @@ export function BulletinsSaisiePage() {
               ) : (
                 <>
                   <Download className="mr-2 h-4 w-4" />
-                  Telecharger detaille
+                  Télécharger détaillé
                 </>
               )}
             </AlertDialogAction>
@@ -4282,13 +4903,13 @@ export function BulletinsSaisiePage() {
 
       {/* Bulletin Detail Dialog */}
       <Dialog open={!!viewBulletin} onOpenChange={() => setViewBulletin(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="w-full max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Bulletin {viewBulletin?.bulletin_number}</DialogTitle>
           </DialogHeader>
           {viewBulletin && (
             <div className="space-y-4 text-sm">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <p className="text-muted-foreground">Date</p>
                   <p className="font-medium">
@@ -4370,7 +4991,7 @@ export function BulletinsSaisiePage() {
                               </Badge>
                             )}
                           </div>
-                          <div className="grid grid-cols-4 gap-2 text-xs">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                             <div>
                               <p className="text-muted-foreground">Montant</p>
                               <p className="font-medium">
@@ -4545,7 +5166,7 @@ export function BulletinsSaisiePage() {
                           </Badge>
                         )}
                     </div>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-xs">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">
                           Plafond global
@@ -4679,7 +5300,7 @@ export function BulletinsSaisiePage() {
           </AlertDialogHeader>
           {validateBulletinTarget && (
             <div className="py-4 space-y-3">
-              <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-muted-foreground">Adherent</p>
                   <p className="font-medium">

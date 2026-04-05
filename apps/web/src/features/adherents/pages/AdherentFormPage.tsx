@@ -146,7 +146,7 @@ export function AdherentFormPage() {
         description={isEditing ? 'Modifier les informations de l\'adhérent' : 'Ajouter un nouvel adhérent'}
       />
 
-      <Card className="max-w-2xl">
+      <Card className="w-full max-w-2xl mx-auto">
         <CardHeader>
           <CardTitle>{isEditing ? 'Informations de l\'adhérent' : 'Informations du nouvel adhérent'}</CardTitle>
           <CardDescription>
@@ -211,7 +211,7 @@ export function AdherentFormPage() {
             </div>
 
             {/* Date of birth, Gender, Relationship */}
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="dateOfBirth">Date de naissance *</Label>
                 <Input id="dateOfBirth" type="date" max={new Date().toISOString().split('T')[0]} {...register('dateOfBirth')} />
@@ -291,7 +291,7 @@ export function AdherentFormPage() {
             )}
 
             {/* Actions */}
-            <div className="flex justify-end gap-3 pt-4 border-t">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => navigate('/adhérents')}>
                 Annuler
               </Button>

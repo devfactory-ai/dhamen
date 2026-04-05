@@ -1873,34 +1873,54 @@ groupContracts.post(
       };
     }
 
-    // Create individual contracts for each adherent
+    // Create or update individual contracts for each adherent
     let createdCount = 0;
-    let skippedCount = 0;
+    let updatedCount = 0;
     const now = new Date().toISOString();
+    const groupContractNumber = groupContract.contract_number as string;
+
+    // Use end_date from group contract, fallback to 1 year from effective_date
+    const endDate = groupContract.end_date
+      ?? groupContract.annual_renewal_date
+      ?? new Date(new Date(groupContract.effective_date as string).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
     for (const adherent of adherentList) {
       // Check if adherent already has an active contract from this group
       const existingContract = await db
         .prepare(
-          `SELECT id FROM contracts
+          `SELECT id, contract_number FROM contracts
            WHERE adherent_id = ? AND insurer_id = ? AND status = 'active'
            AND group_contract_id = ?`
         )
         .bind(adherent.id, groupContract.insurer_id, id)
-        .first();
+        .first<{ id: string; contract_number: string }>();
 
       if (existingContract) {
-        skippedCount++;
+        // Update existing contract: sync contract_number, coverage, and dates
+        await db
+          .prepare(
+            `UPDATE contracts SET
+              contract_number = ?,
+              coverage_json = ?,
+              start_date = ?,
+              end_date = ?,
+              updated_at = ?
+             WHERE id = ?`
+          )
+          .bind(
+            groupContractNumber,
+            JSON.stringify(coverage),
+            groupContract.effective_date,
+            endDate,
+            now,
+            existingContract.id
+          )
+          .run();
+        updatedCount++;
         continue;
       }
 
       const contractId = generateId();
-      const contractNumber = `${groupContract.contract_number}-${contractId.slice(-6).toUpperCase()}`;
-
-      // Use end_date from group contract, fallback to 1 year from effective_date
-      const endDate = groupContract.end_date
-        ?? groupContract.annual_renewal_date
-        ?? new Date(new Date(groupContract.effective_date as string).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
       await db
         .prepare(
@@ -1914,7 +1934,7 @@ groupContracts.post(
         )
         .bind(
           contractId,
-          contractNumber,
+          groupContractNumber,
           adherent.id,
           groupContract.insurer_id,
           groupContract.contract_type === 'individual' ? 'individual' : 'corporate',
@@ -2008,20 +2028,25 @@ groupContracts.post(
         companyId: groupContract.company_id,
         totalAdherents: adherentList.length,
         contractsCreated: createdCount,
-        contractsSkipped: skippedCount,
+        contractsUpdated: updatedCount,
         plafondsCreated,
       },
       ipAddress: c.req.header('CF-Connecting-IP'),
       userAgent: c.req.header('User-Agent'),
     });
 
+    const parts: string[] = [];
+    if (createdCount > 0) parts.push(`${createdCount} contrats créés`);
+    if (updatedCount > 0) parts.push(`${updatedCount} contrats mis à jour`);
+    if (plafondsCreated > 0) parts.push(`${plafondsCreated} plafonds initialisés`);
+
     return success(c, {
       groupContractId: id,
       totalAdherents: adherentList.length,
       contractsCreated: createdCount,
-      contractsSkipped: skippedCount,
+      contractsUpdated: updatedCount,
       plafondsCreated,
-      message: `${createdCount} contrats individuels créés, ${skippedCount} adhérents déjà couverts, ${plafondsCreated} plafonds initialisés.`,
+      message: parts.join(', ') + '.',
     });
   }
 );

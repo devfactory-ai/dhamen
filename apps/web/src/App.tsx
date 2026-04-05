@@ -49,6 +49,7 @@ const PasswordResetPage = lazy(() => import('@/features/auth/pages/PasswordReset
 const PasswordResetConfirmPage = lazy(() => import('@/features/auth/pages/PasswordResetConfirmPage').then(m => ({ default: m.PasswordResetConfirmPage })));
 const MagicLinkPage = lazy(() => import('@/features/auth/pages/MagicLinkPage').then(m => ({ default: m.MagicLinkPage })));
 const MagicLinkVerifyPage = lazy(() => import('@/features/auth/pages/MagicLinkVerifyPage').then(m => ({ default: m.MagicLinkVerifyPage })));
+const PasskeyInvitePage = lazy(() => import('@/features/auth/pages/PasskeyInvitePage').then(m => ({ default: m.default })));
 const SanteDemandesPage = lazy(() => import('@/features/sante/pages/SanteDemandesPage').then(m => ({ default: m.SanteDemandesPage })));
 const SanteDemandeDetailsPage = lazy(() => import('@/features/sante/pages/SanteDemandeDetailsPage').then(m => ({ default: m.default })));
 const SanteDemandeProcessPage = lazy(() => import('@/features/sante/pages/SanteDemandeProcessPage').then(m => ({ default: m.default })));
@@ -236,6 +237,14 @@ function App() {
           element={
             <Suspense fallback={<PageLoader />}>
               <MagicLinkVerifyPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/auth/passkey/invite"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <PasskeyInvitePage />
             </Suspense>
           }
         />

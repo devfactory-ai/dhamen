@@ -4,7 +4,7 @@ import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { useClaims, type Claim } from '../hooks/useClaims';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 
@@ -35,6 +35,8 @@ export function ClaimsPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [typeFilter, setTypeFilter] = useState<string | undefined>();
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
 
   const isProvider = ['PHARMACIST', 'DOCTOR', 'LAB_MANAGER', 'CLINIC_ADMIN', 'PRATICIEN'].includes(user?.role || '');
 
@@ -148,31 +150,36 @@ export function ClaimsPage() {
       />
 
       {/* Filters */}
-      <div className="flex gap-4">
-        <Select value={statusFilter || 'all'} onValueChange={(v) => setStatusFilter(v === 'all' ? undefined : v)}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Statut" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les statuts</SelectItem>
-            {Object.entries(CLAIM_STATUS).map(([value, { label }]) => (
-              <SelectItem key={value} value={value}>{label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={typeFilter || 'all'} onValueChange={(v) => setTypeFilter(v === 'all' ? undefined : v)}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tous les types</SelectItem>
-            {Object.entries(CLAIM_TYPES).map(([value, { label }]) => (
-              <SelectItem key={value} value={value}>{label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
+        <FilterDropdown
+          label="Statut"
+          value={statusFilter ? (CLAIM_STATUS[statusFilter]?.label ?? 'Tous les statuts') : 'Tous les statuts'}
+          open={statusDropdownOpen}
+          onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
+          onClose={() => setStatusDropdownOpen(false)}
+          menuWidth="w-48"
+        >
+          <FilterOption selected={!statusFilter} onClick={() => { setStatusFilter(undefined); setStatusDropdownOpen(false); }}>Tous les statuts</FilterOption>
+          {Object.entries(CLAIM_STATUS).map(([value, { label }]) => (
+            <FilterOption key={value} selected={statusFilter === value} onClick={() => { setStatusFilter(value); setStatusDropdownOpen(false); }}>{label}</FilterOption>
+          ))}
+        </FilterDropdown>
+        <FilterDropdown
+          label="Type"
+          value={typeFilter ? (CLAIM_TYPES[typeFilter]?.label ?? 'Tous les types') : 'Tous les types'}
+          open={typeDropdownOpen}
+          onToggle={() => setTypeDropdownOpen(!typeDropdownOpen)}
+          onClose={() => setTypeDropdownOpen(false)}
+          menuWidth="w-48"
+        >
+          <FilterOption selected={!typeFilter} onClick={() => { setTypeFilter(undefined); setTypeDropdownOpen(false); }}>Tous les types</FilterOption>
+          {Object.entries(CLAIM_TYPES).map(([value, { label }]) => (
+            <FilterOption key={value} selected={typeFilter === value} onClick={() => { setTypeFilter(value); setTypeDropdownOpen(false); }}>{label}</FilterOption>
+          ))}
+        </FilterDropdown>
       </div>
 
+      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
       <DataTable
         columns={columns}
         data={data?.claims || []}
@@ -189,6 +196,7 @@ export function ClaimsPage() {
             : undefined
         }
       />
+      </div>
     </div>
   );
 }

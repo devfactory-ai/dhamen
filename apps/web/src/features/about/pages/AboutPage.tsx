@@ -55,12 +55,12 @@ const roleGuides: Record<string, RoleGuide> = {
     features: [
       "Vérification de l'éligibilité des adhérents",
       "Soumission des prises en charge",
-      "Verification des cartes virtuelles",
+      "Vérification des cartes virtuelles",
       "Suivi des bordereaux de paiement",
     ],
   },
   DOCTOR: {
-    title: "Medecin",
+    title: "Médecin",
     description:
       "Vous vérifiez l'éligibilité des patients et soumettez les prises en charge pour les consultations et actes médicaux.",
     features: [
@@ -78,7 +78,7 @@ const roleGuides: Record<string, RoleGuide> = {
       "Vérification de l'éligibilité",
       "Soumission des prises en charge analyses",
       "Suivi des bordereaux",
-      "Verification des cartes virtuelles",
+      "Vérification des cartes virtuelles",
     ],
   },
   CLINIC_ADMIN: {

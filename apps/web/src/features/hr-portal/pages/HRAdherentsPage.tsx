@@ -142,12 +142,12 @@ export function HRAdherentsPage() {
   return (
     <NoEntrepriseGuard>
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <PageHeader
           title="Adhérents de l'entreprise"
           description="Gérer les salaries couverts par votre contrat groupe"
         />
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {canRead && (
             <Button variant="outline" onClick={handleExportCSV} disabled={isExporting}>
               <Download className="mr-2 h-4 w-4" />
@@ -170,7 +170,7 @@ export function HRAdherentsPage() {
       </div>
 
       {/* Search and Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-4">
         <div className="md:col-span-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

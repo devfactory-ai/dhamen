@@ -305,7 +305,7 @@ export function InsurersPage() {
           <h1 className="text-2xl font-bold text-gray-900">Compagnies Partenaires</h1>
           <p className="mt-1 text-sm text-gray-500">Gérer les organismes partenaires et conventions de remboursement</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {canDelete && selectedIds.size > 0 && (
             <Button
               variant="outline"

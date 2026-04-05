@@ -241,79 +241,78 @@ export class AuditService {
     const bindings: unknown[] = [];
 
     if (params.userId) {
-      conditions.push('user_id = ?');
+      conditions.push('al.user_id = ?');
       bindings.push(params.userId);
     }
 
     if (params.action) {
       if (Array.isArray(params.action)) {
-        conditions.push(`action IN (${params.action.map(() => '?').join(',')})`);
+        conditions.push(`al.action IN (${params.action.map(() => '?').join(',')})`);
         bindings.push(...params.action);
       } else {
-        conditions.push('action = ?');
+        conditions.push('al.action = ?');
         bindings.push(params.action);
       }
     }
 
     if (params.entityType) {
       if (Array.isArray(params.entityType)) {
-        conditions.push(`entity_type IN (${params.entityType.map(() => '?').join(',')})`);
+        conditions.push(`al.entity_type IN (${params.entityType.map(() => '?').join(',')})`);
         bindings.push(...params.entityType);
       } else {
-        conditions.push('entity_type = ?');
+        conditions.push('al.entity_type = ?');
         bindings.push(params.entityType);
       }
     }
 
     if (params.entityId) {
-      conditions.push('entity_id = ?');
+      conditions.push('al.entity_id = ?');
       bindings.push(params.entityId);
     }
 
     if (params.insurerId) {
-      conditions.push('insurer_id = ?');
+      conditions.push('al.insurer_id = ?');
       bindings.push(params.insurerId);
     }
 
     if (params.providerId) {
-      conditions.push('provider_id = ?');
+      conditions.push('al.provider_id = ?');
       bindings.push(params.providerId);
     }
 
     if (params.result) {
-      conditions.push('result = ?');
+      conditions.push('al.result = ?');
       bindings.push(params.result);
     }
 
     if (params.startDate) {
-      conditions.push('created_at >= ?');
+      conditions.push('al.created_at >= ?');
       bindings.push(params.startDate);
     }
 
     if (params.endDate) {
-      conditions.push('created_at <= ?');
+      conditions.push('al.created_at <= ?');
       bindings.push(params.endDate);
     }
 
     if (params.ipAddress) {
-      conditions.push('ip_address = ?');
+      conditions.push('al.ip_address = ?');
       bindings.push(params.ipAddress);
     }
 
     if (params.searchText) {
-      // Use columns that exist in both legacy and full schema
       conditions.push(
-        '(entity_id LIKE ? OR action LIKE ? OR changes_json LIKE ?)'
+        '(al.entity_id LIKE ? OR al.action LIKE ? OR al.changes_json LIKE ? OR u.email LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ?)'
       );
       const searchPattern = `%${params.searchText}%`;
-      bindings.push(searchPattern, searchPattern, searchPattern);
+      bindings.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     // Count total
     const countResult = await this.env.DB.prepare(
-      `SELECT COUNT(*) as count FROM audit_logs ${whereClause}`
+      `SELECT COUNT(*) as count FROM audit_logs al LEFT JOIN users u ON al.user_id = u.id ${whereClause}`
     )
       .bind(...bindings)
       .first<{ count: number }>();
@@ -325,8 +324,11 @@ export class AuditService {
     const offset = params.offset || 0;
 
     const { results } = await this.env.DB.prepare(
-      `SELECT * FROM audit_logs ${whereClause}
-       ORDER BY ${sortBy} ${sortOrder}
+      `SELECT al.*, u.email as _user_email, u.first_name as _user_first_name, u.last_name as _user_last_name
+       FROM audit_logs al
+       LEFT JOIN users u ON al.user_id = u.id
+       ${whereClause}
+       ORDER BY al.${sortBy} ${sortOrder}
        LIMIT ? OFFSET ?`
     )
       .bind(...bindings, limit, offset)
@@ -789,7 +791,10 @@ export class AuditService {
       id: row.id as string,
       timestamp: (row.created_at || row.timestamp) as string,
       userId: row.user_id as string,
-      userName: (row.user_name as string) || undefined,
+      userName: (row._user_email as string)
+        || (row.user_name as string)
+        || (details._userName as string)
+        || undefined,
       userRole: (row.user_role as string) || undefined as unknown as string,
       action: row.action as AuditAction,
       entityType: row.entity_type as EntityType,

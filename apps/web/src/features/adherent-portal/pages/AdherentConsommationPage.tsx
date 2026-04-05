@@ -324,7 +324,7 @@ export function AdherentConsommationPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t text-center">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t text-center">
                       <div>
                         <p className="text-lg font-bold">{coverage.annual_limit.toFixed(0)}</p>
                         <p className="text-xs text-muted-foreground">Plafond TND</p>
@@ -378,7 +378,7 @@ export function AdherentConsommationPage() {
                     <Progress value={coverage.percentage_used} className="h-4" />
                   </div>
 
-                  <div className="grid grid-cols-3 gap-4 pt-4 border-t">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t">
                     <div className="text-center">
                       <p className="text-sm text-muted-foreground">Plafond annuel</p>
                       <p className="text-lg font-semibold">{coverage.annual_limit.toFixed(0)} TND</p>

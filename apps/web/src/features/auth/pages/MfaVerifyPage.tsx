@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiClient } from '@/lib/api-client';
 import { setTokens, setUser, setPermissions, type UserPermissions } from '@/lib/auth';
 import type { UserPublic, AuthTokens } from '@dhamen/shared';
+import { browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import { Shield, Loader2, RefreshCw, ArrowRightLeft, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -11,6 +12,7 @@ interface MfaVerifyResponse {
   tokens: AuthTokens;
   permissions?: UserPermissions;
   tenantCode?: string;
+  hasPasskey?: boolean;
 }
 
 export function MfaVerifyPage() {
@@ -118,7 +120,7 @@ export function MfaVerifyPage() {
       });
 
       if (res.success) {
-        const { tokens: resTokens, user: resUser, permissions: resPermissions } = res.data;
+        const { tokens: resTokens, user: resUser, permissions: resPermissions, hasPasskey: resHasPasskey } = res.data;
         if (resTokens && resUser) {
           setTokens(resTokens);
           setUser(resUser);
@@ -126,7 +128,12 @@ export function MfaVerifyPage() {
             setPermissions(resPermissions);
           }
           localStorage.setItem('isAuthenticated', 'true');
-          navigate('/auth/success', { replace: true });
+          // Redirect to passkey invite if no passkey and browser supports it
+          if (resHasPasskey === false && browserSupportsWebAuthn()) {
+            navigate('/auth/passkey/invite', { replace: true });
+          } else {
+            navigate('/auth/success', { replace: true });
+          }
         } else {
           setErrorMsg('Réponse invalide');
           setCode(['', '', '', '', '', '']);

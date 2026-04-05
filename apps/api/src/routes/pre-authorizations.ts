@@ -59,6 +59,10 @@ preAuthorizations.get(
     const limit = filters.limit ?? 20;
     const offset = (page - 1) * limit;
 
+    // Dynamic sorting support
+    const sortBy = c.req.query('sortBy') || '';
+    const sortOrder = (c.req.query('sortOrder') || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
     // Build WHERE clause
     const conditions: string[] = ['pa.deleted_at IS NULL'];
     const params: (string | number)[] = [];
@@ -147,7 +151,9 @@ preAuthorizations.get(
       LEFT JOIN users r ON pa.reviewer_id = r.id
       LEFT JOIN users mr ON pa.medical_reviewer_id = mr.id
       WHERE ${whereClause}
-      ORDER BY
+      ${sortBy === 'created_at'
+        ? `ORDER BY pa.created_at ${sortOrder}`
+        : `ORDER BY
         CASE pa.priority
           WHEN 'urgent' THEN 1
           WHEN 'high' THEN 2
@@ -155,7 +161,7 @@ preAuthorizations.get(
           ELSE 4
         END,
         pa.is_emergency DESC,
-        pa.created_at DESC
+        pa.created_at DESC`}
       LIMIT ? OFFSET ?
     `).bind(...paParams).all();
 

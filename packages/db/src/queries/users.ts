@@ -63,6 +63,7 @@ export function userToPublic(user: User & { companyName?: string | null }): User
     firstName: user.firstName,
     lastName: user.lastName,
     phone: user.phone,
+    avatarUrl: user.avatarUrl ?? null,
     mfaEnabled: user.mfaEnabled,
     lastLoginAt: user.lastLoginAt,
     isActive: user.isActive,
@@ -201,6 +202,7 @@ type UserUpdateData = {
   mfaEnabled?: boolean;
   mfaSecret?: string;
   lastLoginAt?: string;
+  avatarUrl?: string;
 };
 
 type FieldMapping = {
@@ -221,6 +223,7 @@ const USER_FIELD_MAPPINGS: FieldMapping[] = [
   { key: 'mfaEnabled', column: 'mfa_enabled', transform: (v) => (v ? 1 : 0) },
   { key: 'mfaSecret', column: 'mfa_secret' },
   { key: 'lastLoginAt', column: 'last_login_at' },
+  { key: 'avatarUrl', column: 'avatar_url' },
 ];
 
 export async function updateUser(

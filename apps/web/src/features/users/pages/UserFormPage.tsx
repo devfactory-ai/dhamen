@@ -167,7 +167,7 @@ export function UserFormPage() {
         }
       />
 
-      <Card className="max-w-2xl">
+      <Card className="w-full max-w-2xl mx-auto">
         <CardHeader>
           <CardTitle>
             {isEditing
@@ -342,7 +342,7 @@ export function UserFormPage() {
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end gap-3 pt-4 border-t">
+            <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-4 border-t">
               <Button
                 type="button"
                 variant="outline"

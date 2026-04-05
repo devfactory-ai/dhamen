@@ -936,8 +936,8 @@ export function GroupContractFormPage() {
   if ((isEditing && !canUpdate) || (!isEditing && !canCreate)) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <p className="text-lg font-semibold text-gray-900">Acces refuse</p>
-        <p className="mt-1 text-sm text-gray-500">Vous n'avez pas la permission de {isEditing ? 'modifier' : 'creer'} un contrat.</p>
+        <p className="text-lg font-semibold text-gray-900">Accès refusé</p>
+        <p className="mt-1 text-sm text-gray-500">Vous n'avez pas la permission de {isEditing ? 'modifier' : 'créer'} un contrat.</p>
         <button onClick={() => navigate(-1)} className="mt-4 text-sm text-blue-600 hover:underline">Retour</button>
       </div>
     );
@@ -1060,7 +1060,7 @@ export function GroupContractFormPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Row 1: Contract number + Status + Category */}
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="contract_number">Numéro de contrat *</Label>
                 <Input
@@ -1100,7 +1100,7 @@ export function GroupContractFormPage() {
             </div>
 
             {/* Row 2: Assureur + Intermediaire + Code */}
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
                 <Label>Assureur</Label>
                 <Select
@@ -1270,7 +1270,7 @@ export function GroupContractFormPage() {
             <CardTitle>Dates et plafonds</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="effective_date">Date d'effet *</Label>
                 <Input id="effective_date" type="date" {...register('effective_date')} />
@@ -1293,7 +1293,7 @@ export function GroupContractFormPage() {
                 />
               </div>
             </div>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="carence_days">Jours de carence</Label>
                 <Input
@@ -1341,7 +1341,7 @@ export function GroupContractFormPage() {
             </div>
 
             {/* Bénéficiaires toggles */}
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               <div className="flex items-center gap-2">
                 <Switch
                   checked={watch('covers_spouse') ?? true}
@@ -1365,7 +1365,7 @@ export function GroupContractFormPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
                 <Label>Age max enfants</Label>
                 <Input
@@ -1554,7 +1554,7 @@ export function GroupContractFormPage() {
                       </div>
 
                       {/* Row 2: Rate + ceilings */}
-                      <div className="grid gap-4 sm:grid-cols-4">
+                      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
                         <div className="space-y-2">
                           <Label>Taux (%)</Label>
                           <Input
@@ -1749,7 +1749,7 @@ export function GroupContractFormPage() {
                         />
                       </div>
 
-                      <div className="grid gap-4 sm:grid-cols-4">
+                      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
                         <div className="flex items-center gap-2">
                           <Switch
                             checked={
@@ -1836,7 +1836,7 @@ export function GroupContractFormPage() {
         </Card>
 
         {/* Submit */}
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3">
           <Button type="button" variant="outline" onClick={() => navigate('/group-contracts')}>
             Annuler
           </Button>
@@ -1852,9 +1852,9 @@ export function GroupContractFormPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Réinitialiser le formulaire ?</AlertDialogTitle>
             <AlertDialogDescription>
-              Voulez-vous reinitialiser tous les champs du formulaire ? Toutes les donnees
-              saisies et extraites du PDF (garanties, informations du contrat, beneficiaires)
-              seront supprimees.
+              Voulez-vous réinitialiser tous les champs du formulaire ? Toutes les données
+              saisies et extraites du PDF (garanties, informations du contrat, bénéficiaires)
+              seront supprimées.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1863,7 +1863,7 @@ export function GroupContractFormPage() {
               onClick={handleResetAll}
               className="bg-red-600 hover:bg-red-700 text-white"
             >
-              Oui, reinitialiser
+              Oui, réinitialiser
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

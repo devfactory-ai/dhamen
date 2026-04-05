@@ -163,7 +163,7 @@ export function CardDetailsPage() {
             <CardDescription>Details de la carte virtuelle</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Numéro de carte</p>
                 <p className="font-mono font-semibold">{card.cardNumber}</p>
@@ -194,7 +194,7 @@ export function CardDetailsPage() {
             <CardDescription>Historique et événements</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Date de création</p>
                 <p>{formatDateTime(card.createdAt)}</p>

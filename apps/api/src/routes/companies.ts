@@ -103,7 +103,31 @@ companies.get(
 
     const { results } = await getDb(c).prepare(query).bind(...params).all();
 
-    return paginated(c, results || [], {
+    // Enrich each company with real adherent count
+    const companyIds = (results || []).map((r: Record<string, unknown>) => r.id as string);
+    let adherentCounts: Record<string, number> = {};
+    if (companyIds.length > 0) {
+      try {
+        const placeholders = companyIds.map(() => '?').join(',');
+        const countRows = await getDb(c).prepare(
+          `SELECT company_id, COUNT(*) as cnt FROM adherents
+           WHERE company_id IN (${placeholders})
+             AND (deleted_at IS NULL OR deleted_at = '')
+             AND parent_adherent_id IS NULL
+           GROUP BY company_id`
+        ).bind(...companyIds).all();
+        for (const row of (countRows.results || []) as Array<{ company_id: string; cnt: number }>) {
+          adherentCounts[row.company_id] = row.cnt;
+        }
+      } catch { /* column may not exist */ }
+    }
+
+    const enriched = (results || []).map((r: Record<string, unknown>) => ({
+      ...r,
+      real_adherent_count: adherentCounts[r.id as string] ?? 0,
+    }));
+
+    return paginated(c, enriched, {
       page,
       limit,
       total,
@@ -130,6 +154,23 @@ companies.get('/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR
   if (!company) {
     return notFound(c, 'Entreprise non trouvee');
   }
+
+  // Try to fill contract info from group_contracts if missing
+  try {
+    if (!company.contract_number || !company.contract_id) {
+      const gc = await getDb(c).prepare(
+        `SELECT id, contract_number FROM group_contracts WHERE company_id = ? AND deleted_at IS NULL LIMIT 1`
+      ).bind(id).first<{ id: string; contract_number: string }>();
+      if (gc) {
+        if (!company.contract_number && gc.contract_number) {
+          (company as Record<string, unknown>).contract_number = gc.contract_number;
+        }
+        if (!company.contract_id) {
+          (company as Record<string, unknown>).contract_id = gc.id;
+        }
+      }
+    }
+  } catch { /* group_contracts table may not exist */ }
 
   return success(c, company);
 });
@@ -368,7 +409,7 @@ companies.get('/:id/stats', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT
   // Single query for adherents + group_contracts (core tables, must exist)
   const coreStats = await db.prepare(
     `SELECT
-       (SELECT COUNT(*) FROM adherents WHERE company_id = ?1 AND (deleted_at IS NULL OR deleted_at = '')) as totalAdherents,
+       (SELECT COUNT(*) FROM adherents WHERE company_id = ?1 AND (deleted_at IS NULL OR deleted_at = '') AND parent_adherent_id IS NULL) as totalAdherents,
        (SELECT COUNT(*) FROM group_contracts WHERE company_id = ?1 AND status = 'active' AND (deleted_at IS NULL OR deleted_at = '')) as activeGroupContracts`
   ).bind(id).first<{ totalAdherents: number; activeGroupContracts: number }>();
 

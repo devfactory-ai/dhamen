@@ -332,14 +332,14 @@ export function AgentAdherentFormPage() {
       }
     }
     if (!form.lastName.trim()) errors.lastName = 'Nom requis';
-    if (!form.firstName.trim()) errors.firstName = 'Prenom requis';
+    if (!form.firstName.trim()) errors.firstName = 'Prénom requis';
     if (!form.dateOfBirth) errors.dateOfBirth = 'Date de naissance requise';
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errors.email = 'Email invalide';
-    if (form.phone && !/^\d{8}$/.test(form.phone.replace(/\s/g, ''))) errors.phone = 'Numero invalide (8 chiffres)';
+    if (form.phone && !/^\d{8}$/.test(form.phone.replace(/\s/g, ''))) errors.phone = 'Numéro invalide (8 chiffres)';
 
     // Validate ayants droit
     ayantsDroit.forEach((ad, i) => {
-      if (!ad.firstName.trim()) errors[`ad_${i}_firstName`] = 'Prenom requis';
+      if (!ad.firstName.trim()) errors[`ad_${i}_firstName`] = 'Prénom requis';
       if (!ad.lastName.trim()) errors[`ad_${i}_lastName`] = 'Nom requis';
       if (!ad.dateOfBirth) errors[`ad_${i}_dateOfBirth`] = 'Date de naissance requise';
     });
@@ -543,24 +543,31 @@ export function AgentAdherentFormPage() {
           )}
 
           <Tabs defaultValue="adherent" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="adherent">Adhérent</TabsTrigger>
-              <TabsTrigger value="renseignement">Renseignement</TabsTrigger>
-              <TabsTrigger value="ayants-droit" className="gap-1">
-                <Users className="w-3.5 h-3.5" />
-                Ayants droit
+            <TabsList className="w-full sm:w-auto">
+              <TabsTrigger value="adherent" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
+                <User className="h-3.5 w-3.5 shrink-0 sm:hidden" />
+                Adhérent
+              </TabsTrigger>
+              <TabsTrigger value="renseignement" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
+                <span className="hidden sm:inline">Renseignement</span>
+                <span className="sm:hidden">Infos</span>
+              </TabsTrigger>
+              <TabsTrigger value="ayants-droit" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
+                <Users className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Ayants droit</span>
+                <span className="sm:hidden">A. droit</span>
                 {ayantsDroit.length > 0 && (
-                  <span className="ml-1 bg-blue-100 text-blue-700 text-xs font-medium px-1.5 py-0.5 rounded-full">
+                  <span className="ml-1 bg-blue-100 text-blue-700 text-[10px] sm:text-xs font-medium px-1 sm:px-1.5 py-0.5 rounded-full">
                     {ayantsDroit.length}
                   </span>
                 )}
-                </TabsTrigger>
+              </TabsTrigger>
             </TabsList>
 
             {/* === Onglet Adherent === */}
             <TabsContent value="adherent" className="space-y-4 mt-4">
               {/* Type piece identite / N piece / Date edition */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
                   <Label>Type de pièce</Label>
                   <Select value={form.typePieceIdentite} onValueChange={(v) => setForm({ ...form, typePieceIdentite: v })}>
@@ -593,7 +600,7 @@ export function AgentAdherentFormPage() {
               </div>
 
               {/* Nom / Prenom */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="lastName">Nom *</Label>
                   <Input id="lastName" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} className={formErrors.lastName ? 'border-red-500' : ''} />
@@ -607,7 +614,7 @@ export function AgentAdherentFormPage() {
               </div>
 
               {/* Date naissance / Lieu naissance */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="dateOfBirth">Date de naissance *</Label>
                   <Input id="dateOfBirth" type="date" max={new Date().toISOString().split('T')[0]} value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} className={formErrors.dateOfBirth ? 'border-red-500' : ''} />
@@ -620,7 +627,7 @@ export function AgentAdherentFormPage() {
               </div>
 
               {/* Sexe / Etat civil / Date mariage */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
                   <Label>Sexe</Label>
                   <Select value={form.gender || 'none'} onValueChange={(v) => setForm({ ...form, gender: v === 'none' ? '' : v })}>
@@ -649,7 +656,7 @@ export function AgentAdherentFormPage() {
               </div>
 
               {/* Matricule / N° Contrat / Plafond */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
                   <Label htmlFor="matricule">Matricule</Label>
                   <Input id="matricule" placeholder="001" value={form.matricule} onChange={(e) => setForm({ ...form, matricule: e.target.value })} />
@@ -665,7 +672,7 @@ export function AgentAdherentFormPage() {
               </div>
 
               {/* Dates adhesion / Rang / Actif */}
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
                   <Label htmlFor="dateDebutAdhesion">Debut adhésion</Label>
                   <Input id="dateDebutAdhesion" type="date" max={new Date().toISOString().split('T')[0]} value={form.dateDebutAdhesion} onChange={(e) => setForm({ ...form, dateDebutAdhesion: e.target.value })} />
@@ -687,7 +694,7 @@ export function AgentAdherentFormPage() {
               </div>
 
               {/* Contre-visite / Etat fiche / Credit */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div className="flex items-end pb-1">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={form.contreVisiteObligatoire} onChange={(e) => setForm({ ...form, contreVisiteObligatoire: e.target.checked })} className="rounded" />
@@ -714,7 +721,7 @@ export function AgentAdherentFormPage() {
             {/* === Onglet Renseignement === */}
             <TabsContent value="renseignement" className="space-y-4 mt-4">
               {/* Adresse */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
                   <Label htmlFor="rue">Rue</Label>
                   <Input id="rue" value={form.rue} onChange={(e) => setForm({ ...form, rue: e.target.value })} />
@@ -740,13 +747,13 @@ export function AgentAdherentFormPage() {
               </div>
 
               {/* Contact */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="email">Email</Label>
                   <Input id="email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={formErrors.email ? 'border-red-500' : ''} />
                   {formErrors.email && <p className="text-xs text-red-500 mt-1">{formErrors.email}</p>}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label htmlFor="phone">Téléphone</Label>
                     <Input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={formErrors.phone ? 'border-red-500' : ''} />
@@ -760,7 +767,7 @@ export function AgentAdherentFormPage() {
               </div>
 
               {/* Banque / RIB */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="banque">Banque</Label>
                   <Input id="banque" value={form.banque} onChange={(e) => setForm({ ...form, banque: e.target.value })} />
@@ -772,7 +779,7 @@ export function AgentAdherentFormPage() {
               </div>
 
               {/* Regime social / Fonction */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label>CNSS / CNRPS</Label>
                   <Select value={form.regimeSocial || 'none'} onValueChange={(v) => setForm({ ...form, regimeSocial: v === 'none' ? '' : v })}>
@@ -791,7 +798,7 @@ export function AgentAdherentFormPage() {
               </div>
 
               {/* Handicap / Maladie chronique */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <label className="flex items-center gap-2 cursor-pointer pt-5">
                   <input type="checkbox" checked={form.handicap} onChange={(e) => setForm({ ...form, handicap: e.target.checked })} className="rounded" />
                   <span className="text-sm">Handicap</span>
@@ -806,18 +813,18 @@ export function AgentAdherentFormPage() {
 
             {/* === Onglet Ayants Droit === */}
               <TabsContent value="ayants-droit" className="space-y-4 mt-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <p className="text-sm text-gray-500">
-                    Ajoutez les membres de la famille couverts par le contrat (conjoint, enfants).
+                    Ajoutez les membres de la famille couverts par le contrat.
                   </p>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                     {!hasConjoint && (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
                         onClick={() => addAyantDroit('C')}
-                        className="gap-1"
+                        className="gap-1 flex-1 sm:flex-none"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         Conjoint
@@ -828,7 +835,7 @@ export function AgentAdherentFormPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => addAyantDroit('E')}
-                      className="gap-1"
+                      className="gap-1 flex-1 sm:flex-none"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       Enfant
@@ -838,10 +845,11 @@ export function AgentAdherentFormPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => { setImportType('E'); setShowImportDialog(true); }}
-                      className="gap-1 border-blue-200 text-blue-700 hover:bg-blue-50"
+                      className="gap-1 flex-1 sm:flex-none border-blue-200 text-blue-700 hover:bg-blue-50"
                     >
                       <Import className="w-3.5 h-3.5" />
-                      Importer existant
+                      <span className="hidden sm:inline">Importer existant</span>
+                      <span className="sm:hidden">Importer</span>
                     </Button>
                   </div>
                 </div>
@@ -878,7 +886,7 @@ export function AgentAdherentFormPage() {
                       </div>
 
                       {/* Nom / Prenom */}
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <Label>Nom *</Label>
                           <Input
@@ -900,7 +908,7 @@ export function AgentAdherentFormPage() {
                       </div>
 
                       {/* Date naissance / Sexe / CIN */}
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         <div>
                           <Label>Date de naissance *</Label>
                           <Input
@@ -936,7 +944,7 @@ export function AgentAdherentFormPage() {
 
                       {/* Conjoint: Telephone / Email */}
                       {ad.lienParente === 'C' && (
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <Label>Téléphone</Label>
                             <Input
@@ -970,7 +978,7 @@ export function AgentAdherentFormPage() {
       </Card>
 
       {/* Actions -- sticky bottom bar */}
-      <div className="sticky bottom-0 z-10 border-t bg-white/95 backdrop-blur-sm py-4 -mx-6 px-6 flex justify-end gap-3">
+      <div className="sticky bottom-0 z-10 border-t bg-white/95 backdrop-blur-sm py-4 -mx-6 px-6 flex flex-col sm:flex-row justify-end gap-2 sm:gap-3">
         <Button
           variant="outline"
           onClick={() => navigate('/adherents/agent')}

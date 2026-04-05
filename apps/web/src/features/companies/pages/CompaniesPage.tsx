@@ -21,6 +21,7 @@ interface Company {
   email: string | null;
   sector: string | null;
   employee_count: number | null;
+  real_adherent_count?: number;
   insurer_id: string | null;
   is_active: number;
   created_at: string;
@@ -172,7 +173,7 @@ export function CompaniesPage() {
       render: (company: Company) => (
         <div className="flex items-center gap-1">
           <Users className="h-4 w-4 text-muted-foreground" />
-          <span>{company.employee_count || '-'}</span>
+          <span>{company.real_adherent_count ?? company.employee_count ?? '-'}</span>
         </div>
       ),
     },
@@ -236,7 +237,7 @@ export function CompaniesPage() {
             Gérer les entreprises clientes et leurs RH
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {canDelete && selectedIds.size > 0 && (
             <Button
               variant="outline"
@@ -291,7 +292,7 @@ export function CompaniesPage() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-4 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 px-6 text-white shadow-sm">
+        <div className="flex items-center gap-4 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 px-6 py-4 md:py-0 text-white shadow-sm shrink-0">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-white">
               Total Entreprises

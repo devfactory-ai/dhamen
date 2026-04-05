@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Upload, Plus, Download, Pencil, UserX, Trash2, Building2, Shield } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { DataTable } from '@/components/ui/data-table';
+import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { toCSV, downloadCSV, type ExportColumn } from '@/lib/export-utils';
@@ -41,8 +42,6 @@ export function UsersPage() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
-  const roleDropdownRef = useRef<HTMLDivElement>(null);
-  const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<UserPublic | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
@@ -54,21 +53,6 @@ export function UsersPage() {
   const canUpdate = hasPermission('users', 'update');
   const canDelete = hasPermission('users', 'delete');
   const canRead = hasPermission('users', 'read');
-
-  // Close dropdowns on outside click
-  useEffect(() => {
-    if (!roleDropdownOpen && !statusDropdownOpen) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (roleDropdownOpen && roleDropdownRef.current && !roleDropdownRef.current.contains(e.target as Node)) {
-        setRoleDropdownOpen(false);
-      }
-      if (statusDropdownOpen && statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
-        setStatusDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [roleDropdownOpen, statusDropdownOpen]);
 
   const { data, isLoading } = useUsers(page, 20, search || undefined, roleFilter || undefined, statusFilter || undefined);
   const deleteUser = useDeleteUser();
@@ -304,7 +288,7 @@ export function UsersPage() {
           title="Utilisateurs"
           description="Gérer les utilisateurs de la plateforme"
         />
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {canDelete && selectedIds.size > 0 && (() => {
             const selectedUsers = users.filter((u) => selectedIds.has(u.id));
             const allInactive = selectedUsers.every((u) => !u.isActive);
@@ -413,134 +397,48 @@ export function UsersPage() {
           </div>
 
           {/* Role dropdown */}
-          <div className="relative shrink-0 sm:w-64 w-full" ref={roleDropdownRef}>
-            <button
-              type="button"
-              onClick={() => setRoleDropdownOpen(!roleDropdownOpen)}
-              className="flex items-center gap-2 w-full sm:w-full px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
-            >
-              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                Rôle
-              </span>
-              <span className="text-sm font-medium text-gray-900">
-                {roleFilter ? ROLE_LABELS[roleFilter as Role] : "Tous"}
-              </span>
-              <svg
-                className={`w-3.5 h-3.5 text-gray-400 ml-auto sm:ml-1 transition-transform ${roleDropdownOpen ? "rotate-180" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+          <FilterDropdown
+            label="Rôle"
+            value={roleFilter ? ROLE_LABELS[roleFilter as Role] : "Tous"}
+            open={roleDropdownOpen}
+            onToggle={() => setRoleDropdownOpen(!roleDropdownOpen)}
+            onClose={() => setRoleDropdownOpen(false)}
+            menuWidth="w-64"
+          >
+            {roleOptions.map((opt) => (
+              <FilterOption
+                key={opt.value}
+                selected={roleFilter === opt.value}
+                onClick={() => { setRoleFilter(opt.value); setRoleDropdownOpen(false); setPage(1); }}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="m19 9-7 7-7-7"
-                />
-              </svg>
-            </button>
-            {roleDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 w-full sm:w-64 max-h-72 overflow-y-auto py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50">
-                {roleOptions.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => {
-                      setRoleFilter(opt.value);
-                      setRoleDropdownOpen(false);
-                      setPage(1);
-                    }}
-                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${roleFilter === opt.value ? "text-blue-600 font-semibold bg-blue-50/50" : "text-gray-700"}`}
-                  >
-                    {opt.label}
-                    {roleFilter === opt.value && (
-                      <svg
-                        className="w-4 h-4 ml-auto text-blue-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="m4.5 12.75 6 6 9-13.5"
-                        />
-                      </svg>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+                {opt.label}
+              </FilterOption>
+            ))}
+          </FilterDropdown>
 
           {/* Status dropdown */}
-          <div className="relative shrink-0 sm:w-48 w-full" ref={statusDropdownRef}>
-            <button
-              type="button"
-              onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-              className="flex items-center gap-2 w-full sm:w-full px-4 py-3 bg-[#f3f4f5] rounded-xl hover:bg-gray-200/70 transition-colors cursor-pointer"
-            >
-              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                Statut
-              </span>
-              <span className="text-sm font-medium text-gray-900">
-                {statusFilter === 'true' ? 'Actif' : statusFilter === 'false' ? 'Désactivé' : 'Tous'}
-              </span>
-              <svg
-                className={`w-3.5 h-3.5 text-gray-400 ml-auto sm:ml-1 transition-transform ${statusDropdownOpen ? "rotate-180" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+          <FilterDropdown
+            label="Statut"
+            value={statusFilter === 'true' ? 'Actif' : statusFilter === 'false' ? 'Désactivé' : 'Tous'}
+            open={statusDropdownOpen}
+            onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
+            onClose={() => setStatusDropdownOpen(false)}
+          >
+            {[
+              { value: '', label: 'Tous', color: undefined },
+              { value: 'true', label: 'Actif', color: 'bg-green-500' },
+              { value: 'false', label: 'Désactivé', color: 'bg-red-400' },
+            ].map((opt) => (
+              <FilterOption
+                key={opt.value}
+                selected={statusFilter === opt.value}
+                onClick={() => { setStatusFilter(opt.value); setStatusDropdownOpen(false); setPage(1); }}
+                color={opt.color}
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="m19 9-7 7-7-7"
-                />
-              </svg>
-            </button>
-            {statusDropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 w-full sm:w-48 py-1 bg-white rounded-xl shadow-xl shadow-gray-200/50 border border-gray-100 z-50">
-                {[
-                  { value: '', label: 'Tous' },
-                  { value: 'true', label: 'Actif' },
-                  { value: 'false', label: 'Désactivé' },
-                ].map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => {
-                      setStatusFilter(opt.value);
-                      setStatusDropdownOpen(false);
-                      setPage(1);
-                    }}
-                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors flex items-center gap-2 ${statusFilter === opt.value ? "text-blue-600 font-semibold bg-blue-50/50" : "text-gray-700"}`}
-                  >
-                    {opt.value === 'true' && <span className="inline-block h-2 w-2 rounded-full bg-green-500" />}
-                    {opt.value === 'false' && <span className="inline-block h-2 w-2 rounded-full bg-red-400" />}
-                    {opt.label}
-                    {statusFilter === opt.value && (
-                      <svg
-                        className="w-4 h-4 ml-auto text-blue-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="m4.5 12.75 6 6 9-13.5"
-                        />
-                      </svg>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+                {opt.label}
+              </FilterOption>
+            ))}
+          </FilterDropdown>
         </div>
       </div>
 

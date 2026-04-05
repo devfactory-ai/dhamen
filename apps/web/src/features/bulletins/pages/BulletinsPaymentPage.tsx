@@ -146,7 +146,7 @@ export default function BulletinsPaymentPage() {
       return response.data;
     },
     onSuccess: (data) => {
-      toast.success(`${data.data.processed} paiement(s) effectue(s) sur ${data.data.results.length}`);
+      toast.success(`${data.data.processed} paiement(s) effectué(s) sur ${data.data.results.length}`);
       queryClient.invalidateQueries({ queryKey: ['bulletins-payments'] });
       queryClient.invalidateQueries({ queryKey: ['bulletins-payment-stats'] });
       setBatchPaymentDialogOpen(false);
@@ -325,7 +325,7 @@ export default function BulletinsPaymentPage() {
     <div className="space-y-6">
       <PageHeader
         title="Traitement des paiements"
-        description="Gerer les paiements des bulletins de soins approuves"
+        description="Gérer les paiements des bulletins de soins approuvés"
       />
 
       {/* Stats Cards */}

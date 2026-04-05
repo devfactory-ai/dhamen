@@ -102,12 +102,12 @@ export function ContractDetailsPage() {
 
   return (
     <div className="space-y-6">
-      <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+      <nav className="flex flex-wrap items-center gap-1.5 text-sm text-gray-500">
         <Link to="/contracts" className="hover:text-gray-900 transition-colors">Contrats</Link>
         <ChevronRight className="w-4 h-4" />
         <span className="text-gray-900 font-medium">Détails</span>
       </nav>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <PageHeader
           title={contract.name}
           description={`Contrat N° ${contract.contractNumber}`}
@@ -120,7 +120,7 @@ export function ContractDetailsPage() {
         )}
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
         {/* Key Metrics */}
         <Card>
           <CardContent className="pt-6">
@@ -173,7 +173,7 @@ export function ContractDetailsPage() {
             <CardDescription>Details du contrat d'assurance</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Assureur</p>
                 <p className="font-medium">{contract.insurerName}</p>
@@ -282,7 +282,7 @@ export function ContractDetailsPage() {
         </CardHeader>
         <CardContent>
           {contract.documentId ? (
-            <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 border rounded-lg bg-muted/50">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-red-100 rounded-lg">
                   <FileText className="h-8 w-8 text-red-600" />

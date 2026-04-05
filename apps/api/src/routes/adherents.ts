@@ -417,7 +417,7 @@ adherents.get(
              (SELECT ct.plan_type FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY ct.created_at DESC LIMIT 1) as contract_type
       FROM adherents a
       LEFT JOIN companies co ON a.company_id = co.id
-      WHERE a.deleted_at IS NULL AND a.parent_adherent_id IS NULL
+      WHERE a.deleted_at IS NULL AND a.is_active = 1 AND a.parent_adherent_id IS NULL
     `;
     const params: unknown[] = [];
 
@@ -751,9 +751,24 @@ adherents.get(
     const offset = (page - 1) * limit;
     const db = getDb(c);
 
-    const countResult = await db
-      .prepare('SELECT COUNT(*) as count FROM bulletins_soins WHERE adherent_id = ?')
+    // Get adherent matricule to also match bulletins linked by matricule (handles duplicates)
+    const adherentRecord = await db
+      .prepare('SELECT matricule FROM adherents WHERE id = ? AND deleted_at IS NULL')
       .bind(adherentId)
+      .first<{ matricule: string | null }>();
+    const adherentMatricule = adherentRecord?.matricule;
+
+    // Match by adherent_id OR adherent_matricule (catches bulletins linked to auto-created duplicates)
+    const whereClause = adherentMatricule
+      ? `(bs.adherent_id = ? OR bs.adherent_matricule = ?)`
+      : `bs.adherent_id = ?`;
+    const bindParams = adherentMatricule
+      ? [adherentId, adherentMatricule]
+      : [adherentId];
+
+    const countResult = await db
+      .prepare(`SELECT COUNT(*) as count FROM bulletins_soins bs WHERE ${whereClause}`)
+      .bind(...bindParams)
       .first<{ count: number }>();
 
     const total = countResult?.count ?? 0;
@@ -763,11 +778,11 @@ adherents.get(
         `SELECT bs.id, bs.bulletin_date, bs.bulletin_number, bs.status, bs.total_amount, bs.reimbursed_amount, bs.care_type, bs.created_at,
                 (SELECT COUNT(*) FROM actes_bulletin ab WHERE ab.bulletin_id = bs.id) as actes_count
          FROM bulletins_soins bs
-         WHERE bs.adherent_id = ?
+         WHERE ${whereClause}
          ORDER BY bs.bulletin_date DESC
          LIMIT ? OFFSET ?`
       )
-      .bind(adherentId, limit, offset)
+      .bind(...bindParams, limit, offset)
       .all();
 
     return paginated(c, results.map((r: Record<string, unknown>) => ({
@@ -933,6 +948,125 @@ adherents.get(
       principal: mapAdherent(principal),
       conjoint: conjoint ? mapAdherent(conjoint) : null,
       enfants: enfants.map((e: Record<string, unknown>) => mapAdherent(e)),
+    });
+  }
+);
+
+/**
+ * POST /api/v1/adherents/:id/add-ayant-droit
+ * Add a single ayant droit (conjoint or enfant) to an existing adherent
+ * without removing existing ayants droit.
+ */
+adherents.post(
+  '/:id/add-ayant-droit',
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  async (c) => {
+    const id = c.req.param('id');
+    const db = getDb(c);
+    const user = c.get('user');
+    const encryptionKey = getEncryptionKey(c);
+
+    const body = await c.req.json();
+    const { lienParente, firstName, lastName, dateOfBirth, gender, phone, email, nationalId, typePieceIdentite } = body;
+
+    if (!lienParente || !firstName || !lastName || !dateOfBirth) {
+      return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'lienParente, firstName, lastName et dateOfBirth sont requis' } }, 400);
+    }
+    if (!['C', 'E'].includes(lienParente)) {
+      return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'lienParente doit être C (conjoint) ou E (enfant)' } }, 400);
+    }
+
+    // Get principal
+    const principal = await db
+      .prepare('SELECT * FROM adherents WHERE id = ? AND deleted_at IS NULL')
+      .bind(id)
+      .first<Record<string, unknown>>();
+
+    if (!principal) {
+      return notFound(c, 'Adhérent principal non trouvé');
+    }
+
+    // Check if conjoint already exists
+    if (lienParente === 'C') {
+      const existingConjoint = await db
+        .prepare('SELECT id FROM adherents WHERE parent_adherent_id = ? AND code_type = ? AND deleted_at IS NULL')
+        .bind(id, 'C')
+        .first();
+      if (existingConjoint) {
+        return conflict(c, 'Un conjoint existe déjà pour cet adhérent');
+      }
+    }
+
+    // Count existing enfants
+    const { results: existingEnfants } = await db
+      .prepare('SELECT id FROM adherents WHERE parent_adherent_id = ? AND code_type = ? AND deleted_at IS NULL')
+      .bind(id, 'E')
+      .all();
+
+    const principalMatricule = String(principal.matricule || id);
+    const suffix = lienParente === 'C'
+      ? 'C1'
+      : `E${existingEnfants.length + 1}`;
+    const adMatricule = `${principalMatricule}-${suffix}`;
+
+    // Get next rang_pres
+    const maxRang = await db
+      .prepare('SELECT MAX(rang_pres) as max_rang FROM adherents WHERE parent_adherent_id = ? AND deleted_at IS NULL')
+      .bind(id)
+      .first<{ max_rang: number | null }>();
+    const rangPres = (maxRang?.max_rang ?? 0) + 1;
+
+    const adId = generateId();
+    const adEncryptedNationalId = await encrypt(nationalId || '', encryptionKey);
+    const adNationalIdHash = nationalId ? await hashForIndex(nationalId, encryptionKey) : null;
+    const adEncryptedPhone = phone ? await encrypt(phone, encryptionKey) : null;
+
+    await db
+      .prepare(
+        `INSERT INTO adherents (
+          id, national_id_encrypted, national_id_hash, first_name, last_name,
+          date_of_birth, gender,
+          phone_encrypted, email,
+          company_id, matricule,
+          is_active, code_type, parent_adherent_id, rang_pres,
+          type_piece_identite, etat_fiche,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+      )
+      .bind(
+        adId, adEncryptedNationalId, adNationalIdHash, firstName, lastName,
+        dateOfBirth, gender ?? null,
+        adEncryptedPhone, email || null,
+        principal.company_id, adMatricule,
+        lienParente, id, rangPres,
+        typePieceIdentite ?? 'CIN', 'NON_TEMPORAIRE'
+      )
+      .run();
+
+    // Ensure principal has code_type 'A'
+    await db.prepare('UPDATE adherents SET code_type = ? WHERE id = ?').bind('A', id).run();
+
+    await logAudit(db, {
+      userId: user?.sub,
+      action: 'adherent.add_ayant_droit',
+      entityType: 'adherent',
+      entityId: adId,
+      changes: { parentId: id, codeType: lienParente, firstName, lastName },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return created(c, {
+      id: adId,
+      matricule: adMatricule,
+      firstName,
+      lastName,
+      dateOfBirth,
+      gender: gender ?? null,
+      email: email || null,
+      codeType: lienParente,
+      parentAdherentId: id,
+      rangPres,
     });
   }
 );
@@ -1778,24 +1912,23 @@ adherents.post('/bulk-delete', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AG
   }
 
   try {
-    const now = new Date().toISOString();
-    const placeholders = ids.map(() => '?').join(',');
-    await db
-      .prepare(`UPDATE adherents SET deleted_at = ?, updated_at = ? WHERE id IN (${placeholders}) AND deleted_at IS NULL`)
-      .bind(now, now, ...ids)
-      .run();
+    let deletedCount = 0;
+    for (const adhId of ids) {
+      const ok = await softDeleteAdherent(db, adhId);
+      if (ok) deletedCount++;
+    }
 
     await logAudit(db, {
       userId: user?.sub,
       action: 'adherent.bulk_delete',
       entityType: 'adherent',
       entityId: ids.join(','),
-      changes: { count: ids.length },
+      changes: { count: deletedCount },
       ipAddress: c.req.header('CF-Connecting-IP'),
       userAgent: c.req.header('User-Agent'),
     });
 
-    return c.json({ success: true, data: { deleted: ids.length } });
+    return c.json({ success: true, data: { deleted: deletedCount } });
   } catch (error) {
     console.error('Error bulk deleting adherents:', error);
     return c.json({ success: false, error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la suppression' } }, 500);
