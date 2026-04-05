@@ -1251,38 +1251,48 @@ adherents.post(
     // --- Créer un contrat individuel en mode individuel (ou si contractNumber fourni) ---
     const isIndividualMode = !data.companyId || data.companyId === '__INDIVIDUAL__';
     if (isIndividualMode || data.contractNumber) {
-      const contractId = generateId();
-      const now2 = new Date();
-      const endDate = new Date(now2);
-      endDate.setFullYear(endDate.getFullYear() + 1);
-      const contractNumber = data.contractNumber || `${data.matricule || id}-IND`;
-
-      // Find the group contract of the insurer to link guarantees
-      let groupContractId: string | null = null;
-      if (user.insurerId) {
-        const gc = await db
-          .prepare("SELECT id FROM group_contracts WHERE insurer_id = ? AND status = 'active' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1")
-          .bind(user.insurerId)
-          .first<{ id: string }>();
-        groupContractId = gc?.id || null;
+      // Resolve insurer_id: from user token, or from company's active group contract
+      let createInsurerId: string | null = user.insurerId || null;
+      if (!createInsurerId && data.companyId && data.companyId !== '__INDIVIDUAL__') {
+        const companyGc = await db
+          .prepare("SELECT gc.insurer_id FROM group_contracts gc WHERE gc.company_id = ? AND gc.status = 'active' AND gc.deleted_at IS NULL ORDER BY gc.created_at DESC LIMIT 1")
+          .bind(data.companyId)
+          .first<{ insurer_id: string }>();
+        createInsurerId = companyGc?.insurer_id || null;
       }
 
-      await db
-        .prepare(
-          `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, group_contract_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'individual', ?, ?, 0, ?, '{}', 'active', ?, datetime('now'), datetime('now'))`
-        )
-        .bind(
-          contractId,
-          user.insurerId || null,
-          id,
-          contractNumber,
-          now2.toISOString().split('T')[0],
-          endDate.toISOString().split('T')[0],
-          data.plafondGlobal ? data.plafondGlobal : null,
-          groupContractId
-        )
-        .run();
+      if (createInsurerId) {
+        const contractId = generateId();
+        const now2 = new Date();
+        const endDate = new Date(now2);
+        endDate.setFullYear(endDate.getFullYear() + 1);
+        const contractNumber = data.contractNumber || `${data.matricule || id}-IND`;
+
+        // Find the group contract of the insurer to link guarantees
+        let groupContractId: string | null = null;
+        const gc = await db
+          .prepare("SELECT id FROM group_contracts WHERE insurer_id = ? AND status = 'active' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1")
+          .bind(createInsurerId)
+          .first<{ id: string }>();
+        groupContractId = gc?.id || null;
+
+        await db
+          .prepare(
+            `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, group_contract_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'individual', ?, ?, 0, ?, '{}', 'active', ?, datetime('now'), datetime('now'))`
+          )
+          .bind(
+            contractId,
+            createInsurerId,
+            id,
+            contractNumber,
+            now2.toISOString().split('T')[0],
+            endDate.toISOString().split('T')[0],
+            data.plafondGlobal ? data.plafondGlobal : null,
+            groupContractId
+          )
+          .run();
+      }
     }
 
     // --- Créer les ayants droit (conjoint + enfants) ---
@@ -1514,8 +1524,17 @@ adherents.put(
     });
 
     // --- Créer/mettre à jour contrat individuel si contractNumber fourni ---
+    // Resolve insurer_id: from user token, or from company's active group contract
+    let resolvedInsurerId: string | null = user.insurerId || null;
+    if (!resolvedInsurerId && existing.company_id) {
+      const companyGc = await db
+        .prepare("SELECT gc.insurer_id FROM group_contracts gc WHERE gc.company_id = ? AND gc.status = 'active' AND gc.deleted_at IS NULL ORDER BY gc.created_at DESC LIMIT 1")
+        .bind(existing.company_id)
+        .first<{ insurer_id: string }>();
+      resolvedInsurerId = companyGc?.insurer_id || null;
+    }
+
     if (data.contractNumber) {
-      const isIndivAdherent = !existing.company_id || existing.company_id === '__INDIVIDUAL__';
       // Check if adherent already has an active contract
       const existingContract = await db
         .prepare("SELECT id FROM contracts WHERE adherent_id = ? AND status = 'active' LIMIT 1")
@@ -1526,17 +1545,17 @@ adherents.put(
         // Update contract number
         await db.prepare('UPDATE contracts SET contract_number = ?, updated_at = datetime(\'now\') WHERE id = ?')
           .bind(data.contractNumber, existingContract.id).run();
-      } else {
+      } else if (resolvedInsurerId) {
         // Create new contract linked to group contract
         const contractId = generateId();
         const now2 = new Date();
         const endDate = new Date(now2);
         endDate.setFullYear(endDate.getFullYear() + 1);
         let groupContractId: string | null = null;
-        if (user.insurerId) {
+        if (resolvedInsurerId) {
           const gc = await db
             .prepare("SELECT id FROM group_contracts WHERE insurer_id = ? AND status = 'active' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1")
-            .bind(user.insurerId)
+            .bind(resolvedInsurerId)
             .first<{ id: string }>();
           groupContractId = gc?.id || null;
         }
@@ -1544,7 +1563,7 @@ adherents.put(
           `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, group_contract_id, created_at, updated_at)
            VALUES (?, ?, ?, ?, 'individual', ?, ?, 0, ?, '{}', 'active', ?, datetime('now'), datetime('now'))`
         ).bind(
-          contractId, user.insurerId || null, id, data.contractNumber,
+          contractId, resolvedInsurerId, id, data.contractNumber,
           now2.toISOString().split('T')[0], endDate.toISOString().split('T')[0],
           data.plafondGlobal || null, groupContractId
         ).run();
@@ -1555,24 +1574,22 @@ adherents.put(
         .prepare("SELECT id FROM contracts WHERE adherent_id = ? AND status = 'active' LIMIT 1")
         .bind(id)
         .first<{ id: string }>();
-      if (!existingContract) {
+      if (!existingContract && resolvedInsurerId) {
         const contractId = generateId();
         const now2 = new Date();
         const endDate = new Date(now2);
         endDate.setFullYear(endDate.getFullYear() + 1);
         let groupContractId: string | null = null;
-        if (user.insurerId) {
-          const gc = await db
-            .prepare("SELECT id FROM group_contracts WHERE insurer_id = ? AND status = 'active' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1")
-            .bind(user.insurerId)
-            .first<{ id: string }>();
-          groupContractId = gc?.id || null;
-        }
+        const gc = await db
+          .prepare("SELECT id FROM group_contracts WHERE insurer_id = ? AND status = 'active' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1")
+          .bind(resolvedInsurerId)
+          .first<{ id: string }>();
+        groupContractId = gc?.id || null;
         await db.prepare(
           `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, group_contract_id, created_at, updated_at)
            VALUES (?, ?, ?, ?, 'individual', ?, ?, 0, ?, '{}', 'active', ?, datetime('now'), datetime('now'))`
         ).bind(
-          contractId, user.insurerId || null, id, `${data.matricule || id}-IND`,
+          contractId, resolvedInsurerId, id, `${data.matricule || id}-IND`,
           now2.toISOString().split('T')[0], endDate.toISOString().split('T')[0],
           data.plafondGlobal || null, groupContractId
         ).run();

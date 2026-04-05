@@ -14,7 +14,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Users, Eye, UserPlus, Pencil, Trash2, Download, Upload, AlertCircle } from 'lucide-react';
+import { Users, Eye, UserPlus, Pencil, Trash2, Download, Upload, AlertCircle, Search, Filter } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
+import { apiClient } from '@/lib/api-client';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { useCompanies } from '@/features/agent/hooks/use-companies';
@@ -332,22 +334,16 @@ export function AgentAdherentsPage() {
             className="gap-2"
             onClick={async () => {
               try {
-                const token = localStorage.getItem("accessToken");
-                const params = new URLSearchParams();
-                if (effectiveCompanyId)
-                  params.set("companyId", effectiveCompanyId);
-                if (search) params.set("search", search);
-                const url = `${import.meta.env.VITE_API_URL || "/api/v1"}/adherents/export?${params}`;
-                const res = await fetch(url, {
-                  headers: {
-                    Authorization: `Bearer ${token}`,
-                    "X-Tenant-Code": localStorage.getItem("tenantCode") || "",
-                  },
+                const queryParams: Record<string, string> = {};
+                if (effectiveCompanyId) queryParams.companyId = effectiveCompanyId;
+                if (search) queryParams.search = search;
+                const res = await apiClient.get<Blob>('/adherents/export', {
+                  params: queryParams,
+                  responseType: 'blob',
                 });
-                if (!res.ok) throw new Error("Erreur export");
-                const blob = await res.blob();
+                if (!res.success || !res.data) throw new Error("Erreur export");
                 const a = document.createElement("a");
-                a.href = URL.createObjectURL(blob);
+                a.href = URL.createObjectURL(res.data);
                 a.download = `adherents_${new Date().toISOString().slice(0, 10)}.csv`;
                 a.click();
                 URL.revokeObjectURL(a.href);
@@ -549,6 +545,15 @@ export function AgentAdherentsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <FloatingHelp
+        title="Gestion des adhérents"
+        tips={[
+          { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche rapide", desc: "Utilisez la barre de recherche pour trouver un adhérent par nom, matricule ou CIN." },
+          { icon: <Filter className="h-4 w-4 text-purple-500" />, title: "Filtres avancés", desc: "Filtrez par statut (actif, inactif, dossier incomplet) ou par entreprise." },
+          { icon: <UserPlus className="h-4 w-4 text-green-500" />, title: "Ajouter un adhérent", desc: "Cliquez sur 'Nouvel Adhérent' pour créer un adhérent ou importez un fichier CSV." },
+          { icon: <Download className="h-4 w-4 text-orange-500" />, title: "Export CSV", desc: "Exportez la liste des adhérents au format CSV pour un traitement externe." },
+        ]}
+      />
     </div>
   );
 }

@@ -41,8 +41,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { FilePreviewList } from '@/components/ui/file-preview';
-import { apiClient, API_BASE_URL } from '@/lib/api-client';
-import { getTenantHeader } from '@/lib/tenant';
+import { apiClient } from '@/lib/api-client';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { useSearchAdherents, type AdherentSearchResult } from '@/features/adherents/hooks/useAdherents';
 import { toast } from 'sonner';
@@ -56,6 +55,7 @@ import { usePermissions } from '@/hooks/usePermissions';
 import { ActeSelector } from '@/features/agent/bulletins/components/ActeSelector';
 import { MedicationAutocomplete } from '@/features/bulletins/components/medication-autocomplete';
 import { MfLookupInput } from '@/features/bulletins/components/mf-lookup-input';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import {
   FileText,
   Upload,
@@ -91,7 +91,11 @@ import {
   Heart,
   Baby,
   Lock,
+  ClipboardList,
+  ShieldCheck,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
+
 
 // --- OCR Feedback types ---
 interface OcrFeedbackState {
@@ -617,26 +621,11 @@ export function BulletinsSaisiePage() {
         form.append(`scan_${index}`, file);
       });
 
-      const token = localStorage.getItem("accessToken");
-      const response = await fetch(
-        `${API_BASE_URL}/bulletins-soins/agent/create`,
-        {
-          method: "POST",
-          body: form,
-          credentials: "include",
-          headers: {
-            ...getTenantHeader(),
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        },
-      );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || "Erreur lors de la saisie");
+      const result = await apiClient.upload<{ warnings?: string[] }>('/bulletins-soins/agent/create', form);
+      if (!result.success) {
+        throw new Error(result.error?.message || "Erreur lors de la saisie");
       }
-
-      return response.json();
+      return { success: result.success, data: result.data };
     },
     onSuccess: (result: { success: boolean; data?: { warnings?: string[] } }) => {
       queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
@@ -761,36 +750,16 @@ export function BulletinsSaisiePage() {
       batchId: string;
       force?: boolean;
     }) => {
-      const token = localStorage.getItem("accessToken");
-      const qs = force ? "?force=true" : "";
-      const response = await fetch(
-        `${API_BASE_URL}/bulletins-soins/agent/batches/${batchId}/export${qs}`,
-        {
-          method: "GET",
-          credentials: "include",
-          headers: {
-            ...getTenantHeader(),
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        },
+      const res = await apiClient.get<Blob>(
+        `/bulletins-soins/agent/batches/${batchId}/export${force ? '?force=true' : ''}`,
+        { responseType: 'blob' },
       );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || "Erreur lors de l'export");
+      if (!res.success || !res.data) {
+        throw new Error("Erreur lors de l'export");
       }
 
-      // Extract filename from Content-Disposition
-      const disposition = response.headers.get("Content-Disposition");
-      let filename = `dhamen_lot_${batchId}_${new Date().toISOString().slice(0, 10)}.csv`;
-      if (disposition) {
-        const match = disposition.match(/filename="?([^"]+)"?/);
-        if (match?.[1]) {
-          filename = match[1];
-        }
-      }
-
-      const csvContent = await response.text();
+      const filename = `dhamen_lot_${batchId}_${new Date().toISOString().slice(0, 10)}.csv`;
+      const csvContent = await res.data.text();
       return { csvContent, filename };
     },
     onSuccess: ({ csvContent, filename }) => {
@@ -819,37 +788,16 @@ export function BulletinsSaisiePage() {
   // Export batch detail mutation (bordereau detaille)
   const exportDetailMutation = useMutation({
     mutationFn: async ({ batchId }: { batchId: string }) => {
-      const token = localStorage.getItem("accessToken");
-      const response = await fetch(
-        `${API_BASE_URL}/bulletins-soins/agent/batches/${batchId}/export-detail`,
-        {
-          method: "GET",
-          credentials: "include",
-          headers: {
-            ...getTenantHeader(),
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        },
+      const res = await apiClient.get<Blob>(
+        `/bulletins-soins/agent/batches/${batchId}/export-detail`,
+        { responseType: 'blob' },
       );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(
-          error.error?.message || "Erreur lors de l'export detaille",
-        );
+      if (!res.success || !res.data) {
+        throw new Error("Erreur lors de l'export detaille");
       }
 
-      // Extract filename from Content-Disposition
-      const disposition = response.headers.get("Content-Disposition");
-      let filename = `dhamen_detail_${batchId}_${new Date().toISOString().slice(0, 10)}.csv`;
-      if (disposition) {
-        const match = disposition.match(/filename="?([^"]+)"?/);
-        if (match?.[1]) {
-          filename = match[1];
-        }
-      }
-
-      const csvContent = await response.text();
+      const filename = `dhamen_detail_${batchId}_${new Date().toISOString().slice(0, 10)}.csv`;
+      const csvContent = await res.data.text();
       return { csvContent, filename };
     },
     onSuccess: ({ csvContent, filename }) => {
@@ -2668,6 +2616,7 @@ export function BulletinsSaisiePage() {
                           <div className="space-y-2">
                             <Label className="text-sm text-gray-700">
                               Numéro du bulletin *
+                              <InfoTooltip text="Identifiant unique du bulletin de soins. Format recommandé : BS-AAAA-XXX. Si vous laissez ce champ vide, un numéro sera généré automatiquement." />
                             </Label>
                             <div className="relative">
                               <Input
@@ -2723,6 +2672,7 @@ export function BulletinsSaisiePage() {
                           <div className="space-y-2 relative" ref={adherentPortalRef}>
                             <Label className="text-sm text-gray-700">
                               Matricule *
+                              <InfoTooltip text="Tapez le nom, prénom ou numéro de matricule de l'adhérent. La liste des résultats s'affichera automatiquement. La couverture sera vérifiée en temps réel." />
                             </Label>
                             <div className="relative">
                               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -3731,7 +3681,7 @@ export function BulletinsSaisiePage() {
                                     )}
                                   </div>
                                   <div>
-                                    <Label className="text-sm text-gray-700">cla
+                                    <Label className="text-sm text-gray-700">
                                       Matricule fiscale *
                                     </Label>
                                     <MfLookupInput
@@ -5473,6 +5423,33 @@ export function BulletinsSaisiePage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <FloatingHelp
+        title="Aide - Saisie des bulletins"
+        subtitle="Créez et gérez vos bulletins de soins"
+        tips={[
+          {
+            icon: <ClipboardList className="h-4 w-4 text-blue-500" />,
+            title: "Créer un bulletin",
+            desc: "Sélectionnez un adhérent, renseignez les actes et médicaments, puis soumettez le bulletin pour validation.",
+          },
+          {
+            icon: <ScanSearch className="h-4 w-4 text-green-500" />,
+            title: "OCR automatique",
+            desc: "Scannez une ordonnance ou une facture pour pré-remplir automatiquement les champs du bulletin.",
+          },
+          {
+            icon: <ShieldCheck className="h-4 w-4 text-amber-500" />,
+            title: "Vérification MF",
+            desc: "Le matricule fiscal est vérifié automatiquement pour garantir la conformité du bulletin.",
+          },
+          {
+            icon: <Package className="h-4 w-4 text-purple-500" />,
+            title: "Lots de bulletins",
+            desc: "Regroupez plusieurs bulletins dans un lot pour les soumettre et les suivre ensemble.",
+          },
+        ]}
+      />
     </div>
   );
 }

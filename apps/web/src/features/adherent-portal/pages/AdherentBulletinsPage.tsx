@@ -55,7 +55,10 @@ import {
   FileDown,
   ChevronRight,
   User,
+  ShieldCheck,
+  ListChecks,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 
 // Types for bulletin workflow
 type BulletinStatus =
@@ -517,36 +520,11 @@ export function AdhérentBulletinsPage() {
         form.append(`scan_${index}`, file);
       });
 
-      const token = localStorage.getItem('accessToken');
-      const response = await fetch(
-        `${API_BASE_URL}/bulletins-soins/submit`,
-        {
-          method: 'POST',
-          body: form,
-          credentials: 'include',
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        }
-      );
-
-      // Check content type before parsing
-      const contentType = response.headers.get('content-type');
-      const isJson = contentType?.includes('application/json');
-
-      if (!response.ok) {
-        if (isJson) {
-          const error = await response.json();
-          throw new Error(error.error?.message || 'Erreur lors de la soumission');
-        }
-        throw new Error(`Erreur ${response.status}: ${response.statusText}`);
+      const result = await apiClient.upload('/bulletins-soins/submit', form);
+      if (!result.success) {
+        throw new Error(result.error?.message || 'Erreur lors de la soumission');
       }
-
-      // Return parsed JSON or empty object if no content
-      if (isJson && response.status !== 204) {
-        return response.json();
-      }
-      return { success: true };
+      return result;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['adhérent-bulletins'] });
@@ -1511,6 +1489,33 @@ export function AdhérentBulletinsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <FloatingHelp
+        title="Aide - Bulletins de soins"
+        subtitle="Gérez vos demandes de remboursement"
+        tips={[
+          {
+            icon: <Upload className="h-4 w-4 text-blue-500" />,
+            title: "Soumettre un bulletin",
+            desc: "Créez un nouveau bulletin en renseignant les informations de votre visite médicale et les pièces justificatives.",
+          },
+          {
+            icon: <ListChecks className="h-4 w-4 text-green-500" />,
+            title: "Suivi de l'avancement",
+            desc: "Suivez le statut de vos bulletins : brouillon, soumis, en traitement, validé ou rejeté.",
+          },
+          {
+            icon: <FileImage className="h-4 w-4 text-amber-500" />,
+            title: "Pièces justificatives",
+            desc: "Joignez les ordonnances, factures et résultats d'analyses pour accélérer le traitement.",
+          },
+          {
+            icon: <ShieldCheck className="h-4 w-4 text-purple-500" />,
+            title: "Délai de traitement",
+            desc: "Les bulletins sont traités sous 48h ouvrables après soumission complète.",
+          },
+        ]}
+      />
     </div>
   );
 }

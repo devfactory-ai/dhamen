@@ -182,21 +182,15 @@ export function useDeleteDocument() {
  * Download document
  */
 export async function downloadDocument(documentId: string, filename: string) {
-  const response = await fetch(
-    `${apiClient.getBaseUrl()}/sante/documents/${documentId}/download`,
-    {
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-      },
-    }
-  );
+  const res = await apiClient.get<Blob>(`/sante/documents/${documentId}/download`, {
+    responseType: 'blob',
+  });
 
-  if (!response.ok) {
+  if (!res.success || !res.data) {
     throw new Error('Erreur lors du téléchargement');
   }
 
-  const blob = await response.blob();
-  const url = window.URL.createObjectURL(blob);
+  const url = window.URL.createObjectURL(res.data);
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;

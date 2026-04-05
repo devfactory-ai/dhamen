@@ -28,7 +28,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@/components/ui/tabs';
-import { apiClient, API_BASE_URL } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 import { useToastStore } from '@/stores/toast';
 import {
   Pill,
@@ -48,7 +48,9 @@ import {
   CalendarDays,
   ShieldCheck,
   Eye,
+  Filter,
 } from 'lucide-react';
+import { FloatingHelp } from '@/components/ui/floating-help';
 import { FilePreview } from '@/components/ui/file-preview';
 import * as XLSX from 'xlsx';
 
@@ -278,18 +280,7 @@ export function MedicationsPage() {
       formData.append('source', 'PCT');
       formData.append('notes', importNotes);
 
-      const response = await fetch(
-        `${API_BASE_URL}/medications/import`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-          },
-          body: formData,
-        }
-      );
-
-      const data = await response.json();
+      const data = await apiClient.upload<{ imported: number; updated: number; errors?: unknown[] }>('/medications/import', formData);
       if (!data.success) throw new Error(data.error?.message || 'Erreur import');
       return data.data;
     },
@@ -1343,6 +1334,15 @@ export function MedicationsPage() {
         </DialogContent>
       </Dialog>
 
+    <FloatingHelp
+      title="Gestion des médicaments"
+      tips={[
+        { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez par DCI, nom commercial, code PCT ou code AMM." },
+        { icon: <Pill className="h-4 w-4 text-green-500" />, title: "Barèmes", desc: "Gérez les taux de remboursement associés à chaque médicament." },
+        { icon: <Upload className="h-4 w-4 text-purple-500" />, title: "Import AMM", desc: "Importez la liste AMM officielle depuis un fichier Excel DPM." },
+        { icon: <Filter className="h-4 w-4 text-orange-500" />, title: "Filtres", desc: "Filtrez par statut, classe thérapeutique ou type générique/princeps." },
+      ]}
+    />
     </div>
   );
 }
