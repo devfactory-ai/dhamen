@@ -1,33 +1,59 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: 'Inter', sans-serif;
+* {
   margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', 'Noto Sans Arabic', sans-serif;
+  background: #f7f9fb;
+  color: #191c1e;
+}
+
+[dir="rtl"] body {
+  font-family: 'Noto Sans Arabic', 'Inter', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Manrope', 'Noto Sans Arabic', sans-serif;
+}
+
+[dir="rtl"] h1,
+[dir="rtl"] h2,
+[dir="rtl"] h3,
+[dir="rtl"] h4 {
+  font-family: 'Noto Sans Arabic', 'Manrope', sans-serif;
 }
 
 .font-headline {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'Manrope', 'Noto Sans Arabic', sans-serif;
 }
 
 .material-symbols-outlined {
-  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
-  visibility: hidden;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 
-.fonts-loaded .material-symbols-outlined {
-  visibility: visible;
-}
-
-.glow-shadow {
+/* Design Tokens */
+.ghost-shadow {
   box-shadow: 0 12px 40px -10px rgba(25, 28, 30, 0.08);
 }
 
-.ghost-shadow {
+.ghost-shadow-lg {
+  box-shadow: 0 20px 60px -15px rgba(25, 28, 30, 0.12);
+}
+
+.glow-shadow {
   box-shadow: 0 12px 40px -10px rgba(25, 28, 30, 0.08);
 }
 
@@ -35,6 +61,142 @@ body {
   background: linear-gradient(135deg, #0051d5 0%, #316bf3 100%);
 }
 
-html {
-  scroll-behavior: smooth;
+.glass-nav {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #60a5fa 0%, #009d6d 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Language button */
+.lang-btn.active {
+  background: #0051d5;
+  color: #fff;
+}
+
+/* Active nav link */
+.nav-link.active {
+  color: #0051d5;
+  border-bottom: 2px solid #0051d5;
+  padding-bottom: 2px;
+}
+
+/* RTL helpers */
+[dir="rtl"] .flip-rtl {
+  transform: scaleX(-1);
+}
+
+/* Partner logos */
+.partner-logo {
+  filter: grayscale(100%) opacity(0.5);
+  transition: all 0.4s ease;
+}
+
+.partner-logo:hover {
+  filter: grayscale(0%) opacity(1);
+}
+
+/* Bento card hover */
+.bento-card {
+  transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.bento-card:hover {
+  transform: translateY(-4px);
+}
+
+.bento-navy:hover {
+  background: #040d1b;
+  color: #fff;
+}
+
+.bento-navy:hover .bento-icon {
+  color: #316bf3;
+}
+
+.bento-navy:hover .bento-desc {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Step connector */
+.step-connector {
+  position: relative;
+}
+
+.step-connector::after {
+  content: '';
+  position: absolute;
+  top: 28px;
+  left: 100%;
+  width: calc(100% - 56px);
+  height: 2px;
+  background: linear-gradient(90deg, #0051d5, #c5c6cc);
+  z-index: 0;
+}
+
+[dir="rtl"] .step-connector::after {
+  left: auto;
+  right: 100%;
+  background: linear-gradient(270deg, #0051d5, #c5c6cc);
+}
+
+.step-connector:last-child::after {
+  display: none;
+}
+
+/* Mobile menu */
+.mobile-menu {
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+}
+
+.mobile-menu.open {
+  transform: translateX(0);
+}
+
+[dir="rtl"] .mobile-menu {
+  transform: translateX(100%);
+}
+
+[dir="rtl"] .mobile-menu.open {
+  transform: translateX(0);
+}
+
+/* Form focus */
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 81, 213, 0.15);
+  border-color: #0051d5;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f2f4f6;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c5c6cc;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #75777d;
 }
