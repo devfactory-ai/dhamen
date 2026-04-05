@@ -1224,7 +1224,7 @@
           headers: {
             'content-type': 'application/json',
           },
-          body: JSON.stringify({ firstName, lastName, email, orgType, message })
+          body: JSON.stringify({ name: firstName + ' ' + lastName, email, company: orgType, message })
         });
 
         if (res.ok) {

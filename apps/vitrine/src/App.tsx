@@ -340,25 +340,14 @@ function ContactForm() {
     setStatus('sending');
 
     try {
-      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      const response = await fetch('https://dhamen-api-staging.yassine-techini.workers.dev/api/v1/contact', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': import.meta.env.VITE_BREVO_API_KEY || '',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sender: { name: 'E-Santé Contact', email: 'noreply@e-sante.com.tn' },
-          to: [{ email: 'contact@e-sante.com.tn' }],
-          subject: `[E-Santé] Nouveau contact: ${form.name} - ${form.company}`,
-          htmlContent: `
-            <h2>Nouveau message de contact</h2>
-            <p><strong>Nom:</strong> ${form.name}</p>
-            <p><strong>Email:</strong> ${form.email}</p>
-            <p><strong>Entreprise:</strong> ${form.company}</p>
-            <p><strong>Message:</strong></p>
-            <p>${form.message}</p>
-          `,
-          replyTo: { email: form.email, name: form.name },
+          name: form.name,
+          email: form.email,
+          company: form.company,
+          message: form.message,
         }),
       });
 
