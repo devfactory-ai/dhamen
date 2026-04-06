@@ -452,7 +452,13 @@ export function BulletinsSaisiePage() {
     queryFn: async () => {
       const actes = (watchedActes || []).filter(a => a.code && Number(a.amount) > 0).map(a => ({ code: a.code, amount: Number(a.amount), care_type: a.care_type }));
       if (!actes.length) return null;
-      const res = await apiClient.post<{ reimbursed_amount: number | null; details: Array<{ code: string; reimbursed: number }>; warning?: string }>('/bulletins-soins/agent/estimate', {
+      const res = await apiClient.post<{
+        reimbursed_amount: number | null;
+        details: Array<{ code: string; reimbursed: number }>;
+        warning?: string;
+        no_active_contract?: boolean;
+        contracts?: Array<{ id: string; contract_number: string; plan_type: string; status: string; start_date: string; end_date: string }>;
+      }>('/bulletins-soins/agent/estimate', {
         adherent_matricule: watchedMatricule,
         bulletin_date: watchedBulletinDate,
         actes,
@@ -4113,6 +4119,46 @@ export function BulletinsSaisiePage() {
                       </DialogContent>
                     </Dialog>
 
+                    {/* Contract warning banner */}
+                    {estimateData?.no_active_contract && (
+                      <div className={`rounded-2xl border p-4 ${estimateData.contracts && estimateData.contracts.length > 0 ? 'border-amber-200 bg-amber-50' : 'border-red-200 bg-red-50'}`}>
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className={`h-4 w-4 mt-0.5 shrink-0 ${estimateData.contracts && estimateData.contracts.length > 0 ? 'text-amber-600' : 'text-red-600'}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-semibold ${estimateData.contracts && estimateData.contracts.length > 0 ? 'text-amber-800' : 'text-red-800'}`}>
+                              {estimateData.contracts && estimateData.contracts.length > 0
+                                ? 'Aucun contrat actif à cette date'
+                                : 'Aucun contrat enregistré pour cet adhérent'}
+                            </p>
+                            {estimateData.contracts && estimateData.contracts.length > 0 && (
+                              <div className="mt-2 space-y-1.5">
+                                <p className="text-[10px] text-amber-700 font-medium uppercase tracking-wider">Contrats existants :</p>
+                                {estimateData.contracts.map((ct) => (
+                                  <div key={ct.id} className="flex items-center justify-between rounded-lg bg-white/80 border border-amber-100 px-3 py-1.5">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <FileText className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                                      <span className="text-xs font-medium text-gray-800 truncate">{ct.contract_number}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                                        ct.status === 'active' ? 'bg-green-100 text-green-700' :
+                                        ct.status === 'expired' ? 'bg-gray-100 text-gray-600' :
+                                        ct.status === 'suspended' ? 'bg-orange-100 text-orange-700' :
+                                        'bg-red-100 text-red-600'
+                                      }`}>
+                                        {ct.status === 'active' ? 'Actif' : ct.status === 'expired' ? 'Expiré' : ct.status === 'suspended' ? 'Suspendu' : 'Annulé'}
+                                      </span>
+                                      <span className="text-[10px] text-gray-500">{ct.start_date} → {ct.end_date}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Total amount + reimbursement estimate */}
                     <div className="rounded-2xl border border-gray-200 bg-white p-5">
                       <div className="flex justify-between items-center mb-2">
@@ -4126,7 +4172,7 @@ export function BulletinsSaisiePage() {
                           <span className="text-sm font-medium text-green-500">TND</span>
                         </span>
                       </div>
-                      {estimateData?.warning && (
+                      {estimateData?.warning && !estimateData?.no_active_contract && (
                         <p className="text-[10px] text-amber-600 mt-1">{estimateData.warning}</p>
                       )}
                       <p className="text-xs text-gray-400 mt-1 text-center">

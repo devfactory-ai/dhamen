@@ -1188,10 +1188,22 @@ bulletinsAgent.post('/estimate', async (c) => {
   }
 
   try {
-    // Find adherent
+    // Find adherent — same logic as /create: normalize whitespace, filter by insurer only when applicable
+    const cleanMatricule = adherent_matricule.replace(/\s+/g, '');
+    const insurerFilter = user.insurerId
+      ? `AND (co.insurer_id = ? OR a.company_id IS NULL OR a.company_id = '__INDIVIDUAL__')`
+      : '';
+    const joinClause = user.insurerId
+      ? 'LEFT JOIN companies co ON a.company_id = co.id'
+      : '';
+    const bindParams = user.insurerId
+      ? [cleanMatricule, user.insurerId]
+      : [cleanMatricule];
     const adherent = await db
-      .prepare(`SELECT a.id FROM adherents a LEFT JOIN companies co ON a.company_id = co.id WHERE a.matricule = ? AND (co.insurer_id = ? OR a.company_id IS NULL OR a.company_id = '__INDIVIDUAL__')`)
-      .bind(adherent_matricule, user.insurerId || '')
+      .prepare(
+        `SELECT a.id FROM adherents a ${joinClause} WHERE REPLACE(a.matricule, ' ', '') = ? AND a.deleted_at IS NULL ${insurerFilter}`
+      )
+      .bind(...bindParams)
       .first<{ id: string }>();
 
     if (!adherent) {
@@ -1211,6 +1223,16 @@ bulletinsAgent.post('/estimate', async (c) => {
       .first<{ id: string }>();
 
     if (!contract) {
+      // Fetch all contracts for this adherent so the frontend can show a selector
+      const { results: allContracts } = await db
+        .prepare(
+          `SELECT c.id, c.contract_number, c.plan_type, c.status, c.start_date, c.end_date
+           FROM contracts c WHERE c.adherent_id = ?
+           ORDER BY c.end_date DESC`
+        )
+        .bind(adherent.id)
+        .all<{ id: string; contract_number: string; plan_type: string; status: string; start_date: string; end_date: string }>();
+
       // Fallback: legacy calculation with referentiel rates
       const details = [];
       let total = 0;
@@ -1223,7 +1245,22 @@ bulletinsAgent.post('/estimate', async (c) => {
         total += reimbursed;
         details.push({ code, amount: acte.amount, taux, reimbursed });
       }
-      return c.json({ success: true, data: { reimbursed_amount: total, details, warning: 'Aucun contrat actif — taux par défaut' } });
+
+      const hasContracts = allContracts && allContracts.length > 0;
+      const warning = hasContracts
+        ? `Aucun contrat actif à la date du ${bulletin_date} — ${allContracts.length} contrat(s) existant(s)`
+        : 'Cet adhérent n\'a aucun contrat enregistré';
+
+      return c.json({
+        success: true,
+        data: {
+          reimbursed_amount: total,
+          details,
+          warning,
+          no_active_contract: true,
+          contracts: allContracts || [],
+        },
+      });
     }
 
     // Contract-aware calculation
