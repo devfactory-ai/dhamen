@@ -33,7 +33,7 @@ import {
   verifyBackupCode,
   roleRequiresMFA,
 } from '../lib/totp';
-import { logAudit } from '../middleware/audit-trail';
+import { logAudit, logSecurityEvent } from '../middleware/audit-trail';
 import { authMiddleware } from '../middleware/auth';
 import { generateId } from '../lib/ulid';
 import { verifyTurnstile } from '../lib/turnstile';
@@ -154,16 +154,36 @@ auth.post('/login', zValidator('json', loginRequestSchema, validationHook), asyn
   const user = await findUserByEmail(getDb(c), email);
 
   if (!user) {
+    await logSecurityEvent(getDb(c), {
+      action: 'login_failure',
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+      details: { email, reason: 'user_not_found' },
+    });
     return error(c, 'INVALID_CREDENTIALS', 'Email ou mot de passe incorrect', 401);
   }
 
   if (!user.isActive) {
+    await logSecurityEvent(getDb(c), {
+      userId: user.id,
+      action: 'login_failure',
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+      details: { email, reason: 'account_disabled' },
+    });
     return error(c, 'ACCOUNT_DISABLED', 'Compte desactive', 401);
   }
 
   const isValidPassword = await verifyPassword(password, user.passwordHash);
 
   if (!isValidPassword) {
+    await logSecurityEvent(getDb(c), {
+      userId: user.id,
+      action: 'login_failure',
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+      details: { email, reason: 'invalid_password' },
+    });
     return error(c, 'INVALID_CREDENTIALS', 'Email ou mot de passe incorrect', 401);
   }
 
@@ -1443,17 +1463,37 @@ auth.post('/magic-link/verify', zValidator('json', magicLinkVerifySchema, valida
 
   const payload = await verifyJWT(token, c.env.JWT_SECRET);
   if (!payload || payload.purpose !== 'magic_link') {
+    await logSecurityEvent(getDb(c), {
+      action: 'login_failure',
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+      details: { method: 'magic_link', reason: 'invalid_or_expired_token' },
+    });
     return error(c, 'INVALID_TOKEN', 'Lien de connexion invalide ou expire', 400);
   }
 
   // Verify token exists in KV (single use)
   const storedToken = await c.env.CACHE.get(`magic_link:${payload.sub}`);
   if (storedToken !== token) {
+    await logSecurityEvent(getDb(c), {
+      userId: payload.sub,
+      action: 'login_failure',
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+      details: { method: 'magic_link', reason: 'token_already_used' },
+    });
     return error(c, 'TOKEN_USED', 'Ce lien a déjà été utilisé', 400);
   }
 
   const user = await findUserById(getDb(c), payload.sub);
   if (!user || !user.isActive) {
+    await logSecurityEvent(getDb(c), {
+      userId: payload.sub,
+      action: 'login_failure',
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+      details: { method: 'magic_link', reason: 'user_not_found_or_disabled' },
+    });
     return error(c, 'USER_NOT_FOUND', 'Utilisateur non trouve ou desactive', 404);
   }
 
@@ -1854,6 +1894,12 @@ auth.post('/passkey/login/verify', async (c) => {
   }
 
   if (!passkey) {
+    await logSecurityEvent(db, {
+      action: 'login_failure',
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+      details: { method: 'passkey', reason: 'passkey_not_found', credentialId: body.response.id },
+    });
     return error(c, 'PASSKEY_NOT_FOUND', 'Passkey non trouvee. Connectez-vous avec vos identifiants.', 404);
   }
 
@@ -1904,6 +1950,13 @@ auth.post('/passkey/login/verify', async (c) => {
   }
 
   if (!verification.verified) {
+    await logSecurityEvent(db, {
+      userId: user.id,
+      action: 'login_failure',
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+      details: { method: 'passkey', reason: 'verification_failed' },
+    });
     return error(c, 'AUTHENTICATION_FAILED', 'La verification de la passkey a echoue', 401);
   }
 
