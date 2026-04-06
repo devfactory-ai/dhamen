@@ -3,6 +3,7 @@ import type { UserPublic, LoginRequest } from '@dhamen/shared';
 import { apiClient } from '@/lib/api-client';
 import { setTokens, clearTokens, getUser, setUser, isAuthenticated, setPermissions, type UserPermissions } from '@/lib/auth';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
+import { queryClient } from '@/lib/query-client';
 interface LoginResponse {
   requiresMfa: boolean;
   requiresMfaSetup?: boolean;
@@ -109,6 +110,8 @@ export function useAuth() {
     } finally {
       clearTokens();
       setUserState(null);
+      // Clear all cached data so the next user doesn't see stale data
+      queryClient.clear();
       // Clear agent context (company + batch selection) so it doesn't leak between accounts
       useAgentContext.getState().clearContext();
       setIsLoading(false);

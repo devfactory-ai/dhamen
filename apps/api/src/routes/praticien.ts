@@ -228,78 +228,26 @@ praticien.get('/actes', requireRole(...PROVIDER_ROLES), async (c) => {
 
 /**
  * Build scope conditions + params for practitioner bulletin queries.
- * Matches by provider_id, created_by, acte provider_id, MF number, or practitioner name.
+ * Strict scoping: only matches by provider_id and created_by.
  */
 async function buildPraticienScope(
-  db: { prepare(q: string): { bind(...v: unknown[]): { first<T>(): Promise<T | null> } } },
+  _db: { prepare(q: string): { bind(...v: unknown[]): { first<T>(): Promise<T | null> } } },
   user: { id: string; providerId?: string | null; firstName?: string; lastName?: string; role: string },
   tableAlias: string = 'bs'
 ): Promise<{ clause: string; params: (string | number)[] }> {
-  const params: (string | number)[] = [];
-
   if (!user.providerId) {
     return { clause: `${tableAlias}.created_by = ?`, params: [user.id] };
   }
 
-  // Fetch provider info for broader matching (mf_number may not exist on all tenants)
-  let providerMf: string | null = null;
-  let providerName: string | null = null;
-  try {
-    const prov = await db.prepare(
-      `SELECT name FROM providers WHERE id = ? AND deleted_at IS NULL`
-    ).bind(user.providerId).first<{ name: string | null }>();
-    providerName = prov?.name || null;
-  } catch { /* column may not exist */ }
-
-  try {
-    const provMf = await db.prepare(
-      `SELECT mf_number FROM providers WHERE id = ? AND deleted_at IS NULL`
-    ).bind(user.providerId).first<{ mf_number: string | null }>();
-    providerMf = provMf?.mf_number || null;
-  } catch { /* mf_number column may not exist on this tenant */ }
-
+  // Only match bulletins owned by this provider or created by this user
   const conditions = [
     `${tableAlias}.provider_id = ?`,
     `${tableAlias}.created_by = ?`,
     `${tableAlias}.id IN (SELECT ab.bulletin_id FROM actes_bulletin ab WHERE ab.provider_id = ?)`,
   ];
-  params.push(user.providerId, user.id, user.providerId);
+  const params: (string | number)[] = [user.providerId, user.id, user.providerId];
 
-  const userFullName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
-
-  if (providerMf) {
-    const normalizedMf = providerMf.replace(/[/\s\-.]/g, '');
-    conditions.push(
-      `${tableAlias}.id IN (SELECT ab.bulletin_id FROM actes_bulletin ab WHERE ab.ref_prof_sant = ? OR REPLACE(REPLACE(REPLACE(REPLACE(ab.ref_prof_sant, '/', ''), '.', ''), '-', ''), ' ', '') = ?)`
-    );
-    params.push(providerMf, normalizedMf);
-  }
-
-  // Match by provider name in actes
-  if (providerName && providerName.length >= 3) {
-    conditions.push(
-      `${tableAlias}.id IN (SELECT ab.bulletin_id FROM actes_bulletin ab WHERE ab.nom_prof_sant = ?)`
-    );
-    params.push(providerName);
-  }
-  // Match by user full name in actes
-  if (userFullName.length >= 3 && userFullName !== providerName) {
-    conditions.push(
-      `${tableAlias}.id IN (SELECT ab.bulletin_id FROM actes_bulletin ab WHERE ab.nom_prof_sant = ?)`
-    );
-    params.push(userFullName);
-  }
-  // Also match by provider_name on the bulletin itself
-  if (providerName && providerName.length >= 3) {
-    conditions.push(`${tableAlias}.provider_name = ?`);
-    params.push(providerName);
-  }
-  if (userFullName.length >= 3 && userFullName !== providerName) {
-    conditions.push(`${tableAlias}.provider_name = ?`);
-    params.push(userFullName);
-  }
-
-  return { clause: `(${conditions.join('\n        OR ')})`, params };
+  return { clause: `(${conditions.join(' OR ')})`, params };
 }
 
 /**
