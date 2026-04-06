@@ -30,47 +30,59 @@ const ORGANIZATIONS: {
 ];
 
 /** Demo accounts by category */
+/** Material icon name for each demo role */
+const DEMO_ICON: Record<string, string> = {
+  admin: 'admin_panel_settings',
+  agent: 'assignment_ind',
+  rh: 'group',
+  pharmacie: 'local_pharmacy',
+  medecin: 'stethoscope',
+  labo: 'biotech',
+  clinique: 'local_hospital',
+  assureur: 'assured_workload',
+};
+
 const DEMO_CATEGORIES = [
   {
     label: 'Admins',
     key: 'admins',
     accounts: [
-      { email: 'adminPrimaire@yopmail.com', role: 'Admin Principal', color: 'bg-purple-500', icon: '👑' },
-      { email: 'admin1@yopmail.com', role: 'Admin Secondaire', color: 'bg-purple-400', icon: '👑' },
+      { email: 'adminPrimaire@yopmail.com', role: 'Admin Principal', iconKey: 'admin' },
+      { email: 'admin1@yopmail.com', role: 'Admin Secondaire', iconKey: 'admin' },
     ],
   },
   {
     label: 'Agents',
     key: 'agents',
     accounts: [
-      { email: 'testagent@yopmail.com', role: 'Test Agent', color: 'bg-emerald-500', icon: '📋' },
-      { email: 'sirine@yopmail.com', role: 'Sirine Agent', color: 'bg-emerald-400', icon: '📋' },
+      { email: 'testagent@yopmail.com', role: 'Test Agent', iconKey: 'agent' },
+      { email: 'sirine@yopmail.com', role: 'Sirine Agent', iconKey: 'agent' },
     ],
   },
   {
     label: 'RH',
     key: 'rh',
     accounts: [
-      { email: 'rh@yopmail.com', role: 'RH Principal', color: 'bg-orange-500', icon: '👥' },
-      { email: 'rhTest@yopmail.com', role: 'RH Test', color: 'bg-orange-400', icon: '👥' },
+      { email: 'rh@yopmail.com', role: 'RH Principal', iconKey: 'rh' },
+      { email: 'rhTest@yopmail.com', role: 'RH Test', iconKey: 'rh' },
     ],
   },
   {
     label: 'Praticiens',
     key: 'praticiens',
     accounts: [
-      { email: 'pharmacien@yopmail.com', role: 'Pharmacie', color: 'bg-teal-500', icon: '💊' },
-      { email: 'medecin@yopmail.com', role: 'Medecin', color: 'bg-red-500', icon: '🩺' },
-      { email: 'labo@yopmail.com', role: 'Laboratoire', color: 'bg-amber-500', icon: '🔬' },
-      { email: 'clinique@yopmail.com', role: 'Clinique', color: 'bg-cyan-500', icon: '🏥' },
+      { email: 'pharmacien@yopmail.com', role: 'Pharmacie', iconKey: 'pharmacie' },
+      { email: 'medecin@yopmail.com', role: 'Médecin', iconKey: 'medecin' },
+      { email: 'labo@yopmail.com', role: 'Labo', iconKey: 'labo' },
+      { email: 'clinique@yopmail.com', role: 'Clinique', iconKey: 'clinique' },
     ],
   },
   {
     label: 'Assurance',
     key: 'assurance',
     accounts: [
-      { email: 'adminassureur@yopmail.com', role: 'Admin Assureur', color: 'bg-blue-500', icon: '🏢' },
-      { email: 'adminassureur2@yopmail.com', role: 'Admin Assureur 2', color: 'bg-blue-400', icon: '🏢' },
+      { email: 'adminassureur@yopmail.com', role: 'Admin Assureur', iconKey: 'assureur' },
+      { email: 'adminassureur2@yopmail.com', role: 'Admin Assureur 2', iconKey: 'assureur' },
     ],
   },
 ];
@@ -86,6 +98,18 @@ export function LoginPage() {
   const [selectedDemo, setSelectedDemo] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | undefined>();
   const turnstileRef = useRef<TurnstileInstance | null>(null);
+
+  // Load Material Symbols font for demo icons
+  useEffect(() => {
+    const id = 'material-symbols-font';
+    if (!document.getElementById(id)) {
+      const link = document.createElement('link');
+      link.id = id;
+      link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap';
+      document.head.appendChild(link);
+    }
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated()) {
@@ -641,25 +665,27 @@ export function LoginPage() {
                 </div>
 
                 {/* Accounts grid - cards with colored shield icons */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 gap-3">
+                <div className={`grid gap-3 ${
+                  (DEMO_CATEGORIES.find((c) => c.key === demoTab)?.accounts.length ?? 0) <= 2
+                    ? 'grid-cols-2'
+                    : 'grid-cols-2 sm:grid-cols-4'
+                }`}>
                   {DEMO_CATEGORIES.find((c) => c.key === demoTab)?.accounts.map(
                     (account) => (
                       <button
                         key={account.email}
                         type="button"
                         onClick={() => fillDemoAccount(account.email)}
-                        className={`flex flex-col items-center gap-2 rounded-xl border p-3 transition-all ${
+                        className={`flex flex-col items-center gap-2.5 rounded-2xl border p-4 transition-all ${
                           selectedDemo === account.email
-                            ? "border-[#0A1628] bg-[#0A1628]/5 shadow-sm"
-                            : "border-gray-100 bg-white hover:shadow-sm hover:border-gray-200"
+                            ? "border-blue-500 bg-blue-50 shadow-sm"
+                            : "border-gray-200 bg-gray-50/50 hover:shadow-sm hover:border-gray-300 hover:bg-white"
                         }`}
                       >
-                        <div
-                          className={`w-8 h-8 rounded-full ${account.color}/10 flex items-center justify-center`}
-                        >
-                          <span className="text-base">{account.icon}</span>
+                        <div className="w-10 h-10 rounded-xl bg-white border border-gray-200 shadow-sm flex items-center justify-center">
+                          <span className="material-symbols-outlined text-xl text-gray-600">{DEMO_ICON[account.iconKey]}</span>
                         </div>
-                        <span className="text-[10px] font-medium text-gray-600 text-center leading-tight">
+                        <span className="text-[10px] font-bold text-gray-700 uppercase tracking-wider text-center leading-tight">
                           {account.role}
                         </span>
                       </button>
