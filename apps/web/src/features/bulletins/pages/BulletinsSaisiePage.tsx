@@ -1722,6 +1722,32 @@ export function BulletinsSaisiePage() {
     }
   };
 
+  // Revalidate cached batch: if restored from localStorage, check it still exists and is open
+  const { data: revalidatedBatch, isFetched: batchRevalidated } = useQuery({
+    queryKey: ['revalidate-batch', selectedBatch?.id, selectedCompany?.id],
+    queryFn: async () => {
+      const params = new URLSearchParams({ companyId: selectedCompany!.id, status: 'all', limit: '1', search: selectedBatch!.name });
+      const response = await apiClient.get<Batch[]>(`/bulletins-soins/agent/batches?${params}`);
+      if (!response.success) return null;
+      return (response.data || []).find((b: Batch) => b.id === selectedBatch!.id) || null;
+    },
+    enabled: !!selectedBatch && !!selectedCompany,
+    staleTime: 30000,
+  });
+
+  useEffect(() => {
+    if (!selectedBatch || !batchRevalidated) return;
+    if (!revalidatedBatch) {
+      // Batch no longer exists or not accessible — clear it
+      setBatch(null);
+      toast.error('Le lot sélectionné n\'existe plus ou n\'est plus accessible');
+    } else if (revalidatedBatch.status !== 'open') {
+      // Batch exists but is no longer open
+      setBatch(null);
+      toast.error(`Le lot "${revalidatedBatch.name}" n'est plus ouvert (${revalidatedBatch.status})`);
+    }
+  }, [selectedBatch?.id, batchRevalidated, revalidatedBatch, setBatch]);
+
   // Clear selections when company or batch changes
   useEffect(() => {
     setSelectedBulletins([]);
