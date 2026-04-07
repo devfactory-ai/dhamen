@@ -39,7 +39,7 @@ import {
   useHistoryStats,
   exportHistoryCSV,
 } from '@/hooks/use-bulletin-history';
-import type { HistoryBulletin, HistoryFilters } from '@/hooks/use-bulletin-history';
+import type { HistoryBulletin, HistoryFilters, HistoryActeSummary } from '@/hooks/use-bulletin-history';
 import { getAccessToken } from '@/lib/auth';
 import { apiClient } from '@/lib/api-client';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -209,16 +209,18 @@ export default function BulletinsHistoryPage() {
     }] : []),
     {
       key: 'bulletinNumber',
-      header: 'Numéro',
+      header: 'Bulletin',
       render: (row: HistoryBulletin) => (
-        <span className="font-mono text-sm">{row.bulletinNumber}</span>
-      ),
-    },
-    {
-      key: 'bulletinDate',
-      header: 'Date',
-      render: (row: HistoryBulletin) => (
-        <span className="text-sm">{formatDate(row.bulletinDate)}</span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium truncate">
+            {row.adherentFirstName} {row.adherentLastName}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            <span className="font-mono">{row.bulletinNumber}</span>
+            <span className="mx-1">·</span>
+            {formatDate(row.bulletinDate)}
+          </p>
+        </div>
       ),
     },
     {
@@ -226,9 +228,8 @@ export default function BulletinsHistoryPage() {
       header: 'Adhérent',
       render: (row: HistoryBulletin) => (
         <div>
-          <p className="text-sm font-medium">{row.adherentFirstName} {row.adherentLastName}</p>
           {row.adherentMatricule && (
-            <p className="text-xs text-muted-foreground">{row.adherentMatricule}</p>
+            <p className="text-xs text-muted-foreground font-mono">{row.adherentMatricule}</p>
           )}
         </div>
       ),
@@ -239,6 +240,35 @@ export default function BulletinsHistoryPage() {
       render: (row: HistoryBulletin) => (
         <span className="text-sm">{careTypeLabels[row.careType] || row.careType}</span>
       ),
+    },
+    {
+      key: 'actes',
+      header: 'Actes / Médicaments',
+      render: (row: HistoryBulletin) => {
+        const actes = row.actes || [];
+        if (actes.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+        const maxVisible = 3;
+        const visible = actes.slice(0, maxVisible);
+        const remaining = actes.length - maxVisible;
+        return (
+          <div className="space-y-0.5 max-w-[250px]">
+            {visible.map((a) => (
+              <div key={a.id} className="flex items-center gap-1.5 text-xs">
+                <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-blue-400" />
+                <span className="truncate" title={a.label}>
+                  {a.code ? `${a.code} — ` : ''}{a.label}
+                </span>
+                <span className="shrink-0 text-muted-foreground ml-auto">
+                  {formatAmount(a.amount)}
+                </span>
+              </div>
+            ))}
+            {remaining > 0 && (
+              <span className="text-xs text-muted-foreground">+{remaining} autre{remaining > 1 ? 's' : ''}</span>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'totalAmount',
@@ -260,10 +290,11 @@ export default function BulletinsHistoryPage() {
       key: 'status',
       header: 'Statut',
       render: (row: HistoryBulletin) => {
-        const config = statusConfig[row.status] || statusConfig.approved;
+        const config = statusConfig[row.status] ?? statusConfig.approved!;
+        const Icon = config.icon;
         return (
           <Badge variant={config.variant as 'default' | 'destructive' | 'secondary'} className="gap-1">
-            <config.icon className="h-3 w-3" />
+            <Icon className="h-3 w-3" />
             {config.label}
           </Badge>
         );

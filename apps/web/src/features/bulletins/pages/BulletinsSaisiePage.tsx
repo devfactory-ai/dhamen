@@ -113,6 +113,19 @@ interface OcrBulletinItem {
 }
 
 // Types
+interface BulletinSaisieActe {
+  id: string;
+  code: string | null;
+  label: string;
+  amount: number;
+  care_type: string | null;
+  nom_prof_sant: string | null;
+  provider_name_resolved: string | null;
+  medication_name: string | null;
+  medication_dci: string | null;
+  medication_family_name: string | null;
+}
+
 interface BulletinSaisie {
   id: string;
   bulletin_number: string;
@@ -134,6 +147,7 @@ interface BulletinSaisie {
   batch_name: string | null;
   created_at: string;
   status: 'draft' | 'in_batch' | 'exported' | 'soumis' | 'en_examen' | 'approuve' | 'rejete' | 'paye' | 'approved' | 'rejected';
+  actes?: BulletinSaisieActe[];
 }
 
 interface BulletinActeDetail {
@@ -141,10 +155,20 @@ interface BulletinActeDetail {
   code: string;
   label: string;
   amount: number;
+  care_type: string | null;
   taux_remboursement: number | null;
   montant_rembourse: number | null;
   remboursement_brut: number | null;
   plafond_depasse: number | null;
+  ref_prof_sant: string | null;
+  nom_prof_sant: string | null;
+  provider_name_resolved: string | null;
+  provider_mf: string | null;
+  medication_name: string | null;
+  medication_dci: string | null;
+  medication_code_pct: string | null;
+  medication_family_name: string | null;
+  acte_ref_label: string | null;
 }
 
 interface BulletinDetail extends BulletinSaisie {
@@ -178,11 +202,18 @@ interface Batch {
 }
 
 const careTypeConfig = {
-  consultation: { label: 'Consultation', icon: Stethoscope },
-  pharmacy: { label: 'Pharmacie', icon: Pill },
-  lab: { label: 'Analyses', icon: FlaskConical },
-  hospital: { label: 'Hospitalisation', icon: Building2 },
+  consultation: { label: 'Consultation', icon: Stethoscope, bgColor: 'bg-blue-50', textColor: 'text-blue-600' },
+  pharmacy: { label: 'Pharmacie', icon: Pill, bgColor: 'bg-green-50', textColor: 'text-green-600' },
+  lab: { label: 'Analyses', icon: FlaskConical, bgColor: 'bg-purple-50', textColor: 'text-purple-600' },
+  hospital: { label: 'Hospitalisation', icon: Building2, bgColor: 'bg-orange-50', textColor: 'text-orange-600' },
 };
+
+// Sub-item schema (medications within pharmacy acte, individual analyses within lab acte)
+const subItemSchema = z.object({
+  label: z.string().min(1, 'Libellé requis'),
+  amount: z.number().min(0, 'Montant >= 0'),
+  code: z.string().optional().or(z.literal('')),
+});
 
 // Form schema
 const acteFormSchema = z.object({
@@ -192,10 +223,11 @@ const acteFormSchema = z.object({
   ref_prof_sant: z.string().min(1, 'Matricule fiscale du praticien requis'),
   nom_prof_sant: z.string().optional().or(z.literal('')),
   provider_id: z.string().optional(),
-  care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']),
+  care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']).default('consultation'),
   care_description: z.string().optional(),
   cod_msgr: z.string().optional(),
   lib_msgr: z.string().optional(),
+  sub_items: z.array(subItemSchema).optional(),
 });
 
 const bulletinFormSchema = z.object({
@@ -612,8 +644,9 @@ export function BulletinsSaisiePage() {
         }
       });
 
-      // Send actes as JSON array
-      form.append("actes", JSON.stringify(data.formData.actes));
+      // Send actes as JSON array (sub_items are informational, strip before sending)
+      const actesForBackend = data.formData.actes.map(({ sub_items: _, ...acte }) => acte);
+      form.append("actes", JSON.stringify(actesForBackend));
 
       // Attach batch_id and company_id from agent context
       if (selectedBatch) {
@@ -935,7 +968,17 @@ export function BulletinsSaisiePage() {
       );
     }
 
-    // Reset form fields when uploading new files
+    // If files already exist, just append new ones (no form reset)
+    if (selectedFiles.length > 0) {
+      setSelectedFiles((prev) => [...prev, ...validFiles]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (validFiles.length > 0) {
+        toast.success(`${validFiles.length} fichier(s) ajouté(s)`);
+      }
+      return;
+    }
+
+    // First upload: reset form fields
     reset({
       care_type: watch("care_type"),
       bulletin_date: new Date().toISOString().split("T")[0],
@@ -1054,18 +1097,132 @@ export function BulletinsSaisiePage() {
         }
       }
 
+      // Helper: flatten a single OCR item into normalized { infos_adherent, volet_medical }
+      // Handles both formats:
+      //   Format A: { infos_adherent, volet_medical }
+      //   Format B: { adherent, actes, total_dossier }
+      // Also expands nested ordonnance.medicaments and analyses into separate actes
+      const normalizeOcrItem = (item: Record<string, unknown>): OcrBulletinItem => {
+        // Determine adherent info
+        const adherentRaw = item.infos_adherent || item.adherent || {};
+        const adh = adherentRaw as Record<string, unknown>;
+
+        // Determine raw actes
+        const rawActes = (item.volet_medical || item.actes || []) as Array<Record<string, unknown>>;
+
+        // Extract date from first acte if available (Format B)
+        const firstActe = (rawActes[0] || {}) as Record<string, unknown>;
+        const infos_adherent: Record<string, unknown> = item.infos_adherent
+          ? (item.infos_adherent as Record<string, unknown>)
+          : {
+              nom_prenom: adh.nom_prenom,
+              numero_adherent: adh.numero_adherent,
+              numero_contrat: adh.numero_contrat,
+              adresse: adh.adresse,
+              beneficiaire_coche: adh.beneficiaire,
+              nom_beneficiaire: (adh.conjoint as Record<string, string>)?.nom_prenom || undefined,
+              date_signature: firstActe.date_acte || undefined,
+            };
+
+        // Build actes with sub_items (medications, analyses) instead of flat separate actes
+        const flatActes: Array<Record<string, unknown>> = [];
+        for (const acte of rawActes) {
+          // Normalize praticien sub-object into flat fields if needed
+          const praticien = acte.praticien as Record<string, string> | undefined;
+          if (praticien && !acte.nom_praticien) {
+            acte.nom_praticien = praticien.nom_prenom || '';
+            acte.matricule_fiscale = praticien.matricule_fiscale || '';
+            acte.specialite = praticien.specialite || '';
+          }
+
+          // Collect sub-items from nested structures
+          const subItems: Array<{ label: string; amount: number; code: string }> = [];
+
+          // pharmacie.medicaments → pharmacy sub-items (purchased meds with prix)
+          const pharmacie = acte.pharmacie as Record<string, unknown> | undefined;
+          const pharmacieMeds = pharmacie?.medicaments as Array<Record<string, string>> | undefined;
+          if (Array.isArray(pharmacieMeds) && pharmacieMeds.length > 0) {
+            for (const med of pharmacieMeds) {
+              const rawPrix = (med.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+              subItems.push({
+                label: med.nom || '',
+                amount: parseFloat(rawPrix) || 0,
+                code: '',
+              });
+            }
+            // Store pharmacy name for praticien display
+            if (pharmacie?.nom_pharmacie) {
+              acte._pharmacie_nom = pharmacie.nom_pharmacie;
+            }
+          }
+
+          // ordonnance.medicaments → pharmacy sub-items (prescribed meds, may not have prix)
+          // Only if no pharmacie meds were found (avoid duplicates)
+          const ordonnance = acte.ordonnance as Record<string, unknown> | undefined;
+          const meds = (ordonnance?.medicaments || acte.medicaments) as Array<Record<string, string>> | undefined;
+          if (!pharmacieMeds?.length && Array.isArray(meds) && meds.length > 0) {
+            for (const med of meds) {
+              const rawPrix = (med.montant || med.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+              subItems.push({
+                label: [med.nom, med.dosage].filter(Boolean).join(' '),
+                amount: parseFloat(rawPrix) || 0,
+                code: '',
+              });
+            }
+          }
+
+          // analyse.resultats → lab sub-items (each result with its own price)
+          const analyseObj = acte.analyse as Record<string, unknown> | undefined;
+          const resultats = analyseObj?.resultats as Array<Record<string, string>> | undefined;
+          if (Array.isArray(resultats) && resultats.length > 0) {
+            for (const res of resultats) {
+              const rawPrix = (res.resultat || res.montant || res.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+              subItems.push({
+                label: res.nom || res.libelle || '',
+                amount: parseFloat(rawPrix) || 0,
+                code: '',
+              });
+            }
+            // Store lab name for praticien display
+            if (analyseObj?.nom_laboratoire) {
+              acte._labo_nom = analyseObj.nom_laboratoire;
+            }
+          }
+
+          // Legacy: analyses/examens array → lab sub-items
+          const analyses = (acte.analyses || acte.examens) as Array<Record<string, string>> | undefined;
+          if (!resultats?.length && Array.isArray(analyses) && analyses.length > 0) {
+            for (const analyse of analyses) {
+              const rawPrix = (analyse.montant || analyse.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+              subItems.push({
+                label: analyse.nom || analyse.libelle || analyse.nature || '',
+                amount: parseFloat(rawPrix) || 0,
+                code: '',
+              });
+            }
+          }
+
+          // Attach sub_items to acte
+          if (subItems.length > 0) {
+            acte._sub_items = subItems;
+          }
+
+          // Always push the main acte (sub-items are embedded, not separate)
+          flatActes.push(acte);
+        }
+
+        const numero_bulletin = (item.numero_bulletin as string)
+          || (infos_adherent.numero_bulletin as string)
+          || (adh.numero_bulletin as string)
+          || undefined;
+
+        return { infos_adherent, volet_medical: flatActes, numero_bulletin };
+      };
+
       // Normalize to array of bulletins
       const bulletinsArray: OcrBulletinItem[] = Array.isArray(rawParsed)
-        ? rawParsed.map((item: Record<string, unknown>) => ({
-            infos_adherent: (item.infos_adherent || {}) as Record<string, unknown>,
-            volet_medical: (item.volet_medical || []) as Array<Record<string, unknown>>,
-            numero_bulletin: (item.numero_bulletin as string) || (item.infos_adherent as Record<string, unknown>)?.numero_bulletin as string | undefined,
-          }))
-        : [{
-            infos_adherent: (rawParsed?.infos_adherent || {}) as Record<string, unknown>,
-            volet_medical: (rawParsed?.volet_medical || []) as Array<Record<string, unknown>>,
-            numero_bulletin: rawParsed?.numero_bulletin || rawParsed?.infos_adherent?.numero_bulletin,
-          }];
+        ? rawParsed.map((item: Record<string, unknown>) => normalizeOcrItem(item))
+        : [normalizeOcrItem(rawParsed as Record<string, unknown>)];
 
       // Store all bulletins for multi-bulletin navigation
       setOcrBulletins(bulletinsArray);
@@ -1200,13 +1357,13 @@ export function BulletinsSaisiePage() {
           removeActe(currentActes.length - 1);
         }
 
-        actes.forEach((acte: Record<string, string | null>, i: number) => {
+        actes.forEach((acte: Record<string, unknown>, i: number) => {
           // Detect care_type per acte from its own type_soin
-          const acteCareType = detectCareType(acte.type_soin);
+          const acteCareType = detectCareType(acte.type_soin as string | null);
           const isPharmacy = acteCareType === "pharmacy";
           const rawMontant = (
-            acte.montant_facture ||
-            acte.montant_honoraires ||
+            (acte.montant_facture as string) ||
+            (acte.montant_honoraires as string) ||
             "0"
           )
             .replace(/[^\d.,]/g, "")
@@ -1215,8 +1372,8 @@ export function BulletinsSaisiePage() {
 
           // For pharmacy: use OCR-matched medication if available, otherwise leave empty
           // For other types: use backend-enriched codes or local mapping
-          const mapped = acte.nature_acte
-            ? mapNatureActeToCode(acte.nature_acte)
+          const mapped = (acte.nature_acte as string)
+            ? mapNatureActeToCode(acte.nature_acte as string)
             : null;
           const matchedMed = acte.matched_medication as
             | {
@@ -1246,15 +1403,15 @@ export function BulletinsSaisiePage() {
             }
           } else if (isPharmacy) {
             code = "";
-            label = acte.nature_acte || "";
+            label = (acte.nature_acte as string) || "";
           } else {
-            code = acte.matched_code || mapped?.code || "";
+            code = (acte.matched_code as string) || mapped?.code || "";
             label =
-              acte.matched_label || mapped?.label || acte.nature_acte || "";
+              (acte.matched_label as string) || mapped?.label || (acte.nature_acte as string) || "";
           }
 
           // Keep nature_acte from OCR as care_description (e.g. "Psychiatrie")
-          const natureActeOriginal = acte.nature_acte || "";
+          const natureActeOriginal = (acte.nature_acte as string) || "";
 
           // Use OCR-matched amount or fallback to extracted montant
           const finalAmount = isPharmacy && autoAmount ? autoAmount : montant;
@@ -1263,16 +1420,21 @@ export function BulletinsSaisiePage() {
           const mfProvider = acte.mf_provider as
             | { name?: string; speciality?: string; address?: string }
             | undefined;
-          const nomPraticien = mfProvider?.name || acte.nom_praticien || "";
+          const nomPraticien = mfProvider?.name || (acte.nom_praticien as string) || "";
           const refProfSant =
-            (acte.mf_extracted as string) || acte.matricule_fiscale || "";
+            (acte.mf_extracted as string) || (acte.matricule_fiscale as string) || "";
+
+          // For lab: use lab name as praticien name if available
+          const laboNom = (acte._labo_nom as string) || "";
+          const pharmacieNom = (acte._pharmacie_nom as string) || "";
+          const displayPraticien = laboNom || pharmacieNom || nomPraticien;
 
           // Store OCR-extracted praticien info for display when MF not found in DB
-          if (refProfSant || nomPraticien) {
+          if (refProfSant || displayPraticien) {
             setOcrPraticienInfos((prev) => ({
               ...prev,
               [i]: {
-                nom: nomPraticien,
+                nom: displayPraticien,
                 mf: refProfSant,
                 specialite:
                   mfProvider?.speciality ||
@@ -1286,31 +1448,41 @@ export function BulletinsSaisiePage() {
                 telephone: (acte.telephone_praticien as string) || undefined,
               },
             }));
-            // Auto-register will be determined by MfLookupInput status callback
-            // Don't pre-set to true — the MF lookup may find the provider in DB
           }
+
+          // Build sub_items from OCR-extracted nested items
+          const ocrSubItems = acte._sub_items as Array<{ label: string; amount: number; code: string }> | undefined;
+          const subItems = ocrSubItems?.map((si) => ({
+            label: si.label,
+            amount: si.amount,
+            code: si.code || '',
+          }));
 
           if (i === 0) {
             setValue("actes.0.code", code);
             setValue("actes.0.label", label);
             setValue("actes.0.amount", finalAmount);
-            setValue("actes.0.nom_prof_sant", nomPraticien);
+            setValue("actes.0.nom_prof_sant", displayPraticien);
             setValue("actes.0.ref_prof_sant", refProfSant);
             setValue("actes.0.care_type", acteCareType);
             if (natureActeOriginal && !isPharmacy) {
               setValue("actes.0.care_description", natureActeOriginal);
+            }
+            if (subItems && subItems.length > 0) {
+              setValue("actes.0.sub_items", subItems);
             }
           } else {
             appendActe({
               code,
               label,
               amount: finalAmount,
-              nom_prof_sant: nomPraticien,
+              nom_prof_sant: displayPraticien,
               ref_prof_sant: refProfSant,
               care_type: acteCareType,
               cod_msgr: "",
               lib_msgr: "",
               care_description: !isPharmacy ? natureActeOriginal : "",
+              sub_items: subItems,
             });
           }
         });
@@ -1436,33 +1608,38 @@ export function BulletinsSaisiePage() {
       setValue("care_type", detectCareType(actes[0].type_soin));
     }
 
-    // Fill actes
+    // Fill actes with sub_items
     if (Array.isArray(actes) && actes.length > 0) {
-      actes.forEach((acte, i) => {
-        const acteCareType = detectCareType(acte.type_soin);
+      actes.forEach((acte: Record<string, unknown>, i: number) => {
+        const acteCareType = detectCareType(acte.type_soin as string | null);
         const isPharmacy = acteCareType === "pharmacy";
-        const rawMontant = (acte.montant_facture || acte.montant_honoraires || "0")!.replace(/[^\d.,]/g, "").replace(",", ".");
+        const rawMontant = ((acte.montant_facture as string) || (acte.montant_honoraires as string) || "0").replace(/[^\d.,]/g, "").replace(",", ".");
         const montant = parseFloat(rawMontant) || 0;
-        const mapped = acte.nature_acte ? mapNatureActeToCode(acte.nature_acte) : null;
-        const code = acte.matched_code || mapped?.code || "";
-        const label = acte.matched_label || mapped?.label || acte.nature_acte || "";
-        const nomPraticien = acte.nom_praticien || "";
-        const refProfSant = (acte.mf_extracted as string) || acte.matricule_fiscale || "";
+        const mapped = (acte.nature_acte as string) ? mapNatureActeToCode(acte.nature_acte as string) : null;
+        const code = (acte.matched_code as string) || mapped?.code || "";
+        const label = (acte.matched_label as string) || mapped?.label || (acte.nature_acte as string) || "";
+        const nomPraticien = (acte._labo_nom as string) || (acte._pharmacie_nom as string) || (acte.nom_praticien as string) || "";
+        const refProfSant = (acte.mf_extracted as string) || (acte.matricule_fiscale as string) || "";
 
         if (refProfSant || nomPraticien) {
-          setOcrPraticienInfos((prev) => ({ ...prev, [i]: { nom: nomPraticien, mf: refProfSant, specialite: acte.nature_acte || undefined } }));
+          setOcrPraticienInfos((prev) => ({ ...prev, [i]: { nom: nomPraticien, mf: refProfSant, specialite: (acte.nature_acte as string) || undefined } }));
         }
+
+        // Build sub_items from OCR-extracted nested items
+        const ocrSubItems = acte._sub_items as Array<{ label: string; amount: number; code: string }> | undefined;
+        const subItems = ocrSubItems?.map((si) => ({ label: si.label, amount: si.amount, code: si.code || '' }));
 
         if (i === 0) {
           setValue("actes.0.code", code);
           setValue("actes.0.label", label);
-          setValue("actes.0.amount", isPharmacy ? montant : montant);
+          setValue("actes.0.amount", montant);
           setValue("actes.0.nom_prof_sant", nomPraticien);
           setValue("actes.0.ref_prof_sant", refProfSant);
           setValue("actes.0.care_type", acteCareType);
-          if (acte.nature_acte && !isPharmacy) setValue("actes.0.care_description", acte.nature_acte);
+          if ((acte.nature_acte as string) && !isPharmacy) setValue("actes.0.care_description", acte.nature_acte as string);
+          if (subItems && subItems.length > 0) setValue("actes.0.sub_items", subItems);
         } else {
-          appendActe({ code, label, amount: montant, nom_prof_sant: nomPraticien, ref_prof_sant: refProfSant, care_type: acteCareType, cod_msgr: "", lib_msgr: "", care_description: !isPharmacy ? (acte.nature_acte || "") : "" });
+          appendActe({ code, label, amount: montant, nom_prof_sant: nomPraticien, ref_prof_sant: refProfSant, care_type: acteCareType, cod_msgr: "", lib_msgr: "", care_description: !isPharmacy ? ((acte.nature_acte as string) || "") : "", sub_items: subItems });
         }
       });
     }
@@ -1636,7 +1813,7 @@ export function BulletinsSaisiePage() {
       }
     }
 
-    // Total amount must be > 0
+    // Total amount must be > 0 (sub_items are informational, only main amount counts)
     const total = data.actes.reduce(
       (sum, a) => sum + (Number(a.amount) || 0),
       0,
@@ -2100,6 +2277,14 @@ export function BulletinsSaisiePage() {
                       messages.push(
                         `Acte ${idx + 1} — montant: ${acteErr.amount.message}`,
                       );
+                    if (acteErr?.ref_prof_sant)
+                      messages.push(
+                        `Acte ${idx + 1} — MF praticien: ${acteErr.ref_prof_sant.message}`,
+                      );
+                    if (acteErr?.care_type)
+                      messages.push(
+                        `Acte ${idx + 1} — type soin: ${acteErr.care_type.message}`,
+                      );
                   });
                 }
                 if (messages.length > 0) {
@@ -2467,7 +2652,7 @@ export function BulletinsSaisiePage() {
                                 <div className="space-y-1.5">
                                   <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
                                     <User className="h-3.5 w-3.5" />
-                                    Informations adherent
+                                    Informations adhérent
                                   </p>
                                   <div className="grid gap-1.5">
                                     {adhFields.map(([label, value]) => (
@@ -3965,6 +4150,89 @@ export function BulletinsSaisiePage() {
                                   )}
                                 </div>
                               </div>
+
+                              {/* Sub-items: medications (pharmacy) or analyses (lab) */}
+                              {(() => {
+                                const currentSubItems = watch(`actes.${index}.sub_items`) || [];
+                                if (currentSubItems.length === 0 && acteCareType !== 'pharmacy' && acteCareType !== 'lab') return null;
+
+                                const subLabel = acteCareType === 'pharmacy' ? 'Médicaments' :
+                                  acteCareType === 'lab' ? 'Analyses' : 'Détails';
+                                const subIcon = acteCareType === 'pharmacy' ? <Pill className="h-3.5 w-3.5" /> :
+                                  acteCareType === 'lab' ? <FlaskConical className="h-3.5 w-3.5" /> : <ClipboardList className="h-3.5 w-3.5" />;
+
+                                return (
+                                  <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50/50 p-3">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <p className="text-xs font-semibold text-gray-500 flex items-center gap-1.5 uppercase">
+                                        {subIcon}
+                                        {subLabel} ({currentSubItems.length})
+                                      </p>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const updated = [...currentSubItems, { label: '', amount: 0, code: '' }];
+                                          setValue(`actes.${index}.sub_items`, updated);
+                                        }}
+                                        className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-0.5"
+                                      >
+                                        <Plus className="h-3.5 w-3.5" />
+                                        Ajouter
+                                      </button>
+                                    </div>
+                                    <div className="space-y-2">
+                                      {currentSubItems.map((subItem, subIdx) => (
+                                        <div key={subIdx} className="flex items-center gap-2">
+                                          <div className="flex-1">
+                                            <Input
+                                              value={subItem.label}
+                                              onChange={(e) => {
+                                                const updated = [...currentSubItems];
+                                                updated[subIdx] = { ...updated[subIdx]!, label: e.target.value };
+                                                setValue(`actes.${index}.sub_items`, updated);
+                                              }}
+                                              placeholder={acteCareType === 'pharmacy' ? 'Nom du médicament' : 'Nom de l\'analyse'}
+                                              className="rounded-lg text-sm h-8"
+                                            />
+                                          </div>
+                                          <div className="w-28">
+                                            <Input
+                                              type="number"
+                                              step="0.001"
+                                              value={subItem.amount || ''}
+                                              onChange={(e) => {
+                                                const updated = [...currentSubItems];
+                                                updated[subIdx] = { ...updated[subIdx]!, amount: parseFloat(e.target.value) || 0 };
+                                                setValue(`actes.${index}.sub_items`, updated);
+                                              }}
+                                              placeholder="0.000"
+                                              className="rounded-lg text-sm text-right h-8"
+                                            />
+                                          </div>
+                                          <span className="text-xs text-gray-400 w-7">DT</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const updated = currentSubItems.filter((_, si) => si !== subIdx);
+                                              setValue(`actes.${index}.sub_items`, updated);
+                                            }}
+                                            className="shrink-0 p-1 text-gray-300 hover:text-red-500 transition-colors"
+                                          >
+                                            <X className="h-3.5 w-3.5" />
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    {currentSubItems.length > 0 && (
+                                      <div className="flex justify-end mt-2 pt-2 border-t border-gray-200">
+                                        <p className="text-xs font-semibold text-gray-600">
+                                          Sous-total : {currentSubItems.reduce((s, si) => s + (Number(si.amount) || 0), 0).toFixed(3)} DT
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           );
                         })}
@@ -4079,26 +4347,36 @@ export function BulletinsSaisiePage() {
                         )}
                       </div>
                       {selectedFiles.length > 0 ? (
-                        <div className="max-h-72 overflow-y-auto space-y-2 rounded-xl">
-                          {selectedFiles.map((file, idx) => (
-                            <div
-                              key={idx}
-                              className="rounded-xl bg-gray-100 overflow-hidden"
-                            >
-                              {file.type.startsWith("image/") ? (
-                                <img
-                                  src={URL.createObjectURL(file)}
-                                  alt={`Scan ${idx + 1}`}
-                                  className="w-full h-auto max-h-56 object-contain"
-                                />
-                              ) : (
-                                <div className="flex flex-col items-center justify-center py-8 text-gray-400">
-                                  <FileText className="h-8 w-8 mb-2" />
-                                  <p className="text-xs">{file.name}</p>
-                                </div>
-                              )}
-                            </div>
-                          ))}
+                        <div className="space-y-2">
+                          <div className="max-h-72 overflow-y-auto space-y-2 rounded-xl">
+                            {selectedFiles.map((file, idx) => (
+                              <div
+                                key={idx}
+                                className="rounded-xl bg-gray-100 overflow-hidden"
+                              >
+                                {file.type.startsWith("image/") ? (
+                                  <img
+                                    src={URL.createObjectURL(file)}
+                                    alt={`Scan ${idx + 1}`}
+                                    className="w-full h-auto max-h-56 object-contain"
+                                  />
+                                ) : (
+                                  <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+                                    <FileText className="h-8 w-8 mb-2" />
+                                    <p className="text-xs">{file.name}</p>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray-300 bg-gray-50 py-2 text-xs font-medium text-gray-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50 transition-colors"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Ajouter un fichier
+                          </button>
                         </div>
                       ) : (
                         <div className="flex flex-col items-center justify-center rounded-xl bg-gray-50 py-10 text-gray-400">
@@ -4359,39 +4637,43 @@ export function BulletinsSaisiePage() {
                 {
                   key: "bulletin_number",
                   header: "Bulletin",
-                  render: (row: BulletinSaisie) => (
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">
-                        {row.bulletin_number || "Brouillon"}
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        {formatDate(row.bulletin_date)}
-                      </p>
-                    </div>
-                  ),
-                },
-                {
-                  key: "adherent",
-                  header: "Adhérent",
                   render: (row: BulletinSaisie) => {
-                    const initials =
-                      `${(row.adherent_first_name || "")[0] || ""}${(row.adherent_last_name || "")[0] || ""}`.toUpperCase();
+                    const config = careTypeConfig[row.care_type as keyof typeof careTypeConfig] || careTypeConfig.consultation;
+                    const Icon = config.icon;
                     return (
                       <div className="flex items-center gap-2.5">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700">
-                          {initials}
+                        <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", config.bgColor || "bg-gray-100")}>
+                          <Icon className={cn("h-4 w-4", config.textColor || "text-gray-600")} />
                         </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-900">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900 truncate">
                             {row.adherent_first_name} {row.adherent_last_name}
                           </p>
-                          <p className="text-xs text-gray-400 font-mono">
-                            ID: {row.adherent_matricule}
+                          <p className="text-xs text-gray-400">
+                            <span className="font-mono">{row.bulletin_number || "Brouillon"}</span>
+                            <span className="mx-1">·</span>
+                            {formatDate(row.bulletin_date)}
                           </p>
                         </div>
                       </div>
                     );
                   },
+                },
+                {
+                  key: "adherent",
+                  header: "Adhérent",
+                  render: (row: BulletinSaisie) => (
+                    <div>
+                      <p className="text-xs text-gray-500 font-mono">
+                        {row.adherent_matricule}
+                      </p>
+                      {row.beneficiary_name && (
+                        <p className="text-xs text-blue-600 mt-0.5 truncate" title={`Ayant droit: ${row.beneficiary_name}`}>
+                          {row.beneficiary_name}
+                        </p>
+                      )}
+                    </div>
+                  ),
                 },
                 {
                   key: "care_type",
@@ -4947,7 +5229,7 @@ export function BulletinsSaisiePage() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Adherent</p>
+                  <p className="text-muted-foreground">Adhérent</p>
                   <p className="font-medium">
                     {viewBulletin.adherent_first_name}{" "}
                     {viewBulletin.adherent_last_name}
@@ -4989,6 +5271,9 @@ export function BulletinsSaisiePage() {
                               </p>
                               <p className="text-xs text-muted-foreground font-mono">
                                 {acte.code || "Sans code"}
+                                {acte.acte_ref_label && acte.acte_ref_label !== acte.label && (
+                                  <span className="ml-1 text-muted-foreground">({acte.acte_ref_label})</span>
+                                )}
                               </p>
                             </div>
                             {isExhausted && (
@@ -5013,6 +5298,30 @@ export function BulletinsSaisiePage() {
                               </Badge>
                             )}
                           </div>
+
+                          {/* Praticien / Provider */}
+                          {(acte.nom_prof_sant || acte.provider_name_resolved) && (
+                            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                              <span>{acte.provider_name_resolved || acte.nom_prof_sant}</span>
+                              {acte.ref_prof_sant && (
+                                <span className="font-mono text-[10px] bg-muted px-1 rounded">MF {acte.ref_prof_sant}</span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Medication info */}
+                          {acte.medication_name && (
+                            <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                              <span>{acte.medication_name}</span>
+                              {acte.medication_dci && acte.medication_dci !== acte.medication_name && (
+                                <span className="italic">({acte.medication_dci})</span>
+                              )}
+                              {acte.medication_family_name && (
+                                <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">{acte.medication_family_name}</Badge>
+                              )}
+                            </div>
+                          )}
+
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                             <div>
                               <p className="text-muted-foreground">Montant</p>
@@ -5324,7 +5633,7 @@ export function BulletinsSaisiePage() {
             <div className="py-4 space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <div>
-                  <p className="text-muted-foreground">Adherent</p>
+                  <p className="text-muted-foreground">Adhérent</p>
                   <p className="font-medium">
                     {validateBulletinTarget.adherent_first_name}{" "}
                     {validateBulletinTarget.adherent_last_name}

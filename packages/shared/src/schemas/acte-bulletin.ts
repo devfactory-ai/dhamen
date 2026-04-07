@@ -12,6 +12,10 @@ export const acteBulletinSchema = z.object({
   care_description: z.string().optional(),
   cod_msgr: z.string().optional(),
   lib_msgr: z.string().optional(),
+  /** Pre-resolved IDs from frontend — skips backend lookups when provided */
+  medication_id: z.string().optional(),
+  medication_family_id: z.string().optional(),
+  acte_ref_id: z.string().optional(),
 });
 
 export const actesArraySchema = z

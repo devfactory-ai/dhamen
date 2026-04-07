@@ -14,6 +14,7 @@ function resolveApiUrl(): string {
 
 export const API_BASE_URL = resolveApiUrl();
 const REQUEST_TIMEOUT_MS = 10000;
+const UPLOAD_TIMEOUT_MS = 60000;
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
@@ -379,7 +380,7 @@ class ApiClient {
    * Upload a file using FormData (multipart/form-data)
    */
   async upload<T>(endpoint: string, formData: FormData, options?: RequestOptions): Promise<ApiResponse<T>> {
-    const { params, timeout = REQUEST_TIMEOUT_MS, ...init } = options || {};
+    const { params, timeout = UPLOAD_TIMEOUT_MS, ...init } = options || {};
     let url = `${this.baseUrl}${endpoint}`;
 
     if (params) {

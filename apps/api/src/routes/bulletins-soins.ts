@@ -2240,13 +2240,23 @@ bulletinsSoins.get('/history/:id', async (c) => {
       }, 404);
     }
 
-    // Get actes
+    // Get actes with joined reference data
     const { results: actes } = await db.prepare(`
-      SELECT id, code, label, amount, taux_remboursement, montant_rembourse,
-             remboursement_brut, plafond_depasse, acte_ref_id
-      FROM actes_bulletin
-      WHERE bulletin_id = ?
-      ORDER BY created_at ASC
+      SELECT ab.id, ab.code, ab.label, ab.amount, ab.care_type,
+             ab.taux_remboursement, ab.montant_rembourse,
+             ab.remboursement_brut, ab.plafond_depasse, ab.acte_ref_id,
+             ab.ref_prof_sant, ab.nom_prof_sant,
+             m.brand_name as medication_name, m.dci as medication_dci, m.code_pct as medication_code_pct,
+             mf.name as medication_family_name,
+             ar.label as acte_ref_label,
+             p.name as provider_name_resolved, p.mf_number as provider_mf
+      FROM actes_bulletin ab
+      LEFT JOIN medications m ON ab.medication_id = m.id
+      LEFT JOIN medication_families mf ON ab.medication_family_id = mf.id
+      LEFT JOIN actes_referentiel ar ON ab.acte_ref_id = ar.id
+      LEFT JOIN providers p ON ab.provider_id = p.id
+      WHERE ab.bulletin_id = ?
+      ORDER BY ab.created_at ASC
     `).bind(bulletinId).all();
 
     const plafondGlobal = Number(bulletin.adh_plafond_global) || 0;
@@ -2296,11 +2306,21 @@ bulletinsSoins.get('/history/:id', async (c) => {
           code: a.code,
           label: a.label,
           amount: a.amount,
+          careType: a.care_type || null,
           tauxRemboursement: a.taux_remboursement,
           montantRembourse: a.montant_rembourse,
           remboursementBrut: a.remboursement_brut,
           plafondDepasse: a.plafond_depasse === 1,
           acteRefId: a.acte_ref_id,
+          refProfSant: a.ref_prof_sant || null,
+          nomProfSant: a.nom_prof_sant || null,
+          providerNameResolved: a.provider_name_resolved || null,
+          providerMf: a.provider_mf || null,
+          medicationName: a.medication_name || null,
+          medicationDci: a.medication_dci || null,
+          medicationCodePct: a.medication_code_pct || null,
+          medicationFamilyName: a.medication_family_name || null,
+          acteRefLabel: a.acte_ref_label || null,
         })),
         totaux: {
           totalDeclare: actes.reduce((sum, a) => sum + (Number(a.amount) || 0), 0),
@@ -2452,6 +2472,34 @@ bulletinsSoins.get('/history', async (c) => {
       LIMIT ? OFFSET ?
     `).bind(...params, limit, offset).all();
 
+    // Batch-fetch actes for all returned bulletins
+    const bulletinIds = results.map((r) => r.id as string);
+    let actesMap: Record<string, Array<{ id: string; code: string | null; label: string; amount: number; careType: string | null; tauxRemboursement: number | null; montantRembourse: number | null; medicationId: string | null }>> = {};
+    if (bulletinIds.length > 0) {
+      const placeholders = bulletinIds.map(() => '?').join(',');
+      const { results: actesRows } = await db.prepare(`
+        SELECT ab.id, ab.bulletin_id, ab.code, ab.label, ab.amount, ab.care_type,
+               ab.taux_remboursement, ab.montant_rembourse, ab.medication_id
+        FROM actes_bulletin ab
+        WHERE ab.bulletin_id IN (${placeholders})
+        ORDER BY ab.created_at ASC
+      `).bind(...bulletinIds).all();
+      for (const a of actesRows) {
+        const bid = a.bulletin_id as string;
+        if (!actesMap[bid]) actesMap[bid] = [];
+        actesMap[bid].push({
+          id: a.id as string,
+          code: a.code as string | null,
+          label: a.label as string,
+          amount: a.amount as number,
+          careType: a.care_type as string | null,
+          tauxRemboursement: a.taux_remboursement as number | null,
+          montantRembourse: a.montant_rembourse as number | null,
+          medicationId: a.medication_id as string | null,
+        });
+      }
+    }
+
     return c.json({
       success: true,
       data: results.map((r) => ({
@@ -2470,6 +2518,7 @@ bulletinsSoins.get('/history', async (c) => {
         adherentLastName: r.adherent_last_name,
         adherentMatricule: r.adherent_matricule,
         actesCount: r.actes_count,
+        actes: actesMap[r.id as string] || [],
       })),
       meta: {
         page,

@@ -414,8 +414,14 @@ export function BulletinsValidationPage() {
             <FileText className="h-5 w-5 text-gray-600" />
           </div>
           <div className="min-w-0">
-            <p className="font-mono font-medium text-sm truncate" title={row.bulletin_number}>{row.bulletin_number}</p>
-            <p className="text-xs text-muted-foreground">{formatDate(row.bulletin_date)}</p>
+            <p className="font-medium text-sm truncate" title={`${row.adherent_first_name} ${row.adherent_last_name}`}>
+              {row.adherent_first_name} {row.adherent_last_name}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              <span className="font-mono">{row.bulletin_number}</span>
+              <span className="mx-1">·</span>
+              {formatDate(row.bulletin_date)}
+            </p>
           </div>
         </div>
       ),
@@ -793,7 +799,7 @@ export function BulletinsValidationPage() {
                 <CardContent>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <p className="text-sm text-muted-foreground">Adherent</p>
+                      <p className="text-sm text-muted-foreground">Adhérent</p>
                       <p className="font-medium">{selectedBulletin.adherent_first_name} {selectedBulletin.adherent_last_name}</p>
                     </div>
                     <div>

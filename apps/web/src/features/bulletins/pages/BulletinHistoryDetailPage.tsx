@@ -302,6 +302,7 @@ export default function BulletinHistoryDetailPage() {
                 <TableRow className="bg-gray-50/80 hover:bg-gray-50/80">
                   <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Code</TableHead>
                   <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Libelle</TableHead>
+                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Praticien</TableHead>
                   <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Montant</TableHead>
                   <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Taux</TableHead>
                   <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Rembourse</TableHead>
@@ -311,8 +312,36 @@ export default function BulletinHistoryDetailPage() {
               <TableBody>
                 {detail.actes.map((acte, index) => (
                   <TableRow key={acte.id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'} hover:bg-gray-50/50 transition-colors duration-150`}>
-                    <TableCell className="py-4 font-mono">{acte.code || '-'}</TableCell>
-                    <TableCell className="py-4">{acte.label}</TableCell>
+                    <TableCell className="py-4 font-mono">
+                      {acte.code || '-'}
+                      {acte.acteRefLabel && acte.acteRefLabel !== acte.label && (
+                        <p className="text-[10px] text-muted-foreground">{acte.acteRefLabel}</p>
+                      )}
+                    </TableCell>
+                    <TableCell className="py-4">
+                      <div>{acte.label}</div>
+                      {acte.medicationName && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {acte.medicationName}
+                          {acte.medicationDci && acte.medicationDci !== acte.medicationName && (
+                            <span className="italic ml-1">({acte.medicationDci})</span>
+                          )}
+                          {acte.medicationFamilyName && (
+                            <span className="ml-1 text-[10px] bg-muted px-1 rounded">{acte.medicationFamilyName}</span>
+                          )}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell className="py-4 text-xs">
+                      {(acte.providerNameResolved || acte.nomProfSant) && (
+                        <div>
+                          <p>{acte.providerNameResolved || acte.nomProfSant}</p>
+                          {acte.refProfSant && (
+                            <p className="font-mono text-[10px] text-muted-foreground">MF {acte.refProfSant}</p>
+                          )}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="py-4 text-right">{formatAmount(acte.amount)}</TableCell>
                     <TableCell className="py-4 text-right">{acte.tauxRemboursement ? `${(acte.tauxRemboursement * 100).toFixed(0)}%` : '-'}</TableCell>
                     <TableCell className="py-4 text-right font-medium text-green-600">{formatAmount(acte.montantRembourse)}</TableCell>
@@ -327,7 +356,7 @@ export default function BulletinHistoryDetailPage() {
                   </TableRow>
                 ))}
                 <TableRow className="bg-gray-50/80 font-medium">
-                  <TableCell colSpan={2} className="py-4">Total ({detail.totaux.nbActes} actes)</TableCell>
+                  <TableCell colSpan={3} className="py-4">Total ({detail.totaux.nbActes} actes)</TableCell>
                   <TableCell className="py-4 text-right">{formatAmount(detail.totaux.totalDeclare)}</TableCell>
                   <TableCell className="py-4" />
                   <TableCell className="py-4 text-right text-green-600">{formatAmount(detail.totaux.totalRembourse)}</TableCell>

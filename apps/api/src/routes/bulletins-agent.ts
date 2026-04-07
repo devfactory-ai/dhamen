@@ -952,7 +952,20 @@ bulletinsAgent.get('/:id', async (c) => {
     }
 
     const actes = await db
-      .prepare('SELECT * FROM actes_bulletin WHERE bulletin_id = ? ORDER BY created_at')
+      .prepare(
+        `SELECT ab.*,
+                m.brand_name as medication_name, m.dci as medication_dci, m.code_pct as medication_code_pct,
+                mf.name as medication_family_name,
+                ar.code as acte_ref_code, ar.label as acte_ref_label,
+                p.name as provider_name_resolved, p.mf_number as provider_mf
+         FROM actes_bulletin ab
+         LEFT JOIN medications m ON ab.medication_id = m.id
+         LEFT JOIN medication_families mf ON ab.medication_family_id = mf.id
+         LEFT JOIN actes_referentiel ar ON ab.acte_ref_id = ar.id
+         LEFT JOIN providers p ON ab.provider_id = p.id
+         WHERE ab.bulletin_id = ?
+         ORDER BY ab.created_at`
+      )
       .bind(bulletinId)
       .all();
 
@@ -1340,7 +1353,7 @@ bulletinsAgent.post('/create', async (c) => {
 
   // Parse actes array (JSON string from form)
   const actesRaw = formData['actes'] as string;
-  let actes: { code?: string; label: string; amount: number; ref_prof_sant?: string; nom_prof_sant?: string; provider_id?: string; care_type?: string; cod_msgr?: string; lib_msgr?: string; care_description?: string }[] = [];
+  let actes: { code?: string; label: string; amount: number; ref_prof_sant?: string; nom_prof_sant?: string; provider_id?: string; care_type?: string; cod_msgr?: string; lib_msgr?: string; care_description?: string; medication_id?: string; medication_family_id?: string; acte_ref_id?: string }[] = [];
 
   if (actesRaw) {
     try {
@@ -1850,84 +1863,87 @@ bulletinsAgent.post('/create', async (c) => {
     const status = batchId ? 'in_batch' : 'draft';
 
     // --- Provider lookup / auto-registration per acte ---
-    // For each acte with a MF, find or create the provider in the providers table
+    // Phase 1: Parallel lookup for all actes at once
     const providerIds: Array<string | null> = [];
     const newlyRegisteredProviders: Array<{ id: string; name: string; mfNumber: string }> = [];
 
-    for (const acte of actes) {
+    // Pre-compute MF data for all actes
+    const actesMfData = actes.map((acte) => {
       const rawMf = (acte.ref_prof_sant || '').trim().toUpperCase();
       const nomPraticien = (acte.nom_prof_sant || '').trim();
-      console.log('[PROVIDER-RESOLVE] acte:', { rawMf, nomPraticien, frontendProviderId: acte.provider_id, careType: acte.care_type });
+      if (!rawMf || rawMf.length < 7) return { rawMf, nomPraticien, normalizedMf: '', skip: true, acte };
+      const mfResult = validerMatriculeFiscal(rawMf);
+      const normalizedMf = mfResult.normalized || rawMf.replace(/[/\s-]/g, '');
+      return { rawMf, nomPraticien, normalizedMf, skip: false, acte };
+    });
 
-      if (!rawMf || rawMf.length < 7) {
-        console.log('[PROVIDER-RESOLVE] MF too short, skipping:', rawMf, 'length:', rawMf.length);
+    // Parallel provider lookups (read-only, safe to parallelize)
+    const lookupResults = await Promise.all(
+      actesMfData.map(async (mfData) => {
+        if (mfData.skip) return { found: false as const, id: null };
+
+        // If frontend already resolved provider_id, verify it
+        if (mfData.acte.provider_id) {
+          const frontendProvider = await db
+            .prepare('SELECT id, name FROM providers WHERE id = ? AND deleted_at IS NULL AND is_active = 1')
+            .bind(mfData.acte.provider_id)
+            .first<{ id: string; name: string }>();
+          if (frontendProvider) return { found: true as const, id: frontendProvider.id };
+        }
+
+        // Search by MF (normalized, raw, license_no, or stripped DB value)
+        const [existingProvider, existingByVerification] = await Promise.all([
+          db
+            .prepare(
+              `SELECT id, name FROM providers
+               WHERE (mf_number = ? OR mf_number = ? OR license_no = ? OR license_no = ?
+                      OR REPLACE(REPLACE(REPLACE(REPLACE(mf_number, '/', ''), '.', ''), '-', ''), ' ', '') = ?)
+                 AND deleted_at IS NULL AND is_active = 1
+               LIMIT 1`
+            )
+            .bind(mfData.normalizedMf, mfData.rawMf, `MF-${mfData.normalizedMf}`, mfData.rawMf, mfData.normalizedMf)
+            .first<{ id: string; name: string }>(),
+          db
+            .prepare(
+              `SELECT p.id, p.name FROM practitioner_mf_verifications pmv
+               JOIN providers p ON pmv.provider_id = p.id
+               WHERE pmv.mf_number = ? AND p.deleted_at IS NULL
+               LIMIT 1`
+            )
+            .bind(mfData.normalizedMf)
+            .first<{ id: string; name: string }>(),
+        ]);
+
+        if (existingProvider) return { found: true as const, id: existingProvider.id };
+        if (existingByVerification) return { found: true as const, id: existingByVerification.id };
+        return { found: false as const, id: null };
+      })
+    );
+
+    // Phase 2: Sequential auto-registration only for providers not found
+    for (let i = 0; i < actes.length; i++) {
+      const mfData = actesMfData[i]!;
+      const lookupResult = lookupResults[i]!;
+
+      if (mfData.skip) {
         providerIds.push(null);
         continue;
       }
 
-      // If frontend already resolved provider_id via MF lookup, verify and use it
-      if (acte.provider_id) {
-        const frontendProvider = await db
-          .prepare('SELECT id, name FROM providers WHERE id = ? AND deleted_at IS NULL AND is_active = 1')
-          .bind(acte.provider_id)
-          .first<{ id: string; name: string }>();
-        if (frontendProvider) {
-          console.log('[PROVIDER-LOOKUP] Using frontend-resolved provider:', frontendProvider.id, frontendProvider.name);
-          providerIds.push(frontendProvider.id);
-          continue;
-        }
-      }
-
-      // Normalize MF
-      const mfResult = validerMatriculeFiscal(rawMf);
-      const normalizedMf = mfResult.normalized || rawMf.replace(/[/\s-]/g, '');
-      console.log('[PROVIDER-LOOKUP] rawMf:', rawMf, 'normalizedMf:', normalizedMf, 'nomPraticien:', nomPraticien);
-
-      // Search existing provider by MF (normalized, raw, license_no, or stripped DB value)
-      const existingProvider = await db
-        .prepare(
-          `SELECT id, name FROM providers
-           WHERE (mf_number = ? OR mf_number = ? OR license_no = ? OR license_no = ?
-                  OR REPLACE(REPLACE(REPLACE(REPLACE(mf_number, '/', ''), '.', ''), '-', ''), ' ', '') = ?)
-             AND deleted_at IS NULL AND is_active = 1
-           LIMIT 1`
-        )
-        .bind(normalizedMf, rawMf, `MF-${normalizedMf}`, rawMf, normalizedMf)
-        .first<{ id: string; name: string }>();
-
-      if (existingProvider) {
-        console.log('[PROVIDER-LOOKUP] Found existing provider:', existingProvider.id, existingProvider.name);
-        providerIds.push(existingProvider.id);
+      if (lookupResult.found) {
+        providerIds.push(lookupResult.id);
         continue;
       }
 
-      // Also check sante_praticiens (practitioners directory) by name+MF-based provider
-      const existingByVerification = await db
-        .prepare(
-          `SELECT p.id, p.name FROM practitioner_mf_verifications pmv
-           JOIN providers p ON pmv.provider_id = p.id
-           WHERE pmv.mf_number = ? AND p.deleted_at IS NULL
-           LIMIT 1`
-        )
-        .bind(normalizedMf)
-        .first<{ id: string; name: string }>();
-
-      if (existingByVerification) {
-        console.log('[PROVIDER-LOOKUP] Found via MF verification:', existingByVerification.id, existingByVerification.name);
-        providerIds.push(existingByVerification.id);
-        continue;
-      }
-
-      console.log('[PROVIDER-LOOKUP] Provider not found, auto-registering...');
       // Provider not found — auto-register
-      // Use per-acte care_type for provider type detection
+      const acte = mfData.acte;
       const acteCareType = (acte.care_type || careType || 'consultation') as string;
       const provType = acteCareType === 'pharmacy' ? 'pharmacist' : acteCareType === 'lab' ? 'lab' : acteCareType === 'hospital' ? 'clinic' : 'doctor';
-      const effectiveName = nomPraticien.length >= 2 ? nomPraticien : `Praticien MF ${normalizedMf}`;
+      const effectiveName = mfData.nomPraticien.length >= 2 ? mfData.nomPraticien : `Praticien MF ${mfData.normalizedMf}`;
 
       try {
         const newProviderId = generateId();
-        const licenseNo = `MF-${normalizedMf}`;
+        const licenseNo = `MF-${mfData.normalizedMf}`;
 
         // Check if license_no already exists (UNIQUE constraint)
         const existingByLicense = await db
@@ -1946,11 +1962,10 @@ bulletinsAgent.post('/create', async (c) => {
             `INSERT INTO providers (id, type, name, license_no, mf_number, mf_verified, is_active, address, city, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, 0, 1, 'À compléter', 'À compléter', datetime('now'), datetime('now'))`
           )
-          .bind(newProviderId, provType, effectiveName, licenseNo, rawMf)
+          .bind(newProviderId, provType, effectiveName, licenseNo, mfData.rawMf)
           .run();
-        console.log('[PROVIDER-LOOKUP] Inserted into providers table:', newProviderId);
 
-        // Also insert into sante_praticiens (annuaire praticiens)
+        // Fire secondary inserts in parallel (sante_praticiens, MF verification, audit)
         const santePraticienId = generateId();
         const santeType = acteCareType === 'pharmacy' ? 'pharmacien'
           : acteCareType === 'lab' ? 'laborantin'
@@ -1960,56 +1975,44 @@ bulletinsAgent.post('/create', async (c) => {
           : acteCareType === 'lab' ? 'Laboratoire'
           : acteCareType === 'hospital' ? 'Hospitalisation'
           : 'Médecine générale';
+        const verificationId = generateId();
 
-        try {
-          await db
+        await Promise.allSettled([
+          db
             .prepare(
               `INSERT INTO sante_praticiens (id, provider_id, nom, specialite, type_praticien, est_conventionne, is_active, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'), datetime('now'))`
             )
             .bind(santePraticienId, newProviderId, effectiveName, santeSpecialite, santeType)
-            .run();
-          console.log('[PROVIDER-LOOKUP] Inserted into sante_praticiens:', santePraticienId);
-        } catch (spError) {
-          console.error('[PROVIDER-LOOKUP] sante_praticiens INSERT failed:', spError instanceof Error ? spError.message : spError);
-        }
-
-        // Create pending MF verification
-        try {
-          const verificationId = generateId();
-          await db
+            .run(),
+          db
             .prepare(
               `INSERT INTO practitioner_mf_verifications (id, provider_id, mf_number, verification_status, created_at, updated_at)
                VALUES (?, ?, ?, 'pending', datetime('now'), datetime('now'))`
             )
-            .bind(verificationId, newProviderId, rawMf)
-            .run();
-        } catch (mfvError) {
-          console.error('[PROVIDER-LOOKUP] MF verification INSERT failed:', mfvError instanceof Error ? mfvError.message : mfvError);
-        }
+            .bind(verificationId, newProviderId, mfData.rawMf)
+            .run(),
+          logAudit(db, {
+            userId: user.id,
+            action: 'provider.auto_register',
+            entityType: 'provider',
+            entityId: newProviderId,
+            changes: { mfNumber: mfData.normalizedMf, name: effectiveName, source: 'bulletin_creation', santePraticienId },
+            ipAddress: c.req.header('CF-Connecting-IP'),
+            userAgent: c.req.header('User-Agent'),
+          }),
+        ]);
 
-        // Audit log
-        await logAudit(db, {
-          userId: user.id,
-          action: 'provider.auto_register',
-          entityType: 'provider',
-          entityId: newProviderId,
-          changes: { mfNumber: normalizedMf, name: effectiveName, source: 'bulletin_creation', santePraticienId },
-          ipAddress: c.req.header('CF-Connecting-IP'),
-          userAgent: c.req.header('User-Agent'),
-        });
-
-        console.log('[PROVIDER-LOOKUP] Auto-registered provider:', newProviderId, effectiveName, normalizedMf);
+        console.log('[PROVIDER-LOOKUP] Auto-registered provider:', newProviderId, effectiveName, mfData.normalizedMf);
         providerIds.push(newProviderId);
-        newlyRegisteredProviders.push({ id: newProviderId, name: effectiveName, mfNumber: normalizedMf });
+        newlyRegisteredProviders.push({ id: newProviderId, name: effectiveName, mfNumber: mfData.normalizedMf });
       } catch (providerError) {
-        // If insert fails (e.g. race condition), try to find by MF again
         const errMsg = providerError instanceof Error ? providerError.message : String(providerError);
         console.error('[PROVIDER-LOOKUP] Auto-register failed:', errMsg, providerError);
-        newlyRegisteredProviders.push({ id: 'ERROR', name: errMsg, mfNumber: normalizedMf });
+        newlyRegisteredProviders.push({ id: 'ERROR', name: errMsg, mfNumber: mfData.normalizedMf });
         const retryProvider = await db
           .prepare('SELECT id, name FROM providers WHERE mf_number = ? AND deleted_at IS NULL LIMIT 1')
-          .bind(normalizedMf)
+          .bind(mfData.normalizedMf)
           .first<{ id: string; name: string }>();
         providerIds.push(retryProvider?.id || null);
       }
@@ -2087,60 +2090,59 @@ bulletinsAgent.post('/create', async (c) => {
         contractId = contract?.id ?? null;
       }
 
-      // Resolve acte_ref_id for each acte
-      const acteRefs: Array<{
-        ref: { id: string; taux_remboursement: number } | null;
-        code: string;
-      }> = [];
-      for (const acte of actes) {
-        const code = acte.code?.trim();
-        if (code) {
-          const ref = await findActeRefByCode(db, code);
-          acteRefs.push({ ref: ref as { id: string; taux_remboursement: number } | null, code });
-        } else {
-          acteRefs.push({ ref: null, code: '' });
-        }
-      }
+      // Resolve acte_ref_id + medication matches in parallel for all actes
+      // Skip lookups when frontend already provides pre-resolved IDs
+      const isPharmacy = careType === 'pharmacy' || careType === 'pharmacie_chronique';
 
-      // Medication matching for pharmacy care type
-      // Lookup medication by code (code_pct or code_amm) to populate medication_id + medication_family_id
-      const medicationMatches: Array<{
-        medicationId: string | null;
-        medicationFamilyId: string | null;
-        tauxApplique: number | null;
-      }> = [];
-
-      if (careType === 'pharmacy' || careType === 'pharmacie_chronique') {
-        for (const acte of actes) {
-          const code = acte.code?.trim();
-          if (!code) {
-            medicationMatches.push({ medicationId: null, medicationFamilyId: null, tauxApplique: null });
-            continue;
-          }
-          const med = await db
-            .prepare(
-              `SELECT id, family_id, reimbursement_rate FROM medications
-               WHERE (code_pct = ? OR code_amm = ?) AND deleted_at IS NULL AND is_active = 1
-               LIMIT 1`
-            )
-            .bind(code, code)
-            .first<{ id: string; family_id: string | null; reimbursement_rate: number | null }>();
-
-          if (med) {
-            medicationMatches.push({
-              medicationId: med.id,
-              medicationFamilyId: med.family_id,
-              tauxApplique: med.reimbursement_rate,
-            });
-          } else {
-            medicationMatches.push({ medicationId: null, medicationFamilyId: null, tauxApplique: null });
-          }
-        }
-      } else {
-        for (const _acte of actes) {
-          medicationMatches.push({ medicationId: null, medicationFamilyId: null, tauxApplique: null });
-        }
-      }
+      const [acteRefs, medicationMatches] = await Promise.all([
+        // Parallel acte ref lookups — skip if acte_ref_id provided
+        Promise.all(
+          actes.map(async (acte) => {
+            if (acte.acte_ref_id) {
+              const ref = await db
+                .prepare('SELECT id, taux_remboursement FROM actes_referentiel WHERE id = ? AND is_active = 1')
+                .bind(acte.acte_ref_id)
+                .first<{ id: string; taux_remboursement: number }>();
+              if (ref) return { ref, code: acte.code?.trim() || '' };
+            }
+            const code = acte.code?.trim();
+            if (code) {
+              const ref = await findActeRefByCode(db, code);
+              return { ref: ref as { id: string; taux_remboursement: number } | null, code };
+            }
+            return { ref: null, code: '' };
+          })
+        ),
+        // Parallel medication lookups — skip if medication_id provided
+        Promise.all(
+          actes.map(async (acte) => {
+            if (acte.medication_id) {
+              const med = await db
+                .prepare('SELECT id, family_id, reimbursement_rate FROM medications WHERE id = ?')
+                .bind(acte.medication_id)
+                .first<{ id: string; family_id: string | null; reimbursement_rate: number | null }>();
+              if (med) {
+                return { medicationId: med.id, medicationFamilyId: acte.medication_family_id || med.family_id, tauxApplique: med.reimbursement_rate };
+              }
+            }
+            if (!isPharmacy) return { medicationId: null, medicationFamilyId: null, tauxApplique: null };
+            const code = acte.code?.trim();
+            if (!code) return { medicationId: null, medicationFamilyId: null, tauxApplique: null };
+            const med = await db
+              .prepare(
+                `SELECT id, family_id, reimbursement_rate FROM medications
+                 WHERE (code_pct = ? OR code_amm = ?) AND deleted_at IS NULL AND is_active = 1
+                 LIMIT 1`
+              )
+              .bind(code, code)
+              .first<{ id: string; family_id: string | null; reimbursement_rate: number | null }>();
+            if (med) {
+              return { medicationId: med.id, medicationFamilyId: med.family_id, tauxApplique: med.reimbursement_rate };
+            }
+            return { medicationId: null, medicationFamilyId: null, tauxApplique: null };
+          })
+        ),
+      ]);
 
       // Contract-bareme-aware calculation (TASK-006)
       if (contractId && adherentId) {
@@ -2259,27 +2261,32 @@ bulletinsAgent.post('/create', async (c) => {
           .run();
 
         // Update plafonds via mettreAJourPlafonds for each acte (TASK-006)
+        // Parallel lookup of famille_ids, then sequential plafond updates
         const annee = Number(bulletinDate.split('-')[0]);
-        for (let i = 0; i < actes.length; i++) {
-          const acteRefInfo = acteRefs[i]!;
-          const baremeResult = baremeResults[i]!;
-          if (acteRefInfo.ref && baremeResult.montantRembourse > 0) {
-            // Lookup famille_id from actes_referentiel
-            const acteRefRow = await db
-              .prepare('SELECT famille_id FROM actes_referentiel WHERE id = ?')
-              .bind(acteRefInfo.ref.id)
-              .first<{ famille_id: string | null }>();
+        const typeMaladie = (careType === 'pharmacie_chronique' ? 'chronique' : 'ordinaire') as 'ordinaire' | 'chronique';
 
+        const familleIds = await Promise.all(
+          actes.map(async (_acte, i) => {
+            const acteRefInfo = acteRefs[i]!;
+            const baremeResult = baremeResults[i]!;
+            if (acteRefInfo.ref && baremeResult.montantRembourse > 0) {
+              const row = await db
+                .prepare('SELECT famille_id FROM actes_referentiel WHERE id = ?')
+                .bind(acteRefInfo.ref.id)
+                .first<{ famille_id: string | null }>();
+              return row?.famille_id ?? null;
+            }
+            return null;
+          })
+        );
+
+        // Sequential plafond updates (shared counter — cannot parallelize)
+        for (let i = 0; i < actes.length; i++) {
+          const baremeResult = baremeResults[i]!;
+          if (baremeResult.montantRembourse > 0 && familleIds[i] !== undefined) {
             await mettreAJourPlafonds(
-              db,
-              adherentId,
-              contractId,
-              annee,
-              acteRefRow?.famille_id ?? null,
-              baremeResult.montantRembourse,
-              (careType === 'pharmacie_chronique' ? 'chronique' : 'ordinaire') as
-                | 'ordinaire'
-                | 'chronique'
+              db, adherentId, contractId, annee,
+              familleIds[i]!, baremeResult.montantRembourse, typeMaladie
             );
           }
         }

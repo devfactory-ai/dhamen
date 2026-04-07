@@ -1,6 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient, API_BASE_URL } from '@/lib/api-client';
 
+export interface HistoryActeSummary {
+  id: string;
+  code: string | null;
+  label: string;
+  amount: number;
+  careType: string | null;
+  tauxRemboursement: number | null;
+  montantRembourse: number | null;
+  medicationId: string | null;
+}
+
 export interface HistoryBulletin {
   id: string;
   bulletinNumber: string;
@@ -17,6 +28,7 @@ export interface HistoryBulletin {
   adherentLastName: string | null;
   adherentMatricule: string | null;
   actesCount: number;
+  actes: HistoryActeSummary[];
 }
 
 export interface HistoryActe {
@@ -24,11 +36,21 @@ export interface HistoryActe {
   code: string | null;
   label: string;
   amount: number;
+  careType: string | null;
   tauxRemboursement: number | null;
   montantRembourse: number | null;
   remboursementBrut: number | null;
   plafondDepasse: boolean;
   acteRefId: string | null;
+  refProfSant: string | null;
+  nomProfSant: string | null;
+  providerNameResolved: string | null;
+  providerMf: string | null;
+  medicationName: string | null;
+  medicationDci: string | null;
+  medicationCodePct: string | null;
+  medicationFamilyName: string | null;
+  acteRefLabel: string | null;
 }
 
 export interface HistoryBulletinDetail {
