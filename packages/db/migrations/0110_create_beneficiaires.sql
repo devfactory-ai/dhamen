@@ -52,5 +52,5 @@ SELECT
 FROM adherents
 WHERE code_type = 'E' AND parent_adherent_id IS NOT NULL;
 
--- Add beneficiaire_id FK to bulletins_soins
-ALTER TABLE bulletins_soins ADD COLUMN beneficiaire_id TEXT REFERENCES beneficiaires(id);
+-- beneficiaire_id column may already exist on some tenant DBs
+SELECT 1; -- beneficiaire_id no-op

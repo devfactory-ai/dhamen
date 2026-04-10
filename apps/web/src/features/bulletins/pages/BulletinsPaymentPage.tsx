@@ -258,7 +258,7 @@ export default function BulletinsPaymentPage() {
     },
     {
       key: 'adherent',
-      header: 'Adherent',
+      header: 'Adhérent',
       render: (row: BulletinPayment) => (
         <div>
           <p className="font-medium">{row.adherent_first_name} {row.adherent_last_name}</p>

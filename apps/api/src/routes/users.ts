@@ -341,6 +341,7 @@ users.post('/import', requireRole('ADMIN'), zValidator('json', userImportSchema,
         firstName: userData.firstName,
         lastName: userData.lastName,
         phone: userData.phone,
+        mfaEnabled: true,
       });
 
       results.success++;

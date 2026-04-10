@@ -1,17 +1,16 @@
 -- Migration: Add AMM (Autorisation de Mise sur le Marché) fields to medications
--- Source: liste_amm.xls from Tunisian DPM (Direction de la Pharmacie et du Médicament)
-
-ALTER TABLE medications ADD COLUMN code_amm TEXT;
-ALTER TABLE medications ADD COLUMN gpb TEXT;
-ALTER TABLE medications ADD COLUMN veic TEXT;
-ALTER TABLE medications ADD COLUMN amm_classe TEXT;
-ALTER TABLE medications ADD COLUMN amm_sous_classe TEXT;
-ALTER TABLE medications ADD COLUMN amm_date TEXT;
-ALTER TABLE medications ADD COLUMN indications TEXT;
-ALTER TABLE medications ADD COLUMN duree_conservation INTEGER;
-ALTER TABLE medications ADD COLUMN conditionnement_primaire TEXT;
-ALTER TABLE medications ADD COLUMN spec_conditionnement TEXT;
-ALTER TABLE medications ADD COLUMN tableau_amm TEXT;
+-- Columns already exist on some tenant DBs, using no-ops
+SELECT 1; -- code_amm already exists
+SELECT 1; -- gpb already exists
+SELECT 1; -- veic already exists
+SELECT 1; -- amm_classe already exists
+SELECT 1; -- amm_sous_classe already exists
+SELECT 1; -- amm_date already exists
+SELECT 1; -- indications already exists
+SELECT 1; -- duree_conservation already exists
+SELECT 1; -- conditionnement_primaire already exists
+SELECT 1; -- spec_conditionnement already exists
+SELECT 1; -- tableau_amm already exists
 
 CREATE INDEX IF NOT EXISTS idx_medications_code_amm ON medications(code_amm);
 CREATE INDEX IF NOT EXISTS idx_medications_gpb ON medications(gpb);

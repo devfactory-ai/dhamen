@@ -9,7 +9,7 @@ interface FamilleTableProps {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  A: 'Adherent',
+  A: 'Adhérent',
   C: 'Conjoint',
   E: 'Enfant',
 };

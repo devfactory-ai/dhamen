@@ -13,6 +13,7 @@
 
 html {
   scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 body {
@@ -130,7 +131,7 @@ h1, h2, h3, h4, h5, h6 {
   color: rgba(255, 255, 255, 0.7);
 }
 
-/* Step connector */
+/* Step connector — only visible on lg (4-col layout) */
 .step-connector {
   position: relative;
 }
@@ -144,6 +145,13 @@ h1, h2, h3, h4, h5, h6 {
   height: 2px;
   background: linear-gradient(90deg, #0051d5, #c5c6cc);
   z-index: 0;
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .step-connector::after {
+    display: block;
+  }
 }
 
 [dir="rtl"] .step-connector::after {
@@ -156,22 +164,18 @@ h1, h2, h3, h4, h5, h6 {
   display: none;
 }
 
-/* Mobile menu */
-.mobile-menu {
-  transform: translateX(-100%);
-  transition: transform 0.3s ease;
-}
-
-.mobile-menu.open {
+/* RTL mobile menu override */
+[dir="rtl"] .translate-x-0 {
   transform: translateX(0);
 }
 
-[dir="rtl"] .mobile-menu {
+[dir="rtl"] .-translate-x-full {
   transform: translateX(100%);
 }
 
-[dir="rtl"] .mobile-menu.open {
-  transform: translateX(0);
+[dir="rtl"] .left-0 {
+  left: auto;
+  right: 0;
 }
 
 /* Form focus */

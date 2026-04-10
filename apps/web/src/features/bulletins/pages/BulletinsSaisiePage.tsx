@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import React,{ useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -93,6 +93,8 @@ import {
   Lock,
   ClipboardList,
   ShieldCheck,
+  ChevronDown,
+  Send,
 } from 'lucide-react';
 import { FloatingHelp } from '@/components/ui/floating-help';
 
@@ -150,6 +152,13 @@ interface BulletinSaisie {
   actes?: BulletinSaisieActe[];
 }
 
+interface BulletinSubItem {
+  id: string;
+  label: string;
+  code: string | null;
+  amount: number;
+}
+
 interface BulletinActeDetail {
   id: string;
   code: string;
@@ -169,6 +178,7 @@ interface BulletinActeDetail {
   medication_code_pct: string | null;
   medication_family_name: string | null;
   acte_ref_label: string | null;
+  sub_items?: BulletinSubItem[];
 }
 
 interface BulletinDetail extends BulletinSaisie {
@@ -184,6 +194,7 @@ const bulletinStatusConfig: Record<string, { label: string; variant: 'secondary'
   exported: { label: 'Exporte', variant: 'outline' },
   approved: { label: 'Validé', variant: 'default', className: 'bg-green-600 hover:bg-green-700' },
   rejected: { label: 'Rejeté', variant: 'destructive' },
+  paper_complete: { label: 'Soumis à validation', variant: 'default', className: 'bg-orange-500 hover:bg-orange-600' },
   soumis: { label: 'Soumis', variant: 'default' },
   en_examen: { label: 'En examen', variant: 'default', className: 'bg-yellow-500 hover:bg-yellow-600' },
   approuve: { label: 'Approuvé', variant: 'default', className: 'bg-green-600 hover:bg-green-700' },
@@ -281,6 +292,39 @@ function mapNatureActeToCode(natureActe: string): { code: string; label: string 
     }
   }
   return null;
+}
+
+/** Collapsible list of sub-items (medications, analyses, etc.) within an acte */
+function SubItemsList({ items, formatAmount }: { items: BulletinSubItem[]; formatAmount: (n: number) => string }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <div className="mt-1 pl-3 border-l-2 border-muted">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors w-full"
+      >
+        <ChevronDown className={`h-3 w-3 transition-transform ${open ? '' : '-rotate-90'}`} />
+        {items.length} element{items.length > 1 ? 's' : ''}
+      </button>
+      {open && (
+        <div className="space-y-1 mt-1">
+          {items.map((si, siIdx) => (
+            <div key={si.id || siIdx} className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">{siIdx + 1}.</span>
+                <span>{si.label}</span>
+                {si.code && (
+                  <span className="font-mono text-[10px] bg-muted px-1 rounded">{si.code}</span>
+                )}
+              </div>
+              <span className="font-medium tabular-nums">{formatAmount(si.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function BulletinsSaisiePage() {
@@ -568,7 +612,7 @@ export function BulletinsSaisiePage() {
     queryKey: ["agent-bulletins", selectedCompany?.id, selectedBatch?.id, searchQuery],
     queryFn: async () => {
       const params = new URLSearchParams();
-      params.append("status", "draft,in_batch,approved,rejected");
+      params.append("status", "draft,in_batch,paper_complete,approved,rejected");
       if (selectedCompany) params.append("companyId", selectedCompany.id);
       if (selectedBatch) params.append("batchId", selectedBatch.id);
       if (searchQuery) params.append("search", searchQuery);
@@ -644,9 +688,8 @@ export function BulletinsSaisiePage() {
         }
       });
 
-      // Send actes as JSON array (sub_items are informational, strip before sending)
-      const actesForBackend = data.formData.actes.map(({ sub_items: _, ...acte }) => acte);
-      form.append("actes", JSON.stringify(actesForBackend));
+      // Send actes as JSON array (include sub_items for storage)
+      form.append("actes", JSON.stringify(data.formData.actes));
 
       // Attach batch_id and company_id from agent context
       if (selectedBatch) {
@@ -939,6 +982,39 @@ export function BulletinsSaisiePage() {
   // View bulletin detail
   const [viewBulletin, setViewBulletin] = useState<BulletinDetail | null>(null);
   const [deleteBulletinId, setDeleteBulletinId] = useState<string | null>(null);
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
+
+  const submitToValidation = async (id: string) => {
+    setSubmittingId(id);
+    try {
+      const response = await apiClient.post(`/bulletins-soins/agent/${id}/submit`, {});
+      if (response.success) {
+        toast.success('Bulletin soumis à la validation');
+        queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
+      } else {
+        toast.error(response.error?.message || 'Erreur lors de la soumission');
+      }
+    } catch {
+      toast.error('Erreur lors de la soumission');
+    } finally {
+      setSubmittingId(null);
+    }
+  };
+
+  const bulkSubmitToValidation = async (ids: string[]) => {
+    try {
+      const response = await apiClient.post('/bulletins-soins/agent/bulk-submit', { ids });
+      if (response.success) {
+        toast.success(`${(response.data as { submitted: number })?.submitted || ids.length} bulletin(s) soumis à la validation`);
+        queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
+        setSelectedBulletins([]);
+      } else {
+        toast.error(response.error?.message || 'Erreur lors de la soumission');
+      }
+    } catch {
+      toast.error('Erreur lors de la soumission');
+    }
+  };
 
   const fetchBulletinDetail = async (id: string) => {
     const response = await apiClient.get<BulletinDetail>(
@@ -4589,17 +4665,27 @@ export function BulletinsSaisiePage() {
                     className="pl-9 w-full sm:w-64 rounded-xl border-gray-200 bg-gray-50 focus:bg-white"
                   />
                 </div>
-                {canDelete && selectedBulletins.length > 0 && (
+                {selectedBulletins.length > 0 && (
                   <div className="flex items-center gap-2">
                     <Button
                       variant="outline"
-                      className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
-                      onClick={() => setBulkDeleteBulletinConfirm(true)}
-                      disabled={bulkDeleteMutation.isPending}
+                      className="gap-2 text-orange-600 border-orange-200 hover:bg-orange-50"
+                      onClick={() => bulkSubmitToValidation(selectedBulletins)}
                     >
-                      <Trash2 className="h-4 w-4" />
-                      Supprimer ({selectedBulletins.length})
+                      <Send className="h-4 w-4" />
+                      Soumettre ({selectedBulletins.length})
                     </Button>
+                    {canDelete && (
+                      <Button
+                        variant="outline"
+                        className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
+                        onClick={() => setBulkDeleteBulletinConfirm(true)}
+                        disabled={bulkDeleteMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Supprimer ({selectedBulletins.length})
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
@@ -4755,23 +4841,34 @@ export function BulletinsSaisiePage() {
                         <Eye className="h-4 w-4" />
                       </button>
                       {["draft", "in_batch"].includes(row.status) && (
-                        <button
-                          type="button"
-                          className="rounded-lg p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
-                          title="Valider"
-                          onClick={async () => {
-                            const response =
-                              await apiClient.get<BulletinDetail>(
-                                `/bulletins-soins/agent/${row.id}`,
-                              );
-                            if (response.success && response.data) {
-                              setValidateBulletinTarget(response.data);
-                              setShowValidateDialog(true);
-                            }
-                          }}
-                        >
-                          <CheckCircle2 className="h-4 w-4" />
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="rounded-lg p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                            title="Valider"
+                            onClick={async () => {
+                              const response =
+                                await apiClient.get<BulletinDetail>(
+                                  `/bulletins-soins/agent/${row.id}`,
+                                );
+                              if (response.success && response.data) {
+                                setValidateBulletinTarget(response.data);
+                                setShowValidateDialog(true);
+                              }
+                            }}
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-lg p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 transition-colors"
+                            title="Soumettre à validation"
+                            disabled={submittingId === row.id}
+                            onClick={() => submitToValidation(row.id)}
+                          >
+                            <Send className="h-4 w-4" />
+                          </button>
+                        </>
                       )}
                       {canDelete && row.status !== "exported" && (
                         <button
@@ -5320,6 +5417,11 @@ export function BulletinsSaisiePage() {
                                 <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">{acte.medication_family_name}</Badge>
                               )}
                             </div>
+                          )}
+
+                          {/* Sub-items (medications, analyses, etc.) — collapsible */}
+                          {acte.sub_items && acte.sub_items.length > 0 && (
+                            <SubItemsList items={acte.sub_items} formatAmount={formatAmount} />
                           )}
 
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">

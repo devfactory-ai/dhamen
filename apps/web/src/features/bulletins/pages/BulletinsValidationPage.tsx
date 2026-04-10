@@ -64,6 +64,7 @@ import {
   Info,
   Printer,
   Filter,
+  Archive,
 } from 'lucide-react';
 
 
@@ -77,7 +78,10 @@ type BulletinStatus =
   | 'approved'
   | 'pending_payment'
   | 'reimbursed'
-  | 'rejected';
+  | 'rejected'
+  | 'in_batch'
+  | 'exported'
+  | 'archived';
 
 interface BulletinSoins {
   id: string;
@@ -119,6 +123,7 @@ interface BulletinStats {
   pending_payment: number;
   reimbursed: number;
   rejected: number;
+  archived: number;
   total_amount: number;
   total_reimbursed: number;
   awaiting_payment_amount: number;
@@ -195,7 +200,40 @@ const statusConfig: Record<BulletinStatus, {
     color: 'text-red-600 bg-red-50',
     description: 'Demande rejetée',
   },
+  in_batch: {
+    label: 'Dans un lot',
+    icon: Package,
+    variant: 'default',
+    color: 'text-indigo-600 bg-indigo-50',
+    description: 'Intégré dans un lot de remboursement',
+  },
+  exported: {
+    label: 'Exporté',
+    icon: FileDown,
+    variant: 'secondary',
+    color: 'text-slate-600 bg-slate-50',
+    description: 'Lot exporté pour traitement',
+  },
+  archived: {
+    label: 'Archivé',
+    icon: Archive,
+    variant: 'outline',
+    color: 'text-gray-500 bg-gray-50',
+    description: 'Bulletin archivé',
+  },
 };
+
+const defaultStatusConfig = {
+  label: 'Inconnu',
+  icon: Clock,
+  variant: 'outline' as const,
+  color: 'text-gray-600 bg-gray-50',
+  description: 'Statut non reconnu',
+};
+
+function getStatusConfig(status: string) {
+  return statusConfig[status as BulletinStatus] || defaultStatusConfig;
+}
 
 const careTypeConfig: Record<string, { label: string; icon: typeof Stethoscope }> = {
   consultation: { label: 'Consultation', icon: Stethoscope },
@@ -215,6 +253,9 @@ const validTransitions: Record<BulletinStatus, BulletinStatus[]> = {
   pending_payment: ['reimbursed', 'rejected'],
   reimbursed: [],
   rejected: [],
+  in_batch: ['reimbursed', 'rejected'],
+  exported: ['reimbursed', 'rejected'],
+  archived: [],
 };
 
 export function BulletinsValidationPage() {
@@ -236,6 +277,8 @@ export function BulletinsValidationPage() {
   const [newStatus, setNewStatus] = useState<BulletinStatus | ''>('');
   const [missingDocuments, setMissingDocuments] = useState('');
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [archiveConfirm, setArchiveConfirm] = useState(false);
 
   // Fetch bulletins
   const { data: bulletinsData, isLoading } = useQuery({
@@ -255,8 +298,14 @@ export function BulletinsValidationPage() {
 
       const response = await apiClient.get<BulletinSoins[]>(`/bulletins-soins/manage?${params}`);
       if (!response.success) throw new Error(response.error?.message);
+      const bulletins = (response.data || []).map((b) => ({
+        ...b,
+        missing_documents: typeof b.missing_documents === 'string'
+          ? (() => { try { return JSON.parse(b.missing_documents as unknown as string); } catch { return null; } })()
+          : b.missing_documents,
+      }));
       return {
-        data: response.data || [],
+        data: bulletins,
         meta: (response as { meta?: { total: number; page: number; limit: number } }).meta || { total: 0, page: 1, limit: 20 },
       };
     },
@@ -343,6 +392,39 @@ export function BulletinsValidationPage() {
     },
   });
 
+  const archiveMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const response = await apiClient.post('/bulletins-soins/manage/bulk-archive', { ids });
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      const count = (data as { archived: number })?.archived || selectedIds.length;
+      queryClient.invalidateQueries({ queryKey: ['bulletins-validation'] });
+      queryClient.invalidateQueries({ queryKey: ['bulletins-validation-stats'] });
+      toast.success(`${count} bulletin(s) archivé(s)`);
+      setSelectedIds([]);
+      setArchiveConfirm(false);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Erreur lors de l\'archivage');
+    },
+  });
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  const handleToggleSelectAll = () => {
+    const currentIds = (bulletinsData?.data || []).map((b: BulletinSoins) => b.id);
+    const allSelected = currentIds.length > 0 && currentIds.every((id: string) => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds(prev => prev.filter(id => !currentIds.includes(id)));
+    } else {
+      setSelectedIds(prev => [...new Set([...prev, ...currentIds])]);
+    }
+  };
+
   const formatAmount = (amount: number) => {
     return new Intl.NumberFormat('fr-TN', {
       style: 'currency',
@@ -404,7 +486,33 @@ export function BulletinsValidationPage() {
     return validTransitions[currentStatus] || [];
   };
 
+  const allOnPageSelected = (() => {
+    const ids = (bulletinsData?.data || []).map((b: BulletinSoins) => b.id);
+    return ids.length > 0 && ids.every((id: string) => selectedIds.includes(id));
+  })();
+
   const columns = [
+    {
+      key: 'checkbox',
+      header: (
+        <input
+          type="checkbox"
+          checked={allOnPageSelected}
+          onChange={handleToggleSelectAll}
+          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+        />
+      ),
+      className: 'w-10',
+      render: (row: BulletinSoins) => (
+        <input
+          type="checkbox"
+          checked={selectedIds.includes(row.id)}
+          onChange={() => handleToggleSelect(row.id)}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          className="h-4 w-4 rounded border-gray-300"
+        />
+      ),
+    },
     {
       key: 'bulletin',
       header: 'Bulletin',
@@ -501,7 +609,7 @@ export function BulletinsValidationPage() {
       key: 'status',
       header: 'Statut',
       render: (row: BulletinSoins) => {
-        const config = statusConfig[row.status];
+        const config = getStatusConfig(row.status);
         const Icon = config.icon;
         return (
           <Badge variant={config.variant as 'default' | 'secondary' | 'destructive' | 'outline'} className="gap-1">
@@ -592,7 +700,9 @@ export function BulletinsValidationPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">A traiter</p>
-                <p className="text-2xl font-bold text-yellow-600">{pendingCount}</p>
+                <p className="text-2xl font-bold text-yellow-600">
+                  {pendingCount}
+                </p>
               </div>
               <Clock className="h-8 w-8 text-yellow-500/50" />
             </div>
@@ -603,7 +713,9 @@ export function BulletinsValidationPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Scans reçus</p>
-                <p className="text-2xl font-bold">{stats?.scan_uploaded || 0}</p>
+                <p className="text-2xl font-bold">
+                  {stats?.scan_uploaded || 0}
+                </p>
               </div>
               <FileImage className="h-8 w-8 text-blue-500/50" />
             </div>
@@ -614,7 +726,9 @@ export function BulletinsValidationPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Papiers reçus</p>
-                <p className="text-2xl font-bold">{stats?.paper_received || 0}</p>
+                <p className="text-2xl font-bold">
+                  {stats?.paper_received || 0}
+                </p>
               </div>
               <Package className="h-8 w-8 text-indigo-500/50" />
             </div>
@@ -625,7 +739,9 @@ export function BulletinsValidationPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Incomplets</p>
-                <p className="text-2xl font-bold text-orange-600">{stats?.paper_incomplete || 0}</p>
+                <p className="text-2xl font-bold text-orange-600">
+                  {stats?.paper_incomplete || 0}
+                </p>
               </div>
               <AlertCircle className="h-8 w-8 text-orange-500/50" />
             </div>
@@ -636,7 +752,9 @@ export function BulletinsValidationPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Remboursés</p>
-                <p className="text-2xl font-bold text-green-600">{stats?.reimbursed || 0}</p>
+                <p className="text-2xl font-bold text-green-600">
+                  {stats?.reimbursed || 0}
+                </p>
               </div>
               <CheckCircle2 className="h-8 w-8 text-green-500/50" />
             </div>
@@ -647,7 +765,9 @@ export function BulletinsValidationPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Rejetés</p>
-                <p className="text-2xl font-bold text-red-600">{stats?.rejected || 0}</p>
+                <p className="text-2xl font-bold text-red-600">
+                  {stats?.rejected || 0}
+                </p>
               </div>
               <XCircle className="h-8 w-8 text-red-500/50" />
             </div>
@@ -662,7 +782,9 @@ export function BulletinsValidationPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-blue-700">Montant en attente</p>
-                <p className="text-3xl font-bold text-blue-900">{formatAmount(stats?.pending_amount || 0)}</p>
+                <p className="text-3xl font-bold text-blue-900">
+                  {formatAmount(stats?.pending_amount || 0)}
+                </p>
               </div>
               <CreditCard className="h-10 w-10 text-blue-400" />
             </div>
@@ -673,7 +795,9 @@ export function BulletinsValidationPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-green-700">Total Remboursé</p>
-                <p className="text-3xl font-bold text-green-900">{formatAmount(stats?.total_reimbursed || 0)}</p>
+                <p className="text-3xl font-bold text-green-900">
+                  {formatAmount(stats?.total_reimbursed || 0)}
+                </p>
               </div>
               <CheckCircle2 className="h-10 w-10 text-green-400" />
             </div>
@@ -683,73 +807,171 @@ export function BulletinsValidationPage() {
 
       {/* Filters */}
       <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-          <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Rechercher par nom, CIN, numero..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
+        <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Rechercher par nom, CIN, numero..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
             </div>
-            <FilterDropdown
-              label="Statut"
-              value={
-                {
-                  all: 'Tous les statuts',
-                  pending: 'A traiter',
-                  scan_uploaded: 'Scan soumis',
-                  paper_received: 'Papier reçu',
-                  paper_incomplete: 'Dossier incomplet',
-                  paper_complete: 'Dossier complet',
-                  processing: 'En traitement',
-                  approved: 'Approuvé',
-                  pending_payment: 'En attente paiement',
-                  reimbursed: 'Remboursé',
-                  rejected: 'Rejeté',
-                }[statusFilter] || 'Tous les statuts'
-              }
-              open={statusDropdownOpen}
-              onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
-              onClose={() => setStatusDropdownOpen(false)}
-              menuWidth="w-56"
-            >
-              <FilterOption selected={statusFilter === 'all'} onClick={() => { setStatusFilter('all'); setStatusDropdownOpen(false); }}>Tous les statuts</FilterOption>
-              <FilterOption selected={statusFilter === 'pending'} onClick={() => { setStatusFilter('pending'); setStatusDropdownOpen(false); }}>A traiter</FilterOption>
-              <FilterOption selected={statusFilter === 'scan_uploaded'} onClick={() => { setStatusFilter('scan_uploaded'); setStatusDropdownOpen(false); }}>Scan soumis</FilterOption>
-              <FilterOption selected={statusFilter === 'paper_received'} onClick={() => { setStatusFilter('paper_received'); setStatusDropdownOpen(false); }}>Papier reçu</FilterOption>
-              <FilterOption selected={statusFilter === 'paper_incomplete'} onClick={() => { setStatusFilter('paper_incomplete'); setStatusDropdownOpen(false); }}>Dossier incomplet</FilterOption>
-              <FilterOption selected={statusFilter === 'paper_complete'} onClick={() => { setStatusFilter('paper_complete'); setStatusDropdownOpen(false); }}>Dossier complet</FilterOption>
-              <FilterOption selected={statusFilter === 'processing'} onClick={() => { setStatusFilter('processing'); setStatusDropdownOpen(false); }}>En traitement</FilterOption>
-              <FilterOption selected={statusFilter === 'approved'} onClick={() => { setStatusFilter('approved'); setStatusDropdownOpen(false); }}>Approuvé</FilterOption>
-              <FilterOption selected={statusFilter === 'pending_payment'} onClick={() => { setStatusFilter('pending_payment'); setStatusDropdownOpen(false); }}>En attente paiement</FilterOption>
-              <FilterOption selected={statusFilter === 'reimbursed'} onClick={() => { setStatusFilter('reimbursed'); setStatusDropdownOpen(false); }}>Remboursé</FilterOption>
-              <FilterOption selected={statusFilter === 'rejected'} onClick={() => { setStatusFilter('rejected'); setStatusDropdownOpen(false); }}>Rejeté</FilterOption>
-            </FilterDropdown>
           </div>
+          <FilterDropdown
+            label="Statut"
+            value={
+              {
+                all: "Tous les statuts",
+                pending: "A traiter",
+                scan_uploaded: "Scan soumis",
+                paper_received: "Papier reçu",
+                paper_incomplete: "Dossier incomplet",
+                paper_complete: "Dossier complet",
+                processing: "En traitement",
+                approved: "Approuvé",
+                pending_payment: "En attente paiement",
+                reimbursed: "Remboursé",
+                rejected: "Rejeté",
+              }[statusFilter] || "Tous les statuts"
+            }
+            open={statusDropdownOpen}
+            onToggle={() => setStatusDropdownOpen(!statusDropdownOpen)}
+            onClose={() => setStatusDropdownOpen(false)}
+            menuWidth="w-56"
+          >
+            <FilterOption
+              selected={statusFilter === "all"}
+              onClick={() => {
+                setStatusFilter("all");
+                setStatusDropdownOpen(false);
+              }}
+            >
+              Tous les statuts
+            </FilterOption>
+            <FilterOption
+              selected={statusFilter === "pending"}
+              onClick={() => {
+                setStatusFilter("pending");
+                setStatusDropdownOpen(false);
+              }}
+            >
+              A traiter
+            </FilterOption>
+            <FilterOption
+              selected={statusFilter === "scan_uploaded"}
+              onClick={() => {
+                setStatusFilter("scan_uploaded");
+                setStatusDropdownOpen(false);
+              }}
+            >
+              Scan soumis
+            </FilterOption>
+            <FilterOption
+              selected={statusFilter === "paper_received"}
+              onClick={() => {
+                setStatusFilter("paper_received");
+                setStatusDropdownOpen(false);
+              }}
+            >
+              Papier reçu
+            </FilterOption>
+            <FilterOption
+              selected={statusFilter === "paper_incomplete"}
+              onClick={() => {
+                setStatusFilter("paper_incomplete");
+                setStatusDropdownOpen(false);
+              }}
+            >
+              Dossier incomplet
+            </FilterOption>
+            <FilterOption
+              selected={statusFilter === "paper_complete"}
+              onClick={() => {
+                setStatusFilter("paper_complete");
+                setStatusDropdownOpen(false);
+              }}
+            >
+              Dossier complet
+            </FilterOption>
+            <FilterOption
+              selected={statusFilter === "processing"}
+              onClick={() => {
+                setStatusFilter("processing");
+                setStatusDropdownOpen(false);
+              }}
+            >
+              En traitement
+            </FilterOption>
+            <FilterOption
+              selected={statusFilter === "approved"}
+              onClick={() => {
+                setStatusFilter("approved");
+                setStatusDropdownOpen(false);
+              }}
+            >
+              Approuvé
+            </FilterOption>
+            <FilterOption
+              selected={statusFilter === "pending_payment"}
+              onClick={() => {
+                setStatusFilter("pending_payment");
+                setStatusDropdownOpen(false);
+              }}
+            >
+              En attente paiement
+            </FilterOption>
+            <FilterOption
+              selected={statusFilter === "reimbursed"}
+              onClick={() => {
+                setStatusFilter("reimbursed");
+                setStatusDropdownOpen(false);
+              }}
+            >
+              Remboursé
+            </FilterOption>
+            <FilterOption
+              selected={statusFilter === "rejected"}
+              onClick={() => {
+                setStatusFilter("rejected");
+                setStatusDropdownOpen(false);
+              }}
+            >
+              Rejeté
+            </FilterOption>
+          </FilterDropdown>
+          {selectedIds.length > 0 && (
+            <Button
+              variant="outline"
+              className="gap-2 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+              onClick={() => setArchiveConfirm(true)}
+            >
+              <Archive className="h-4 w-4" />
+              Archiver ({selectedIds.length})
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Table */}
       <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
-          <DataTable
-            columns={columns}
-            data={bulletinsData?.data || []}
-            isLoading={isLoading}
-            emptyMessage="Aucun bulletin trouve"
-            pagination={
-              bulletinsData?.meta
-                ? {
-                    page: bulletinsData.meta.page,
-                    limit: bulletinsData.meta.limit,
-                    total: bulletinsData.meta.total,
-                    onPageChange: setPage,
-                  }
-                : undefined
-            }
-          />
+        <DataTable
+          columns={columns}
+          data={bulletinsData?.data || []}
+          isLoading={isLoading}
+          emptyMessage="Aucun bulletin trouve"
+          pagination={
+            bulletinsData?.meta
+              ? {
+                  page: bulletinsData.meta.page,
+                  limit: bulletinsData.meta.limit,
+                  total: bulletinsData.meta.total,
+                  onPageChange: setPage,
+                }
+              : undefined
+          }
+        />
       </div>
 
       {/* Details Dialog */}
@@ -766,18 +988,34 @@ export function BulletinsValidationPage() {
               {/* Status */}
               <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
                 <div className="flex items-center gap-3">
-                  <Badge variant={statusConfig[selectedBulletin.status].variant as 'default' | 'secondary' | 'destructive' | 'outline'} className="gap-1">
+                  <Badge
+                    variant={
+                      getStatusConfig(selectedBulletin.status).variant as
+                        | "default"
+                        | "secondary"
+                        | "destructive"
+                        | "outline"
+                    }
+                    className="gap-1"
+                  >
                     {(() => {
-                      const Icon = statusConfig[selectedBulletin.status].icon;
-                      return <Icon className={`h-3 w-3 ${selectedBulletin.status === 'processing' ? 'animate-spin' : ''}`} />;
+                      const Icon = getStatusConfig(
+                        selectedBulletin.status,
+                      ).icon;
+                      return (
+                        <Icon
+                          className={`h-3 w-3 ${selectedBulletin.status === "processing" ? "animate-spin" : ""}`}
+                        />
+                      );
                     })()}
-                    {statusConfig[selectedBulletin.status].label}
+                    {getStatusConfig(selectedBulletin.status).label}
                   </Badge>
                   <span className="text-sm text-muted-foreground">
-                    {statusConfig[selectedBulletin.status].description}
+                    {getStatusConfig(selectedBulletin.status).description}
                   </span>
                 </div>
-                {getAvailableTransitions(selectedBulletin.status).length > 0 && (
+                {getAvailableTransitions(selectedBulletin.status).length >
+                  0 && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -800,33 +1038,53 @@ export function BulletinsValidationPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <p className="text-sm text-muted-foreground">Adhérent</p>
-                      <p className="font-medium">{selectedBulletin.adherent_first_name} {selectedBulletin.adherent_last_name}</p>
+                      <p className="font-medium">
+                        {selectedBulletin.adherent_first_name}{" "}
+                        {selectedBulletin.adherent_last_name}
+                      </p>
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">CIN</p>
-                      <p className="font-mono">{selectedBulletin.adherent_national_id}</p>
+                      <p
+                        className="font-mono truncate"
+                        title={selectedBulletin.adherent_national_id}
+                      >
+                        {selectedBulletin.adherent_national_id}
+                      </p>
                     </div>
                     {selectedBulletin.beneficiary_name && (
                       <>
                         <div>
-                          <p className="text-sm text-muted-foreground">Ayant droit</p>
-                          <p className="font-medium">{selectedBulletin.beneficiary_name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Ayant droit
+                          </p>
+                          <p className="font-medium">
+                            {selectedBulletin.beneficiary_name}
+                          </p>
                         </div>
                         <div>
                           <p className="text-sm text-muted-foreground">Lien</p>
-                          <p>{selectedBulletin.beneficiary_relationship || '-'}</p>
+                          <p>
+                            {selectedBulletin.beneficiary_relationship || "-"}
+                          </p>
                         </div>
                       </>
                     )}
                     {selectedBulletin.contract_number && (
                       <>
                         <div>
-                          <p className="text-sm text-muted-foreground">N Contrat</p>
-                          <p className="font-mono">{selectedBulletin.contract_number}</p>
+                          <p className="text-sm text-muted-foreground">
+                            N Contrat
+                          </p>
+                          <p className="font-mono">
+                            {selectedBulletin.contract_number}
+                          </p>
                         </div>
                         <div>
-                          <p className="text-sm text-muted-foreground">Type contrat</p>
-                          <p>{selectedBulletin.contract_type || '-'}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Type contrat
+                          </p>
+                          <p>{selectedBulletin.contract_type || "-"}</p>
                         </div>
                       </>
                     )}
@@ -845,18 +1103,28 @@ export function BulletinsValidationPage() {
                 <CardContent>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <p className="text-sm text-muted-foreground">N Bulletin</p>
-                      <p className="font-mono font-medium">{selectedBulletin.bulletin_number}</p>
+                      <p className="text-sm text-muted-foreground">
+                        N Bulletin
+                      </p>
+                      <p className="font-mono font-medium">
+                        {selectedBulletin.bulletin_number}
+                      </p>
                     </div>
                     <div>
-                      <p className="text-sm text-muted-foreground">Date bulletin</p>
+                      <p className="text-sm text-muted-foreground">
+                        Date bulletin
+                      </p>
                       <p>{formatDate(selectedBulletin.bulletin_date)}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-muted-foreground">Type de soin</p>
+                      <p className="text-sm text-muted-foreground">
+                        Type de soin
+                      </p>
                       <div className="flex items-center gap-2">
                         {(() => {
-                          const config = careTypeConfig[selectedBulletin.care_type] || careTypeConfig.consultation;
+                          const config =
+                            careTypeConfig[selectedBulletin.care_type] ||
+                            careTypeConfig.consultation;
                           const Icon = config?.icon!;
                           return (
                             <>
@@ -869,24 +1137,38 @@ export function BulletinsValidationPage() {
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">Praticien</p>
-                      <p>{selectedBulletin.provider_name || '-'}</p>
+                      <p>{selectedBulletin.provider_name || "-"}</p>
                       {selectedBulletin.provider_specialty && (
-                        <p className="text-xs text-muted-foreground">{selectedBulletin.provider_specialty}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {selectedBulletin.provider_specialty}
+                        </p>
                       )}
                     </div>
                     <div>
-                      <p className="text-sm text-muted-foreground">Montant total</p>
-                      <p className="font-medium text-lg">{formatAmount(selectedBulletin.total_amount)}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Montant total
+                      </p>
+                      <p className="font-medium text-lg">
+                        {formatAmount(selectedBulletin.total_amount)}
+                      </p>
                     </div>
                     <div>
-                      <p className="text-sm text-muted-foreground">Montant Remboursé</p>
-                      <p className="font-medium text-lg text-green-600">{formatAmount(selectedBulletin.reimbursed_amount)}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Montant Remboursé
+                      </p>
+                      <p className="font-medium text-lg text-green-600">
+                        {formatAmount(selectedBulletin.reimbursed_amount)}
+                      </p>
                     </div>
                   </div>
                   {selectedBulletin.care_description && (
                     <div className="mt-4">
-                      <p className="text-sm text-muted-foreground">Description</p>
-                      <p className="mt-1">{selectedBulletin.care_description}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Description
+                      </p>
+                      <p className="mt-1">
+                        {selectedBulletin.care_description}
+                      </p>
                     </div>
                   )}
                 </CardContent>
@@ -904,42 +1186,62 @@ export function BulletinsValidationPage() {
                   <div className="space-y-3">
                     <div className="flex items-center gap-3">
                       <div className="w-2 h-2 rounded-full bg-green-500" />
-                      <span className="text-sm">Soumis le {formatDate(selectedBulletin.submission_date)}</span>
+                      <span className="text-sm">
+                        Soumis le {formatDate(selectedBulletin.submission_date)}
+                      </span>
                     </div>
                     {selectedBulletin.paper_received_date && (
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full bg-blue-500" />
-                        <span className="text-sm">Papier reçu le {formatDate(selectedBulletin.paper_received_date)}</span>
+                        <span className="text-sm">
+                          Papier reçu le{" "}
+                          {formatDate(selectedBulletin.paper_received_date)}
+                        </span>
                       </div>
                     )}
                     {selectedBulletin.processing_date && (
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full bg-blue-500" />
-                        <span className="text-sm">Traitement demarre le {formatDate(selectedBulletin.processing_date)}</span>
+                        <span className="text-sm">
+                          Traitement demarre le{" "}
+                          {formatDate(selectedBulletin.processing_date)}
+                        </span>
                       </div>
                     )}
                     {selectedBulletin.reimbursement_date && (
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full bg-green-500" />
-                        <span className="text-sm">Remboursé le {formatDate(selectedBulletin.reimbursement_date)}</span>
+                        <span className="text-sm">
+                          Remboursé le{" "}
+                          {formatDate(selectedBulletin.reimbursement_date)}
+                        </span>
                       </div>
                     )}
                     {selectedBulletin.rejection_reason && (
                       <div className="mt-3 p-3 rounded-lg bg-red-50 border border-red-200">
-                        <p className="text-sm font-medium text-red-800">Motif du rejet:</p>
-                        <p className="text-sm text-red-700">{selectedBulletin.rejection_reason}</p>
+                        <p className="text-sm font-medium text-red-800">
+                          Motif du rejet:
+                        </p>
+                        <p className="text-sm text-red-700">
+                          {selectedBulletin.rejection_reason}
+                        </p>
                       </div>
                     )}
-                    {selectedBulletin.missing_documents && selectedBulletin.missing_documents.length > 0 && (
-                      <div className="mt-3 p-3 rounded-lg bg-orange-50 border border-orange-200">
-                        <p className="text-sm font-medium text-orange-800">Documents manquants:</p>
-                        <ul className="text-sm text-orange-700 list-disc list-inside">
-                          {selectedBulletin.missing_documents.map((doc, i) => (
-                            <li key={i}>{doc}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                    {selectedBulletin.missing_documents &&
+                      selectedBulletin.missing_documents.length > 0 && (
+                        <div className="mt-3 p-3 rounded-lg bg-orange-50 border border-orange-200">
+                          <p className="text-sm font-medium text-orange-800">
+                            Documents manquants:
+                          </p>
+                          <ul className="text-sm text-orange-700 list-disc list-inside">
+                            {selectedBulletin.missing_documents.map(
+                              (doc, i) => (
+                                <li key={i}>{doc}</li>
+                              ),
+                            )}
+                          </ul>
+                        </div>
+                      )}
                   </div>
                 </CardContent>
               </Card>
@@ -947,32 +1249,46 @@ export function BulletinsValidationPage() {
               {/* Actions */}
               <div className="flex flex-wrap gap-2 pt-4 border-t">
                 {selectedBulletin.scan_url && (
-                  <Button variant="outline" onClick={() => handleViewScan(selectedBulletin)}>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleViewScan(selectedBulletin)}
+                  >
                     <FileImage className="mr-2 h-4 w-4" />
                     Voir le scan
                   </Button>
                 )}
-                {canApprove && ['paper_complete', 'processing'].includes(selectedBulletin.status) && (
-                  <Button
-                    className="bg-green-600 hover:bg-green-700"
-                    onClick={() => {
-                      setReimbursedAmount((selectedBulletin.reimbursed_amount ?? selectedBulletin.total_amount).toString());
-                      setShowApproveDialog(true);
-                    }}
-                  >
-                    <ThumbsUp className="mr-2 h-4 w-4" />
-                    Approuver
-                  </Button>
-                )}
-                {canReject && !['reimbursed', 'rejected'].includes(selectedBulletin.status) && (
-                  <Button
-                    variant="destructive"
-                    onClick={() => setShowRejectDialog(true)}
-                  >
-                    <ThumbsDown className="mr-2 h-4 w-4" />
-                    Rejeter
-                  </Button>
-                )}
+                {canApprove &&
+                  ["paper_complete", "processing"].includes(
+                    selectedBulletin.status,
+                  ) && (
+                    <Button
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => {
+                        setReimbursedAmount(
+                          (
+                            selectedBulletin.reimbursed_amount ??
+                            selectedBulletin.total_amount
+                          ).toString(),
+                        );
+                        setShowApproveDialog(true);
+                      }}
+                    >
+                      <ThumbsUp className="mr-2 h-4 w-4" />
+                      Approuver
+                    </Button>
+                  )}
+                {canReject &&
+                  !["reimbursed", "rejected"].includes(
+                    selectedBulletin.status,
+                  ) && (
+                    <Button
+                      variant="destructive"
+                      onClick={() => setShowRejectDialog(true)}
+                    >
+                      <ThumbsDown className="mr-2 h-4 w-4" />
+                      Rejeter
+                    </Button>
+                  )}
               </div>
             </div>
           )}
@@ -985,7 +1301,8 @@ export function BulletinsValidationPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Approuver le remboursement</AlertDialogTitle>
             <AlertDialogDescription>
-              Confirmez le montant a rembourser pour le bulletin {selectedBulletin?.bulletin_number}
+              Confirmez le montant a rembourser pour le bulletin{" "}
+              {selectedBulletin?.bulletin_number}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4">
@@ -994,7 +1311,11 @@ export function BulletinsValidationPage() {
                 <AlertCircle className="h-5 w-5 text-orange-600 mt-0.5 shrink-0" />
                 <div className="text-sm text-orange-800">
                   <p className="font-semibold">Plafond atteint</p>
-                  <p>Le montant Remboursé est de 0 TND. Tous les actes ont depassé le plafond. Le bulletin sera approuvé sans remboursement.</p>
+                  <p>
+                    Le montant Remboursé est de 0 TND. Tous les actes ont
+                    depassé le plafond. Le bulletin sera approuvé sans
+                    remboursement.
+                  </p>
                 </div>
               </div>
             )}
@@ -1041,7 +1362,8 @@ export function BulletinsValidationPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Rejeter le bulletin</AlertDialogTitle>
             <AlertDialogDescription>
-              Indiquez le motif du rejet pour le bulletin {selectedBulletin?.bulletin_number}
+              Indiquez le motif du rejet pour le bulletin{" "}
+              {selectedBulletin?.bulletin_number}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4">
@@ -1087,20 +1409,25 @@ export function BulletinsValidationPage() {
             <div className="space-y-4">
               <div>
                 <Label>Nouveau statut</Label>
-                <Select value={newStatus} onValueChange={(v) => setNewStatus(v as BulletinStatus)}>
+                <Select
+                  value={newStatus}
+                  onValueChange={(v) => setNewStatus(v as BulletinStatus)}
+                >
                   <SelectTrigger className="mt-2">
                     <SelectValue placeholder="Choisir un statut" />
                   </SelectTrigger>
                   <SelectContent>
-                    {getAvailableTransitions(selectedBulletin.status).map((status) => (
-                      <SelectItem key={status} value={status}>
-                        {statusConfig[status].label}
-                      </SelectItem>
-                    ))}
+                    {getAvailableTransitions(selectedBulletin.status).map(
+                      (status) => (
+                        <SelectItem key={status} value={status}>
+                          {getStatusConfig(status).label}
+                        </SelectItem>
+                      ),
+                    )}
                   </SelectContent>
                 </Select>
               </div>
-              {newStatus === 'paper_incomplete' && (
+              {newStatus === "paper_incomplete" && (
                 <div>
                   <Label>Documents manquants (un par ligne)</Label>
                   <Textarea
@@ -1115,7 +1442,10 @@ export function BulletinsValidationPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowStatusDialog(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowStatusDialog(false)}
+            >
               Annuler
             </Button>
             <Button
@@ -1128,20 +1458,75 @@ export function BulletinsValidationPage() {
                   Mise à jour...
                 </>
               ) : (
-                'Mettre a jour'
+                "Mettre a jour"
               )}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Archive Confirmation Dialog */}
+      <AlertDialog open={archiveConfirm} onOpenChange={setArchiveConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archiver les bulletins</AlertDialogTitle>
+            <AlertDialogDescription>
+              Voulez-vous archiver <strong>{selectedIds.length}</strong>{" "}
+              bulletin(s) ? Ils seront déplacés vers l'historique des bulletins
+              avec le statut "Remboursé".
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => archiveMutation.mutate(selectedIds)}
+              disabled={archiveMutation.isPending}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              {archiveMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Archivage...
+                </>
+              ) : (
+                <>
+                  <Archive className="mr-2 h-4 w-4" />
+                  Archiver
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <FloatingHelp
         title="Validation des bulletins"
         tips={[
-          { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez un bulletin par numéro, nom d'adhérent ou matricule." },
-          { icon: <Filter className="h-4 w-4 text-purple-500" />, title: "Filtrer par statut", desc: "Filtrez les bulletins par statut : brouillon, reçu, en traitement, approuvé ou rejeté." },
-          { icon: <ThumbsUp className="h-4 w-4 text-green-500" />, title: "Approuver", desc: "Approuvez un bulletin après vérification en précisant le montant du remboursement." },
-          { icon: <ThumbsDown className="h-4 w-4 text-red-500" />, title: "Rejeter", desc: "Rejetez un bulletin en indiquant le motif du rejet pour informer l'adhérent." },
+          {
+            icon: <Search className="h-4 w-4 text-blue-500" />,
+            title: "Recherche",
+            desc: "Recherchez un bulletin par numéro, nom d'adhérent ou matricule.",
+          },
+          {
+            icon: <Filter className="h-4 w-4 text-purple-500" />,
+            title: "Filtrer par statut",
+            desc: "Filtrez les bulletins par statut : brouillon, reçu, en traitement, approuvé ou rejeté.",
+          },
+          {
+            icon: <ThumbsUp className="h-4 w-4 text-green-500" />,
+            title: "Approuver",
+            desc: "Approuvez un bulletin après vérification en précisant le montant du remboursement.",
+          },
+          {
+            icon: <ThumbsDown className="h-4 w-4 text-red-500" />,
+            title: "Rejeter",
+            desc: "Rejetez un bulletin en indiquant le motif du rejet pour informer l'adhérent.",
+          },
+          {
+            icon: <Archive className="h-4 w-4 text-indigo-500" />,
+            title: "Archiver",
+            desc: "Sélectionnez plusieurs bulletins et archivez-les vers l'historique.",
+          },
         ]}
       />
     </div>

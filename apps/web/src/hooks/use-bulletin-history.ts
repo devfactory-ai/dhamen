@@ -31,6 +31,13 @@ export interface HistoryBulletin {
   actes: HistoryActeSummary[];
 }
 
+export interface HistorySubItem {
+  id: string;
+  label: string;
+  code: string | null;
+  amount: number;
+}
+
 export interface HistoryActe {
   id: string;
   code: string | null;
@@ -51,6 +58,7 @@ export interface HistoryActe {
   medicationCodePct: string | null;
   medicationFamilyName: string | null;
   acteRefLabel: string | null;
+  subItems?: HistorySubItem[];
 }
 
 export interface HistoryBulletinDetail {

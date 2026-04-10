@@ -16,6 +16,7 @@ import {
   Image,
   AlertCircle,
   Calendar,
+  ChevronDown,
 } from 'lucide-react';
 import { useHistoryDetail } from '@/hooks/use-bulletin-history';
 import { apiClient } from '@/lib/api-client';
@@ -48,6 +49,32 @@ function formatDate(date: string | null | undefined): string {
   } catch {
     return date;
   }
+}
+
+function SubItemsCollapsible({ items }: { items: Array<{ id: string; label: string; code: string | null; amount: number }> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-1 pl-2 border-l-2 border-muted">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors"
+      >
+        <ChevronDown className={`h-3 w-3 transition-transform ${open ? '' : '-rotate-90'}`} />
+        {items.length} element{items.length > 1 ? 's' : ''}
+      </button>
+      {open && (
+        <div className="space-y-0.5 mt-1">
+          {items.map((si, siIdx) => (
+            <div key={si.id || siIdx} className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{siIdx + 1}. {si.label}{si.code ? ` (${si.code})` : ''}</span>
+              <span className="tabular-nums ml-2">{formatAmount(si.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function BulletinHistoryDetailPage() {
@@ -330,6 +357,9 @@ export default function BulletinHistoryDetailPage() {
                             <span className="ml-1 text-[10px] bg-muted px-1 rounded">{acte.medicationFamilyName}</span>
                           )}
                         </p>
+                      )}
+                      {acte.subItems && acte.subItems.length > 0 && (
+                        <SubItemsCollapsible items={acte.subItems} />
                       )}
                     </TableCell>
                     <TableCell className="py-4 text-xs">

@@ -355,7 +355,7 @@ export function LoginPage() {
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8">
               {/* Title */}
               <div className="text-center mb-6">
-                <h1 className="text-xl font-bold text-gray-900">E-Sante</h1>
+                <h1 className="text-xl font-bold text-gray-900">E-Santé</h1>
                 <p className="text-xs text-gray-400 mt-1">
                   Gestion institutionnelle des risques & assurances
                 </p>

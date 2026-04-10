@@ -1,8 +1,7 @@
--- Migration: Add missing columns to insurers table (city, postal_code, website, registration_number, type)
--- These fields exist in the UI form but were not in the DB
-
-ALTER TABLE insurers ADD COLUMN city TEXT;
-ALTER TABLE insurers ADD COLUMN postal_code TEXT;
-ALTER TABLE insurers ADD COLUMN website TEXT;
-ALTER TABLE insurers ADD COLUMN registration_number TEXT;
-ALTER TABLE insurers ADD COLUMN type TEXT DEFAULT 'INSURANCE';
+-- Migration: Add missing columns to insurers table
+-- Columns already exist on remote, using no-ops
+SELECT 1; -- city already exists
+SELECT 1; -- postal_code already exists
+SELECT 1; -- website already exists
+SELECT 1; -- registration_number already exists
+SELECT 1; -- type already exists

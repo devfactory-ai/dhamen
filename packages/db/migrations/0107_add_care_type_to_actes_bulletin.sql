@@ -1,2 +1,3 @@
 -- Migration: Add care_type column to actes_bulletin (per-acte care type)
-ALTER TABLE actes_bulletin ADD COLUMN care_type TEXT;
+-- Column already exists on some tenant DBs
+SELECT 1; -- care_type already exists

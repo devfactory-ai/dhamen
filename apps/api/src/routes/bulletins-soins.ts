@@ -904,6 +904,9 @@ bulletinsSoins.get('/manage', async (c) => {
       whereClause += ` AND bs.status IN (${statuses.map(() => '?').join(',')})`;
       params.push(...statuses);
     }
+  } else {
+    // By default, exclude archived bulletins
+    whereClause += " AND bs.status != 'archived'";
   }
 
   if (careType) {
@@ -1005,6 +1008,7 @@ bulletinsSoins.get('/manage/stats', async (c) => {
       SUM(CASE WHEN bs.status = 'pending_payment' THEN 1 ELSE 0 END) as pending_payment,
       SUM(CASE WHEN bs.status = 'reimbursed' THEN 1 ELSE 0 END) as reimbursed,
       SUM(CASE WHEN bs.status = 'rejected' THEN 1 ELSE 0 END) as rejected,
+      SUM(CASE WHEN bs.status = 'archived' THEN 1 ELSE 0 END) as archived,
       COALESCE(SUM(bs.total_amount), 0) as total_amount,
       COALESCE(SUM(bs.reimbursed_amount), 0) as total_reimbursed,
       COALESCE(SUM(CASE WHEN bs.status IN ('approved', 'pending_payment') THEN bs.total_amount ELSE 0 END), 0) as awaiting_payment_amount,
@@ -1266,6 +1270,55 @@ bulletinsSoins.put('/manage/:id/status', async (c) => {
       message: `Bulletin mis à jour: ${status}`,
     },
   });
+});
+
+/**
+ * POST /bulletins-soins/manage/bulk-archive - Archive multiple bulletins (move to history as reimbursed)
+ */
+bulletinsSoins.post('/manage/bulk-archive', async (c) => {
+  const user = c.get('user');
+  const db = getDb(c);
+
+  if (!['ADMIN', 'INSURER_ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès réservé aux administrateurs' } }, 403);
+  }
+
+  const body = await c.req.json<{ ids: string[] }>();
+  const ids = body.ids;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Liste d\'IDs requise' } }, 400);
+  }
+
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    const now = new Date().toISOString();
+
+    const result = await db
+      .prepare(`UPDATE bulletins_soins SET status = 'archived', updated_at = ? WHERE id IN (${placeholders}) AND status NOT IN ('archived')`)
+      .bind(now, ...ids)
+      .run();
+
+    const archived = result.meta?.changes ?? ids.length;
+
+    // Audit log
+    await db.prepare(
+      `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at) VALUES (?, ?, ?, 'bulletins_soins', ?, ?, ?, datetime('now'))`
+    ).bind(
+      generateId(),
+      user.id,
+      'bulletin.bulk_archive',
+      ids.join(','),
+      JSON.stringify({ count: archived, status: 'archived' }),
+      c.req.header('CF-Connecting-IP') || 'unknown'
+    ).run();
+
+    return c.json({ success: true, data: { archived } });
+  } catch (error) {
+    console.error('Error bulk archiving:', error);
+    const msg = error instanceof Error ? error.message : String(error);
+    return c.json({ success: false, error: { code: 'DATABASE_ERROR', message: `Erreur: ${msg}` } }, 500);
+  }
 });
 
 /**
@@ -2301,27 +2354,45 @@ bulletinsSoins.get('/history/:id', async (c) => {
           name: bulletin.beneficiary_name,
           relationship: bulletin.beneficiary_relationship,
         } : null,
-        actes: actes.map((a) => ({
-          id: a.id,
-          code: a.code,
-          label: a.label,
-          amount: a.amount,
-          careType: a.care_type || null,
-          tauxRemboursement: a.taux_remboursement,
-          montantRembourse: a.montant_rembourse,
-          remboursementBrut: a.remboursement_brut,
-          plafondDepasse: a.plafond_depasse === 1,
-          acteRefId: a.acte_ref_id,
-          refProfSant: a.ref_prof_sant || null,
-          nomProfSant: a.nom_prof_sant || null,
-          providerNameResolved: a.provider_name_resolved || null,
-          providerMf: a.provider_mf || null,
-          medicationName: a.medication_name || null,
-          medicationDci: a.medication_dci || null,
-          medicationCodePct: a.medication_code_pct || null,
-          medicationFamilyName: a.medication_family_name || null,
-          acteRefLabel: a.acte_ref_label || null,
-        })),
+        actes: await (async () => {
+          // Fetch sub_items for all actes
+          const acteIds = actes.map(a => a.id as string);
+          let subItemsMap: Record<string, Array<{ id: string; label: string; code: string | null; amount: number }>> = {};
+          if (acteIds.length > 0) {
+            const placeholders = acteIds.map(() => '?').join(',');
+            const { results: subItems } = await db
+              .prepare(`SELECT id, acte_id, label, code, amount FROM acte_sub_items WHERE acte_id IN (${placeholders}) ORDER BY created_at`)
+              .bind(...acteIds)
+              .all();
+            for (const si of subItems) {
+              const aid = si.acte_id as string;
+              if (!subItemsMap[aid]) subItemsMap[aid] = [];
+              subItemsMap[aid].push({ id: si.id as string, label: si.label as string, code: si.code as string | null, amount: si.amount as number });
+            }
+          }
+          return actes.map((a) => ({
+            id: a.id,
+            code: a.code,
+            label: a.label,
+            amount: a.amount,
+            careType: a.care_type || null,
+            tauxRemboursement: a.taux_remboursement,
+            montantRembourse: a.montant_rembourse,
+            remboursementBrut: a.remboursement_brut,
+            plafondDepasse: a.plafond_depasse === 1,
+            acteRefId: a.acte_ref_id,
+            refProfSant: a.ref_prof_sant || null,
+            nomProfSant: a.nom_prof_sant || null,
+            providerNameResolved: a.provider_name_resolved || null,
+            providerMf: a.provider_mf || null,
+            medicationName: a.medication_name || null,
+            medicationDci: a.medication_dci || null,
+            medicationCodePct: a.medication_code_pct || null,
+            medicationFamilyName: a.medication_family_name || null,
+            acteRefLabel: a.acte_ref_label || null,
+            subItems: subItemsMap[a.id as string] || [],
+          }));
+        })(),
         totaux: {
           totalDeclare: actes.reduce((sum, a) => sum + (Number(a.amount) || 0), 0),
           totalRembourse: actes.reduce((sum, a) => sum + (Number(a.montant_rembourse) || 0), 0),
@@ -2754,7 +2825,8 @@ bulletinsSoins.delete('/admin/:id', async (c) => {
       return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Bulletin introuvable' } }, 404);
     }
 
-    // Delete child records first (actes_bulletin FK)
+    // Delete sub_items → actes → bulletin (respecting FK order)
+    await db.prepare('DELETE FROM acte_sub_items WHERE acte_id IN (SELECT id FROM actes_bulletin WHERE bulletin_id = ?)').bind(id).run();
     await db.prepare('DELETE FROM actes_bulletin WHERE bulletin_id = ?').bind(id).run();
     await db.prepare('DELETE FROM bulletins_soins WHERE id = ?').bind(id).run();
 
@@ -2786,7 +2858,11 @@ bulletinsSoins.post('/admin/bulk-delete', async (c) => {
 
   try {
     const placeholders = ids.map(() => '?').join(',');
-    // Delete child records first (actes_bulletin FK)
+    // Delete sub_items → actes → bulletins (respecting FK order)
+    await db
+      .prepare(`DELETE FROM acte_sub_items WHERE acte_id IN (SELECT id FROM actes_bulletin WHERE bulletin_id IN (${placeholders}))`)
+      .bind(...ids)
+      .run();
     await db
       .prepare(`DELETE FROM actes_bulletin WHERE bulletin_id IN (${placeholders})`)
       .bind(...ids)

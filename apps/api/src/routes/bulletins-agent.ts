@@ -934,12 +934,11 @@ bulletinsAgent.get('/:id', async (c) => {
   const db = c.get('tenantDb') ?? c.env.DB;
 
   try {
-    const bulletin = await db
-      .prepare(
-        'SELECT bs.*, b.name as batch_name FROM bulletins_soins bs LEFT JOIN bulletin_batches b ON bs.batch_id = b.id WHERE bs.id = ? AND bs.created_by = ?'
-      )
-      .bind(bulletinId, user.id)
-      .first();
+    // ADMIN can view any bulletin; agents see only their own
+    const bulletinQuery = user.role === 'ADMIN'
+      ? db.prepare('SELECT bs.*, b.name as batch_name FROM bulletins_soins bs LEFT JOIN bulletin_batches b ON bs.batch_id = b.id WHERE bs.id = ?').bind(bulletinId)
+      : db.prepare('SELECT bs.*, b.name as batch_name FROM bulletins_soins bs LEFT JOIN bulletin_batches b ON bs.batch_id = b.id WHERE bs.id = ? AND bs.created_by = ?').bind(bulletinId, user.id);
+    const bulletin = await bulletinQuery.first();
 
     if (!bulletin) {
       return c.json(
@@ -988,11 +987,31 @@ bulletinsAgent.get('/:id', async (c) => {
     const plafondConsommeAvant =
       plafondConsomme != null ? plafondConsomme - reimbursedAmount : null;
 
+    // Fetch sub_items for all actes in this bulletin
+    const acteList = actes.results || [];
+    const acteIdList = acteList.map((a: Record<string, unknown>) => a.id as string);
+    let subItemsMap: Record<string, Array<{ id: string; label: string; code: string | null; amount: number }>> = {};
+    if (acteIdList.length > 0) {
+      const placeholders = acteIdList.map(() => '?').join(',');
+      const { results: subItems } = await db
+        .prepare(`SELECT id, acte_id, label, code, amount FROM acte_sub_items WHERE acte_id IN (${placeholders}) ORDER BY created_at`)
+        .bind(...acteIdList)
+        .all();
+      for (const si of subItems) {
+        const aid = si.acte_id as string;
+        if (!subItemsMap[aid]) subItemsMap[aid] = [];
+        subItemsMap[aid].push({ id: si.id as string, label: si.label as string, code: si.code as string | null, amount: si.amount as number });
+      }
+    }
+
     return c.json({
       success: true,
       data: {
         ...bulletin,
-        actes: actes.results || [],
+        actes: acteList.map((a: Record<string, unknown>) => ({
+          ...a,
+          sub_items: subItemsMap[a.id as string] || [],
+        })),
         plafond_global: plafondGlobal,
         plafond_consomme: plafondConsomme,
         plafond_consomme_avant: plafondConsommeAvant,
@@ -1059,8 +1078,9 @@ bulletinsAgent.delete('/:id', async (c) => {
       );
     }
 
-    // Delete actes first, then bulletin
+    // Delete sub_items → actes → bulletin (respecting FK order)
     await db.batch([
+      db.prepare('DELETE FROM acte_sub_items WHERE acte_id IN (SELECT id FROM actes_bulletin WHERE bulletin_id = ?)').bind(bulletinId),
       db.prepare('DELETE FROM actes_bulletin WHERE bulletin_id = ?').bind(bulletinId),
       db.prepare('DELETE FROM bulletins_soins WHERE id = ?').bind(bulletinId),
     ]);
@@ -1075,6 +1095,104 @@ bulletinsAgent.delete('/:id', async (c) => {
       },
       500
     );
+  }
+});
+
+/**
+ * POST /bulletins-soins/agent/:id/submit - Submit bulletin to validation
+ * Changes status from draft/in_batch to paper_complete so it appears in validation page
+ */
+bulletinsAgent.post('/:id/submit', async (c) => {
+  const user = c.get('user');
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès réservé aux agents' } }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  try {
+    // ADMIN can submit any bulletin; agents can only submit their own
+    const bulletinQuery = user.role === 'ADMIN'
+      ? db.prepare('SELECT id, status, created_by FROM bulletins_soins WHERE id = ?').bind(bulletinId)
+      : db.prepare('SELECT id, status, created_by FROM bulletins_soins WHERE id = ? AND created_by = ?').bind(bulletinId, user.id);
+    const bulletin = await bulletinQuery.first<{ id: string; status: string; created_by: string }>();
+
+    if (!bulletin) {
+      return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Bulletin non trouvé' } }, 404);
+    }
+
+    if (!['draft', 'in_batch'].includes(bulletin.status)) {
+      return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: `Impossible de soumettre un bulletin en statut "${bulletin.status}"` } }, 400);
+    }
+
+    const now = new Date().toISOString();
+    await db
+      .prepare('UPDATE bulletins_soins SET status = ?, submission_date = ?, updated_at = ? WHERE id = ?')
+      .bind('paper_complete', now, now, bulletinId)
+      .run();
+
+    await logAudit(db, {
+      userId: user.id,
+      action: 'bulletin.submit_validation',
+      entityType: 'bulletin',
+      entityId: bulletinId,
+      changes: { previous_status: bulletin.status, new_status: 'paper_complete' },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return c.json({ success: true, data: { id: bulletinId, status: 'paper_complete' } });
+  } catch (error) {
+    console.error('Error submitting bulletin:', error);
+    const msg = error instanceof Error ? error.message : String(error);
+    return c.json({ success: false, error: { code: 'DATABASE_ERROR', message: `Erreur: ${msg}` } }, 500);
+  }
+});
+
+/**
+ * POST /bulletins-soins/agent/bulk-submit - Submit multiple bulletins to validation
+ */
+bulletinsAgent.post('/bulk-submit', async (c) => {
+  const user = c.get('user');
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Accès réservé aux agents' } }, 403);
+  }
+
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const body = await c.req.json<{ ids: string[] }>();
+  const ids = body.ids;
+
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Liste d\'IDs requise' } }, 400);
+  }
+
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    const now = new Date().toISOString();
+
+    // ADMIN can submit any bulletin; agents can only submit their own
+    const result = user.role === 'ADMIN'
+      ? await db.prepare(`UPDATE bulletins_soins SET status = 'paper_complete', submission_date = ?, updated_at = ? WHERE id IN (${placeholders}) AND status IN ('draft', 'in_batch')`).bind(now, now, ...ids).run()
+      : await db.prepare(`UPDATE bulletins_soins SET status = 'paper_complete', submission_date = ?, updated_at = ? WHERE id IN (${placeholders}) AND created_by = ? AND status IN ('draft', 'in_batch')`).bind(now, now, ...ids, user.id).run();
+
+    const submitted = result.meta?.changes ?? ids.length;
+
+    await logAudit(db, {
+      userId: user.id,
+      action: 'bulletin.bulk_submit_validation',
+      entityType: 'bulletin',
+      entityId: ids.join(','),
+      changes: { count: submitted },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return c.json({ success: true, data: { submitted } });
+  } catch (error) {
+    console.error('Error bulk submitting:', error);
+    const msg = error instanceof Error ? error.message : String(error);
+    return c.json({ success: false, error: { code: 'DATABASE_ERROR', message: `Erreur: ${msg}` } }, 500);
   }
 });
 
@@ -1111,13 +1229,14 @@ bulletinsAgent.post('/bulk-delete', async (c) => {
       return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: `${exported.results.length} bulletin(s) exporté(s) ne peuvent pas être supprimés` } }, 400);
     }
 
-    // Delete actes then bulletins
+    // Delete sub_items → actes → bulletins (respecting FK order)
     const batchResults = await db.batch([
+      db.prepare(`DELETE FROM acte_sub_items WHERE acte_id IN (SELECT id FROM actes_bulletin WHERE bulletin_id IN (${placeholders}))`).bind(...ids),
       db.prepare(`DELETE FROM actes_bulletin WHERE bulletin_id IN (${placeholders})`).bind(...ids),
       db.prepare(`DELETE FROM bulletins_soins WHERE id IN (${placeholders}) AND status != 'exported'`).bind(...ids),
     ]);
 
-    const deletedCount = batchResults[1]?.meta?.changes ?? ids.length;
+    const deletedCount = batchResults[2]?.meta?.changes ?? ids.length;
 
     await logAudit(db, {
       userId: user.id,
@@ -1155,12 +1274,18 @@ bulletinsAgent.post('/bulk-delete-batches', async (c) => {
 
   try {
     const placeholders = ids.map(() => '?').join(',');
-    // Delete bulletins in these batches first, then the batches
+    // Delete sub_items → actes → bulletins (respecting FK order)
     await db.batch([
-      db.prepare(`DELETE FROM actes_bulletin WHERE bulletin_id IN (SELECT id FROM bulletins_soins WHERE batch_id IN (${placeholders}) AND status != 'exported')`).bind(...ids),
+      db.prepare(`DELETE FROM acte_sub_items WHERE acte_id IN (SELECT id FROM actes_bulletin WHERE bulletin_id IN (SELECT id FROM bulletins_soins WHERE batch_id IN (${placeholders}) AND status != 'exported'))`).bind(...ids),
+      db.prepare(`DELETE FROM actes_bulletin WHERE bulletin_id IN (SELECT id FROM bulletins_soins WHERE batch_id IN (${placeholders}) AND status != 'exported')`)  .bind(...ids),
       db.prepare(`DELETE FROM bulletins_soins WHERE batch_id IN (${placeholders}) AND status != 'exported'`).bind(...ids),
-      db.prepare(`DELETE FROM bulletin_batches WHERE id IN (${placeholders})`).bind(...ids),
     ]);
+
+    // Delete batches only if they have no remaining bulletins (exported ones block FK)
+    await db
+      .prepare(`DELETE FROM bulletin_batches WHERE id IN (${placeholders}) AND NOT EXISTS (SELECT 1 FROM bulletins_soins WHERE batch_id = bulletin_batches.id)`)
+      .bind(...ids)
+      .run();
 
     await logAudit(db, {
       userId: user.id,
@@ -1175,7 +1300,8 @@ bulletinsAgent.post('/bulk-delete-batches', async (c) => {
     return c.json({ success: true, data: { deleted: ids.length } });
   } catch (error) {
     console.error('Error bulk deleting batches:', error);
-    return c.json({ success: false, error: { code: 'DATABASE_ERROR', message: 'Erreur lors de la suppression' } }, 500);
+    const msg = error instanceof Error ? error.message : String(error);
+    return c.json({ success: false, error: { code: 'DATABASE_ERROR', message: `Erreur lors de la suppression: ${msg}` } }, 500);
   }
 });
 
@@ -2217,8 +2343,10 @@ bulletinsAgent.post('/create', async (c) => {
         reimbursedAmount = totalRembourse;
 
         // Insert actes with bareme-aware reimbursement data + medication fields
+        const acteIds: string[] = [];
         const stmts = actes.map((acte, i) => {
           const acteId = generateId();
+          acteIds.push(acteId);
           const baremeResult = baremeResults[i]!;
           const medMatch = medicationMatches[i];
           return db
@@ -2253,6 +2381,22 @@ bulletinsAgent.post('/create', async (c) => {
             );
         });
         await db.batch(stmts);
+
+        // Insert sub_items for each acte (medications, analyses, etc.)
+        const subItemStmts: ReturnType<typeof db.prepare>[] = [];
+        actes.forEach((acte, i) => {
+          const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; amount: number }> | undefined;
+          if (subs && subs.length > 0) {
+            for (const si of subs) {
+              subItemStmts.push(
+                db.prepare(
+                  `INSERT INTO acte_sub_items (id, acte_id, label, code, amount, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
+                ).bind(generateId(), acteIds[i], si.label, si.code || null, si.amount)
+              );
+            }
+          }
+        });
+        if (subItemStmts.length > 0) await db.batch(subItemStmts);
 
         // Update bulletin reimbursed_amount
         await db
@@ -2335,8 +2479,10 @@ bulletinsAgent.post('/create', async (c) => {
         reimbursedAmount = calcul.totalRembourse;
 
         // Insert actes with reimbursement data + medication fields
+        const acteIds2: string[] = [];
         const stmts = actes.map((acte, i) => {
           const acteId = generateId();
+          acteIds2.push(acteId);
           const acteResult = calcul.actes[i]!;
           const medMatch = medicationMatches[i];
           return db
@@ -2367,6 +2513,22 @@ bulletinsAgent.post('/create', async (c) => {
             );
         });
         await db.batch(stmts);
+
+        // Insert sub_items for each acte (medications, analyses, etc.)
+        const subItemStmts2: ReturnType<typeof db.prepare>[] = [];
+        actes.forEach((acte, i) => {
+          const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; amount: number }> | undefined;
+          if (subs && subs.length > 0) {
+            for (const si of subs) {
+              subItemStmts2.push(
+                db.prepare(
+                  `INSERT INTO acte_sub_items (id, acte_id, label, code, amount, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
+                ).bind(generateId(), acteIds2[i], si.label, si.code || null, si.amount)
+              );
+            }
+          }
+        });
+        if (subItemStmts2.length > 0) await db.batch(subItemStmts2);
 
         // Update bulletin reimbursed_amount
         await db

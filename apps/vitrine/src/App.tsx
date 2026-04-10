@@ -495,96 +495,107 @@ function Navbar({
   const closeMenu = () => setMenuOpen(false);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 glass-nav">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
-          {/* Logo */}
-          <a href="#" className="flex items-center gap-2.5">
-            <div
-              className="w-9 h-9 rounded-xl flex items-center justify-center"
-              style={{ background: '#1a2332' }}
-            >
-              <span className="text-white font-extrabold text-sm font-display">
-                BH
-              </span>
-            </div>
-            <div className="flex flex-col leading-tight">
-              <span className="text-lg font-extrabold text-primary font-display">
-                E-Santé
-              </span>
-              <span className="text-[10px] font-medium text-on-surface-variant tracking-wider">
-                BH Assurance
-              </span>
-            </div>
-          </a>
+    <>
+      {/* Top bar */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-white md:glass-nav border-b border-black/6">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            {/* Logo */}
+            <a href="#" className="flex items-center gap-2.5">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center"
+                style={{ background: '#1a2332' }}
+              >
+                <span className="text-white font-extrabold text-sm font-display">
+                  BH
+                </span>
+              </div>
+              <div className="flex flex-col leading-tight">
+                <span className="text-lg font-extrabold text-primary font-display">
+                  E-Santé
+                </span>
+                <span className="text-[10px] font-medium text-on-surface-variant tracking-wider">
+                  BH Assurance
+                </span>
+              </div>
+            </a>
 
-          {/* Desktop Menu */}
-          <div className="hidden md:flex items-center gap-8">
-            <a
-              href="#solutions"
-              className="nav-link text-on-surface-variant hover:text-secondary text-sm font-medium transition-colors"
-            >
-              {t('nav.solutions')}
-            </a>
-            <a
-              href="#features"
-              className="nav-link text-on-surface-variant hover:text-secondary text-sm font-medium transition-colors"
-            >
-              {t('nav.features')}
-            </a>
-            <a
-              href="#security"
-              className="nav-link text-on-surface-variant hover:text-secondary text-sm font-medium transition-colors"
-            >
-              {t('nav.security')}
-            </a>
-            <a
-              href="#contact"
-              className="nav-link text-on-surface-variant hover:text-secondary text-sm font-medium transition-colors"
-            >
-              {t('nav.contact')}
-            </a>
-          </div>
-
-          {/* Right side */}
-          <div className="flex items-center gap-3">
-            {/* Language Switcher */}
-            <div className="flex items-center bg-surface-container rounded-lg p-0.5">
-              {(['fr', 'en', 'ar'] as Lang[]).map((l) => (
-                <button
-                  key={l}
-                  onClick={() => setLang(l)}
-                  className={`lang-btn px-2.5 py-1 text-xs font-medium rounded-md transition ${lang === l ? 'active' : ''}`}
-                >
-                  {l === 'ar' ? 'ع' : l.toUpperCase()}
-                </button>
-              ))}
+            {/* Desktop Menu */}
+            <div className="hidden md:flex items-center gap-8">
+              <a
+                href="#solutions"
+                className="nav-link text-on-surface-variant hover:text-secondary text-sm font-medium transition-colors"
+              >
+                {t('nav.solutions')}
+              </a>
+              <a
+                href="#features"
+                className="nav-link text-on-surface-variant hover:text-secondary text-sm font-medium transition-colors"
+              >
+                {t('nav.features')}
+              </a>
+              <a
+                href="#security"
+                className="nav-link text-on-surface-variant hover:text-secondary text-sm font-medium transition-colors"
+              >
+                {t('nav.security')}
+              </a>
+              <a
+                href="#contact"
+                className="nav-link text-on-surface-variant hover:text-secondary text-sm font-medium transition-colors"
+              >
+                {t('nav.contact')}
+              </a>
             </div>
 
-            <a
-              href={`${PLATFORM_URL}/login`}
-              className="hidden sm:inline-flex items-center gap-1.5 text-secondary text-sm font-semibold hover:text-secondary-container transition-colors"
-            >
-              {t('nav.login')}
-            </a>
+            {/* Right side */}
+            <div className="flex items-center gap-3">
+              {/* Language Switcher */}
+              <div className="flex items-center bg-surface-container rounded-lg p-0.5">
+                {(['fr', 'en', 'ar'] as Lang[]).map((l) => (
+                  <button
+                    key={l}
+                    onClick={() => setLang(l)}
+                    className={`lang-btn px-2.5 py-1 text-xs font-medium rounded-md transition ${lang === l ? 'active' : ''}`}
+                  >
+                    {l === 'ar' ? 'ع' : l.toUpperCase()}
+                  </button>
+                ))}
+              </div>
 
-            {/* Mobile burger */}
-            <button
-              onClick={() => setMenuOpen(!menuOpen)}
-              className="md:hidden w-9 h-9 flex items-center justify-center rounded-lg hover:bg-surface-container transition"
-            >
-              <Icon
-                name={menuOpen ? 'close' : 'menu'}
-                className="text-on-surface"
-              />
-            </button>
+              <a
+                href={`${PLATFORM_URL}/login`}
+                className="hidden sm:inline-flex items-center gap-1.5 text-secondary text-sm font-semibold hover:text-secondary-container transition-colors"
+              >
+                {t('nav.login')}
+              </a>
+
+              {/* Mobile burger */}
+              <button
+                onClick={() => setMenuOpen(!menuOpen)}
+                className="md:hidden w-9 h-9 flex items-center justify-center rounded-lg hover:bg-surface-container transition"
+              >
+                <Icon
+                  name={menuOpen ? 'close' : 'menu'}
+                  className="text-on-surface"
+                />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      </nav>
 
-      {/* Mobile Menu */}
+      {/* Mobile Menu — outside nav to avoid stacking context issues */}
+      {menuOpen && (
+        <div
+          className="fixed inset-0 top-16 bg-black/40 z-[100] md:hidden"
+          onClick={closeMenu}
+        />
+      )}
       <div
-        className={`mobile-menu fixed inset-0 top-16 bg-white z-40 p-6 md:hidden ${menuOpen ? 'open' : ''}`}
+        className={`fixed top-16 bottom-0 left-0 w-4/5 max-w-sm bg-white z-[110] p-6 md:hidden transition-transform duration-300 ease-in-out shadow-2xl ${
+          menuOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
       >
         <div className="flex flex-col gap-6">
           <a
@@ -624,7 +635,7 @@ function Navbar({
           </a>
         </div>
       </div>
-    </nav>
+    </>
   );
 }
 
@@ -641,32 +652,32 @@ function Hero({ t }: { t: (k: string) => string }) {
       }}
     >
       {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-secondary/20 rounded-full blur-3xl" />
-        <div className="absolute bottom-20 right-10 w-96 h-96 bg-secondary-container/10 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-on-tertiary/5 rounded-full blur-3xl" />
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 left-10 w-48 sm:w-72 h-48 sm:h-72 bg-secondary/20 rounded-full blur-3xl" />
+        <div className="absolute bottom-20 right-10 w-64 sm:w-96 h-64 sm:h-96 bg-secondary-container/10 rounded-full blur-3xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] sm:w-[600px] h-[300px] sm:h-[600px] bg-on-tertiary/5 rounded-full blur-3xl" />
       </div>
 
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28">
-        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-20 lg:py-28">
+        <div className="grid lg:grid-cols-2 gap-8 sm:gap-12 lg:gap-16 items-center">
           {/* Left: Text */}
           <div className="text-white">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm text-sm mb-8">
+            <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm text-xs sm:text-sm mb-6 sm:mb-8">
               <span className="w-2 h-2 bg-on-tertiary rounded-full animate-pulse-dot" />
               <span>{t('hero.badge')}</span>
             </div>
 
-            <h1 className="text-4xl sm:text-5xl lg:text-[3.5rem] font-extrabold leading-[1.1] mb-6 font-display">
+            <h1 className="text-3xl sm:text-5xl lg:text-[3.5rem] font-extrabold leading-[1.1] mb-4 sm:mb-6 font-display">
               <span>{t('hero.title1')}</span>
               <br />
               <span className="text-gradient">{t('hero.title2')}</span>
             </h1>
 
-            <p className="text-lg text-blue-100/80 mb-10 max-w-lg leading-relaxed">
+            <p className="text-base sm:text-lg text-blue-100/80 mb-8 sm:mb-10 max-w-lg leading-relaxed">
               {t('hero.description')}
             </p>
 
-            <div className="flex flex-col sm:flex-row gap-4 mb-14">
+            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-10 sm:mb-14">
               <a
                 href="#solutions"
                 className="inline-flex items-center justify-center gap-2 bg-white text-primary px-7 py-3.5 rounded-xl font-semibold text-base hover:bg-surface transition ghost-shadow-lg"
@@ -684,28 +695,28 @@ function Hero({ t }: { t: (k: string) => string }) {
             </div>
 
             {/* Stats */}
-            <div className="flex items-center gap-8 sm:gap-10">
+            <div className="grid grid-cols-3 gap-4 sm:flex sm:items-center sm:gap-10">
               <div>
-                <div className="text-3xl font-extrabold font-display">50+</div>
-                <div className="text-blue-200/60 text-sm mt-0.5">
+                <div className="text-2xl sm:text-3xl font-extrabold font-display">50+</div>
+                <div className="text-blue-200/60 text-xs sm:text-sm mt-0.5">
                   {t('hero.stat1')}
                 </div>
               </div>
-              <div className="w-px h-10 bg-white/20" />
+              <div className="hidden sm:block w-px h-10 bg-white/20" />
               <div>
-                <div className="text-3xl font-extrabold font-display">
+                <div className="text-2xl sm:text-3xl font-extrabold font-display">
                   2000+
                 </div>
-                <div className="text-blue-200/60 text-sm mt-0.5">
+                <div className="text-blue-200/60 text-xs sm:text-sm mt-0.5">
                   {t('hero.stat2')}
                 </div>
               </div>
-              <div className="w-px h-10 bg-white/20" />
+              <div className="hidden sm:block w-px h-10 bg-white/20" />
               <div>
-                <div className="text-3xl font-extrabold font-display">
+                <div className="text-2xl sm:text-3xl font-extrabold font-display">
                   500K+
                 </div>
-                <div className="text-blue-200/60 text-sm mt-0.5">
+                <div className="text-blue-200/60 text-xs sm:text-sm mt-0.5">
                   {t('hero.stat3')}
                 </div>
               </div>
@@ -889,9 +900,9 @@ function Partners({ t }: { t: (k: string) => string }) {
    ========================================================= */
 function Solutions({ t }: { t: (k: string) => string }) {
   return (
-    <section id="solutions" className="py-24 bg-surface">
+    <section id="solutions" className="py-16 sm:py-24 bg-surface">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-16">
+        <div className="text-center mb-10 sm:mb-16">
           <p className="text-sm font-semibold text-secondary uppercase tracking-wider mb-3">
             {t('solutions.label')}
           </p>
@@ -905,7 +916,7 @@ function Solutions({ t }: { t: (k: string) => string }) {
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
           {/* Assureurs (large) */}
-          <div className="bento-card bento-navy lg:col-span-2 bg-surface-lowest rounded-2xl p-8 ghost-shadow cursor-default">
+          <div className="bento-card bento-navy md:col-span-2 lg:col-span-2 bg-surface-lowest rounded-2xl p-6 sm:p-8 ghost-shadow cursor-default">
             <div className="flex items-start gap-5">
               <div className="w-14 h-14 signature-gradient rounded-xl flex items-center justify-center flex-shrink-0">
                 <Icon name="assured_workload" className="text-white text-2xl" />
@@ -922,7 +933,7 @@ function Solutions({ t }: { t: (k: string) => string }) {
           </div>
 
           {/* Entreprises */}
-          <div className="bento-card bg-surface-lowest rounded-2xl p-8 ghost-shadow cursor-default">
+          <div className="bento-card bg-surface-lowest rounded-2xl p-6 sm:p-8 ghost-shadow cursor-default">
             <div className="w-12 h-12 bg-violet-50 rounded-xl flex items-center justify-center mb-4">
               <Icon
                 name="business"
@@ -938,7 +949,7 @@ function Solutions({ t }: { t: (k: string) => string }) {
           </div>
 
           {/* Praticiens */}
-          <div className="bento-card bg-surface-lowest rounded-2xl p-8 ghost-shadow cursor-default">
+          <div className="bento-card bg-surface-lowest rounded-2xl p-6 sm:p-8 ghost-shadow cursor-default">
             <div className="w-12 h-12 bg-emerald-50 rounded-xl flex items-center justify-center mb-4">
               <Icon
                 name="stethoscope"
@@ -954,7 +965,7 @@ function Solutions({ t }: { t: (k: string) => string }) {
           </div>
 
           {/* Adhérents (full width gradient) */}
-          <div className="bento-card lg:col-span-2 signature-gradient rounded-2xl p-8 cursor-default relative overflow-hidden">
+          <div className="bento-card md:col-span-2 lg:col-span-2 signature-gradient rounded-2xl p-6 sm:p-8 cursor-default relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
             <div className="relative flex items-start gap-5">
               <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center flex-shrink-0">
@@ -1026,9 +1037,9 @@ function Features({ t }: { t: (k: string) => string }) {
   ];
 
   return (
-    <section id="features" className="py-24 bg-surface-lowest">
+    <section id="features" className="py-16 sm:py-24 bg-surface-lowest">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-16">
+        <div className="text-center mb-10 sm:mb-16">
           <p className="text-sm font-semibold text-secondary uppercase tracking-wider mb-3">
             {t('features.label')}
           </p>
@@ -1040,11 +1051,11 @@ function Features({ t }: { t: (k: string) => string }) {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {features.map((f) => (
             <div
               key={f.icon}
-              className="group bg-surface rounded-2xl p-7 ghost-shadow hover:ghost-shadow-lg transition-all duration-300 hover:-translate-y-1"
+              className="group bg-surface rounded-2xl p-5 sm:p-7 ghost-shadow hover:ghost-shadow-lg transition-all duration-300 hover:-translate-y-1"
             >
               <div
                 className={`w-12 h-12 ${f.bgColor} rounded-xl flex items-center justify-center mb-5`}
@@ -1077,9 +1088,9 @@ function HowItWorks({ t }: { t: (k: string) => string }) {
   ];
 
   return (
-    <section id="how-it-works" className="py-24 bg-surface">
+    <section id="how-it-works" className="py-16 sm:py-24 bg-surface">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-16">
+        <div className="text-center mb-10 sm:mb-16">
           <p className="text-sm font-semibold text-secondary uppercase tracking-wider mb-3">
             {t('howItWorks.label')}
           </p>
@@ -1135,7 +1146,7 @@ function Security({ t }: { t: (k: string) => string }) {
   ];
 
   return (
-    <section id="security" className="py-24 bg-primary relative overflow-hidden">
+    <section id="security" className="py-16 sm:py-24 bg-primary relative overflow-hidden">
       {/* Background decoration */}
       <div className="absolute inset-0">
         <div className="absolute top-0 right-0 w-96 h-96 bg-secondary/10 rounded-full blur-3xl" />
@@ -1143,7 +1154,7 @@ function Security({ t }: { t: (k: string) => string }) {
       </div>
 
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid lg:grid-cols-2 gap-16 items-center">
+        <div className="grid md:grid-cols-2 gap-10 lg:gap-16 items-center">
           {/* Left: Content */}
           <div>
             <p className="text-sm font-semibold text-secondary-container uppercase tracking-wider mb-3">
@@ -1174,7 +1185,7 @@ function Security({ t }: { t: (k: string) => string }) {
           </div>
 
           {/* Right: Security Visualization */}
-          <div className="hidden lg:flex justify-center">
+          <div className="hidden md:flex justify-center">
             <div className="relative w-80 h-80">
               {/* Central shield */}
               <div className="absolute inset-0 flex items-center justify-center">
@@ -1210,7 +1221,7 @@ function Security({ t }: { t: (k: string) => string }) {
 function CtaSection({ t }: { t: (k: string) => string }) {
   return (
     <section
-      className="py-24 relative overflow-hidden"
+      className="py-16 sm:py-24 relative overflow-hidden"
       style={{
         background:
           'linear-gradient(135deg, #0051d5 0%, #316bf3 50%, #009d6d 100%)',
@@ -1221,23 +1232,23 @@ function CtaSection({ t }: { t: (k: string) => string }) {
         <div className="absolute bottom-0 right-0 w-72 h-72 bg-white/5 rounded-full blur-3xl" />
       </div>
       <div className="relative max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        <h2 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white font-display mb-6">
+        <h2 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-white font-display mb-4 sm:mb-6">
           {t('cta.title')}
         </h2>
-        <p className="text-lg text-white/70 mb-10 max-w-2xl mx-auto">
+        <p className="text-base sm:text-lg text-white/70 mb-8 sm:mb-10 max-w-2xl mx-auto">
           {t('cta.subtitle')}
         </p>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
           <a
             href={`${PLATFORM_URL}/login`}
-            className="inline-flex items-center justify-center gap-2 bg-white text-primary px-8 py-4 rounded-xl font-semibold text-lg hover:bg-surface transition ghost-shadow-lg"
+            className="inline-flex items-center justify-center gap-2 bg-white text-primary px-6 sm:px-8 py-3.5 sm:py-4 rounded-xl font-semibold text-base sm:text-lg hover:bg-surface transition ghost-shadow-lg"
           >
             <Icon name="rocket_launch" />
             {t('cta.btn1')}
           </a>
           <a
             href="#contact"
-            className="inline-flex items-center justify-center gap-2 bg-white/15 backdrop-blur-sm text-white px-8 py-4 rounded-xl font-semibold text-lg hover:bg-white/25 transition"
+            className="inline-flex items-center justify-center gap-2 bg-white/15 backdrop-blur-sm text-white px-6 sm:px-8 py-3.5 sm:py-4 rounded-xl font-semibold text-base sm:text-lg hover:bg-white/25 transition"
           >
             <Icon name="chat" />
             {t('cta.btn2')}
@@ -1295,9 +1306,9 @@ function ContactForm({ t }: { t: (k: string) => string }) {
   };
 
   return (
-    <section id="contact" className="py-24 bg-surface">
+    <section id="contact" className="py-16 sm:py-24 bg-surface">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16">
+        <div className="grid md:grid-cols-2 gap-10 lg:gap-16">
           {/* Left: Info */}
           <div>
             <p className="text-sm font-semibold text-secondary uppercase tracking-wider mb-3">
@@ -1360,7 +1371,7 @@ function ContactForm({ t }: { t: (k: string) => string }) {
           </div>
 
           {/* Right: Form */}
-          <div className="bg-surface-lowest rounded-2xl p-8 ghost-shadow-lg">
+          <div className="bg-surface-lowest rounded-2xl p-5 sm:p-8 ghost-shadow-lg">
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="grid sm:grid-cols-2 gap-5">
                 <div>
@@ -1481,7 +1492,7 @@ function ContactForm({ t }: { t: (k: string) => string }) {
    ========================================================= */
 function Footer({ t }: { t: (k: string) => string }) {
   return (
-    <footer className="bg-primary text-white py-16">
+    <footer className="bg-primary text-white py-12 sm:py-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-10 lg:gap-12">
           {/* Col 1: Brand */}

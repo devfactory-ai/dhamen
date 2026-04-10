@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+export const subItemSchema = z.object({
+  label: z.string().min(1, 'Libellé requis'),
+  code: z.string().optional(),
+  amount: z.number().min(0, 'Montant >= 0'),
+});
+
 export const acteBulletinSchema = z.object({
   code: z.string().optional(),
   label: z.string().min(1, 'Libellé de l\'acte requis'),
@@ -16,6 +22,8 @@ export const acteBulletinSchema = z.object({
   medication_id: z.string().optional(),
   medication_family_id: z.string().optional(),
   acte_ref_id: z.string().optional(),
+  /** Sub-items: individual medications/analyses within this acte */
+  sub_items: z.array(subItemSchema).optional(),
 });
 
 export const actesArraySchema = z

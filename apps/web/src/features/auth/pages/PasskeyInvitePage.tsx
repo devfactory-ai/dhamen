@@ -58,7 +58,7 @@ export default function PasskeyInvitePage() {
               </h1>
               <p className="text-sm text-gray-500 leading-relaxed mb-8">
                 Activez votre Passkey pour acceder a votre espace{' '}
-                <span className="font-semibold text-gray-700">E-Sante</span> en un clin d'oeil,
+                <span className="font-semibold text-gray-700">E-Santé</span> en un clin d'oeil,
                 sans jamais avoir a retenir de mot de passe.
               </p>
 

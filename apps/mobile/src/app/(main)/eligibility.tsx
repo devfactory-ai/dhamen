@@ -343,7 +343,7 @@ export default function EligibilityScreen() {
             <View style={styles.resultSection}>
               <View style={styles.resultSectionHeader}>
                 <Text style={styles.resultSectionIcon}>👤</Text>
-                <Text style={styles.resultSectionTitle}>Adherent</Text>
+                <Text style={styles.resultSectionTitle}>Adhérent</Text>
               </View>
               <Text style={styles.resultName}>
                 {result.adherent.prenom} {result.adherent.nom}

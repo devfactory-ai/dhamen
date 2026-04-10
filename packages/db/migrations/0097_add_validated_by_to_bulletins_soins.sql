@@ -1,3 +1,3 @@
 -- Migration: Add validated_by column to bulletins_soins
--- This column was referenced in code but never created by migration 0052
-ALTER TABLE bulletins_soins ADD COLUMN validated_by TEXT;
+-- Column already exists on remote (added manually), using no-op to sync migration state
+SELECT 1; -- validated_by already exists

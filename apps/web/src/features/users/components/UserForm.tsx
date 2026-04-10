@@ -5,12 +5,20 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { VISIBLE_ROLE_LABELS } from '@dhamen/shared';
-import type { UserPublic, } from '@dhamen/shared';
+import { VISIBLE_ROLE_LABELS, passwordSchema } from '@dhamen/shared';
+import type { UserPublic } from '@dhamen/shared';
+
+const PASSWORD_RULES = [
+  { label: 'Au moins 8 caractères', test: (v: string) => v.length >= 8 },
+  { label: 'Une lettre majuscule', test: (v: string) => /[A-Z]/.test(v) },
+  { label: 'Une lettre minuscule', test: (v: string) => /[a-z]/.test(v) },
+  { label: 'Un chiffre', test: (v: string) => /[0-9]/.test(v) },
+  { label: 'Un caractère spécial', test: (v: string) => /[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\\/`~]/.test(v) },
+];
 
 const userFormSchema = z.object({
   email: z.string().email('Email invalide'),
-  password: z.string().min(8, 'Minimum 8 caractères').optional(),
+  password: passwordSchema.optional(),
   firstName: z.string().min(2, 'Minimum 2 caractères'),
   lastName: z.string().min(2, 'Minimum 2 caractères'),
   phone: z.string().optional(),
@@ -47,6 +55,7 @@ export function UserForm({ user, onSubmit, onCancel, isLoading }: UserFormProps)
   });
 
   const selectedRole = watch('role');
+  const passwordValue = watch('password') ?? '';
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -79,6 +88,18 @@ export function UserForm({ user, onSubmit, onCancel, isLoading }: UserFormProps)
           <Input id="password" type="password" {...register('password')} />
           {errors.password && (
             <p className='text-destructive text-sm'>{errors.password.message}</p>
+          )}
+          {passwordValue && (
+            <ul className="mt-2 space-y-1 text-sm">
+              {PASSWORD_RULES.map((rule) => {
+                const passed = rule.test(passwordValue);
+                return (
+                  <li key={rule.label} className={passed ? 'text-green-600' : 'text-muted-foreground'}>
+                    {passed ? '\u2713' : '\u2022'} {rule.label}
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
       )}
