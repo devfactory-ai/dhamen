@@ -27,7 +27,7 @@ const periodSchema = z.object({
  */
 stats.get(
   '/kpis',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   async (c) => {
     const today = new Date().toISOString().split('T')[0];
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
@@ -121,7 +121,7 @@ stats.get(
  */
 stats.get(
   '/tendances',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('query', periodSchema),
   async (c) => {
     const { period } = c.req.valid('query');
@@ -179,7 +179,7 @@ stats.get(
  */
 stats.get(
   '/par-type-soin',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('query', periodSchema),
   async (c) => {
     const { period } = c.req.valid('query');
@@ -235,7 +235,7 @@ stats.get(
  */
 stats.get(
   '/par-statut',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   async (c) => {
     const { results } = await getDb(c).prepare(`
       SELECT
@@ -263,7 +263,7 @@ stats.get(
  */
 stats.get(
   '/top-praticiens',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('query', z.object({ limit: z.coerce.number().optional().default(10) })),
   async (c) => {
     const { limit } = c.req.valid('query');
@@ -305,7 +305,7 @@ stats.get(
  */
 stats.get(
   '/dashboard',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('query', periodSchema),
   async (c) => {
     const { period } = c.req.valid('query');

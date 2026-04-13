@@ -1,11 +1,9 @@
 /**
  * SanteBordereauDetailsPage - Bordereau Details Page
- *
- * Dedicated page for viewing bordereau details (replaces dialog)
  */
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { ChevronRight, FileText, Calendar, CreditCard, Download } from 'lucide-react';
-import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,7 +30,8 @@ export function SanteBordereauDetailsPage() {
     }).format(amount / 1000);
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return '-';
     return new Date(dateString).toLocaleDateString('fr-TN', {
       day: '2-digit',
       month: 'long',
@@ -42,7 +41,7 @@ export function SanteBordereauDetailsPage() {
 
   const getNextAction = (statut: BordereauStatut): BordereauStatut | null => {
     const transitions: Record<BordereauStatut, BordereauStatut | null> = {
-      généré: 'valide',
+      genere: 'valide',
       valide: 'envoye',
       envoye: 'paye',
       paye: null,
@@ -53,7 +52,7 @@ export function SanteBordereauDetailsPage() {
 
   const getActionLabel = (statut: BordereauStatut): string => {
     const labels: Record<BordereauStatut, string> = {
-      généré: 'Valider',
+      genere: 'Valider',
       valide: 'Marquer envoyé',
       envoye: 'Marquer payé',
       paye: '',
@@ -64,7 +63,6 @@ export function SanteBordereauDetailsPage() {
 
   const handleStatusUpdate = async (newStatut: BordereauStatut) => {
     if (!bordereau) return;
-
     try {
       await updateMutation.mutateAsync({ id: bordereau.id, data: { statut: newStatut } });
       toast({ title: `Bordereau ${BORDEREAU_STATUTS_LABELS[newStatut].toLowerCase()}`, variant: 'success' });
@@ -77,10 +75,38 @@ export function SanteBordereauDetailsPage() {
     }
   };
 
-  const handleExport = (format: 'pdf' | 'csv' = 'csv') => {
+  const handleExport = (format: 'pdf' | 'csv') => {
     if (!bordereau) return;
-    const url = `${apiClient.getBaseUrl()}/sante/exports/bordereau/${bordereau.id}?format=${format}`;
-    window.open(url, '_blank');
+    const token = localStorage.getItem('accessToken');
+    const url = `${apiClient.getBaseUrl()}/sante/bordereaux/${bordereau.id}/export?format=${format}`;
+    fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'X-Tenant-Code': 'BH',
+      },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Export échoué');
+        if (format === 'pdf') {
+          const html = await res.text();
+          const win = window.open('', '_blank');
+          if (win) {
+            win.document.write(html);
+            win.document.close();
+            win.onload = () => win.print();
+          }
+        } else {
+          const blob = await res.blob();
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `bordereau-${bordereau.numeroBordereau}.csv`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }
+      })
+      .catch(() => {
+        toast({ title: `Erreur lors de l'export ${format.toUpperCase()}`, variant: 'destructive' });
+      });
   };
 
   if (isLoading) {
@@ -104,22 +130,35 @@ export function SanteBordereauDetailsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Breadcrumbs */}
       <nav className="flex items-center gap-1.5 text-sm text-gray-500">
-        <Link to="/sante/bordereaux" className="hover:text-gray-900 transition-colors">Bordereaux</Link>
+        <Link to="/sante/bordereaux" className="hover:text-gray-900 transition-colors">
+          Bordereaux
+        </Link>
         <ChevronRight className="w-4 h-4" />
-        <span className="text-gray-900 font-medium">Détails</span>
+        <span className="text-gray-900 font-medium">{bordereau.numeroBordereau}</span>
       </nav>
+
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <PageHeader
-          title={`Bordereau ${bordereau.numéroBordereau}`}
-          description={`Période: ${formatDate(bordereau.périodeDebut)} - ${formatDate(bordereau.périodeFin)}`}
-        />
-        <span className={`rounded-full px-3 py-1 text-sm ${BORDEREAU_STATUTS_COLORS[bordereau.statut]}`}>
-          {BORDEREAU_STATUTS_LABELS[bordereau.statut]}
-        </span>
+        <div className="flex items-center gap-4">
+          
+          <div>
+            <h1 className="text-2xl font-bold">Bordereau {bordereau.numeroBordereau}</h1>
+            <p className="text-sm text-muted-foreground">
+              Période : {formatDate(bordereau.periodeDebut)} — {formatDate(bordereau.periodeFin)}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className={`rounded-full px-3 py-1 text-sm ${BORDEREAU_STATUTS_COLORS[bordereau.statut] ?? 'bg-gray-100 text-gray-800'}`}>
+            {BORDEREAU_STATUTS_LABELS[bordereau.statut] ?? bordereau.statut}
+          </span>
+        </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-4">
+      {/* KPI Cards */}
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
@@ -156,7 +195,7 @@ export function SanteBordereauDetailsPage() {
               </div>
               <div>
                 <p className="text-lg font-semibold">{formatDate(bordereau.dateGeneration)}</p>
-                <p className="text-sm text-muted-foreground">Date generation</p>
+                <p className="text-sm text-muted-foreground">Date génération</p>
               </div>
             </div>
           </CardContent>
@@ -168,24 +207,60 @@ export function SanteBordereauDetailsPage() {
               <div className="p-3 rounded-full bg-orange-100">
                 <Download className="h-6 w-6 text-orange-600" />
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => handleExport('csv')}>
-                  CSV
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => handleExport('pdf')}>
-                  PDF
-                </Button>
+              <div>
+                <p className="text-sm text-muted-foreground mb-2">Exporter</p>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={() => handleExport('csv')}>
+                    CSV
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => handleExport('pdf')}>
+                    PDF
+                  </Button>
+                </div>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
+      {/* Timeline */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Historique</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+              <p className="text-muted-foreground">Généré le</p>
+              <p className="font-medium">{formatDate(bordereau.dateGeneration)}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Validé le</p>
+              <p className="font-medium">{formatDate(bordereau.dateValidation)}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Envoyé le</p>
+              <p className="font-medium">{formatDate(bordereau.dateEnvoi)}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Payé le</p>
+              <p className="font-medium">{formatDate(bordereau.datePaiement)}</p>
+            </div>
+          </div>
+          {bordereau.notes && (
+            <div className="mt-4 pt-4 border-t">
+              <p className="text-sm text-muted-foreground">Notes</p>
+              <p className="text-sm mt-1">{bordereau.notes}</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Lines */}
       <Card>
         <CardHeader>
           <CardTitle>Lignes ({bordereau.lignes?.length ?? 0})</CardTitle>
-          <CardDescription>Detail des demandes incluses dans ce bordereau</CardDescription>
+          <CardDescription>Détail des demandes incluses dans ce bordereau</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="max-h-96 overflow-y-auto rounded-lg border">
@@ -196,19 +271,19 @@ export function SanteBordereauDetailsPage() {
                   <th className="p-3 text-left">Adhérent</th>
                   <th className="p-3 text-left">Type</th>
                   <th className="p-3 text-left">Date</th>
-                  <th className="p-3 text-right">Demande</th>
-                  <th className="p-3 text-right">Rembourse</th>
+                  <th className="p-3 text-right">Montant demandé</th>
+                  <th className="p-3 text-right">Remboursé</th>
                 </tr>
               </thead>
               <tbody>
                 {bordereau.lignes?.map((ligne) => (
                   <tr key={ligne.id} className="border-t hover:bg-muted/50">
-                    <td className="p-3 font-medium">{ligne.numéroDemande}</td>
-                    <td className="p-3">{ligne.adhérentNom}</td>
+                    <td className="p-3 font-medium">{ligne.numeroDemande}</td>
+                    <td className="p-3">{ligne.adherentNom}</td>
                     <td className="p-3">{ligne.typeSoin}</td>
                     <td className="p-3">{formatDate(ligne.dateSoin)}</td>
-                    <td className="p-3 text-right">{formatAmount(ligne.montantDemande)}</td>
-                    <td className="p-3 text-right text-green-600 font-medium">{formatAmount(ligne.montantRembourse)}</td>
+                    <td className="p-3 text-right font-mono">{formatAmount(ligne.montantDemande)}</td>
+                    <td className="p-3 text-right text-green-600 font-medium font-mono">{formatAmount(ligne.montantRembourse)}</td>
                   </tr>
                 ))}
                 {(!bordereau.lignes || bordereau.lignes.length === 0) && (

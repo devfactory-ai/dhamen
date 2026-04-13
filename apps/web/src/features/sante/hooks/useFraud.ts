@@ -18,7 +18,7 @@ export interface FraudAlert {
     adherentNom: string;
   };
   score: number;
-  niveau: 'faible' | 'moyen' | 'élevé' | 'critique';
+  niveau: 'faible' | 'moyen' | 'eleve' | 'critique';
   reglesActivees: FraudRule[];
   analyseIA?: {
     score: number;
@@ -71,8 +71,9 @@ export interface FraudPattern {
   description: string;
   occurrences: number;
   montantTotal: number;
-  praticiens: string[];
-  adherents: string[];
+  scoreMoyen: number;
+  praticiens?: string[];
+  adherents?: string[];
   periode: string;
 }
 
@@ -93,8 +94,8 @@ export const FRAUD_NIVEAU_COLORS: Record<string, string> = {
 export const FRAUD_STATUT_LABELS: Record<string, string> = {
   nouvelle: 'Nouvelle',
   en_investigation: 'En investigation',
-  confirmée: 'Confirmee',
-  rejetée: 'Rejetee',
+  confirmée: 'Confirmée',
+  rejetée: 'Rejetée',
 };
 
 export const FRAUD_STATUT_COLORS: Record<string, string> = {
@@ -113,11 +114,11 @@ export function useFraudStats() {
   return useQuery({
     queryKey: ['fraud-stats'],
     queryFn: async () => {
-      const response = await apiClient.get<{ success: boolean; data: FraudStats }>(
+      const response = await apiClient.get<FraudStats>(
         '/sante/fraud/stats'
       );
       if (response.success && response.data) {
-        return response.data.data;
+        return response.data;
       }
       // Return default stats if API not available
       return {
@@ -154,13 +155,12 @@ export function useFraudAlerts(filters?: {
       if (filters?.page) params.append('page', String(filters.page));
       if (filters?.limit) params.append('limit', String(filters.limit));
 
-      const response = await apiClient.get<{
-        success: boolean;
-        data: { alerts: FraudAlert[]; meta: { page: number; limit: number; total: number } };
-      }>(`/sante/fraud/alerts?${params.toString()}`);
+      const response = await apiClient.get<{ alerts: FraudAlert[]; meta: { page: number; limit: number; total: number } }>(
+        `/sante/fraud/alerts?${params.toString()}`
+      );
 
       if (response.success && response.data) {
-        return response.data.data;
+        return response.data;
       }
       return { alerts: [], meta: { page: 1, limit: 20, total: 0 } };
     },
@@ -175,11 +175,11 @@ export function useFraudAlert(alertId: string | null) {
     queryKey: ['fraud-alert', alertId],
     queryFn: async () => {
       if (!alertId) return null;
-      const response = await apiClient.get<{ success: boolean; data: FraudAlert }>(
+      const response = await apiClient.get<FraudAlert>(
         `/sante/fraud/alerts/${alertId}`
       );
       if (response.success && response.data) {
-        return response.data.data;
+        return response.data;
       }
       return null;
     },
@@ -195,13 +195,13 @@ export function useStartInvestigation() {
 
   return useMutation({
     mutationFn: async (alertId: string) => {
-      const response = await apiClient.post<{ success: boolean; data: FraudAlert }>(
+      const response = await apiClient.post<FraudAlert>(
         `/sante/fraud/alerts/${alertId}/investigate`
       );
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur');
       }
-      return response.data?.data;
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['fraud-alerts'] });
@@ -223,7 +223,7 @@ export function useResolveFraudAlert() {
       notes: string;
       actions?: string[];
     }) => {
-      const response = await apiClient.post<{ success: boolean; data: FraudAlert }>(
+      const response = await apiClient.post<FraudAlert>(
         `/sante/fraud/alerts/${data.alertId}/resolve`,
         {
           resolution: data.resolution,
@@ -234,7 +234,7 @@ export function useResolveFraudAlert() {
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur');
       }
-      return response.data?.data;
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['fraud-alerts'] });
@@ -250,11 +250,11 @@ export function useFraudPatterns() {
   return useQuery({
     queryKey: ['fraud-patterns'],
     queryFn: async () => {
-      const response = await apiClient.get<{ success: boolean; data: FraudPattern[] }>(
+      const response = await apiClient.get<FraudPattern[]>(
         '/sante/fraud/patterns'
       );
       if (response.success && response.data) {
-        return response.data.data;
+        return response.data;
       }
       return [];
     },
@@ -269,11 +269,11 @@ export function useDemandeAlerts(demandeId: string | null) {
     queryKey: ['fraud-alerts-demande', demandeId],
     queryFn: async () => {
       if (!demandeId) return [];
-      const response = await apiClient.get<{ success: boolean; data: FraudAlert[] }>(
+      const response = await apiClient.get<FraudAlert[]>(
         `/sante/fraud/demande/${demandeId}`
       );
       if (response.success && response.data) {
-        return response.data.data;
+        return response.data;
       }
       return [];
     },
@@ -296,7 +296,7 @@ export function getScoreColor(score: number): string {
  */
 export function getNiveauFromScore(score: number): FraudAlert['niveau'] {
   if (score >= 80) return 'critique';
-  if (score >= 60) return 'élevé';
+  if (score >= 60) return 'eleve';
   if (score >= 40) return 'moyen';
   return 'faible';
 }

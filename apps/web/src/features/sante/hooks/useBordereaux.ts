@@ -95,13 +95,15 @@ export function useBordereaux(
       if (filters.dateDebut) params.set('dateDebut', filters.dateDebut);
       if (filters.dateFin) params.set('dateFin', filters.dateFin);
 
-      const response = await apiClient.get<BordereauxResponse>(
+      const response = await apiClient.get<Bordereau[]>(
         `/sante/bordereaux?${params.toString()}`
       );
       if (!response.success) {
         throw new Error(response.error?.message || 'Failed to fetch bordereaux');
       }
-      return response.data;
+      // The API returns { success, data: [...], meta: {...} } at top level
+      const raw = response as unknown as { success: boolean; data: Bordereau[]; meta: { page: number; limit: number; total: number; totalPages: number } };
+      return { data: raw.data ?? [], meta: raw.meta ?? { page: 1, limit: 20, total: 0, totalPages: 1 } };
     },
   });
 }
@@ -111,13 +113,13 @@ export function useBordereauById(id: string | null) {
     queryKey: ['sante-bordereau', id],
     queryFn: async () => {
       if (!id) return null;
-      const response = await apiClient.get<BordereauResponse>(
+      const response = await apiClient.get<BordereauAvecLignes>(
         `/sante/bordereaux/${id}`
       );
       if (!response.success) {
         throw new Error(response.error?.message || 'Failed to fetch bordereau');
       }
-      return response.data.data;
+      return response.data;
     },
     enabled: !!id,
   });
@@ -127,11 +129,11 @@ export function useBordereauStats() {
   return useQuery({
     queryKey: ['sante-bordereaux-stats'],
     queryFn: async () => {
-      const response = await apiClient.get<BordereauxStatsResponse>('/sante/bordereaux/stats');
+      const response = await apiClient.get<{ totalBordereaux: number; totalDemandes: number; montantTotal: number; parStatut: Record<string, { count: number; total: number }> }>('/sante/bordereaux/stats');
       if (!response.success) {
         throw new Error(response.error?.message || 'Failed to fetch stats');
       }
-      return response.data.data;
+      return response.data;
     },
   });
 }
@@ -145,14 +147,14 @@ export function useCreateBordereau() {
 
   return useMutation({
     mutationFn: async (data: { periodeDebut: string; periodeFin: string; notes?: string }) => {
-      const response = await apiClient.post<BordereauResponse>(
+      const response = await apiClient.post<Bordereau>(
         '/sante/bordereaux',
         data
       );
       if (!response.success) {
         throw new Error(response.error?.message || 'Failed to create bordereau');
       }
-      return response.data.data;
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sante-bordereaux'] });
@@ -166,14 +168,14 @@ export function useUpdateBordereauStatut() {
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: { statut: BordereauStatut; notes?: string } }) => {
-      const response = await apiClient.patch<BordereauResponse>(
+      const response = await apiClient.patch<Bordereau>(
         `/sante/bordereaux/${id}/statut`,
         data
       );
       if (!response.success) {
         throw new Error(response.error?.message || 'Failed to update bordereau');
       }
-      return response.data.data;
+      return response.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sante-bordereaux'] });
@@ -188,11 +190,11 @@ export function useUpdateBordereauStatut() {
 // ============================================
 
 export const BORDEREAU_STATUTS_LABELS: Record<BordereauStatut, string> = {
-  genere: 'Genere',
+  genere: 'Généré',
   valide: 'Validé',
-  envoye: 'Envoye',
+  envoye: 'Envoyé',
   paye: 'Payé',
-  annule: 'Annule',
+  annule: 'Annulé',
 };
 
 export const BORDEREAU_STATUTS_COLORS: Record<BordereauStatut, string> = {

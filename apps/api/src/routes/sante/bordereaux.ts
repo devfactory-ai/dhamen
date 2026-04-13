@@ -86,7 +86,7 @@ const updateBordereauStatutSchema = z.object({
  */
 bordereaux.get(
   '/',
-  requireRole('SOIN_GESTIONNAIRE', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('query', bordereauFiltersSchema.merge(paginationSchema)),
   async (c) => {
     const { statut, dateDebut, dateFin, page = 1, limit = 20 } = c.req.valid('query');
@@ -137,7 +137,7 @@ bordereaux.get(
  * GET /api/v1/sante/bordereaux/stats
  * Get bordereau statistics
  */
-bordereaux.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
+bordereaux.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'), async (c) => {
   const { results: statusCounts } = await getDb(c).prepare(`
     SELECT statut, COUNT(*) as count, COALESCE(SUM(montant_total), 0) as total
     FROM sante_bordereaux
@@ -170,7 +170,7 @@ bordereaux.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) =>
  * GET /api/v1/sante/bordereaux/:id
  * Get bordereau details with lines
  */
-bordereaux.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
+bordereaux.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'), async (c) => {
   const id = c.req.param('id');
 
   const row = await getDb(c).prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
@@ -218,7 +218,7 @@ bordereaux.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
  */
 bordereaux.post(
   '/',
-  requireRole('SOIN_GESTIONNAIRE', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', createBordereauSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -309,7 +309,7 @@ bordereaux.post(
  */
 bordereaux.patch(
   '/:id/statut',
-  requireRole('SOIN_GESTIONNAIRE', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', updateBordereauStatutSchema),
   async (c) => {
     const id = c.req.param('id');
@@ -398,10 +398,11 @@ bordereaux.patch(
 
 /**
  * GET /api/v1/sante/bordereaux/:id/export
- * Export bordereau to CSV
+ * Export bordereau to CSV or PDF
  */
-bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
+bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'), async (c) => {
   const id = c.req.param('id');
+  const format = c.req.query('format') || 'csv';
 
   const bordereau = await getDb(c).prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
     .bind(id)
@@ -434,7 +435,67 @@ bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (
       matricule: string | null;
     }>();
 
-  // Build CSV
+  if (format === 'pdf') {
+    const { generatePDFHTML, formatAmount: fmtAmt, formatDate: fmtDate } = await import('../../services/pdf-generator.service');
+
+    const html = generatePDFHTML(
+      {
+        title: `Bordereau ${bordereau.numero_bordereau}`,
+        subtitle: `Période: ${fmtDate(bordereau.periode_debut)} — ${fmtDate(bordereau.periode_fin)}`,
+      },
+      [
+        {
+          type: 'summary',
+          data: {
+            items: [
+              { label: 'Numéro', value: bordereau.numero_bordereau },
+              { label: 'Statut', value: bordereau.statut.toUpperCase() },
+              { label: 'Nombre de demandes', value: String(bordereau.nombre_demandes) },
+              { label: 'Montant total', value: fmtAmt(bordereau.montant_total) },
+              { label: 'Date de génération', value: fmtDate(bordereau.date_generation) },
+              ...(bordereau.date_validation ? [{ label: 'Date de validation', value: fmtDate(bordereau.date_validation) }] : []),
+              ...(bordereau.date_envoi ? [{ label: 'Date d\'envoi', value: fmtDate(bordereau.date_envoi) }] : []),
+              ...(bordereau.date_paiement ? [{ label: 'Date de paiement', value: fmtDate(bordereau.date_paiement) }] : []),
+            ],
+          },
+        },
+        { type: 'spacer', data: null },
+        { type: 'heading', data: 'Détail des demandes' },
+        {
+          type: 'table',
+          data: {
+            columns: [
+              { key: 'numero_demande', header: 'N° Demande' },
+              { key: 'matricule', header: 'Matricule' },
+              { key: 'nom', header: 'Nom' },
+              { key: 'type_soin', header: 'Type Soin' },
+              { key: 'date_soin', header: 'Date Soin' },
+              { key: 'montant_demande', header: 'Demandé', align: 'right' as const, format: (v: unknown) => fmtAmt(v as number) },
+              { key: 'montant_rembourse', header: 'Remboursé', align: 'right' as const, format: (v: unknown) => fmtAmt(v as number) },
+            ],
+            rows: lignes.map((l) => ({
+              numero_demande: l.numero_demande,
+              matricule: l.matricule ?? '',
+              nom: `${l.last_name} ${l.first_name}`,
+              type_soin: l.type_soin,
+              date_soin: l.date_soin,
+              montant_demande: l.montant_demande,
+              montant_rembourse: l.montant_rembourse,
+            })),
+          },
+        },
+      ]
+    );
+
+    return new Response(html, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Disposition': `attachment; filename="bordereau-${bordereau.numero_bordereau}.html"`,
+      },
+    });
+  }
+
+  // CSV format
   const headers = [
     'Numéro Demande',
     'Matricule',
@@ -447,12 +508,12 @@ bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (
   ];
 
   const rows = lignes.map((l) => [
-    l.numero_demande,
-    l.matricule ?? '',
-    l.last_name,
-    l.first_name,
-    l.type_soin,
-    l.date_soin,
+    `"${l.numero_demande}"`,
+    `"${l.matricule ?? ''}"`,
+    `"${l.last_name}"`,
+    `"${l.first_name}"`,
+    `"${l.type_soin}"`,
+    `"${l.date_soin}"`,
     l.montant_demande.toString(),
     l.montant_rembourse.toString(),
   ]);

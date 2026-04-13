@@ -74,7 +74,7 @@ const ValidationSchema = z.object({
  */
 workflows.post(
   '/info-request',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   async (c) => {
     const body = await c.req.json();
     const validation = InfoRequestSchema.safeParse(body);
@@ -153,7 +153,7 @@ workflows.post(
  */
 workflows.post(
   '/escalation',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   async (c) => {
     const body = await c.req.json();
     const validation = EscalationSchema.safeParse(body);
@@ -233,7 +233,7 @@ workflows.post(
  */
 workflows.post(
   '/validation/start',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   async (c) => {
     const body = await c.req.json();
     const demandeId = body.demandeId;

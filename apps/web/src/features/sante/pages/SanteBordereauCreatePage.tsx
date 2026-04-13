@@ -1,7 +1,5 @@
 /**
  * SanteBordereauCreatePage - Create Bordereau Page
- *
- * Dedicated page for creating a new bordereau (replaces dialog)
  */
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
@@ -21,21 +19,21 @@ export function SanteBordereauCreatePage() {
   const createMutation = useCreateBordereau();
 
   const [createData, setCreateData] = useState({
-    périodeDebut: '',
-    périodeFin: '',
+    periodeDebut: '',
+    periodeFin: '',
     notes: '',
   });
 
   const handleCreate = async () => {
-    if (!createData.périodeDebut || !createData.périodeFin) {
+    if (!createData.periodeDebut || !createData.periodeFin) {
       toast({ title: 'Veuillez remplir les dates', variant: 'destructive' });
       return;
     }
 
     try {
       await createMutation.mutateAsync({
-        périodeDebut: createData.périodeDebut,
-        périodeFin: createData.périodeFin,
+        periodeDebut: createData.periodeDebut,
+        periodeFin: createData.periodeFin,
         notes: createData.notes || undefined,
       });
       toast({ title: 'Bordereau créé avec succès', variant: 'success' });
@@ -51,14 +49,18 @@ export function SanteBordereauCreatePage() {
 
   return (
     <div className="space-y-6">
+      {/* Breadcrumbs */}
       <nav className="flex items-center gap-1.5 text-sm text-gray-500">
-        <Link to="/sante/bordereaux" className="hover:text-gray-900 transition-colors">Bordereaux</Link>
+        <Link to="/sante/bordereaux" className="hover:text-gray-900 transition-colors">
+          Bordereaux
+        </Link>
         <ChevronRight className="w-4 h-4" />
         <span className="text-gray-900 font-medium">Générer</span>
       </nav>
+
       <PageHeader
         title="Générer un bordereau"
-        description="Regrouper les demandes approuvees de la période pour paiement"
+        description="Regrouper les demandes approuvées de la période pour paiement"
       />
 
       <Card className="max-w-lg">
@@ -74,21 +76,21 @@ export function SanteBordereauCreatePage() {
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="périodeDebut">Date debut</Label>
+              <Label htmlFor="periodeDebut">Date début</Label>
               <Input
-                id="périodeDebut"
+                id="periodeDebut"
                 type="date"
-                value={createData.périodeDebut}
-                onChange={(e) => setCreateData({ ...createData, périodeDebut: e.target.value })}
+                value={createData.periodeDebut}
+                onChange={(e) => setCreateData({ ...createData, periodeDebut: e.target.value })}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="périodeFin">Date fin</Label>
+              <Label htmlFor="periodeFin">Date fin</Label>
               <Input
-                id="périodeFin"
+                id="periodeFin"
                 type="date"
-                value={createData.périodeFin}
-                onChange={(e) => setCreateData({ ...createData, périodeFin: e.target.value })}
+                value={createData.periodeFin}
+                onChange={(e) => setCreateData({ ...createData, periodeFin: e.target.value })}
               />
             </div>
           </div>

@@ -134,7 +134,7 @@ reports.get('/templates', async (c) => {
  * GET /sante/reports/stats
  * Get report generation statistics
  */
-reports.get('/stats', requireRole('ADMIN', 'SOIN_GESTIONNAIRE'), async (c) => {
+reports.get('/stats', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'), async (c) => {
   const stats = {
     totalGenerated: 156,
     parFormat: {

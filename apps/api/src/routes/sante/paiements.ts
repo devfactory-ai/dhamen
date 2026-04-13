@@ -83,7 +83,7 @@ const updateStatutPaiementSchema = z.object({
  */
 paiements.get(
   '/',
-  requireRole('SOIN_GESTIONNAIRE', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('query', paiementFiltersSchema.merge(paginationSchema)),
   async (c) => {
     const { statut, typeBeneficiaire, methode, dateDebut, dateFin, page = 1, limit = 20 } = c.req.valid('query');
@@ -142,7 +142,7 @@ paiements.get(
  * GET /api/v1/sante/paiements/stats
  * Get payment statistics
  */
-paiements.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
+paiements.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'), async (c) => {
   const { results: statusCounts } = await getDb(c).prepare(`
     SELECT statut, COUNT(*) as count, COALESCE(SUM(montant), 0) as total
     FROM sante_paiements
@@ -174,7 +174,7 @@ paiements.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => 
  * GET /api/v1/sante/paiements/:id
  * Get paiement details
  */
-paiements.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
+paiements.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'), async (c) => {
   const id = c.req.param('id');
 
   const row = await getDb(c).prepare('SELECT * FROM sante_paiements WHERE id = ?')
@@ -221,7 +221,7 @@ paiements.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'ADMIN'), async (c) => {
  */
 paiements.post(
   '/',
-  requireRole('SOIN_GESTIONNAIRE', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', createPaiementSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -308,7 +308,7 @@ paiements.post(
  */
 paiements.patch(
   '/:id/statut',
-  requireRole('SOIN_GESTIONNAIRE', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', updateStatutPaiementSchema),
   async (c) => {
     const id = c.req.param('id');
@@ -387,7 +387,7 @@ paiements.patch(
  */
 paiements.post(
   '/batch',
-  requireRole('SOIN_GESTIONNAIRE', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator(
     'json',
     z.object({

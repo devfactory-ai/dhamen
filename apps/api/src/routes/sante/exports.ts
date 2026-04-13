@@ -44,7 +44,7 @@ const bordereauxExportSchema = z.object({
  */
 exports.get(
   '/demandes',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('query', demandesExportSchema),
   async (c) => {
     const { format, dateFrom, dateTo, statut, typeSoin } = c.req.valid('query');
@@ -185,7 +185,7 @@ exports.get(
  */
 exports.get(
   '/bordereau/:id',
-  requireRole('SOIN_GESTIONNAIRE', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('query', z.object({ format: z.enum(['pdf', 'csv']).default('pdf') })),
   async (c) => {
     const id = c.req.param('id');
@@ -320,7 +320,7 @@ exports.get(
  */
 exports.get(
   '/stats',
-  requireRole('SOIN_GESTIONNAIRE', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator(
     'query',
     z.object({
@@ -454,7 +454,7 @@ exports.get(
  */
 exports.get(
   '/attestation/:adherentId',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN', 'ADHERENT'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN', 'ADHERENT'),
   async (c) => {
     const adherentId = c.req.param('adherentId');
 

@@ -42,7 +42,7 @@ const ALLOWED_MIME_TYPES = [
  */
 documents.get(
   '/demande/:demandeId',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
   async (c) => {
     const demandeId = c.req.param('demandeId');
     const user = c.get('user');
@@ -72,7 +72,7 @@ documents.get(
  */
 documents.get(
   '/:id',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
   async (c) => {
     const id = c.req.param('id');
     const user = c.get('user');
@@ -105,7 +105,7 @@ documents.get(
  */
 documents.get(
   '/:id/download',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
   async (c) => {
     const id = c.req.param('id');
     const user = c.get('user');
@@ -160,7 +160,7 @@ documents.get(
  */
 documents.get(
   '/:id/ocr',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
   async (c) => {
     const id = c.req.param('id');
     const user = c.get('user');
@@ -304,7 +304,7 @@ documents.post(
  */
 documents.post(
   '/:id/ocr',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADHERENT', 'PRATICIEN', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADHERENT', 'PRATICIEN', 'ADMIN'),
   async (c) => {
     const id = c.req.param('id');
     const user = c.get('user');

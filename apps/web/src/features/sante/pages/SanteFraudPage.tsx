@@ -140,7 +140,7 @@ export function SanteFraudPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Detection Fraude"
+        title="Détection Fraude"
         description="Surveillance et investigation des anomalies"
       />
 
@@ -290,7 +290,7 @@ export function SanteFraudPage() {
                 <CardContent>
                   <div className="space-y-4">
                     {alerts
-                      .filter((a) => a.niveau === 'critique' || a.niveau === 'élevé')
+                      .filter((a) => a.niveau === 'critique' || a.niveau === 'eleve')
                       .slice(0, 5)
                       .map((alert) => (
                         <AlertRow
@@ -302,7 +302,7 @@ export function SanteFraudPage() {
                           }}
                         />
                       ))}
-                    {alerts.filter((a) => a.niveau === 'critique' || a.niveau === 'élevé').length === 0 && (
+                    {alerts.filter((a) => a.niveau === 'critique' || a.niveau === 'eleve').length === 0 && (
                       <p className="text-center text-muted-foreground py-8">
                         Aucune alerte critique
                       </p>
@@ -401,7 +401,7 @@ export function SanteFraudPage() {
                   <CardDescription>{pattern.description}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                     <div>
                       <p className="text-muted-foreground">Occurrences</p>
                       <p className="text-lg font-bold">{pattern.occurrences}</p>
@@ -410,18 +410,41 @@ export function SanteFraudPage() {
                       <p className="text-muted-foreground">Montant total</p>
                       <p className="text-lg font-bold font-mono">{formatMontant(pattern.montantTotal)}</p>
                     </div>
-                  </div>
-                  <div className="mt-4">
-                    <p className="text-sm text-muted-foreground">Praticiens impliqués:</p>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {pattern.praticiens.slice(0, 3).map((p, i) => (
-                        <Badge key={i} variant="outline" className="text-xs">{p}</Badge>
-                      ))}
-                      {pattern.praticiens.length > 3 && (
-                        <Badge variant="outline" className="text-xs">+{pattern.praticiens.length - 3}</Badge>
-                      )}
+                    <div>
+                      <p className="text-muted-foreground">Score moyen</p>
+                      <p className={`text-lg font-bold ${getScoreColor(pattern.scoreMoyen)}`}>{pattern.scoreMoyen}</p>
                     </div>
                   </div>
+                  {((pattern.praticiens ?? []).length > 0 || (pattern.adherents ?? []).length > 0) && (
+                    <div className="mt-4 space-y-2">
+                      {(pattern.praticiens ?? []).length > 0 && (
+                        <div>
+                          <p className="text-sm text-muted-foreground">Praticiens impliqués:</p>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {pattern.praticiens.slice(0, 3).map((p, i) => (
+                              <Badge key={i} variant="outline" className="text-xs">{p}</Badge>
+                            ))}
+                            {pattern.praticiens.length > 3 && (
+                              <Badge variant="outline" className="text-xs">+{pattern.praticiens.length - 3}</Badge>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {(pattern.adherents ?? []).length > 0 && (
+                        <div>
+                          <p className="text-sm text-muted-foreground">Adhérents concernés:</p>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {pattern.adherents.slice(0, 3).map((a, i) => (
+                              <Badge key={i} variant="outline" className="text-xs">{a}</Badge>
+                            ))}
+                            {pattern.adherents.length > 3 && (
+                              <Badge variant="outline" className="text-xs">+{pattern.adherents.length - 3}</Badge>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -455,28 +478,28 @@ export function SanteFraudPage() {
       />
 
       <FloatingHelp
-        title="Aide - Detection Fraude"
+        title="Aide - Détection Fraude"
         subtitle="Surveillance et investigation des anomalies"
         tips={[
           {
             icon: <AlertTriangle className="h-4 w-4 text-red-500" />,
             title: "Niveaux d'alerte",
-            desc: "Les alertes sont classees par niveau : faible, moyen, eleve et critique.",
+            desc: "Les alertes sont classées par niveau : faible, moyen, élevé et critique.",
           },
           {
             icon: <Eye className="h-4 w-4 text-blue-500" />,
             title: "Investiguer une alerte",
-            desc: "Cliquez sur 'Investiguer' pour demarrer l'analyse d'une alerte suspecte.",
+            desc: "Cliquez sur 'Investiguer' pour démarrer l'analyse d'une alerte suspecte.",
           },
           {
             icon: <Brain className="h-4 w-4 text-purple-500" />,
             title: "Patterns IA",
-            desc: "L'onglet Patterns affiche les schemas de fraude detectes automatiquement par l'IA.",
+            desc: "L'onglet Patterns affiche les schémas de fraude détectés automatiquement par l'IA.",
           },
           {
             icon: <Shield className="h-4 w-4 text-green-500" />,
-            title: "Resoudre une alerte",
-            desc: "Apres investigation, confirmez ou rejetez l'alerte avec une justification.",
+            title: "Résoudre une alerte",
+            desc: "Après investigation, confirmez ou rejetez l'alerte avec une justification.",
           },
         ]}
       />
@@ -500,7 +523,7 @@ function AlertRow({ alert, onView }: { alert: FraudAlert; onView: () => void }) 
           }`} />
         </div>
         <div>
-          <p className="font-medium">{alert.demande?.numéro || alert.demandeId.slice(0, 8)}</p>
+          <p className="font-medium">{alert.demande?.numero || alert.demandeId.slice(0, 8)}</p>
           <p className="text-sm text-muted-foreground">
             Score: <span className={getScoreColor(alert.score)}>{alert.score}</span>
           </p>
@@ -546,7 +569,7 @@ function AlertCard({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground">Demande</p>
-                <p className="font-medium">{alert.demande?.numéro || alert.demandeId.slice(0, 8)}</p>
+                <p className="font-medium">{alert.demande?.numero || alert.demandeId.slice(0, 8)}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Montant</p>
@@ -560,15 +583,15 @@ function AlertCard({
               </div>
               <div>
                 <p className="text-muted-foreground">Adhérent</p>
-                <p className="font-medium">{alert.demande?.adhérentNom || '-'}</p>
+                <p className="font-medium">{alert.demande?.adherentNom || '-'}</p>
               </div>
             </div>
 
-            {alert.règlesActivees.length > 0 && (
+            {(alert.reglesActivees ?? []).length > 0 && (
               <div className="mt-3">
                 <p className="text-sm text-muted-foreground mb-1">Règles activées:</p>
                 <div className="flex flex-wrap gap-1">
-                  {alert.règlesActivees.map((rule, i) => (
+                  {(alert.reglesActivees ?? []).map((rule, i) => (
                     <Badge key={i} variant="outline" className="text-xs">
                       {rule.nom} (+{rule.impactScore})
                     </Badge>
@@ -630,14 +653,14 @@ function InvestigateDialog({
         <DialogHeader>
           <DialogTitle>Démarrer l'investigation</DialogTitle>
           <DialogDescription>
-            Alerte {alert.demande?.numéro || alert.id.slice(0, 8)} - Score: {alert.score}
+            Alerte {alert.demande?.numero || alert.id.slice(0, 8)} - Score: {alert.score}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="p-4 bg-red-50 rounded-lg">
             <h4 className="font-medium text-red-800 mb-2">Règles déclenchées</h4>
-            {alert.règlesActivees.map((rule, i) => (
+            {(alert.reglesActivees ?? []).map((rule, i) => (
               <div key={i} className="flex justify-between text-sm py-1 border-b last:border-0">
                 <span>{rule.nom}</span>
                 <span className="text-red-600">+{rule.impactScore}</span>
@@ -650,7 +673,7 @@ function InvestigateDialog({
               <h4 className="font-medium text-purple-800 mb-2">Analyse IA</h4>
               <p className="text-sm">{alert.analyseIA.reasoning}</p>
               <div className="flex gap-2 mt-2">
-                {alert.analyseIA.flags.map((flag, i) => (
+                {(alert.analyseIA.flags ?? []).map((flag, i) => (
                   <Badge key={i} variant="outline" className="text-xs">{flag}</Badge>
                 ))}
               </div>
@@ -695,7 +718,7 @@ function ResolveDialog({
         <DialogHeader>
           <DialogTitle>Résoudre l'alerte</DialogTitle>
           <DialogDescription>
-            Alerte {alert.demande?.numéro || alert.id.slice(0, 8)}
+            Alerte {alert.demande?.numero || alert.id.slice(0, 8)}
           </DialogDescription>
         </DialogHeader>
 

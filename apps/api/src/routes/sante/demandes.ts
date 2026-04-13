@@ -41,7 +41,7 @@ demandes.use('*', authMiddleware());
  */
 demandes.get(
   '/',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('query', santeDemandeFiltersSchema.merge(paginationSchema)),
   async (c) => {
     const filters = c.req.valid('query');
@@ -125,7 +125,7 @@ demandes.get(
  */
 demandes.get(
   '/stats',
-  requireRole('SOIN_GESTIONNAIRE', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   async (c) => {
     const stats = await getSanteDemandesStats(getDb(c));
     return success(c, stats);
@@ -276,7 +276,7 @@ demandes.patch(
  */
 demandes.patch(
   '/:id/statut',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', santeDemandeUpdateStatutSchema),
   async (c) => {
     const id = c.req.param('id');

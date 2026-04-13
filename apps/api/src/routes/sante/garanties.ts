@@ -36,7 +36,7 @@ garanties.use('*', authMiddleware());
  */
 garanties.get(
   '/formules',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
   async (c) => {
     const formules = await listFormules(getDb(c));
     return success(c, formules);
@@ -49,7 +49,7 @@ garanties.get(
  */
 garanties.get(
   '/formules/:id',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
   async (c) => {
     const id = c.req.param('id');
     const formule = await findFormuleById(getDb(c), id);
@@ -68,7 +68,7 @@ garanties.get(
  */
 garanties.get(
   '/formules/code/:code',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
   async (c) => {
     const code = c.req.param('code');
     const formule = await findFormuleByCode(getDb(c), code);
@@ -145,7 +145,7 @@ garanties.patch(
  */
 garanties.get(
   '/plafonds/:adherentId',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
   async (c) => {
     const adherentId = c.req.param('adherentId');
     const user = c.get('user');
@@ -175,7 +175,7 @@ const calculateCoverageSchema = z.object({
 
 garanties.post(
   '/calculer-couverture',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'PRATICIEN', 'ADHERENT', 'ADMIN'),
   zValidator('json', calculateCoverageSchema),
   async (c) => {
     const data = c.req.valid('json');

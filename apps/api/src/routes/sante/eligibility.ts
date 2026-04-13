@@ -64,7 +64,7 @@ const fraudCheckSchema = z.object({
  */
 eligibility.post(
   '/check',
-  requireRole('PRATICIEN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('PRATICIEN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', eligibilityCheckSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -87,7 +87,7 @@ eligibility.post(
  */
 eligibility.post(
   '/tarification',
-  requireRole('PRATICIEN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('PRATICIEN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', tarificationSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -112,7 +112,7 @@ eligibility.post(
  */
 eligibility.post(
   '/fraud-check',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('json', fraudCheckSchema),
   async (c) => {
     const data = c.req.valid('json');
@@ -139,7 +139,7 @@ eligibility.post(
  */
 eligibility.post(
   '/full-check',
-  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator(
     'json',
     z.object({
@@ -228,7 +228,7 @@ eligibility.post(
  */
 eligibility.get(
   '/check',
-  requireRole('PRATICIEN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER'),
+  requireRole('PRATICIEN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN', 'PHARMACIST', 'DOCTOR', 'LAB_MANAGER'),
   async (c) => {
     const matricule = c.req.query('matricule');
     const nationalId = c.req.query('nationalId');
@@ -394,7 +394,7 @@ eligibility.get(
  */
 eligibility.get(
   '/quick/:adherentId',
-  requireRole('PRATICIEN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'ADMIN'),
+  requireRole('PRATICIEN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   async (c) => {
     const adherentId = c.req.param('adherentId');
     const today = new Date().toISOString().split('T')[0];

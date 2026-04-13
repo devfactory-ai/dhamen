@@ -69,7 +69,7 @@ const resolveAlertSchema = z.object({
  * GET /sante/fraud/stats
  * Get fraud detection statistics from real data
  */
-fraud.get('/stats', requireRole('ADMIN', 'SOIN_GESTIONNAIRE'), async (c) => {
+fraud.get('/stats', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'), async (c) => {
   const db = getDb(c);
 
   // Get aggregate stats from sante_demandes with score_fraude >= threshold
@@ -160,7 +160,7 @@ fraud.get('/stats', requireRole('ADMIN', 'SOIN_GESTIONNAIRE'), async (c) => {
  */
 fraud.get(
   '/alerts',
-  requireRole('ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
   zValidator('query', listAlertsQuerySchema),
   async (c) => {
     const { page, limit, niveau, statut } = c.req.valid('query');
@@ -281,7 +281,7 @@ fraud.get(
  * GET /sante/fraud/alerts/:id
  * Get single fraud alert details
  */
-fraud.get('/alerts/:id', requireRole('ADMIN', 'SOIN_GESTIONNAIRE'), async (c) => {
+fraud.get('/alerts/:id', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'), async (c) => {
   const alertId = c.req.param('id');
   const db = getDb(c);
 
@@ -423,7 +423,7 @@ fraud.get('/alerts/:id', requireRole('ADMIN', 'SOIN_GESTIONNAIRE'), async (c) =>
  * POST /sante/fraud/alerts/:id/investigate
  * Start investigation on an alert — sets claim statut to en_examen
  */
-fraud.post('/alerts/:id/investigate', requireRole('ADMIN', 'SOIN_GESTIONNAIRE'), async (c) => {
+fraud.post('/alerts/:id/investigate', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'), async (c) => {
   const alertId = c.req.param('id');
   const user = c.get('user');
   const db = getDb(c);
@@ -490,7 +490,7 @@ fraud.post('/alerts/:id/investigate', requireRole('ADMIN', 'SOIN_GESTIONNAIRE'),
  */
 fraud.post(
   '/alerts/:id/resolve',
-  requireRole('ADMIN', 'SOIN_GESTIONNAIRE'),
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'),
   zValidator('json', resolveAlertSchema),
   async (c) => {
     const alertId = c.req.param('id');
@@ -580,7 +580,7 @@ fraud.post(
  * GET /sante/fraud/patterns
  * Get detected fraud patterns aggregated from real data
  */
-fraud.get('/patterns', requireRole('ADMIN', 'SOIN_GESTIONNAIRE'), async (c) => {
+fraud.get('/patterns', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE'), async (c) => {
   const db = getDb(c);
 
   // Aggregate patterns by type_soin and praticien

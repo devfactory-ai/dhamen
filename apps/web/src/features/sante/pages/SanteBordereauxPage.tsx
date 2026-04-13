@@ -39,7 +39,8 @@ export function SanteBordereauxPage() {
     }).format(amount / 1000); // Convert millimes to TND
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return '-';
     return new Date(dateString).toLocaleDateString('fr-TN', {
       day: '2-digit',
       month: '2-digit',
@@ -51,7 +52,6 @@ export function SanteBordereauxPage() {
     try {
       await updateMutation.mutateAsync({ id, data: { statut: newStatut } });
       toast({ title: `Bordereau ${BORDEREAU_STATUTS_LABELS[newStatut].toLowerCase()}`, variant: 'success' });
-      setUpdateAction(null);
     } catch (error) {
       toast({
         title: 'Erreur lors de la mise à jour',
@@ -63,7 +63,7 @@ export function SanteBordereauxPage() {
 
   const getNextAction = (statut: BordereauStatut): BordereauStatut | null => {
     const transitions: Record<BordereauStatut, BordereauStatut | null> = {
-      généré: 'valide',
+      genere: 'valide',
       valide: 'envoye',
       envoye: 'paye',
       paye: null,
@@ -74,7 +74,7 @@ export function SanteBordereauxPage() {
 
   const getActionLabel = (statut: BordereauStatut): string => {
     const labels: Record<BordereauStatut, string> = {
-      généré: 'Valider',
+      genere: 'Valider',
       valide: 'Marquer envoyé',
       envoye: 'Marquer payé',
       paye: '',
@@ -83,9 +83,37 @@ export function SanteBordereauxPage() {
     return labels[statut];
   };
 
-  const handleExport = (id: string, format: 'pdf' | 'csv' = 'csv') => {
-    const url = `${apiClient.getBaseUrl()}/sante/exports/bordereau/${id}?format=${format}`;
-    window.open(url, '_blank');
+  const handleExport = (id: string, numeroBordereau: string, format: 'pdf' | 'csv' = 'csv') => {
+    const token = localStorage.getItem('accessToken');
+    const url = `${apiClient.getBaseUrl()}/sante/bordereaux/${id}/export?format=${format}`;
+    fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'X-Tenant-Code': 'BH',
+      },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Export échoué');
+        if (format === 'pdf') {
+          const html = await res.text();
+          const win = window.open('', '_blank');
+          if (win) {
+            win.document.write(html);
+            win.document.close();
+            win.onload = () => win.print();
+          }
+        } else {
+          const blob = await res.blob();
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `bordereau-${numeroBordereau}.csv`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }
+      })
+      .catch(() => {
+        toast({ title: `Erreur lors de l'export ${format.toUpperCase()}`, variant: 'destructive' });
+      });
   };
 
   const columns = [
@@ -94,17 +122,17 @@ export function SanteBordereauxPage() {
       header: 'Bordereau',
       render: (b: Bordereau) => (
         <div>
-          <p className="font-medium">{b.numéroBordereau}</p>
+          <p className="font-medium">{b.numeroBordereau}</p>
           <p className="text-muted-foreground text-sm">{formatDate(b.dateGeneration)}</p>
         </div>
       ),
     },
     {
-      key: 'période',
+      key: 'periode',
       header: 'Période',
       render: (b: Bordereau) => (
         <span className="text-sm">
-          {formatDate(b.périodeDebut)} - {formatDate(b.périodeFin)}
+          {formatDate(b.periodeDebut)} - {formatDate(b.periodeFin)}
         </span>
       ),
     },
@@ -126,8 +154,8 @@ export function SanteBordereauxPage() {
       key: 'statut',
       header: 'Statut',
       render: (b: Bordereau) => (
-        <span className={`rounded-full px-2 py-1 text-xs ${BORDEREAU_STATUTS_COLORS[b.statut]}`}>
-          {BORDEREAU_STATUTS_LABELS[b.statut]}
+        <span className={`rounded-full px-2 py-1 text-xs ${BORDEREAU_STATUTS_COLORS[b.statut] ?? 'bg-gray-100 text-gray-800'}`}>
+          {BORDEREAU_STATUTS_LABELS[b.statut] ?? b.statut}
         </span>
       ),
     },
@@ -140,17 +168,17 @@ export function SanteBordereauxPage() {
         return (
           <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => navigate(`/sante/bordereaux/${b.id}`)}>
-              Details
+              Détails
             </Button>
             {nextAction && (
               <Button size="sm" onClick={() => handleStatusUpdate(b.id, nextAction)}>
                 {getActionLabel(b.statut)}
               </Button>
             )}
-            <Button variant="outline" size="sm" onClick={() => handleExport(b.id, 'csv')}>
+            <Button variant="outline" size="sm" onClick={() => handleExport(b.id, b.numeroBordereau, 'csv')}>
               CSV
             </Button>
-            <Button variant="outline" size="sm" onClick={() => handleExport(b.id, 'pdf')}>
+            <Button variant="outline" size="sm" onClick={() => handleExport(b.id, b.numeroBordereau, 'pdf')}>
               PDF
             </Button>
           </div>
@@ -199,7 +227,7 @@ export function SanteBordereauxPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="font-medium text-muted-foreground text-sm">A traiter</CardTitle>
+            <CardTitle className="font-medium text-muted-foreground text-sm">À traiter</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="font-bold text-2xl text-yellow-600">
@@ -233,7 +261,7 @@ export function SanteBordereauxPage() {
         columns={columns}
         data={data?.data ?? []}
         isLoading={isLoading}
-        emptyMessage="Aucun adhérent trouvé"
+        emptyMessage="Aucun bordereau trouvé"
         pagination={
           data?.meta
             ? {
@@ -252,18 +280,18 @@ export function SanteBordereauxPage() {
         tips={[
           {
             icon: <FileText className="h-4 w-4 text-blue-500" />,
-            title: "Generer un bordereau",
-            desc: "Cliquez sur 'Generer bordereau' pour creer un nouveau bordereau a partir des demandes validees.",
+            title: "Générer un bordereau",
+            desc: "Cliquez sur 'Générer bordereau' pour créer un nouveau bordereau à partir des demandes validées.",
           },
           {
             icon: <CheckCircle className="h-4 w-4 text-green-500" />,
             title: "Cycle de vie",
-            desc: "Un bordereau passe par : Genere > Valide > Envoye > Paye.",
+            desc: "Un bordereau passe par : Généré > Validé > Envoyé > Payé.",
           },
           {
             icon: <Download className="h-4 w-4 text-purple-500" />,
             title: "Export bordereau",
-            desc: "Exportez chaque bordereau en CSV ou PDF pour l'envoi a l'assureur.",
+            desc: "Exportez chaque bordereau en CSV ou PDF pour l'envoi à l'assureur.",
           },
           {
             icon: <RefreshCw className="h-4 w-4 text-orange-500" />,

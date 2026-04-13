@@ -347,29 +347,29 @@ function App() {
                     <Route path="/cards" element={<PermissionGuard resource="adherents" action="read"><CardsManagementPage /></PermissionGuard>} />
                     <Route path="/cards/generate" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN']}><CardGeneratePage /></RoleGuard>} />
                     <Route path="/cards/:id" element={<PermissionGuard resource="adherents" action="read"><CardDetailsPage /></PermissionGuard>} />
-                    {/* SoinFlow routes — SOIN_* + ADMIN */}
-                    <Route path="/sante/demandes" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'SOIN_RESPONSABLE', 'SOIN_DIRECTEUR']}><SanteDemandesPage /></RoleGuard>} />
-                    <Route path="/sante/demandes/:id" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'SOIN_RESPONSABLE', 'SOIN_DIRECTEUR']}><SanteDemandeDetailsPage /></RoleGuard>} />
-                    <Route path="/sante/demandes/:id/process" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteDemandeProcessPage /></RoleGuard>} />
-                    <Route path="/sante/bordereaux" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteBordereauxPage /></RoleGuard>} />
-                    <Route path="/sante/bordereaux/new" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteBordereauCreatePage /></RoleGuard>} />
-                    <Route path="/sante/bordereaux/:id" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteBordereauDetailsPage /></RoleGuard>} />
-                    <Route path="/sante/paiements" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SantePaiementsPage /></RoleGuard>} />
-                    <Route path="/sante/paiements/batch" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SantePaiementsBatchPage /></RoleGuard>} />
-                    <Route path="/sante/paiements/:id" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SantePaiementDetailsPage /></RoleGuard>} />
-                    <Route path="/sante/paiements/:id/process" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SantePaiementProcessPage /></RoleGuard>} />
-                    <Route path="/sante/eligibility" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteEligibilityPage /></RoleGuard>} />
-                    <Route path="/sante/praticiens" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SantePraticiensPage /></RoleGuard>} />
-                    <Route path="/sante/praticiens/:id" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SantePraticienDetailsPage /></RoleGuard>} />
-                    <Route path="/sante/dashboard" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteDashboardPage /></RoleGuard>} />
-                    <Route path="/sante/garanties" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteGarantiesPage /></RoleGuard>} />
-                    <Route path="/sante/workflows" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteWorkflowsPage /></RoleGuard>} />
-                    <Route path="/sante/analytics" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteAnalyticsPage /></RoleGuard>} />
-                    <Route path="/sante/documents" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteDocumentsPage /></RoleGuard>} />
-                    <Route path="/sante/fraud" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteFraudPage /></RoleGuard>} />
-                    <Route path="/sante/reports" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE']}><SanteReportsPage /></RoleGuard>} />
-                    <Route path="/sante/contre-visites" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteContreVisitesPage /></RoleGuard>} />
-                    <Route path="/sante/contre-visites/:id" element={<RoleGuard roles={['ADMIN', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteContreVisiteDetailsPage /></RoleGuard>} />
+                    {/* SoinFlow routes — SOIN_* + ADMIN + INSURER */}
+                    <Route path="/sante/demandes" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'SOIN_RESPONSABLE', 'SOIN_DIRECTEUR']}><SanteDemandesPage /></RoleGuard>} />
+                    <Route path="/sante/demandes/:id" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT', 'SOIN_RESPONSABLE', 'SOIN_DIRECTEUR']}><SanteDemandeDetailsPage /></RoleGuard>} />
+                    <Route path="/sante/demandes/:id/process" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteDemandeProcessPage /></RoleGuard>} />
+                    <Route path="/sante/bordereaux" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE']}><SanteBordereauxPage /></RoleGuard>} />
+                    <Route path="/sante/bordereaux/new" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE']}><SanteBordereauCreatePage /></RoleGuard>} />
+                    <Route path="/sante/bordereaux/:id" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE']}><SanteBordereauDetailsPage /></RoleGuard>} />
+                    <Route path="/sante/paiements" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE']}><SantePaiementsPage /></RoleGuard>} />
+                    <Route path="/sante/paiements/batch" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE']}><SantePaiementsBatchPage /></RoleGuard>} />
+                    <Route path="/sante/paiements/:id" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE']}><SantePaiementDetailsPage /></RoleGuard>} />
+                    <Route path="/sante/paiements/:id/process" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE']}><SantePaiementProcessPage /></RoleGuard>} />
+                    <Route path="/sante/eligibility" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteEligibilityPage /></RoleGuard>} />
+                    <Route path="/sante/praticiens" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SantePraticiensPage /></RoleGuard>} />
+                    <Route path="/sante/praticiens/:id" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SantePraticienDetailsPage /></RoleGuard>} />
+                    <Route path="/sante/dashboard" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE']}><SanteDashboardPage /></RoleGuard>} />
+                    <Route path="/sante/garanties" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteGarantiesPage /></RoleGuard>} />
+                    <Route path="/sante/workflows" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE']}><SanteWorkflowsPage /></RoleGuard>} />
+                    <Route path="/sante/analytics" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE']}><SanteAnalyticsPage /></RoleGuard>} />
+                    <Route path="/sante/documents" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteDocumentsPage /></RoleGuard>} />
+                    <Route path="/sante/fraud" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE']}><SanteFraudPage /></RoleGuard>} />
+                    <Route path="/sante/reports" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE']}><SanteReportsPage /></RoleGuard>} />
+                    <Route path="/sante/contre-visites" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteContreVisitesPage /></RoleGuard>} />
+                    <Route path="/sante/contre-visites/:id" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'SOIN_GESTIONNAIRE', 'SOIN_AGENT']}><SanteContreVisiteDetailsPage /></RoleGuard>} />
                     {/* BI Dashboard — ADMIN + INSURER */}
                     <Route path="/bi" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT']}><BIDashboardPage /></RoleGuard>} />
                     <Route path="/bi/dashboard" element={<RoleGuard roles={['ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT']}><BIDashboardPage /></RoleGuard>} />
