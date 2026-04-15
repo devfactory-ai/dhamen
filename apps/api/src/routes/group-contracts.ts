@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import pako from 'pako';
 import { z } from 'zod';
 import { getDb } from '../lib/db';
-import { created, notFound, paginated, success, validationError, error as errorResponse } from '../lib/response';
+import { conflict, created, notFound, paginated, success, validationError, error as errorResponse } from '../lib/response';
 import { generateId } from '../lib/ulid';
 import { logAudit } from '../middleware/audit-trail';
 import { authMiddleware, requireRole } from '../middleware/auth';
@@ -90,7 +90,7 @@ const groupContractCreateSchema = z.object({
   })).optional(),
 });
 
-const groupContractUpdateSchema = groupContractCreateSchema.partial().omit({ companyId: true, insurerId: true });
+const groupContractUpdateSchema = groupContractCreateSchema.partial();
 
 const groupContractFiltersSchema = z.object({
   companyId: z.string().optional(),
@@ -527,9 +527,14 @@ groupContracts.put(
     const values: unknown[] = [];
 
     const fieldMap: Record<string, string> = {
+      companyId: 'company_id',
+      insurerId: 'insurer_id',
       contractNumber: 'contract_number',
+      contractType: 'contract_type',
       intermediaryName: 'intermediary_name',
       intermediaryCode: 'intermediary_code',
+      companyAddress: 'company_address',
+      matriculeFiscale: 'matricule_fiscale',
       effectiveDate: 'effective_date',
       annualRenewalDate: 'annual_renewal_date',
       endDate: 'end_date',
@@ -565,6 +570,17 @@ groupContracts.put(
       if ((data as Record<string, unknown>)[jsKey] !== undefined) {
         sets.push(`${dbCol} = ?`);
         values.push((data as Record<string, unknown>)[jsKey] ? 1 : 0);
+      }
+    }
+
+    // Check contract number uniqueness if changed
+    if (data.contractNumber && data.contractNumber !== existing.contract_number) {
+      const duplicate = await db
+        .prepare('SELECT id FROM group_contracts WHERE contract_number = ? AND id != ? AND deleted_at IS NULL LIMIT 1')
+        .bind(data.contractNumber, id)
+        .first();
+      if (duplicate) {
+        return conflict(c, `Le numéro de contrat "${data.contractNumber}" existe déjà`);
       }
     }
 

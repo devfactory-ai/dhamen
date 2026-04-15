@@ -56,6 +56,7 @@ import { ActeSelector } from '@/features/agent/bulletins/components/ActeSelector
 import { MedicationAutocomplete } from '@/features/bulletins/components/medication-autocomplete';
 import { MfLookupInput } from '@/features/bulletins/components/mf-lookup-input';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { useBulkAnalyseMutation, useOcrJobQuery, useRetryOcrJobMutation } from '@/features/bulletins/hooks/useBulkAnalyse';
 import {
   FileText,
   Upload,
@@ -95,6 +96,7 @@ import {
   ShieldCheck,
   ChevronDown,
   Send,
+  RefreshCw,
 } from 'lucide-react';
 import { FloatingHelp } from '@/components/ui/floating-help';
 
@@ -339,6 +341,10 @@ export function BulletinsSaisiePage() {
   const initialTab = useMemo(() => searchParams.get('tab') || 'saisie', []);
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  // Sub-folder grouping from webkitdirectory (stored at selection time to avoid webkitRelativePath issues)
+  const [folderSubGroups, setFolderSubGroups] = useState<Map<string, number[]> | null>(null);
+  // Inline message shown after folder/file selection (replaces toast.info alerts)
+  const [fileSelectionInfo, setFileSelectionInfo] = useState<{ type: 'info' | 'success' | 'warning'; message: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedBulletins, setSelectedBulletins] = useState<string[]>([]);
   const [bulkDeleteBulletinConfirm, setBulkDeleteBulletinConfirm] = useState(false);
@@ -362,6 +368,7 @@ export function BulletinsSaisiePage() {
   const [selectedAdherentInfo, setSelectedAdherentInfo] =
     useState<AdherentSearchResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const [showValidateDialog, setShowValidateDialog] = useState(false);
   const [validateBulletinTarget, setValidateBulletinTarget] =
     useState<BulletinDetail | null>(null);
@@ -374,6 +381,13 @@ export function BulletinsSaisiePage() {
   const [isSendingFeedback, setIsSendingFeedback] = useState(false);
   const [feedbackErrors, setFeedbackErrors] = useState<string[]>([]);
   const [feedbackComment, setFeedbackComment] = useState("");
+
+  // Bulk ZIP analysis state
+  const [bulkJobId, setBulkJobId] = useState<string | null>(null);
+  const bulkMutation = useBulkAnalyseMutation();
+  const retryMutation = useRetryOcrJobMutation();
+  const { data: bulkJobData } = useOcrJobQuery(bulkJobId);
+  const [expandedBulkBulletinId, setExpandedBulkBulletinId] = useState<string | null>(null);
 
   // Multi-bulletin OCR state
   const [ocrBulletins, setOcrBulletins] = useState<OcrBulletinItem[]>([]);
@@ -407,7 +421,7 @@ export function BulletinsSaisiePage() {
       setValue("adherent_last_name", match.lastName || "");
       if (match.email) setValue("adherent_email", match.email);
       // Auto-select "self" as default bénéficiaire when adherent is found
-      if (!watch("beneficiary_relationship")) {
+      if (!watchedBeneficiaryRel) {
         setValue("beneficiary_relationship", "self");
       }
       setShowAdherentDropdown(false);
@@ -582,6 +596,9 @@ export function BulletinsSaisiePage() {
   // Check if beneficiary selection is invalid (conjoint/enfant selected but not registered)
   // Only block when adherent IS identified but family member is missing
   const watchedBeneficiaryRel = watch("beneficiary_relationship");
+  const watchedBulletinNumber = watch("bulletin_number");
+  const watchedBenefId = watch("beneficiary_id");
+  const watchedAdherentLastName = watch("adherent_last_name");
   const hasBeneficiaryBlocking = (() => {
     if (!selectedAdherentInfo) return false; // Don't block when adherent not identified
     if (watchedBeneficiaryRel === "spouse" && !familleData?.conjoint)
@@ -750,6 +767,7 @@ export function BulletinsSaisiePage() {
       // Full cleanup
       reset();
       setSelectedFiles([]);
+      setFolderSubGroups(null);
       setSelectedAdherentInfo(null);
       setAdherentSearch("");
       setShowAdherentDropdown(false);
@@ -1033,8 +1051,10 @@ export function BulletinsSaisiePage() {
         "image/jpeg",
         "image/png",
         "image/jpg",
-      ].includes(file.type);
-      const isValidSize = file.size <= 10 * 1024 * 1024;
+        "application/zip",
+        "application/x-zip-compressed",
+      ].includes(file.type) || file.name.toLowerCase().endsWith('.zip');
+      const isValidSize = file.size <= 50 * 1024 * 1024; // 50MB for ZIP
       return isValidType && isValidSize;
     });
 
@@ -1047,6 +1067,7 @@ export function BulletinsSaisiePage() {
     // If files already exist, just append new ones (no form reset)
     if (selectedFiles.length > 0) {
       setSelectedFiles((prev) => [...prev, ...validFiles]);
+      setFolderSubGroups(null); // Invalidate folder grouping when adding files via file input
       if (fileInputRef.current) fileInputRef.current.value = "";
       if (validFiles.length > 0) {
         toast.success(`${validFiles.length} fichier(s) ajouté(s)`);
@@ -1086,6 +1107,7 @@ export function BulletinsSaisiePage() {
     setAutoRegisterPraticien({});
     setMfStatuses({});
     setSelectedFiles(validFiles);
+    setFolderSubGroups(null); // File input = not a folder selection
     // Reset input value so re-selecting the same files triggers onChange
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -1093,6 +1115,7 @@ export function BulletinsSaisiePage() {
   const handleRemoveFile = (index: number) => {
     const remaining = selectedFiles.filter((_, i) => i !== index);
     setSelectedFiles(remaining);
+    setFolderSubGroups(null); // Grouping invalidated when files change
     // Reset form fields when all files are removed
     if (remaining.length === 0) {
       reset({
@@ -1129,56 +1152,67 @@ export function BulletinsSaisiePage() {
     }
   };
 
-  const analyzeWithOCR = async () => {
-    if (selectedFiles.length === 0) return;
-    setIsAnalyzing(true);
-    try {
-      const formData = new FormData();
-      for (const file of selectedFiles) {
-        formData.append("files", file);
-      }
+  const handleFolderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
 
-      // OCR API: Cloudflare Worker endpoint
-      const ocrBase = (
-        import.meta.env.VITE_OCR_API_URL ||
-        "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev"
-      ).replace(/\/+$/, "");
-      const ocrApiUrl = `${ocrBase}/analyse-bulletin`;
-      const res = await fetch(ocrApiUrl, {
-        method: "POST",
-        headers: { accept: "application/json" },
-        body: formData,
-      });
+    // Filter valid file types from the folder
+    const validFiles = files.filter((file) => {
+      const isValidType = [
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "image/jpg",
+      ].includes(file.type) || file.name.toLowerCase().match(/\.(pdf|jpg|jpeg|png)$/);
+      return isValidType && file.size <= 10 * 1024 * 1024;
+    });
 
-      if (!res.ok) throw new Error(`Erreur OCR: ${res.status}`);
+    if (validFiles.length === 0) {
+      toast.error("Aucun fichier exploitable trouvé dans le dossier");
+      if (folderInputRef.current) folderInputRef.current.value = "";
+      return;
+    }
 
-      const result = await res.json();
-      console.log("[OCR] Raw API response:", JSON.stringify(result, null, 2));
-
-      // Handle multiple response formats:
-      // New API (multi): { success, donnees_ia: [ { infos_adherent, volet_medical }, ... ] }
-      // New API (single): { success, donnees_ia: { infos_adherent, volet_medical } }
-      // Alt API: { success, resultat: { infos_adherent, volet_medical } }
-      // Old API: { raw_response: "```json\n{...}\n```" }
-      // Backend proxy: { success, data: { infos_adherent, volet_medical } }
-      let rawParsed =
-        result.donnees_ia || result.resultat || result.data || result;
-
-      if (typeof result.raw_response === "string") {
-        const jsonMatch = result.raw_response.match(
-          /```json\s*([\s\S]*?)\s*```/,
-        );
-        if (jsonMatch?.[1]) {
-          rawParsed = JSON.parse(jsonMatch[1]);
+    // Build sub-folder grouping from webkitRelativePath BEFORE storing in state
+    // (webkitRelativePath is set by the browser and may not persist reliably)
+    const groupMap = new Map<string, number[]>();
+    for (let i = 0; i < validFiles.length; i++) {
+      const relPath = validFiles[i]!.webkitRelativePath;
+      if (relPath) {
+        const parts = relPath.split('/').filter(Boolean);
+        // parent/subFolder/file.ext → 3 parts means file is inside a sub-folder
+        if (parts.length >= 3) {
+          const subFolder = parts[1]!;
+          if (!groupMap.has(subFolder)) groupMap.set(subFolder, []);
+          groupMap.get(subFolder)!.push(i);
         }
       }
+    }
 
-      // Helper: flatten a single OCR item into normalized { infos_adherent, volet_medical }
-      // Handles both formats:
-      //   Format A: { infos_adherent, volet_medical }
-      //   Format B: { adherent, actes, total_dossier }
-      // Also expands nested ordonnance.medicaments and analyses into separate actes
-      const normalizeOcrItem = (item: Record<string, unknown>): OcrBulletinItem => {
+    console.log('[folder-import] webkitRelativePath samples:', validFiles.slice(0, 3).map(f => f.webkitRelativePath));
+    console.log('[folder-import] Sub-folder groups:', Object.fromEntries(groupMap));
+
+    setSelectedFiles(validFiles);
+    setFolderSubGroups(groupMap.size > 1 ? groupMap : null);
+    setOcrFeedback(null);
+    setOcrPraticienInfos({});
+    setAutoRegisterPraticien({});
+    setMfStatuses({});
+    if (folderInputRef.current) folderInputRef.current.value = "";
+
+    if (groupMap.size > 1) {
+      toast.info(`${groupMap.size} sous-dossiers détectés — chaque sous-dossier sera traité comme un bulletin séparé`);
+    } else {
+      toast.info(`${validFiles.length} fichier(s) détecté(s) — seront traités comme un seul bulletin`);
+    }
+  };
+
+  // Helper: flatten a single OCR item into normalized { infos_adherent, volet_medical }
+  // Handles both formats:
+  //   Format A: { infos_adherent, volet_medical }
+  //   Format B: { adherent, actes, total_dossier }
+  // Also expands nested ordonnance.medicaments and analyses into separate actes
+  const normalizeOcrItem = (item: Record<string, unknown>): OcrBulletinItem => {
         // Determine adherent info
         const adherentRaw = item.infos_adherent || item.adherent || {};
         const adh = adherentRaw as Record<string, unknown>;
@@ -1293,12 +1327,179 @@ export function BulletinsSaisiePage() {
           || undefined;
 
         return { infos_adherent, volet_medical: flatActes, numero_bulletin };
-      };
+  };
 
-      // Normalize to array of bulletins
-      const bulletinsArray: OcrBulletinItem[] = Array.isArray(rawParsed)
-        ? rawParsed.map((item: Record<string, unknown>) => normalizeOcrItem(item))
-        : [normalizeOcrItem(rawParsed as Record<string, unknown>)];
+  /** Parse a raw OCR API response into an array of OcrBulletinItem */
+  const parseOcrResponse = (result: Record<string, unknown>): OcrBulletinItem[] => {
+    let rawParsed =
+      result.donnees_ia || result.resultat || result.data || result;
+
+    if (typeof result.raw_response === "string") {
+      const jsonMatch = result.raw_response.match(
+        /```json\s*([\s\S]*?)\s*```/,
+      );
+      if (jsonMatch?.[1]) {
+        rawParsed = JSON.parse(jsonMatch[1]);
+      }
+    }
+
+    return Array.isArray(rawParsed)
+      ? rawParsed.map((item: Record<string, unknown>) => normalizeOcrItem(item))
+      : [normalizeOcrItem(rawParsed as Record<string, unknown>)];
+  };
+
+  const analyzeWithOCR = async () => {
+    if (selectedFiles.length === 0) return;
+
+    // Detect ZIP files
+    const hasZip = selectedFiles.some(
+      (f) => f.name.toLowerCase().endsWith('.zip') || f.type === 'application/zip' || f.type === 'application/x-zip-compressed'
+    );
+    // Use pre-computed folder grouping from handleFolderChange (stored at selection time)
+    const hasSubFolders = folderSubGroups !== null && folderSubGroups.size > 1;
+    const hasMultipleBulletins = hasZip || hasSubFolders;
+    console.log('[analyzeWithOCR] hasZip:', hasZip, 'hasSubFolders:', hasSubFolders, 'folderSubGroups:', folderSubGroups ? Object.fromEntries(folderSubGroups) : null);
+
+    let bulletinsArray: OcrBulletinItem[] = [];
+
+    // --- BULK: ZIP or folder with sub-folders → /analyse-bulletin per group ---
+    if (hasMultipleBulletins) {
+      setIsAnalyzing(true);
+      try {
+        const ocrBase = (import.meta.env.VITE_OCR_API_URL || "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev").replace(/\/+$/, "");
+        const allBulletins: OcrBulletinItem[] = [];
+
+        // Helper: call OCR for one bulletin (group of files)
+        const analyseGroup = async (groupName: string, form: FormData): Promise<void> => {
+          try {
+            const res = await fetch(`${ocrBase}/analyse-bulletin`, {
+              method: 'POST', headers: { accept: 'application/json' }, body: form,
+            });
+            if (!res.ok) {
+              toast.error(`Erreur OCR pour "${groupName}"`);
+              return;
+            }
+            allBulletins.push(...parseOcrResponse(await res.json()));
+          } catch (err) {
+            console.error(`[bulk-ocr] Erreur "${groupName}":`, err);
+            toast.error(`Erreur pour "${groupName}"`);
+          }
+        };
+
+        const groups: { name: string; form: FormData }[] = [];
+
+        // --- Case 1: Folder with sub-folders (use pre-computed grouping) ---
+        if (hasSubFolders && folderSubGroups) {
+          for (const [subFolder, indices] of folderSubGroups) {
+            const form = new FormData();
+            for (const idx of indices) {
+              const f = selectedFiles[idx];
+              if (f) form.append('files', f);
+            }
+            groups.push({ name: subFolder, form });
+          }
+        }
+
+        // --- Case 2: ZIP files ---
+        if (hasZip) {
+          const JSZip = (await import('jszip')).default;
+          for (const file of selectedFiles) {
+            const isZip = file.name.toLowerCase().endsWith('.zip') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed';
+            if (!isZip) {
+              const form = new FormData();
+              form.append('files', file);
+              groups.push({ name: file.name, form });
+              continue;
+            }
+            const zip = await JSZip.loadAsync(await file.arrayBuffer());
+            const folders = new Map<string, { name: string; async: (type: 'blob') => Promise<Blob> }[]>();
+            zip.forEach((relativePath, entry) => {
+              if (entry.dir || relativePath.startsWith('__MACOSX') || relativePath.startsWith('.')) return;
+              const parts = relativePath.split('/').filter(Boolean);
+              const folderKey = parts.length >= 2 ? parts[0]! : '__root';
+              if (!folders.has(folderKey)) folders.set(folderKey, []);
+              folders.get(folderKey)!.push(entry);
+            });
+            for (const [folderKey, entries] of folders) {
+              const form = new FormData();
+              for (const entry of entries) {
+                const blob = await entry.async('blob');
+                const fileName = entry.name.split('/').pop() || 'file';
+                const ext = fileName.split('.').pop()?.toLowerCase() || '';
+                const mimeMap: Record<string, string> = {
+                  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+                  gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp',
+                  pdf: 'application/pdf', tif: 'image/tiff', tiff: 'image/tiff',
+                };
+                form.append('files', new File([blob], fileName, { type: mimeMap[ext] || 'application/octet-stream' }));
+              }
+              groups.push({ name: folderKey, form });
+            }
+          }
+        }
+
+        // Process sequentially with progress
+        for (let i = 0; i < groups.length; i++) {
+          const { name, form } = groups[i]!;
+          if (groups.length > 1) {
+            toast.info(`Analyse ${i + 1}/${groups.length} : "${name}"...`, { id: 'bulk-progress' });
+          }
+          await analyseGroup(name, form);
+        }
+
+        if (allBulletins.length === 0) {
+          toast.error("Aucun bulletin n'a pu être extrait");
+          return;
+        }
+
+        // Fall through to common form-fill logic below
+        bulletinsArray = allBulletins;
+        const sourceLabel = hasSubFolders ? `${groups.length} sous-dossier(s)` : `${Array.from(new Set(selectedFiles.filter(f => f.name.toLowerCase().endsWith('.zip')).map(f => f.name))).length || 1} fichier(s) ZIP`;
+        toast.success(`${allBulletins.length} bulletin(s) extraits de ${sourceLabel}`);
+      } catch (error) {
+        console.error('Bulk analysis error:', error);
+        toast.error(error instanceof Error ? error.message : "Erreur lors de l'analyse");
+        return;
+      } finally {
+        setIsAnalyzing(false);
+      }
+    } else {
+      // --- SINGLE FILE: direct OCR call ---
+      setIsAnalyzing(true);
+      try {
+        const formData = new FormData();
+        for (const file of selectedFiles) {
+          formData.append("files", file);
+        }
+
+        const ocrBase = (
+          import.meta.env.VITE_OCR_API_URL ||
+          "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev"
+        ).replace(/\/+$/, "");
+        const ocrApiUrl = `${ocrBase}/analyse-bulletin`;
+        const res = await fetch(ocrApiUrl, {
+          method: "POST",
+          headers: { accept: "application/json" },
+          body: formData,
+        });
+
+        if (!res.ok) throw new Error(`Erreur OCR: ${res.status}`);
+
+        const result = await res.json();
+        console.log("[OCR] Raw API response:", JSON.stringify(result, null, 2));
+
+        bulletinsArray = parseOcrResponse(result);
+      } catch (error) {
+        console.error("OCR analysis error:", error);
+        toast.error("Erreur lors de l'analyse du bulletin");
+        return;
+      } finally {
+        setIsAnalyzing(false);
+      }
+    }
+
+    // --- Common: fill form from first bulletin ---
+    if (!bulletinsArray || bulletinsArray.length === 0) return;
 
       // Store all bulletins for multi-bulletin navigation
       setOcrBulletins(bulletinsArray);
@@ -1564,17 +1765,69 @@ export function BulletinsSaisiePage() {
         });
       }
 
+    if (!hasZip) {
       toast.success(
         bulletinsArray.length > 1
           ? `${bulletinsArray.length} bulletins détectés — naviguez entre eux ci-dessus`
           : "Analyse terminée — champs remplis automatiquement. Vérifiez puis envoyez votre feedback.",
       );
-    } catch (error) {
-      console.error("OCR analysis error:", error);
-      toast.error("Erreur lors de l'analyse du bulletin");
-    } finally {
-      setIsAnalyzing(false);
     }
+  };
+
+  /** Load a bulk-OCR bulletin into the main form for review/correction */
+  const loadBulkBulletinIntoForm = (b: import('@/features/bulletins/hooks/useBulkAnalyse').PendingBulletin) => {
+    // Reset form
+    reset({
+      bulletin_number: b.bulletin_number || '',
+      bulletin_date: b.bulletin_date || new Date().toISOString().split('T')[0],
+      adherent_matricule: b.adherent_matricule || '',
+      adherent_first_name: b.adherent_first_name || '',
+      adherent_last_name: b.adherent_last_name || '',
+      adherent_national_id: '',
+      adherent_contract_number: '',
+      adherent_email: '',
+      adherent_address: '',
+      adherent_date_of_birth: '',
+      beneficiary_name: b.beneficiary_name || '',
+      beneficiary_id: '',
+      beneficiary_relationship: (b.beneficiary_relationship as 'self' | 'spouse' | 'child') || 'self',
+      beneficiary_email: '',
+      beneficiary_address: '',
+      beneficiary_date_of_birth: '',
+      care_type: undefined,
+      actes: b.actes.length > 0
+        ? b.actes.map((a) => ({
+            code: a.code || '',
+            label: a.label || '',
+            amount: a.amount || 0,
+            ref_prof_sant: a.ref_prof_sant || '',
+            nom_prof_sant: a.nom_prof_sant || '',
+            care_type: (a.care_type as 'consultation' | 'pharmacy' | 'lab' | 'hospital') || 'consultation',
+            care_description: '',
+            cod_msgr: '',
+            lib_msgr: '',
+          }))
+        : [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_type: 'consultation' as const, care_description: '', cod_msgr: '', lib_msgr: '' }],
+    });
+
+    // Reset related states
+    setSelectedAdherentInfo(null);
+    setAdherentSearch(b.adherent_matricule || '');
+    setOcrPraticienInfos({});
+    setMfStatuses({});
+    setOcrFeedback(null);
+
+    // Pre-fill praticien infos for MF lookup
+    b.actes.forEach((a, i) => {
+      if (a.ref_prof_sant || a.nom_prof_sant) {
+        setOcrPraticienInfos((prev) => ({ ...prev, [i]: { nom: a.nom_prof_sant || '', mf: a.ref_prof_sant || '' } }));
+      }
+    });
+
+    // Close bulk panel and switch to saisie tab
+    setBulkJobId(null);
+    setActiveTab('saisie');
+    toast.info(`Bulletin de ${b.adherent_first_name || ''} ${b.adherent_last_name || ''} chargé dans le formulaire`);
   };
 
   /** Switch to a different OCR-analyzed bulletin and fill the form */
@@ -1773,7 +2026,7 @@ export function BulletinsSaisiePage() {
   const handleRegisterAdherent = async () => {
     const matricule = watch("adherent_matricule");
     const firstName = watch("adherent_first_name");
-    const lastName = watch("adherent_last_name");
+    const lastName = watchedAdherentLastName;
     const dateOfBirth = watch("adherent_date_of_birth");
 
     if (!firstName || !lastName) {
@@ -2394,7 +2647,7 @@ export function BulletinsSaisiePage() {
                       </Badge>
                     )}
                   </div>
-                  <div className="flex gap-2 overflow-x-auto pb-1">
+                  <div className="flex gap-2 overflow-x-auto pb-1 pt-2">
                     {ocrBulletins.map((b, idx) => {
                       const isSaved = savedBulletinIndices.has(idx);
                       const isActive = idx === activeBulletinIndex;
@@ -2646,32 +2899,304 @@ export function BulletinsSaisiePage() {
                           </div>
                         ) : (
                           <div
-                            className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50/50 px-6 py-10 cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-colors"
-                            onClick={() => fileInputRef.current?.click()}
+                            className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50/50 px-6 py-10 hover:border-blue-400 hover:bg-blue-50/30 transition-colors"
+                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add('border-blue-400', 'bg-blue-50/30'); }}
+                            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.remove('border-blue-400', 'bg-blue-50/30'); }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              e.currentTarget.classList.remove('border-blue-400', 'bg-blue-50/30');
+                              const droppedFiles = Array.from(e.dataTransfer.files);
+                              if (droppedFiles.length > 0) handleFileChange({ target: { files: e.dataTransfer.files } } as React.ChangeEvent<HTMLInputElement>);
+                            }}
                           >
                             <Upload className="h-10 w-10 text-gray-400 mb-3" />
                             <p className="font-semibold text-sm text-gray-700">
-                              Glissez-déposez le scan ici
+                              Glissez-déposez vos fichiers ici
                             </p>
-                            <p className="text-xs text-gray-500 mt-1">
-                              Ou parcourez vos fichiers (PDF, JPG, PNG)
+                            <p className="text-xs text-gray-500 mt-1 mb-4">
+                              PDF, JPG, PNG ou ZIP
                             </p>
-                            <button
-                              type="button"
-                              className="mt-3 rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2 text-xs font-semibold text-white hover:from-blue-700 hover:to-blue-800 transition-all"
-                            >
-                              Sélectionner un fichier
-                            </button>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                className="rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2 text-xs font-semibold text-white hover:from-blue-700 hover:to-blue-800 transition-all flex items-center gap-1.5"
+                                onClick={() => fileInputRef.current?.click()}
+                              >
+                                <FileText className="h-3.5 w-3.5" />
+                                Fichier(s)
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-all flex items-center gap-1.5"
+                                onClick={() => folderInputRef.current?.click()}
+                              >
+                                <FolderPlus className="h-3.5 w-3.5" />
+                                Dossier
+                              </button>
+                            </div>
+                            <div className="mt-4 rounded-lg bg-blue-50 border border-blue-100 px-4 py-2.5 text-xs text-blue-700 max-w-sm">
+                              <p className="font-medium mb-1">Comment ça marche ?</p>
+                              <ul className="space-y-0.5 text-blue-600">
+                                <li>• <strong>Images / PDF</strong> → traité comme un seul bulletin</li>
+                                <li>• <strong>ZIP / Dossier</strong> → chaque sous-dossier = un bulletin séparé</li>
+                              </ul>
+                            </div>
                           </div>
                         )}
                         <input
                           ref={fileInputRef}
                           type="file"
-                          accept=".pdf,.jpg,.jpeg,.png"
+                          accept=".pdf,.jpg,.jpeg,.png,.zip"
                           multiple
                           onChange={handleFileChange}
                           className="hidden"
                         />
+                        <input
+                          ref={folderInputRef}
+                          type="file"
+                          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                          // @ts-ignore webkitdirectory is not in React types
+                          webkitdirectory=""
+                          directory=""
+                          multiple
+                          onChange={handleFolderChange}
+                          className="hidden"
+                        />
+
+                        {/* Bulk ZIP Processing Panel */}
+                        {bulkJobId && bulkJobData && (
+                          <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h3 className="text-sm font-semibold text-blue-900 flex items-center gap-2">
+                                <Package className="h-4 w-4" />
+                                Traitement en masse
+                              </h3>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => { setBulkJobId(null); setSelectedFiles([]); setFolderSubGroups(null); }}
+                                className="text-xs text-gray-500"
+                              >
+                                <X className="h-3 w-3 mr-1" /> Fermer
+                              </Button>
+                            </div>
+
+                            {/* Progress bar */}
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-xs text-gray-600">
+                                <span>{bulkJobData.job.total_bulletins_extracted} bulletin(s) détecté(s)</span>
+                                <span>
+                                  {bulkJobData.job.bulletins_ready + bulkJobData.job.bulletins_pending} / {bulkJobData.job.total_bulletins_extracted} traité(s)
+                                </span>
+                              </div>
+                              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-gradient-to-r from-blue-500 to-green-500 rounded-full transition-all duration-500"
+                                  style={{
+                                    width: bulkJobData.job.total_bulletins_extracted > 0
+                                      ? `${((bulkJobData.job.bulletins_ready + bulkJobData.job.bulletins_pending) / bulkJobData.job.total_bulletins_extracted) * 100}%`
+                                      : '0%',
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Bulletin list */}
+                            {bulkJobData.bulletins.length > 0 && (
+                              <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                                {bulkJobData.bulletins.map((b, bIdx) => {
+                                  const errors: Array<{ field: string; code: string; message: string }> = b.validation_errors ? (() => { try { return JSON.parse(b.validation_errors); } catch { return []; } })() : [];
+                                  const isReady = b.validation_status === 'ready_for_validation';
+                                  const needsCorrection = b.validation_status === 'pending_correction';
+                                  const isProcessing = b.validation_status === 'processing_ocr' || b.validation_status === 'pending_ocr' || b.validation_status === 'pending_validation' || b.validation_status === 'validating';
+                                  const isExpanded = expandedBulkBulletinId === b.id;
+
+                                  return (
+                                    <div
+                                      key={b.id}
+                                      className={cn(
+                                        'rounded-lg border text-sm transition-all',
+                                        isReady && 'border-green-200 bg-green-50',
+                                        needsCorrection && 'border-orange-200 bg-orange-50',
+                                        isProcessing && 'border-blue-200 bg-blue-50',
+                                      )}
+                                    >
+                                      {/* Header row — clickable to expand */}
+                                      <div
+                                        className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-black/5 rounded-lg"
+                                        onClick={() => setExpandedBulkBulletinId(isExpanded ? null : b.id)}
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <ChevronRight className={cn('h-4 w-4 text-gray-400 transition-transform', isExpanded && 'rotate-90')} />
+                                          <span className="text-xs text-gray-400 font-mono w-5">{bIdx + 1}</span>
+                                          <span className="font-medium">
+                                            {b.adherent_first_name || ''} {b.adherent_last_name || ''}
+                                            {!b.adherent_first_name && !b.adherent_last_name && 'Bulletin en cours...'}
+                                          </span>
+                                          {b.adherent_matricule && (
+                                            <span className="text-xs text-gray-500 font-mono">{b.adherent_matricule}</span>
+                                          )}
+                                          {b.total_amount != null && b.total_amount > 0 && (
+                                            <span className="text-xs font-semibold text-gray-700">{b.total_amount.toFixed(3)} TND</span>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <Badge
+                                            variant={isReady ? 'default' : needsCorrection ? 'destructive' : 'secondary'}
+                                            className="text-xs"
+                                          >
+                                            {isReady && 'Prêt'}
+                                            {needsCorrection && 'À corriger'}
+                                            {isProcessing && 'En cours...'}
+                                          </Badge>
+                                        </div>
+                                      </div>
+
+                                      {/* Expanded detail panel */}
+                                      {isExpanded && !isProcessing && (
+                                        <div className="px-4 pb-3 pt-1 border-t border-dashed space-y-3">
+                                          {/* Adherent info */}
+                                          <div>
+                                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Adhérent</p>
+                                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                              <div><span className="text-gray-500">Matricule :</span> <span className="font-mono font-medium">{b.adherent_matricule || '—'}</span></div>
+                                              <div><span className="text-gray-500">Nom :</span> <span className="font-medium">{b.adherent_last_name || '—'}</span></div>
+                                              <div><span className="text-gray-500">Prénom :</span> <span className="font-medium">{b.adherent_first_name || '—'}</span></div>
+                                              <div><span className="text-gray-500">Date bulletin :</span> <span className="font-medium">{b.bulletin_date || '—'}</span></div>
+                                              {b.bulletin_number && (
+                                                <div><span className="text-gray-500">N° bulletin :</span> <span className="font-mono font-medium">{b.bulletin_number}</span></div>
+                                              )}
+                                              {b.beneficiary_name && (
+                                                <div><span className="text-gray-500">Bénéficiaire :</span> <span className="font-medium">{b.beneficiary_name} ({b.beneficiary_relationship || '—'})</span></div>
+                                              )}
+                                            </div>
+                                          </div>
+
+                                          {/* Actes table */}
+                                          {b.actes.length > 0 && (
+                                            <div>
+                                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Actes ({b.actes.length})</p>
+                                              <div className="rounded border border-gray-200 overflow-hidden">
+                                                <table className="w-full text-xs">
+                                                  <thead className="bg-gray-100">
+                                                    <tr>
+                                                      <th className="px-2 py-1 text-left font-medium text-gray-600">Code</th>
+                                                      <th className="px-2 py-1 text-left font-medium text-gray-600">Désignation</th>
+                                                      <th className="px-2 py-1 text-left font-medium text-gray-600">Praticien</th>
+                                                      <th className="px-2 py-1 text-left font-medium text-gray-600">MF</th>
+                                                      <th className="px-2 py-1 text-right font-medium text-gray-600">Montant</th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody>
+                                                    {b.actes.map((a) => (
+                                                      <tr key={a.id} className="border-t border-gray-100">
+                                                        <td className="px-2 py-1 font-mono">{a.code || '—'}</td>
+                                                        <td className="px-2 py-1">{a.label || '—'}</td>
+                                                        <td className="px-2 py-1">{a.nom_prof_sant || '—'}</td>
+                                                        <td className="px-2 py-1 font-mono">{a.ref_prof_sant || '—'}</td>
+                                                        <td className="px-2 py-1 text-right font-semibold">{(a.amount || 0).toFixed(3)}</td>
+                                                      </tr>
+                                                    ))}
+                                                  </tbody>
+                                                  <tfoot className="bg-gray-50 font-semibold">
+                                                    <tr className="border-t">
+                                                      <td colSpan={4} className="px-2 py-1 text-right">Total</td>
+                                                      <td className="px-2 py-1 text-right">{(b.total_amount || 0).toFixed(3)} TND</td>
+                                                    </tr>
+                                                  </tfoot>
+                                                </table>
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {/* Validation errors */}
+                                          {needsCorrection && errors.length > 0 && (
+                                            <div>
+                                              <p className="text-xs font-semibold text-orange-600 uppercase tracking-wide mb-1">Erreurs de validation</p>
+                                              <div className="space-y-0.5">
+                                                {errors.map((err, i) => (
+                                                  <p key={i} className="text-xs text-orange-700 flex items-center gap-1">
+                                                    <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                                                    {err.message}
+                                                  </p>
+                                                ))}
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          {/* Action button */}
+                                          <div className="flex justify-end">
+                                            <Button
+                                              type="button"
+                                              variant={needsCorrection ? 'outline' : 'default'}
+                                              size="sm"
+                                              className="text-xs"
+                                              onClick={(e) => { e.stopPropagation(); loadBulkBulletinIntoForm(b); }}
+                                            >
+                                              {needsCorrection ? (
+                                                <><AlertTriangle className="h-3 w-3 mr-1" /> Corriger dans le formulaire</>
+                                              ) : (
+                                                <><Check className="h-3 w-3 mr-1" /> Charger dans le formulaire</>
+                                              )}
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* Still processing indicator */}
+                            {bulkJobData.job.status !== 'completed' && bulkJobData.job.status !== 'failed' &&
+                             (bulkJobData.job.bulletins_ready + bulkJobData.job.bulletins_pending) < bulkJobData.job.total_bulletins_extracted && (
+                              <div className="flex items-center gap-2">
+                                <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
+                                <p className="text-xs text-blue-600">
+                                  Traitement en cours — actualisation automatique...
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Error state: job finished but no bulletins created */}
+                            {(bulkJobData.job.status === 'completed' || bulkJobData.job.status === 'failed') &&
+                             bulkJobData.bulletins.length === 0 && (
+                              <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 space-y-2">
+                                <p className="text-xs text-orange-800 flex items-center gap-1">
+                                  <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                                  Le traitement OCR n'a pas pu extraire les bulletins. L'API OCR a peut-être expiré ou échoué.
+                                </p>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={retryMutation.isPending}
+                                  onClick={() => {
+                                    retryMutation.mutate(bulkJobId!, {
+                                      onSuccess: () => {
+                                        toast.success('Job relancé — les bulletins vont être re-traités');
+                                      },
+                                      onError: (err) => {
+                                        toast.error(err.message || 'Erreur lors du retry');
+                                      },
+                                    });
+                                  }}
+                                  className="text-xs"
+                                >
+                                  {retryMutation.isPending ? (
+                                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                  ) : (
+                                    <RefreshCw className="h-3 w-3 mr-1" />
+                                  )}
+                                  Réessayer le traitement
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* OCR Feedback Panel */}
                         {ocrFeedback?.visible &&
@@ -2685,7 +3210,7 @@ export function BulletinsSaisiePage() {
                               ["N° adherent", adh.numero_adherent],
                               ["N° contrat", adh.numero_contrat],
                               ["N° bulletin", adh.numero_bulletin],
-                              ["Adresse", adh.adresse],
+                              // ["Adresse", adh.adresse],
                               ["Beneficiaire", adh.beneficiaire_coche],
                               ["Nom beneficiaire", adh.nom_beneficiaire],
                               ["Date signature", adh.date_signature],
@@ -2917,7 +3442,7 @@ export function BulletinsSaisiePage() {
                                 placeholder="Ex: BS-2026-001"
                                 className="rounded-xl pr-24"
                               />
-                              {watch("bulletin_number") &&
+                              {watchedBulletinNumber &&
                               bulletinNumberFromOcr ? (
                                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded flex items-center gap-1">
                                   <ScanSearch className="h-3 w-3" />
@@ -3097,8 +3622,8 @@ export function BulletinsSaisiePage() {
                               <label
                                 className={cn(
                                   "flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors",
-                                  !watch("beneficiary_relationship") ||
-                                    watch("beneficiary_relationship") === "self"
+                                  !watchedBeneficiaryRel ||
+                                    watchedBeneficiaryRel === "self"
                                     ? "border-blue-500 bg-blue-50 text-blue-700 font-medium"
                                     : "border-gray-200 hover:bg-gray-50 text-gray-700",
                                 )}
@@ -3108,8 +3633,8 @@ export function BulletinsSaisiePage() {
                                   name="beneficiary_selection"
                                   className="h-4 w-4 text-blue-600 border-gray-300"
                                   checked={
-                                    !watch("beneficiary_relationship") ||
-                                    watch("beneficiary_relationship") === "self"
+                                    !watchedBeneficiaryRel ||
+                                    watchedBeneficiaryRel === "self"
                                   }
                                   onChange={() => {
                                     setValue(
@@ -3128,7 +3653,7 @@ export function BulletinsSaisiePage() {
                               <label
                                 className={cn(
                                   "flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors",
-                                  watch("beneficiary_relationship") === "spouse"
+                                  watchedBeneficiaryRel === "spouse"
                                     ? "border-purple-500 bg-purple-50 text-purple-700 font-medium"
                                     : "border-gray-200 hover:bg-gray-50 text-gray-700",
                                 )}
@@ -3138,7 +3663,7 @@ export function BulletinsSaisiePage() {
                                   name="beneficiary_selection"
                                   className="h-4 w-4 text-purple-600 border-gray-300"
                                   checked={
-                                    watch("beneficiary_relationship") ===
+                                    watchedBeneficiaryRel ===
                                     "spouse"
                                   }
                                   onChange={() => {
@@ -3165,7 +3690,7 @@ export function BulletinsSaisiePage() {
                               <label
                                 className={cn(
                                   "flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors",
-                                  watch("beneficiary_relationship") === "child"
+                                  watchedBeneficiaryRel === "child"
                                     ? "border-emerald-500 bg-emerald-50 text-emerald-700 font-medium"
                                     : "border-gray-200 hover:bg-gray-50 text-gray-700",
                                 )}
@@ -3175,7 +3700,7 @@ export function BulletinsSaisiePage() {
                                   name="beneficiary_selection"
                                   className="h-4 w-4 text-emerald-600 border-gray-300"
                                   checked={
-                                    watch("beneficiary_relationship") ===
+                                    watchedBeneficiaryRel ===
                                     "child"
                                   }
                                   onChange={() => {
@@ -3202,8 +3727,8 @@ export function BulletinsSaisiePage() {
                             </div>
 
                             {/* === ADHÉRENT sélectionné === */}
-                            {(!watch("beneficiary_relationship") ||
-                              watch("beneficiary_relationship") === "self") &&
+                            {(!watchedBeneficiaryRel ||
+                              watchedBeneficiaryRel === "self") &&
                               (selectedAdherentInfo ? (
                                 <div className="rounded-xl border border-blue-200 bg-blue-50/30 p-4 space-y-3">
                                   <div className="flex items-center gap-3">
@@ -3264,7 +3789,7 @@ export function BulletinsSaisiePage() {
                                     )}
                                   </div>
                                 </div>
-                              ) : watch("adherent_matricule") ? (
+                              ) : watchedMatricule ? (
                                 <div className="rounded-xl border border-amber-200 bg-amber-50/30 p-4 space-y-3">
                                   <div className="flex items-center gap-2">
                                     <AlertTriangle className="h-4 w-4 text-amber-600" />
@@ -3326,16 +3851,7 @@ export function BulletinsSaisiePage() {
                                         className="rounded-xl text-sm"
                                       />
                                     </div>
-                                    <div className="space-y-1 sm:col-span-2">
-                                      <Label className="text-xs text-gray-500">
-                                        Adresse
-                                      </Label>
-                                      <Input
-                                        {...register("adherent_address")}
-                                        placeholder="Adresse complète"
-                                        className="rounded-xl text-sm"
-                                      />
-                                    </div>
+                                  
                                   </div>
                                   <div className="flex items-center justify-end pt-1">
                                     <Button
@@ -3359,7 +3875,7 @@ export function BulletinsSaisiePage() {
                               ) : null)}
 
                             {/* === CONJOINT === */}
-                            {watch("beneficiary_relationship") === "spouse" &&
+                            {watchedBeneficiaryRel === "spouse" &&
                               (selectedAdherentInfo && familleData?.conjoint ? (
                                 <div className="rounded-xl border border-purple-200 bg-purple-50/30 p-4 space-y-3">
                                   <div className="flex items-center gap-3">
@@ -3484,7 +4000,7 @@ export function BulletinsSaisiePage() {
                                       <Input
                                         placeholder="Nom et prénom"
                                         className="rounded-xl text-sm"
-                                        value={watch("beneficiary_name") || ""}
+                                        value={watchedBenefName || ""}
                                         onChange={(e) =>
                                           setValue(
                                             "beneficiary_name",
@@ -3521,7 +4037,7 @@ export function BulletinsSaisiePage() {
                               ))}
 
                             {/* === ENFANT === */}
-                            {watch("beneficiary_relationship") === "child" &&
+                            {watchedBeneficiaryRel === "child" &&
                               (selectedAdherentInfo &&
                               familleData?.enfants &&
                               familleData.enfants.length > 0 ? (
@@ -3537,7 +4053,7 @@ export function BulletinsSaisiePage() {
                                         key={enfant.id}
                                         className={cn(
                                           "flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-colors",
-                                          watch("beneficiary_id") === enfant.id
+                                          watchedBenefId === enfant.id
                                             ? "border-emerald-500 bg-emerald-50/50"
                                             : "border-gray-200 hover:bg-gray-50",
                                         )}
@@ -3547,7 +4063,7 @@ export function BulletinsSaisiePage() {
                                           name="child_selection"
                                           className="h-4 w-4 text-emerald-600 border-gray-300"
                                           checked={
-                                            watch("beneficiary_id") ===
+                                            watchedBenefId ===
                                             enfant.id
                                           }
                                           onChange={() => {
@@ -3660,7 +4176,7 @@ export function BulletinsSaisiePage() {
                                       <Input
                                         placeholder="Nom et prénom"
                                         className="rounded-xl text-sm"
-                                        value={watch("beneficiary_name") || ""}
+                                        value={watchedBenefName || ""}
                                         onChange={(e) =>
                                           setValue(
                                             "beneficiary_name",
@@ -3747,8 +4263,9 @@ export function BulletinsSaisiePage() {
 
                       <div className="divide-y divide-gray-100">
                         {actesFields.map((field, index) => {
+                          const currentActe = watchedActes?.[index];
                           const acteCareType =
-                            watch(`actes.${index}.care_type`) || "consultation";
+                            currentActe?.care_type || "consultation";
                           return (
                             <div key={field.id} className="py-4 space-y-3">
                               {/* Type de soin per acte */}
@@ -3957,15 +4474,11 @@ export function BulletinsSaisiePage() {
                                             <span className="block text-amber-600 mt-0.5">
                                               Le praticien avec le MF{" "}
                                               <span className="font-mono">
-                                                {watch(
-                                                  `actes.${index}.ref_prof_sant`,
-                                                )}
+                                                {currentActe?.ref_prof_sant}
                                               </span>{" "}
                                               n'existe pas dans la base.
-                                              {watch(
-                                                `actes.${index}.nom_prof_sant`,
-                                              )?.trim()
-                                                ? ` Il sera créé sous le nom "${watch(`actes.${index}.nom_prof_sant`)?.trim()}".`
+                                              {currentActe?.nom_prof_sant?.trim()
+                                                ? ` Il sera créé sous le nom "${currentActe.nom_prof_sant.trim()}".`
                                                 : " Veuillez renseigner son nom ci-dessus."}
                                             </span>
                                           </span>
@@ -3979,7 +4492,7 @@ export function BulletinsSaisiePage() {
                                     </Label>
                                     <MfLookupInput
                                       value={
-                                        watch(`actes.${index}.ref_prof_sant`) ||
+                                        currentActe?.ref_prof_sant ||
                                         ""
                                       }
                                       onChange={(val) =>
@@ -4064,7 +4577,7 @@ export function BulletinsSaisiePage() {
                                     {acteCareType === "pharmacy" ? (
                                       <MedicationAutocomplete
                                         value={
-                                          watch(`actes.${index}.label`) || ""
+                                          currentActe?.label || ""
                                         }
                                         familyId={selectedMedicationFamily}
                                         onSelect={(med) => {
@@ -4092,7 +4605,7 @@ export function BulletinsSaisiePage() {
                                       <>
                                         <ActeSelector
                                           value={
-                                            watch(`actes.${index}.code`) || ""
+                                            currentActe?.code || ""
                                           }
                                           disabled={
                                             isSubmitting ||
@@ -4125,12 +4638,10 @@ export function BulletinsSaisiePage() {
                                   </div>
                                   {/* Reimbursement info for pharmacy */}
                                   {acteCareType === "pharmacy" &&
-                                    watch(`actes.${index}.label`) &&
+                                    currentActe?.label &&
                                     (() => {
-                                      const label =
-                                        watch(`actes.${index}.label`) || "";
-                                      const amount =
-                                        watch(`actes.${index}.amount`) || 0;
+                                      const label = currentActe?.label || "";
+                                      const amount = currentActe?.amount || 0;
                                       const tauxMatch =
                                         label.match(/\[R (\d+)%\]/);
                                       if (tauxMatch) {
@@ -4229,7 +4740,7 @@ export function BulletinsSaisiePage() {
 
                               {/* Sub-items: medications (pharmacy) or analyses (lab) */}
                               {(() => {
-                                const currentSubItems = watch(`actes.${index}.sub_items`) || [];
+                                const currentSubItems = ((currentActe as unknown as Record<string, unknown>)?.sub_items || []) as Array<{ label: string; amount: number; code?: string }>;
                                 if (currentSubItems.length === 0 && acteCareType !== 'pharmacy' && acteCareType !== 'lab') return null;
 
                                 const subLabel = acteCareType === 'pharmacy' ? 'Médicaments' :
@@ -4338,7 +4849,7 @@ export function BulletinsSaisiePage() {
                           {
                             label: "Données générales",
                             done: !!(
-                              watch("bulletin_number") && watch("bulletin_date")
+                              watchedBulletinNumber && watchedBulletinDate
                             ),
                           },
                           {
@@ -4346,16 +4857,16 @@ export function BulletinsSaisiePage() {
                             done:
                               !!selectedAdherentInfo ||
                               !!(
-                                watch("adherent_matricule") &&
-                                watch("adherent_last_name")
+                                watchedMatricule &&
+                                watchedAdherentLastName
                               ),
                           },
                           {
                             label: "Bénéficiaire sélectionné",
                             done:
                               !!selectedAdherentInfo &&
-                              (watch("beneficiary_relationship") === "self" ||
-                                !!watch("beneficiary_name")),
+                              (watchedBeneficiaryRel === "self" ||
+                                !!watchedBenefName),
                           },
                           {
                             label: "Détails des actes",
@@ -4569,7 +5080,7 @@ export function BulletinsSaisiePage() {
                         hasBeneficiaryBlocking ||
                         !(
                           watchedActes?.length > 0 &&
-                          watch("adherent_matricule")
+                          watchedMatricule
                         )
                       }
                       className="w-full rounded-xl bg-gradient-to-r from-gray-900 to-blue-950 px-6 py-3.5 text-sm font-semibold text-white hover:from-gray-800 hover:to-blue-900 transition-all shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
@@ -4599,6 +5110,7 @@ export function BulletinsSaisiePage() {
                       onClick={() => {
                         reset();
                         setSelectedFiles([]);
+                        setFolderSubGroups(null);
                         setSelectedAdherentInfo(null);
                         setOcrFeedback(null);
                         setMfStatuses({});

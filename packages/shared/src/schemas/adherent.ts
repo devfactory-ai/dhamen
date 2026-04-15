@@ -104,6 +104,7 @@ export const adherentUpdateSchema = z.object({
   lat: z.number().min(-90).max(90).optional(),
   lng: z.number().min(-180).max(180).optional(),
   // Entreprise & couverture
+  companyId: z.string().optional(),
   matricule: z.string().optional(),
   plafondGlobal: z.number().min(0).optional(),
   dateDebutAdhesion: z.string().optional(),

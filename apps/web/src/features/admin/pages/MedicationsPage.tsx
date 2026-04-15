@@ -52,6 +52,7 @@ import {
 } from 'lucide-react';
 import { FloatingHelp } from '@/components/ui/floating-help';
 import { FilePreview } from '@/components/ui/file-preview';
+import { Checkbox } from '@/components/ui/checkbox';
 import * as XLSX from 'xlsx';
 
 interface Medication {
@@ -226,6 +227,9 @@ export function MedicationsPage() {
   const [ammImportNotes, setAmmImportNotes] = useState('');
   const ammFileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState('medications');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [showBaremeHistoryDialog, setShowBaremeHistoryDialog] = useState(false);
   const [selectedBaremeForHistory, setSelectedBaremeForHistory] = useState<string | null>(null);
   const [baremePage, setBaremePage] = useState(1);
@@ -445,6 +449,62 @@ export function MedicationsPage() {
     },
   });
 
+  // Delete medication(s) mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      if (ids.length === 1) {
+        const res = await apiClient.delete(`/medications/${ids[0]}`);
+        if (!res.success) throw new Error(res.error?.message || 'Erreur suppression');
+        return { deleted: 1 };
+      }
+      const res = await apiClient.post<{ deleted: number }>('/medications/bulk-delete', { ids });
+      if (!res.success) throw new Error(res.error?.message || 'Erreur suppression');
+      return res.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['medications'] });
+      setSelectedIds(new Set());
+      setShowDeleteDialog(false);
+      setDeleteTargetId(null);
+      toast({ variant: 'success', title: `${data?.deleted ?? 1} médicament(s) supprimé(s)` });
+    },
+    onError: (err: Error) => {
+      toast({ variant: 'destructive', title: err.message });
+    },
+  });
+
+  const handleDeleteConfirm = () => {
+    if (deleteTargetId) {
+      deleteMutation.mutate([deleteTargetId]);
+    } else if (selectedIds.size > 0) {
+      deleteMutation.mutate(Array.from(selectedIds));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const currentIds = (medicationsData?.data || []).map((m) => m.id);
+    setSelectedIds((prev) => {
+      const allSelected = currentIds.every((id) => prev.has(id));
+      if (allSelected) {
+        const next = new Set(prev);
+        currentIds.forEach((id) => next.delete(id));
+        return next;
+      }
+      const next = new Set(prev);
+      currentIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
   // Fetch medication family baremes
   const { data: baremesData, isLoading: loadingBaremes } = useQuery({
     queryKey: ['medication-family-baremes', baremePage],
@@ -607,10 +667,31 @@ export function MedicationsPage() {
     }
   };
 
+  const currentPageIds = (medicationsData?.data || []).map((m) => m.id);
+  const allPageSelected = currentPageIds.length > 0 && currentPageIds.every((id) => selectedIds.has(id));
+
   const medicationColumns = [
     {
+      key: 'select',
+      header: (
+        <Checkbox
+          checked={allPageSelected}
+          onCheckedChange={toggleSelectAll}
+          aria-label="Tout sélectionner"
+        />
+      ),
+      render: (row: Medication) => (
+        <Checkbox
+          checked={selectedIds.has(row.id)}
+          onCheckedChange={() => toggleSelect(row.id)}
+          aria-label={`Sélectionner ${row.brand_name}`}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        />
+      ),
+    },
+    {
       key: 'code',
-      header: 'Code',
+      header: 'Code_amm',
       render: (row: Medication) => (
         <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
           {row.code_amm || row.code_pct || '-'}
@@ -639,7 +720,7 @@ export function MedicationsPage() {
     },
     {
       key: 'classe',
-      header: 'Classe',
+      header: 'Classe_amm',
       render: (row: Medication) => {
         const label = row.family_name || row.amm_classe;
         if (!label) return <span className="text-muted-foreground">-</span>;
@@ -712,14 +793,24 @@ export function MedicationsPage() {
       header: 'Actions',
       className: 'text-right',
       render: (row: Medication) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate(`/admin/medications/${row.id}`)}
-          title="Voir détails"
-        >
-          <Eye className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate(`/admin/medications/${row.id}`)}
+            title="Voir détails"
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setDeleteTargetId(row.id); setShowDeleteDialog(true); }}
+            title="Supprimer"
+          >
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
       ),
     },
   ];
@@ -947,6 +1038,30 @@ export function MedicationsPage() {
               <Pill className="w-8 h-8 text-white ml-auto" />
             </div>
           </div>
+
+          {/* Bulk action bar */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2">
+              <span className="text-sm font-medium text-red-700">
+                {selectedIds.size} sélectionné(s)
+              </span>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => { setDeleteTargetId(null); setShowDeleteDialog(true); }}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Supprimer la sélection
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Annuler
+              </Button>
+            </div>
+          )}
 
           {/* Table */}
           <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
@@ -1329,6 +1444,32 @@ export function MedicationsPage() {
               {importAmmMutation.isPending
                 ? `Import en cours... ${Math.min(ammImportProgress.current, ammImportProgress.total)}/${ammImportProgress.total}`
                 : `Importer ${ammParsedRows.length} médicaments`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => { if (!open) { setShowDeleteDialog(false); setDeleteTargetId(null); } }}>
+        <DialogContent className="w-full max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmer la suppression</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {deleteTargetId
+              ? 'Voulez-vous vraiment supprimer ce médicament ?'
+              : `Voulez-vous vraiment supprimer ${selectedIds.size} médicament(s) ?`}
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowDeleteDialog(false); setDeleteTargetId(null); }}>
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Suppression...' : 'Supprimer'}
             </Button>
           </DialogFooter>
         </DialogContent>

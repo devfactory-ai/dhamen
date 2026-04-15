@@ -115,12 +115,17 @@ export function GroupContractsPage() {
     },
   });
 
+  // Agent: filter by selected company. Admin: show all (can filter manually).
+  const isAdmin = user?.role === 'ADMIN';
+  const agentCompanyId = isHR ? user?.companyId : (!isAdmin && selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__') ? selectedCompany.id : undefined;
+
   const { data, isLoading } = useQuery({
-    queryKey: ['group-contracts', statusFilter, typeFilter],
+    queryKey: ['group-contracts', statusFilter, typeFilter, agentCompanyId],
     queryFn: async () => {
       const params = new URLSearchParams({ page: '1', limit: '500' });
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (typeFilter !== 'all') params.set('contractType', typeFilter);
+      if (agentCompanyId) params.set('companyId', agentCompanyId);
       const response = await apiClient.get<GroupContract[]>(
         `/group-contracts?${params.toString()}`
       );
@@ -271,10 +276,10 @@ export function GroupContractsPage() {
     },
     {
       key: 'actions',
-      header: '',
-      className: 'text-right',
+      header: 'Actions',
+      className: 'text-center',
       render: (contract: GroupContract) => (
-        <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-center gap-1" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             onClick={() => navigate(`/group-contracts/${contract.id}`)}
@@ -353,12 +358,16 @@ export function GroupContractsPage() {
           <h1 className="text-2xl font-bold text-gray-900">
             {isHR
               ? `Contrats de ${user?.companyName || 'votre entreprise'}`
-              : isIndividualMode ? 'Contrats Individuels' : 'Contrats'}
+              : isIndividualMode ? 'Contrats Individuels'
+              : agentCompanyId ? `Contrats — ${selectedCompany?.name || ''}`
+              : 'Contrats'}
           </h1>
           <p className="mt-1 text-sm text-gray-500">
             {isHR
               ? 'Consultez les contrats d\'assurance de votre entreprise'
-              : isIndividualMode ? 'Gérer les contrats d\'assurance individuels' : 'Gérer les contrats d\'assurance groupe et individuels'}
+              : isIndividualMode ? 'Gérer les contrats d\'assurance individuels'
+              : agentCompanyId ? `Contrats groupe de l'entreprise sélectionnée`
+              : 'Gérer les contrats d\'assurance groupe et individuels'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

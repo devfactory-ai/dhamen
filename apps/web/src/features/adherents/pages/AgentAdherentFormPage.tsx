@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent } from '@/components/ui/card';
@@ -139,6 +139,7 @@ export function AgentAdherentFormPage() {
   const isAdmin = user?.role === 'ADMIN';
   const isHR = user?.role === 'HR';
   const { hasPermission } = usePermissions();
+  const canChangeCompany = hasPermission('companies', 'list') && !isHR;
   const { selectedCompany } = useAgentContext();
   const isIndividualMode = !isHR && selectedCompany?.id === '__INDIVIDUAL__';
   const [adminCompanyId, setAdminCompanyId] = useState<string>('');
@@ -148,6 +149,43 @@ export function AgentAdherentFormPage() {
   const [ayantsDroit, setAyantsDroit] = useState<AyantDroitFormState[]>([]);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [formPopulated, setFormPopulated] = useState(false);
+  const [activeTab, setActiveTab] = useState('adherent');
+  const [contractNumberValid, setContractNumberValid] = useState(true);
+  const [checkingContract, setCheckingContract] = useState(false);
+
+  // --- Contract number check: verify it belongs to the adherent's company ---
+  const contractCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resolveCompanyId = useCallback((): string | undefined => {
+    // adminCompanyId is set for canChangeCompany roles AND in edit mode (populated from adherentData)
+    if (adminCompanyId) return adminCompanyId;
+    if (isHR && user?.companyId) return user.companyId;
+    if (selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__') return selectedCompany.id;
+    return undefined;
+  }, [adminCompanyId, isHR, user?.companyId, selectedCompany]);
+
+  const checkContractNumber = useCallback((value: string) => {
+    if (contractCheckTimer.current) clearTimeout(contractCheckTimer.current);
+    if (!value.trim()) {
+      setContractNumberValid(true);
+      setCheckingContract(false);
+      return;
+    }
+    setCheckingContract(true);
+    contractCheckTimer.current = setTimeout(async () => {
+      try {
+        const params: Record<string, string> = { contractNumber: value.trim() };
+        const cid = resolveCompanyId();
+        if (cid) params.companyId = cid;
+        const res = await apiClient.get<{ exists: boolean }>('/contracts/check-number', { params });
+        const data = res.success ? res.data : null;
+        setContractNumberValid(data?.exists ?? false);
+      } catch {
+        setContractNumberValid(true);
+      } finally {
+        setCheckingContract(false);
+      }
+    }, 500);
+  }, [resolveCompanyId]);
 
   // Import existing adherent as ayant droit
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -212,6 +250,41 @@ export function AgentAdherentFormPage() {
 
   const effectiveCompanyId = isHR ? (user?.companyId ?? undefined) : isAdmin ? adminCompanyId : selectedCompany?.id;
   const { data: nextMatricule } = useNextMatricule(effectiveCompanyId || undefined);
+
+  // --- Load company's group contracts for the contract selector ---
+  const [companyContracts, setCompanyContracts] = useState<Array<{ id: string; contractNumber: string; status: string }>>([]);
+  const currentCompanyId = resolveCompanyId();
+  const prevCompanyIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    // Reset contract number when company changes (but not on initial load in edit mode)
+    if (prevCompanyIdRef.current !== undefined && prevCompanyIdRef.current !== currentCompanyId) {
+      setForm((f) => ({ ...f, contractNumber: '' }));
+      setContractNumberValid(true);
+    }
+    prevCompanyIdRef.current = currentCompanyId;
+
+    if (!currentCompanyId || currentCompanyId === '__INDIVIDUAL__') {
+      setCompanyContracts([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiClient.get<Array<{ id: string; contract_number: string; status: string }>>('/group-contracts', {
+          params: { companyId: currentCompanyId, status: 'active', limit: '100' },
+        });
+        if (!cancelled && res.success) {
+          const raw = res.data as unknown as Array<{ id: string; contract_number: string; status: string }>;
+          setCompanyContracts((Array.isArray(raw) ? raw : []).map((gc) => ({
+            id: gc.id,
+            contractNumber: gc.contract_number,
+            status: gc.status,
+          })));
+        }
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, [currentCompanyId]);
   const createMutation = useCreateAdherent();
   const updateMutation = useUpdateAdherent();
 
@@ -295,16 +368,14 @@ export function AgentAdherentFormPage() {
         credit: a.credit ? String(a.credit) : '',
       });
       setFormPopulated(true);
-      // Set company for ADMIN mode edit
-      if (isAdmin) {
-        const cid = (a.companyId as string) || (a.company_id as string) || '';
-        if (cid) setAdminCompanyId(cid);
-      }
+      // Set company id (used for contract check and company selector)
+      const cid = (a.companyId as string) || (a.company_id as string) || '';
+      if (cid) setAdminCompanyId(cid);
     } else if (!isEdit && !formPopulated) {
       setForm({ ...emptyForm, matricule: nextMatricule || '0001' });
       if (nextMatricule) setFormPopulated(true);
     }
-  }, [adherentData, isEdit, nextMatricule, isAdmin, formPopulated]);
+  }, [adherentData, isEdit, nextMatricule, canChangeCompany, formPopulated]);
 
   // --- Ayants droit helpers ---
   const hasConjoint = ayantsDroit.some((ad) => ad.lienParente === 'C');
@@ -337,6 +408,7 @@ export function AgentAdherentFormPage() {
     if (!form.dateOfBirth) errors.dateOfBirth = 'Date de naissance requise';
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errors.email = 'Email invalide';
     if (form.phone && !/^\d{8}$/.test(form.phone.replace(/\s/g, ''))) errors.phone = 'Numéro invalide (8 chiffres)';
+    if (form.contractNumber && !contractNumberValid) errors.contractNumber = 'Ce numéro de contrat n\'existe pas';
 
     // Validate ayants droit
     ayantsDroit.forEach((ad, i) => {
@@ -346,6 +418,24 @@ export function AgentAdherentFormPage() {
     });
 
     setFormErrors(errors);
+
+    // Redirect to the tab containing the first error
+    if (Object.keys(errors).length > 0) {
+      const adherentFields = ['nationalId', 'lastName', 'firstName', 'dateOfBirth', 'contractNumber'];
+      const renseignementFields = ['email', 'phone'];
+      const hasAdherentError = adherentFields.some((f) => errors[f]);
+      const hasRenseignementError = renseignementFields.some((f) => errors[f]);
+      const hasAyantsDroitError = Object.keys(errors).some((k) => k.startsWith('ad_'));
+
+      if (hasAdherentError) {
+        setActiveTab('adherent');
+      } else if (hasRenseignementError) {
+        setActiveTab('renseignement');
+      } else if (hasAyantsDroitError) {
+        setActiveTab('ayants-droit');
+      }
+    }
+
     return Object.keys(errors).length === 0;
   }
 
@@ -368,6 +458,12 @@ export function AgentAdherentFormPage() {
           email: ad.email || undefined,
         }));
 
+      // Resolve companyId for update (roles with companies.list can change it)
+      const updateCompanyId = canChangeCompany && adminCompanyId ? adminCompanyId
+        : isHR ? user?.companyId
+        : selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__' ? selectedCompany.id
+        : undefined;
+
       const payload: UpdateAdherentData = {
         nationalId: form.nationalId || undefined,
         firstName: form.firstName.trim(),
@@ -384,6 +480,7 @@ export function AgentAdherentFormPage() {
         address: form.address || undefined,
         city: form.city || undefined,
         postalCode: form.postalCode || undefined,
+        companyId: updateCompanyId || undefined,
         matricule: form.matricule || undefined,
         plafondGlobal: form.plafondGlobal ? Number(form.plafondGlobal) * 1000 : undefined,
         dateDebutAdhesion: form.dateDebutAdhesion || undefined,
@@ -402,15 +499,15 @@ export function AgentAdherentFormPage() {
         etatFiche: form.etatFiche || undefined,
         contractNumber: form.contractNumber || undefined,
         credit: form.credit ? Number(form.credit) : undefined,
-        ayantsDroit: ayantsDroitPayload.length > 0 ? ayantsDroitPayload : undefined,
+        ayantsDroit: ayantsDroitPayload,
       };
       try {
         await updateMutation.mutateAsync({ id, data: payload });
         navigate('/adherents/agent');
       } catch { /* handled by mutation */ }
     } else {
-      if (!isIndividualMode && !isAdmin && !isHR && !selectedCompany) return;
-      if (!isIndividualMode && isAdmin && !adminCompanyId) return;
+      if (!isIndividualMode && !canChangeCompany && !isHR && !selectedCompany) return;
+      if (!isIndividualMode && canChangeCompany && !adminCompanyId) return;
       if (isHR && !user?.companyId) return;
 
       // Build ayants droit payload
@@ -444,7 +541,7 @@ export function AgentAdherentFormPage() {
         address: form.address || undefined,
         city: form.city || undefined,
         postalCode: form.postalCode || undefined,
-        companyId: isIndividualMode ? '__INDIVIDUAL__' : (isHR ? user!.companyId! : isAdmin ? adminCompanyId : selectedCompany!.id),
+        companyId: isIndividualMode ? '__INDIVIDUAL__' : (isHR ? user!.companyId! : canChangeCompany ? adminCompanyId : selectedCompany!.id),
         matricule: form.matricule || undefined,
         contractNumber: form.contractNumber || undefined,
         plafondGlobal: form.plafondGlobal ? Number(form.plafondGlobal) * 1000 : undefined,
@@ -498,7 +595,7 @@ export function AgentAdherentFormPage() {
               ? 'Adhérent avec contrat individuel (sans entreprise)'
               : isHR
                 ? `Entreprise: ${user?.companyName || 'votre entreprise'}`
-                : isAdmin
+                : canChangeCompany
                   ? 'Sélectionnez une entreprise pour créer un adhérent'
                   : `Entreprise: ${selectedCompany?.name || '\u2014'}`
         }
@@ -511,8 +608,8 @@ export function AgentAdherentFormPage() {
 
       <Card>
         <CardContent className="pt-6">
-          {/* Entreprise - select for ADMIN, read-only for others */}
-          {!isIndividualMode && isAdmin && (
+          {/* Entreprise - select for roles with companies.list permission, read-only for others */}
+          {!isIndividualMode && canChangeCompany && (
             <div className="mb-4">
               <Label className="text-xs text-gray-500">Entreprise <span className="text-red-500">*</span></Label>
               <Select value={adminCompanyId} onValueChange={setAdminCompanyId}>
@@ -527,7 +624,7 @@ export function AgentAdherentFormPage() {
               </Select>
             </div>
           )}
-          {!isIndividualMode && !isAdmin && (
+          {!isIndividualMode && !canChangeCompany && (
             <div className="mb-4">
               <Label className="text-xs text-gray-500">Entreprise</Label>
               <p className="text-sm font-medium">
@@ -543,21 +640,30 @@ export function AgentAdherentFormPage() {
             </div>
           )}
 
-          <Tabs defaultValue="adherent" className="w-full">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="w-full sm:w-auto">
               <TabsTrigger value="adherent" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
                 <User className="h-3.5 w-3.5 shrink-0 sm:hidden" />
                 Adhérent
+                {Object.keys(formErrors).some((k) => ['nationalId', 'lastName', 'firstName', 'dateOfBirth', 'contractNumber'].includes(k)) && (
+                  <span className="ml-1 w-2 h-2 rounded-full bg-red-500 inline-block" />
+                )}
               </TabsTrigger>
               <TabsTrigger value="renseignement" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
                 <span className="hidden sm:inline">Renseignement</span>
                 <span className="sm:hidden">Infos</span>
+                {Object.keys(formErrors).some((k) => ['email', 'phone'].includes(k)) && (
+                  <span className="ml-1 w-2 h-2 rounded-full bg-red-500 inline-block" />
+                )}
               </TabsTrigger>
               <TabsTrigger value="ayants-droit" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
                 <Users className="w-3.5 h-3.5 shrink-0" />
                 <span className="hidden sm:inline">Ayants droit</span>
                 <span className="sm:hidden">A. droit</span>
-                {ayantsDroit.length > 0 && (
+                {Object.keys(formErrors).some((k) => k.startsWith('ad_')) && (
+                  <span className="ml-1 w-2 h-2 rounded-full bg-red-500 inline-block" />
+                )}
+                {!Object.keys(formErrors).some((k) => k.startsWith('ad_')) && ayantsDroit.length > 0 && (
                   <span className="ml-1 bg-blue-100 text-blue-700 text-[10px] sm:text-xs font-medium px-1 sm:px-1.5 py-0.5 rounded-full">
                     {ayantsDroit.length}
                   </span>
@@ -664,7 +770,51 @@ export function AgentAdherentFormPage() {
                 </div>
                 <div>
                   <Label htmlFor="contractNumber">N° Contrat</Label>
-                  <Input id="contractNumber" placeholder="CT-2024-001" value={form.contractNumber} onChange={(e) => setForm({ ...form, contractNumber: e.target.value })} />
+                  {companyContracts.length > 0 ? (
+                    <>
+                      <Select
+                        value={form.contractNumber || 'none'}
+                        onValueChange={(v) => {
+                          const val = v === 'none' ? '' : v;
+                          setForm({ ...form, contractNumber: val });
+                          setContractNumberValid(!!val);
+                        }}
+                      >
+                        <SelectTrigger className={form.contractNumber ? 'border-green-500' : ''}>
+                          <SelectValue placeholder="Sélectionner un contrat" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">— Aucun —</SelectItem>
+                          {companyContracts.map((gc) => (
+                            <SelectItem key={gc.id} value={gc.contractNumber}>{gc.contractNumber}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {form.contractNumber && (
+                        <p className="text-xs text-green-600 mt-1">Contrat sélectionné</p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <Input
+                        id="contractNumber"
+                        placeholder="Saisir un numéro de contrat"
+                        value={form.contractNumber}
+                        onChange={(e) => {
+                          setForm({ ...form, contractNumber: e.target.value });
+                          checkContractNumber(e.target.value);
+                        }}
+                        className={form.contractNumber && !contractNumberValid ? 'border-red-500' : form.contractNumber && contractNumberValid ? 'border-green-500' : ''}
+                      />
+                      {checkingContract && <p className="text-xs text-gray-400 mt-1">Vérification...</p>}
+                      {!checkingContract && form.contractNumber && !contractNumberValid && (
+                        <p className="text-xs text-red-500 mt-1">Ce numéro de contrat n'existe pas</p>
+                      )}
+                      {!checkingContract && form.contractNumber && contractNumberValid && (
+                        <p className="text-xs text-green-600 mt-1">Contrat trouvé</p>
+                      )}
+                    </>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="plafondGlobal">Plafond (DT)</Label>
@@ -908,8 +1058,8 @@ export function AgentAdherentFormPage() {
                         </div>
                       </div>
 
-                      {/* Date naissance / Sexe / CIN */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {/* Date naissance / Sexe / CIN (conjoint uniquement) */}
+                      <div className={`grid grid-cols-1 sm:grid-cols-2 ${ad.lienParente === 'C' ? 'lg:grid-cols-3' : ''} gap-3`}>
                         <div>
                           <Label>Date de naissance *</Label>
                           <Input
@@ -932,15 +1082,17 @@ export function AgentAdherentFormPage() {
                             </SelectContent>
                           </Select>
                         </div>
-                        <div>
-                          <Label>N° CIN</Label>
-                          <Input
-                            placeholder={ad.lienParente === 'E' ? 'Optionnel' : '12345678'}
-                            maxLength={8}
-                            value={ad.nationalId}
-                            onChange={(e) => updateAyantDroit(index, 'nationalId', e.target.value.replace(/\D/g, ''))}
-                          />
-                        </div>
+                        {ad.lienParente === 'C' && (
+                          <div>
+                            <Label>N° CIN</Label>
+                            <Input
+                              placeholder="12345678"
+                              maxLength={8}
+                              value={ad.nationalId}
+                              onChange={(e) => updateAyantDroit(index, 'nationalId', e.target.value.replace(/\D/g, ''))}
+                            />
+                          </div>
+                        )}
                       </div>
 
                       {/* Conjoint: Telephone / Email */}
@@ -988,7 +1140,7 @@ export function AgentAdherentFormPage() {
         </Button>
         <Button
           onClick={handleSubmit}
-          disabled={isBusy}
+          disabled={isBusy || checkingContract || (!!form.contractNumber && !contractNumberValid)}
           className="gap-2"
         >
           <Save className="w-4 h-4" />

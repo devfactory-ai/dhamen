@@ -815,6 +815,80 @@ medications.get(
 );
 
 /**
+ * POST /bulk-delete
+ * Bulk soft-delete medications
+ */
+medications.post(
+  '/bulk-delete',
+  requireRole('ADMIN'),
+  zValidator('json', z.object({ ids: z.array(z.string().min(1)).min(1).max(500) })),
+  async (c) => {
+    const { ids } = c.req.valid('json');
+    const user = c.get('user');
+    const db = getDb(c);
+    const now = new Date().toISOString();
+
+    const placeholders = ids.map(() => '?').join(',');
+    await db.prepare(
+      `UPDATE medications SET deleted_at = ?, is_active = 0, updated_at = ? WHERE id IN (${placeholders}) AND deleted_at IS NULL`
+    )
+      .bind(now, now, ...ids)
+      .run();
+
+    await logAudit(db, {
+      userId: user?.sub,
+      action: 'medications.bulk_delete',
+      entityType: 'medication',
+      entityId: ids.join(','),
+      changes: { ids, count: ids.length },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return success(c, { deleted: ids.length });
+  }
+);
+
+/**
+ * DELETE /:id
+ * Soft-delete a single medication
+ */
+medications.delete(
+  '/:id',
+  requireRole('ADMIN'),
+  async (c) => {
+    const id = c.req.param('id');
+    const user = c.get('user');
+    const db = getDb(c);
+    const now = new Date().toISOString();
+
+    const existing = await db.prepare(
+      'SELECT id FROM medications WHERE id = ? AND deleted_at IS NULL'
+    ).bind(id).first();
+
+    if (!existing) {
+      return notFound(c, 'Médicament non trouvé');
+    }
+
+    await db.prepare(
+      'UPDATE medications SET deleted_at = ?, is_active = 0, updated_at = ? WHERE id = ?'
+    ).bind(now, now, id).run();
+
+    await logAudit(db, {
+      userId: user?.sub,
+      action: 'medications.delete',
+      entityType: 'medication',
+      entityId: id,
+      changes: { id },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return success(c, { deleted: true });
+  }
+);
+
+/**
  * GET /:id
  * Get medication details
  */

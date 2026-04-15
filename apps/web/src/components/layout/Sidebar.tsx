@@ -305,12 +305,12 @@ const navigationSections: NavSection[] = [
         icon: DocumentIcon,
         roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT", "SOIN_GESTIONNAIRE"],
       },
-      {
-        name: "Paiements",
-        href: "/sante/paiements",
-        icon: CurrencyIcon,
-        roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT", "SOIN_GESTIONNAIRE"],
-      },
+      // {
+      //   name: "Paiements",
+      //   href: "/sante/paiements",
+      //   icon: CurrencyIcon,
+      //   roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT", "SOIN_GESTIONNAIRE"],
+      // },
       // {
       //   name: "Éligibilité",
       //   href: "/sante/eligibility",
@@ -356,13 +356,13 @@ const navigationSections: NavSection[] = [
         roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT", "SOIN_GESTIONNAIRE"],
         badge: "IA",
       },
-      // {
-      //   name: "Contre-visites",
-      //   href: "/sante/contre-visites",
-      //   icon: ClipboardCheckIcon,
-      //   roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT", "SOIN_GESTIONNAIRE"],
-      //   disabled: false,
-      // },
+      {
+        name: "Contre-visites",
+        href: "/sante/contre-visites",
+        icon: ClipboardCheckIcon,
+        roles: ["ADMIN", "INSURER_ADMIN", "INSURER_AGENT", "SOIN_GESTIONNAIRE"],
+        disabled: false,
+      },
       // {
       //   name: "Rapports",
       //   href: "/sante/reports",

@@ -111,10 +111,9 @@ export async function findAdherentById(db: D1Database, id: string): Promise<Adhe
   const row = await db
     .prepare(
       `SELECT a.*, co.name as company_name,
-              (SELECT COALESCE(gc.contract_number, ct.contract_number)
+              (SELECT ct.contract_number
                FROM contracts ct
-               LEFT JOIN group_contracts gc ON ct.group_contract_id = gc.id
-               WHERE ct.adherent_id = a.id AND ct.status = 'active'
+               WHERE ct.adherent_id = a.id
                ORDER BY ct.created_at DESC LIMIT 1) as contract_number
        FROM adherents a
        LEFT JOIN companies co ON a.company_id = co.id

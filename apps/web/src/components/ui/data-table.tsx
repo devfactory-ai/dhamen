@@ -106,7 +106,7 @@ export function DataTable<T extends { id: string }>({
                     ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}
                     transition-colors duration-150
                   `}
-                  onClick={() => onRowClick?.(item)}
+                  // onClick={() => onRowClick?.(item)}
                 >
                   {columns.map((column) => (
                     <TableCell key={column.key} className={`py-4 ${column.className || ''}`}>

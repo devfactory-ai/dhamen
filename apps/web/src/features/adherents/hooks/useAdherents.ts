@@ -82,7 +82,7 @@ export interface CreateAdherentData {
   ayantsDroit?: AyantDroitData[];
 }
 
-export type UpdateAdherentData = Partial<Omit<CreateAdherentData, 'companyId'>>;
+export type UpdateAdherentData = Partial<CreateAdherentData>;
 
 export function useAdherents(page = 1, limit = 20, search?: string, companyId?: string, isActive?: 'true' | 'false', dossierComplet?: 'true' | 'false', contractType?: 'group' | 'individual') {
   return useQuery({

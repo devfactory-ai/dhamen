@@ -58,6 +58,47 @@ contracts.get(
 );
 
 /**
+ * GET /api/v1/contracts/check-number
+ * Check if a contract number exists for a given company
+ * Params: contractNumber (required), companyId (optional — scopes to company's group contract)
+ */
+contracts.get(
+  '/check-number',
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
+  async (c) => {
+    const contractNumber = c.req.query('contractNumber');
+    const companyId = c.req.query('companyId');
+    if (!contractNumber) {
+      return success(c, { exists: false });
+    }
+    const db = getDb(c);
+
+    if (companyId) {
+      // Check in group contracts linked to this company
+      const gc = await db
+        .prepare("SELECT id FROM group_contracts WHERE contract_number = ? AND company_id = ? AND deleted_at IS NULL LIMIT 1")
+        .bind(contractNumber, companyId)
+        .first<{ id: string }>();
+      return success(c, { exists: !!gc });
+    }
+
+    // No company — check in all group contracts and individual contracts
+    const inGroupContracts = await db
+      .prepare("SELECT id FROM group_contracts WHERE contract_number = ? AND deleted_at IS NULL LIMIT 1")
+      .bind(contractNumber)
+      .first<{ id: string }>();
+    if (inGroupContracts) {
+      return success(c, { exists: true });
+    }
+    const inContracts = await db
+      .prepare("SELECT id FROM contracts WHERE contract_number = ? LIMIT 1")
+      .bind(contractNumber)
+      .first<{ id: string }>();
+    return success(c, { exists: !!inContracts });
+  }
+);
+
+/**
  * GET /api/v1/contracts/:id
  * Get a contract by ID
  */
