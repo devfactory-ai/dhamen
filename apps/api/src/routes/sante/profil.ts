@@ -94,7 +94,7 @@ profil.get('/', requireRole('ADHERENT'), async (c) => {
     .first<AdherentRow>();
 
   if (!adherent) {
-    return notFound(c, 'Adherent non trouve');
+    return notFound(c, 'Adhérent non trouve');
   }
 
   // Get formule if exists
@@ -211,7 +211,7 @@ profil.get('/guarantees', requireRole('ADHERENT'), async (c) => {
     .first<{ id: string; formule_id: string | null }>();
 
   if (!adherent) {
-    return notFound(c, 'Adherent non trouve');
+    return notFound(c, 'Adhérent non trouvé');
   }
 
   if (!adherent.formule_id) {

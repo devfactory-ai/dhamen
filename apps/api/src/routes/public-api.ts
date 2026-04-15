@@ -294,7 +294,7 @@ publicApi.post(
           typeSoin,
           dateSoin: dateSoin || new Date().toISOString().split('T')[0],
           couverture: null,
-          motifNonEligible: 'Adherent non trouve ou date de naissance incorrecte',
+          motifNonEligible: 'Adhérent non trouvé ou date de naissance incorrecte',
           verificationId,
           timestamp: new Date().toISOString(),
         },
@@ -395,7 +395,7 @@ publicApi.post(
 
     if (!adherent) {
       return c.json(
-        { success: false, error: { code: 'ADHERENT_NOT_FOUND', message: 'Adherent non trouve' } },
+        { success: false, error: { code: 'ADHERENT_NOT_FOUND', message: 'Adhérent non trouvé' } },
         404
       );
     }

@@ -1280,7 +1280,7 @@ export function GroupContractFormPage() {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="expiry_date">Echeance annuelle</Label>
+                <Label htmlFor="expiry_date">Echéance annuelle</Label>
                 <Input id="expiry_date" type="date" {...register('expiry_date')} />
               </div>
               <div className="space-y-2">

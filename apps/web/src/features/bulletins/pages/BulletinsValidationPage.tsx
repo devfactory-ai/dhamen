@@ -960,7 +960,7 @@ export function BulletinsValidationPage() {
           columns={columns}
           data={bulletinsData?.data || []}
           isLoading={isLoading}
-          emptyMessage="Aucun bulletin trouve"
+          emptyMessage="Aucun bulletin trouvé"
           pagination={
             bulletinsData?.meta
               ? {

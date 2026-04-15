@@ -155,14 +155,19 @@ export interface AdherentSearchResult {
   plafondGlobal: number | null;
   plafondConsomme: number | null;
   contractType: 'individual' | 'family' | 'corporate' | null;
+  contractEndDate: string | null;
+  contractNumber: string | null;
+  contractWarning: string | null;
 }
 
-export function useSearchAdherents(query: string) {
+export function useSearchAdherents(query: string, companyId?: string) {
   return useQuery({
-    queryKey: ['adherents', 'autocomplete', query],
+    queryKey: ['adherents', 'autocomplete', query, companyId],
     queryFn: async () => {
+      const params: Record<string, string> = { q: query };
+      if (companyId && companyId !== '__INDIVIDUAL__') params.companyId = companyId;
       const response = await apiClient.get<AdherentSearchResult[]>('/adherents/search', {
-        params: { q: query },
+        params,
       });
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur de recherche');

@@ -285,7 +285,7 @@ eligibility.get(
     }>();
 
     if (!adherent) {
-      return badRequest(c, 'Adherent non trouve');
+      return badRequest(c, 'Adhérent non trouvé');
     }
 
     // Get consumed plafonds

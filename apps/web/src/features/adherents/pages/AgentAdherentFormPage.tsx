@@ -408,7 +408,8 @@ export function AgentAdherentFormPage() {
     if (!form.dateOfBirth) errors.dateOfBirth = 'Date de naissance requise';
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) errors.email = 'Email invalide';
     if (form.phone && !/^\d{8}$/.test(form.phone.replace(/\s/g, ''))) errors.phone = 'Numéro invalide (8 chiffres)';
-    if (form.contractNumber && !contractNumberValid) errors.contractNumber = 'Ce numéro de contrat n\'existe pas';
+    if (!form.contractNumber.trim()) errors.contractNumber = 'Numéro de contrat requis';
+    else if (!contractNumberValid) errors.contractNumber = 'Ce numéro de contrat n\'existe pas';
 
     // Validate ayants droit
     ayantsDroit.forEach((ad, i) => {

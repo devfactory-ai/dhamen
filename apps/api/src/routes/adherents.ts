@@ -391,6 +391,7 @@ adherents.get(
   async (c) => {
     const q = c.req.query('q') || '';
     const nationalId = c.req.query('nationalId') || '';
+    const companyId = c.req.query('companyId') || '';
 
     if (!nationalId && q.length < 2) {
       return c.json({
@@ -410,11 +411,14 @@ adherents.get(
       }, 403);
     }
 
+    const today = new Date().toISOString().split('T')[0];
     let query = `
       SELECT a.id, a.matricule, a.first_name, a.last_name, a.email,
              a.plafond_global, a.plafond_consomme,
              co.name as company_name,
-             (SELECT ct.plan_type FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY ct.created_at DESC LIMIT 1) as contract_type
+             (SELECT ct.plan_type FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY ct.created_at DESC LIMIT 1) as contract_type,
+             (SELECT ct.end_date FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY ct.created_at DESC LIMIT 1) as contract_end_date,
+             (SELECT ct.contract_number FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY ct.created_at DESC LIMIT 1) as contract_number
       FROM adherents a
       LEFT JOIN companies co ON a.company_id = co.id
       WHERE a.deleted_at IS NULL AND a.is_active = 1 AND a.parent_adherent_id IS NULL
@@ -433,6 +437,12 @@ adherents.get(
       params.push(likeQ, likeQ, likeQ);
     }
 
+    // Filter by company if provided (agent selecting a specific company)
+    if (companyId && companyId !== '__INDIVIDUAL__') {
+      query += ' AND a.company_id = ?';
+      params.push(companyId);
+    }
+
     // HR: scope to own company only
     if (user.role === 'HR') {
       query += ' AND a.company_id = ?';
@@ -446,17 +456,34 @@ adherents.get(
 
     const { results } = await db.prepare(query).bind(...params).all();
 
-    return success(c, results.map((r: Record<string, unknown>) => ({
-      id: r.id,
-      matricule: r.matricule,
-      firstName: r.first_name,
-      lastName: r.last_name,
-      email: r.email || null,
-      companyName: r.company_name,
-      plafondGlobal: r.plafond_global,
-      plafondConsomme: r.plafond_consomme,
-      contractType: r.contract_type || null,
-    })));
+    return success(c, results.map((r: Record<string, unknown>) => {
+      const endDate = r.contract_end_date as string | null;
+      let contractWarning: string | null = null;
+      if (!endDate && !r.contract_type) {
+        contractWarning = 'Aucun contrat actif';
+      } else if (endDate && endDate < today!) {
+        contractWarning = `Contrat expiré depuis le ${endDate}`;
+      } else if (endDate) {
+        const daysLeft = Math.ceil((new Date(endDate).getTime() - new Date(today!).getTime()) / 86400000);
+        if (daysLeft <= 30) {
+          contractWarning = `Contrat expire dans ${daysLeft} jour(s) (${endDate})`;
+        }
+      }
+      return {
+        id: r.id,
+        matricule: r.matricule,
+        firstName: r.first_name,
+        lastName: r.last_name,
+        email: r.email || null,
+        companyName: r.company_name,
+        plafondGlobal: r.plafond_global,
+        plafondConsomme: r.plafond_consomme,
+        contractType: r.contract_type || null,
+        contractEndDate: endDate || null,
+        contractNumber: r.contract_number || null,
+        contractWarning,
+      };
+    }));
   }
 );
 

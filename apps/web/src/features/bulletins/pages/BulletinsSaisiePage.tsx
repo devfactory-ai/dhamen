@@ -403,9 +403,26 @@ export function BulletinsSaisiePage() {
     firstName: string; lastName: string; dateOfBirth: string; email: string; gender: string;
   }>({ firstName: '', lastName: '', dateOfBirth: '', email: '', gender: '' });
 
-  const { data: adherentResults } = useSearchAdherents(adherentSearch);
+  const { data: adherentResults } = useSearchAdherents(adherentSearch, selectedCompany?.id);
   const { data: familleData } = useAdherentFamille(selectedAdherentInfo?.id);
   const { data: plafondsData } = useAdherentPlafonds(selectedAdherentInfo?.id);
+
+  // Load contracts for the selected company (for contract number dropdown)
+  const { data: companyContracts } = useQuery({
+    queryKey: ['company-contracts', selectedCompany?.id],
+    queryFn: async () => {
+      const res = await apiClient.get<Array<{ id: string; contract_number: string; status: string }>>('/group-contracts', {
+        params: { companyId: selectedCompany!.id, status: 'active', limit: '100' },
+      });
+      if (!res.success) return [];
+      const raw = res.data as unknown as Array<{ id: string; contract_number: string; status: string }>;
+      return (Array.isArray(raw) ? raw : []).map((gc) => ({
+        id: gc.id,
+        contractNumber: gc.contract_number,
+      }));
+    },
+    enabled: !!selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__',
+  });
 
   // Auto-select adherent when search results contain an exact matricule match
   useEffect(() => {
@@ -1438,13 +1455,17 @@ export function BulletinsSaisiePage() {
           }
         }
 
-        // Process sequentially with progress
-        for (let i = 0; i < groups.length; i++) {
-          const { name, form } = groups[i]!;
-          if (groups.length > 1) {
-            toast.info(`Analyse ${i + 1}/${groups.length} : "${name}"...`, { id: 'bulk-progress' });
+        // Process in parallel (max 4 concurrent) for speed
+        const CONCURRENCY = 4;
+        if (groups.length > 1) {
+          toast.info(`Analyse de ${groups.length} bulletins en parallèle...`, { id: 'bulk-progress' });
+        }
+        for (let i = 0; i < groups.length; i += CONCURRENCY) {
+          const batch = groups.slice(i, i + CONCURRENCY);
+          await Promise.allSettled(batch.map(({ name, form }) => analyseGroup(name, form)));
+          if (groups.length > CONCURRENCY) {
+            toast.info(`Analyse ${Math.min(i + CONCURRENCY, groups.length)}/${groups.length} terminée...`, { id: 'bulk-progress' });
           }
-          await analyseGroup(name, form);
         }
 
         if (allBulletins.length === 0) {
@@ -2029,6 +2050,8 @@ export function BulletinsSaisiePage() {
     const lastName = watchedAdherentLastName;
     const dateOfBirth = watch("adherent_date_of_birth");
 
+    const contractNumber = watch("adherent_contract_number");
+
     if (!firstName || !lastName) {
       toast.error(
         "Nom et prénom sont obligatoires pour enregistrer l'adhérent",
@@ -2038,6 +2061,12 @@ export function BulletinsSaisiePage() {
     if (!dateOfBirth) {
       toast.error(
         "Date de naissance est obligatoire pour enregistrer l'adhérent",
+      );
+      return;
+    }
+    if (!contractNumber) {
+      toast.error(
+        "Numéro de contrat est obligatoire pour enregistrer l'adhérent",
       );
       return;
     }
@@ -2051,6 +2080,7 @@ export function BulletinsSaisiePage() {
           lastName,
           dateOfBirth,
           matricule: matricule || undefined,
+          contractNumber,
           nationalId: watch("adherent_national_id") || undefined,
           email: watch("adherent_email") || undefined,
           address: watch("adherent_address") || undefined,
@@ -2062,10 +2092,11 @@ export function BulletinsSaisiePage() {
         if (result.data.matricule) {
           setValue("adherent_matricule", result.data.matricule);
         }
-        // Refresh adherent search to pick up the new record
+        // Refresh adherent search + estimation to pick up the new record and contract
         setAdherentSearch(matricule || lastName);
         setShowAdherentDropdown(true);
         queryClient.invalidateQueries({ queryKey: ["adherents"] });
+        queryClient.invalidateQueries({ queryKey: ["estimate-reimbursement"] });
       } else if (!result.success) {
         toast.error(result.error?.message || "Erreur lors de l'enregistrement");
       }
@@ -3600,6 +3631,11 @@ export function BulletinsSaisiePage() {
                                           ]
                                         </span>
                                       )}
+                                      {a.contractWarning && (
+                                        <span className="block text-xs text-amber-600 mt-0.5">
+                                          ⚠ {a.contractWarning}
+                                        </span>
+                                      )}
                                     </button>
                                   ))}
                                 </div>,
@@ -3758,6 +3794,12 @@ export function BulletinsSaisiePage() {
                                       Actif
                                     </Badge>
                                   </div>
+                                  {selectedAdherentInfo.contractWarning && (
+                                    <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                      <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" />
+                                      <span>{selectedAdherentInfo.contractWarning}</span>
+                                    </div>
+                                  )}
                                   <div className="grid grid-cols-1 gap-2 text-xs">
                                     {selectedAdherentInfo.email && (
                                       <div>
@@ -3830,15 +3872,27 @@ export function BulletinsSaisiePage() {
                                     </div>
                                     <div className="space-y-1">
                                       <Label className="text-xs text-gray-500">
-                                        N° Contrat
+                                        N° Contrat *
                                       </Label>
-                                      <Input
-                                        {...register(
-                                          "adherent_contract_number",
-                                        )}
-                                        placeholder="N° Contrat"
-                                        className="rounded-xl text-sm"
-                                      />
+                                      {companyContracts && companyContracts.length > 0 ? (
+                                        <select
+                                          {...register("adherent_contract_number")}
+                                          className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        >
+                                          <option value="">Sélectionner un contrat</option>
+                                          {companyContracts.map((c) => (
+                                            <option key={c.id} value={c.contractNumber}>
+                                              {c.contractNumber}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      ) : (
+                                        <Input
+                                          {...register("adherent_contract_number")}
+                                          placeholder="N° Contrat"
+                                          className="rounded-xl text-sm"
+                                        />
+                                      )}
                                     </div>
                                     <div className="space-y-1 sm:col-span-2">
                                       <Label className="text-xs text-gray-500">

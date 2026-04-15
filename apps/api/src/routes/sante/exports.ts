@@ -483,7 +483,7 @@ exports.get(
       }>();
 
     if (!adherent) {
-      return c.json({ success: false, error: { message: 'Adherent non trouve' } }, 404);
+      return c.json({ success: false, error: { message: 'Adhérent non trouvé' } }, 404);
     }
 
     // Get plafonds

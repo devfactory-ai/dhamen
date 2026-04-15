@@ -177,7 +177,7 @@ bulletinsSoins.get('/me/:id/scan', async (c) => {
   `).bind(user.email).first<{ id: string }>();
 
   if (!adherent) {
-    return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Adherent non trouve' } }, 404);
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Adhérent non trouvé' } }, 404);
   }
 
   const bulletin = await db.prepare(`
@@ -886,6 +886,7 @@ bulletinsSoins.get('/manage', async (c) => {
   const status = c.req.query('status');
   const careType = c.req.query('care_type');
   const search = c.req.query('search');
+  const companyId = c.req.query('companyId');
   const page = parseInt(c.req.query('page') || '1');
   const limit = parseInt(c.req.query('limit') || '20');
   const offset = (page - 1) * limit;
@@ -918,6 +919,12 @@ bulletinsSoins.get('/manage', async (c) => {
     whereClause += ' AND (bs.bulletin_number LIKE ? OR a.first_name LIKE ? OR a.last_name LIKE ? OR a.national_id_encrypted LIKE ? OR bs.provider_name LIKE ?)';
     const searchPattern = `%${search}%`;
     params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+  }
+
+  // Filter by company
+  if (companyId && companyId !== '__INDIVIDUAL__') {
+    whereClause += ' AND a.company_id = ?';
+    params.push(companyId);
   }
 
   // Filter by insurer

@@ -1789,7 +1789,7 @@ bulletinsAgent.post('/estimate', async (c) => {
       .first<{ id: string }>();
 
     if (!adherent) {
-      return c.json({ success: true, data: { reimbursed_amount: null, details: [], warning: 'Adherent non trouvé' } });
+      return c.json({ success: true, data: { reimbursed_amount: null, details: [], warning: 'Adhérent non trouvé' } });
     }
 
     // Find best contract (prioritize group_contract_id)
