@@ -48,6 +48,7 @@ export interface Bindings {
   // Storage
   STORAGE: R2Bucket;
   EVENTS_QUEUE: Queue;
+  BULLETIN_QUEUE: Queue;
   RATE_LIMITER: DurableObjectNamespace;
   NOTIFICATION_HUB: DurableObjectNamespace;
   AI: Ai;

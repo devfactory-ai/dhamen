@@ -103,6 +103,14 @@ class_name = "NotificationHub"
 [ai]
 binding = "AI"
 
+# Bulletin validation queue
+[[queues.producers]]
+binding = "BULLETIN_QUEUE"
+queue = "dhamen-bulletin-validation"
+
+# Consumer registered manually via: wrangler queues consumer worker add
+# Do NOT add [[queues.consumers]] here — wrangler deploy re-registers it incorrectly
+
 [[migrations]]
 tag = "v1"
 new_classes = ["RateLimiter"]
@@ -125,6 +133,8 @@ API_VERSION = "v1"
 JWT_ISSUER = "dhamen"
 JWT_EXPIRES_IN = "900"
 REFRESH_EXPIRES_IN = "86400"
+WEBAUTHN_RP_NAME = "E-Sante"
+WEBAUTHN_RP_ID = "localhost"
 WEB_BASE_URL = "https://dhamen-web-dev.pages.dev"
 # GEMINI_API_KEY — stored as Cloudflare secret
 
@@ -198,6 +208,14 @@ class_name = "NotificationHub"
 # AI
 [env.dev.ai]
 binding = "AI"
+
+# Bulletin validation queue
+[[env.dev.queues.producers]]
+binding = "BULLETIN_QUEUE"
+queue = "dhamen-bulletin-validation"
+
+# Consumer registered manually via: wrangler queues consumer worker add
+# Do NOT add [[env.dev.queues.consumers]] here — wrangler deploy re-registers it incorrectly
 
 # ============================================
 # STAGING ENVIRONMENT (branch: staging)

@@ -14,7 +14,7 @@ function resolveApiUrl(): string {
 
 export const API_BASE_URL = resolveApiUrl();
 const REQUEST_TIMEOUT_MS = 10000;
-const UPLOAD_TIMEOUT_MS = 60000;
+const UPLOAD_TIMEOUT_MS = 180000; // 3 minutes for large ZIP uploads
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;

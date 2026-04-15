@@ -955,6 +955,7 @@ export default function BulletinsImportPage() {
                     setRawDataRows([]);
                     setColumnMapping({});
                     setShowColumnMapping(false);
+                    setZipScannedDocs([]);
                     if (fileInputRef.current) fileInputRef.current.value = '';
                     toast.info('Fichier supprimé. Vous pouvez importer un autre fichier.');
                   }}

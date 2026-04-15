@@ -21,6 +21,8 @@ import type {
   CalculRemboursementResult,
 } from '../services/remboursement.service';
 import type { Bindings, Variables } from '../types';
+import { unzipSync } from 'fflate';
+import { processOcrBulletin } from '../queue/bulletin-validation.queue';
 
 const bulletinsAgent = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -912,6 +914,447 @@ bulletinsAgent.get('/batches/:id/export-detail', async (c) => {
       500
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// POST /analyse-bulk — Upload ZIP(s), decompress, store in R2, enqueue OCR
+// Must be defined BEFORE /:id routes to avoid route conflicts
+// ---------------------------------------------------------------------------
+
+bulletinsAgent.post('/analyse-bulk', async (c) => {
+  try {
+    const user = c.get('user');
+    const db = c.get('tenantDb') ?? c.env.DB;
+
+    console.log('[analyse-bulk] Start');
+    const formData = await c.req.formData();
+    console.log('[analyse-bulk] FormData parsed');
+
+    const companyIdBody = formData.get('companyId') as string | null;
+    const batchIdBody = formData.get('batchId') as string | null;
+    const effectiveCompanyId = companyIdBody || c.req.query('companyId') || '';
+    const effectiveBatchId = batchIdBody || c.req.query('batchId') || null;
+
+    if (!effectiveCompanyId) {
+      return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'companyId requis' } }, 400);
+    }
+
+    const files = formData.getAll('files') as File[];
+    if (!files.length) {
+      return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Aucun fichier fourni' } }, 400);
+    }
+
+    console.log(`[analyse-bulk] ${files.length} file(s), first: ${files[0]?.name} (${files[0]?.size} bytes)`);
+
+    const ocrJobId = generateId();
+    const now = new Date().toISOString();
+    const tenantCode = c.req.header('x-tenant-code') || '';
+    const dbBinding = tenantCode ? `DB_${tenantCode.toUpperCase()}` : 'DB';
+
+    // Group files into bulletins
+    const bulletinGroups: Map<string, { bulletinId: string; files: { name: string; data: Uint8Array; type: string }[] }> = new Map();
+    const mimeTypes: Record<string, string> = {
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+      gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp',
+      pdf: 'application/pdf', tif: 'image/tiff', tiff: 'image/tiff',
+    };
+
+    for (const file of files) {
+      const isZip = file.name.toLowerCase().endsWith('.zip') || file.type === 'application/zip';
+
+      if (isZip) {
+        console.log(`[analyse-bulk] Decompressing ZIP: ${file.name}`);
+        const arrayBuffer = await file.arrayBuffer();
+        let entries: Record<string, Uint8Array>;
+        try {
+          entries = unzipSync(new Uint8Array(arrayBuffer));
+        } catch (err) {
+          return c.json({
+            success: false,
+            error: { code: 'ZIP_ERROR', message: `Erreur décompression ZIP "${file.name}": ${err instanceof Error ? err.message : 'inconnu'}` },
+          }, 400);
+        }
+
+        console.log(`[analyse-bulk] ZIP decompressed: ${Object.keys(entries).length} entries`);
+
+        for (const [entryPath, entryData] of Object.entries(entries)) {
+          if (entryPath.endsWith('/') || entryPath.startsWith('__MACOSX') || entryPath.startsWith('.')) continue;
+          if (entryData.length === 0) continue;
+
+          const parts = entryPath.split('/').filter(Boolean);
+          const groupKey = parts.length >= 2 ? parts[0]! : `__root_${file.name}`;
+
+          if (!bulletinGroups.has(groupKey)) {
+            bulletinGroups.set(groupKey, { bulletinId: generateId(), files: [] });
+          }
+
+          const fileName = parts[parts.length - 1]!;
+          const ext = fileName.split('.').pop()?.toLowerCase() || '';
+          const type = mimeTypes[ext] || 'application/octet-stream';
+          bulletinGroups.get(groupKey)!.files.push({ name: fileName, data: entryData, type });
+        }
+      } else {
+        const groupKey = '__direct_files';
+        if (!bulletinGroups.has(groupKey)) {
+          bulletinGroups.set(groupKey, { bulletinId: generateId(), files: [] });
+        }
+        const data = new Uint8Array(await file.arrayBuffer());
+        bulletinGroups.get(groupKey)!.files.push({ name: file.name, data, type: file.type });
+      }
+    }
+
+    if (bulletinGroups.size === 0) {
+      return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Aucun fichier exploitable trouvé dans le(s) ZIP' } }, 400);
+    }
+
+    console.log(`[analyse-bulk] ${bulletinGroups.size} bulletin group(s) detected`);
+
+    // Create OCR job record
+    const totalFiles = Array.from(bulletinGroups.values()).reduce((sum, g) => sum + g.files.length, 0);
+    await db.prepare(
+      `INSERT INTO bulletin_ocr_jobs (id, company_id, batch_id, status, total_files, total_bulletins_extracted, bulletins_ready, bulletins_pending, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, 'processing_ocr', ?, ?, 0, 0, ?, ?, ?)`
+    ).bind(ocrJobId, effectiveCompanyId, effectiveBatchId, totalFiles, bulletinGroups.size, user.id, now, now).run();
+
+    console.log(`[analyse-bulk] OCR job created: ${ocrJobId}`);
+
+    // Upload ALL files to R2 in parallel (all bulletins at once)
+    const allR2Uploads: Promise<{ bulletinId: string; r2Key: string }>[] = [];
+    for (const [, group] of bulletinGroups) {
+      for (const f of group.files) {
+        const r2Key = `ocr-jobs/${ocrJobId}/${group.bulletinId}/${f.name}`;
+        allR2Uploads.push(
+          c.env.STORAGE.put(r2Key, f.data, { httpMetadata: { contentType: f.type } })
+            .then(() => ({ bulletinId: group.bulletinId, r2Key }))
+        );
+      }
+    }
+    const uploadResults = await Promise.all(allR2Uploads);
+    console.log(`[analyse-bulk] ${uploadResults.length} files uploaded to R2`);
+
+    // Group R2 keys back by bulletinId and enqueue all in parallel
+    const r2KeysByBulletin = new Map<string, string[]>();
+    for (const { bulletinId, r2Key } of uploadResults) {
+      if (!r2KeysByBulletin.has(bulletinId)) r2KeysByBulletin.set(bulletinId, []);
+      r2KeysByBulletin.get(bulletinId)!.push(r2Key);
+    }
+
+    const bulletinIds: string[] = [];
+    const ocrMessages: import('../queue/bulletin-validation.types').OcrAnalyseMessage[] = [];
+    for (const [, group] of bulletinGroups) {
+      const r2FileKeys = r2KeysByBulletin.get(group.bulletinId) || [];
+      ocrMessages.push({
+        type: 'OCR_ANALYSE_BULLETIN',
+        bulletinId: group.bulletinId,
+        dbBinding,
+        userId: user.id,
+        companyId: effectiveCompanyId,
+        batchId: effectiveBatchId,
+        ocrJobId,
+        r2FileKeys,
+      });
+      bulletinIds.push(group.bulletinId);
+    }
+
+    // Capture env and db binding BEFORE response — waitUntil runs after response
+    // c.get('tenantDb') may not survive after the response, so resolve the raw binding
+    const envSnapshot = c.env;
+    const dbBindingName = c.req.header('x-tenant-code')
+      ? `DB_${(c.req.header('x-tenant-code') || '').toUpperCase()}`
+      : 'DB';
+    const waitUntilDb = (envSnapshot as unknown as Record<string, unknown>)[dbBindingName] as D1Database || envSnapshot.DB;
+
+    // Create all bulletin shells NOW (before waitUntil) so they exist in DB immediately
+    for (const msg of ocrMessages) {
+      try {
+        const shellNow = new Date().toISOString();
+        const existing = await waitUntilDb.prepare('SELECT id FROM bulletins_soins WHERE id = ?').bind(msg.bulletinId).first();
+        if (!existing) {
+          await waitUntilDb.batch([
+            waitUntilDb.prepare('PRAGMA foreign_keys = OFF'),
+            waitUntilDb.prepare(
+              `INSERT INTO bulletins_soins
+               (id, adherent_id, bulletin_number, bulletin_date, submission_date,
+                company_id, batch_id, status, source,
+                validation_status, ocr_job_id, created_by, created_at, updated_at)
+               VALUES (?, '', '', ?, ?, ?, ?, 'draft', 'ocr_bulk', 'pending_ocr', ?, ?, ?, ?)`
+            ).bind(msg.bulletinId, shellNow, shellNow, effectiveCompanyId, effectiveBatchId, ocrJobId, user.id, shellNow, shellNow),
+            waitUntilDb.prepare('PRAGMA foreign_keys = ON'),
+          ]);
+        }
+      } catch (shellErr) {
+        console.error(`[analyse-bulk] Shell creation error for ${msg.bulletinId}:`, shellErr);
+      }
+    }
+
+    // Process each bulletin OCR in parallel via waitUntil (non-blocking)
+    c.executionCtx.waitUntil(
+      (async () => {
+        console.log(`[analyse-bulk/waitUntil] Starting OCR for ${ocrMessages.length} bulletins`);
+        const results = await Promise.allSettled(
+          ocrMessages.map(async (msg) => {
+            try {
+              console.log(`[analyse-bulk/waitUntil] OCR start: ${msg.bulletinId}`);
+              await processOcrBulletin(envSnapshot, waitUntilDb, msg);
+              console.log(`[analyse-bulk/waitUntil] OCR done: ${msg.bulletinId}`);
+            } catch (err) {
+              console.error(`[analyse-bulk/waitUntil] OCR error ${msg.bulletinId}:`, err instanceof Error ? err.message : err);
+              const ts = new Date().toISOString();
+              try {
+                await waitUntilDb.prepare(
+                  `UPDATE bulletins_soins SET validation_status = 'pending_correction',
+                   validation_errors = ?, updated_at = ? WHERE id = ?`
+                ).bind(JSON.stringify([{ field: 'ocr', code: 'OCR_FAILED', message: err instanceof Error ? err.message : 'Erreur OCR' }]), ts, msg.bulletinId).run();
+                await waitUntilDb.prepare(
+                  `UPDATE bulletin_ocr_jobs SET bulletins_pending = bulletins_pending + 1, updated_at = ? WHERE id = ?`
+                ).bind(ts, ocrJobId).run();
+              } catch (_e) { /* ignore */ }
+            }
+          })
+        );
+
+        // Mark job as completed
+        const ts = new Date().toISOString();
+        await waitUntilDb.prepare(
+          `UPDATE bulletin_ocr_jobs SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?`
+        ).bind(ts, ts, ocrJobId).run();
+        console.log(`[analyse-bulk/waitUntil] All ${ocrMessages.length} done (${results.filter(r => r.status === 'fulfilled').length} ok)`);
+      })()
+    );
+
+    console.log(`[analyse-bulk] Done. ${bulletinIds.length} bulletins processing in background`);
+
+    await logAudit(c, {
+      action: 'BULK_OCR_UPLOAD',
+      entityType: 'bulletin_ocr_job',
+      entityId: ocrJobId,
+      details: { totalFiles, totalBulletins: bulletinGroups.size, bulletinIds },
+    });
+
+    return c.json({
+      success: true,
+      data: { jobId: ocrJobId, totalFiles, totalExtracted: bulletinGroups.size, bulletinIds },
+    });
+  } catch (err) {
+    console.error('[analyse-bulk] Error:', err);
+    return c.json({
+      success: false,
+      error: { code: 'BULK_ANALYSIS_ERROR', message: err instanceof Error ? err.message : 'Erreur interne analyse en masse' },
+    }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /ocr-jobs — List OCR jobs (before /ocr-jobs/:id to avoid route conflict)
+// ---------------------------------------------------------------------------
+
+bulletinsAgent.get('/ocr-jobs', async (c) => {
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const companyId = c.req.query('companyId');
+  const page = Number(c.req.query('page') || '1');
+  const limit = Number(c.req.query('limit') || '20');
+  const offset = (page - 1) * limit;
+
+  let whereClause = 'WHERE 1=1';
+  const binds: string[] = [];
+  if (companyId) {
+    whereClause += ' AND company_id = ?';
+    binds.push(companyId);
+  }
+
+  const countRow = await db.prepare(
+    `SELECT COUNT(*) as total FROM bulletin_ocr_jobs ${whereClause}`
+  ).bind(...binds).first<{ total: number }>();
+  const total = countRow?.total || 0;
+
+  const { results } = await db.prepare(
+    `SELECT * FROM bulletin_ocr_jobs ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`
+  ).bind(...binds, limit, offset).all();
+
+  return c.json({
+    success: true,
+    data: results || [],
+    meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /ocr-jobs/:id/retry — Re-enqueue all bulletins for an OCR job
+// ---------------------------------------------------------------------------
+
+bulletinsAgent.post('/ocr-jobs/:id/retry', async (c) => {
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const user = c.get('user');
+  const jobId = c.req.param('id');
+
+  const job = await db.prepare(
+    `SELECT * FROM bulletin_ocr_jobs WHERE id = ?`
+  ).bind(jobId).first<Record<string, unknown>>();
+
+  if (!job) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Job OCR introuvable' } }, 404);
+  }
+
+  const tenantCode = c.req.header('x-tenant-code') || '';
+  const dbBinding = tenantCode ? `DB_${tenantCode.toUpperCase()}` : 'DB';
+  const now = new Date().toISOString();
+
+  // List R2 files for this job to rebuild bulletin groups
+  const prefix = `ocr-jobs/${jobId}/`;
+  const r2List = await c.env.STORAGE.list({ prefix });
+
+  if (!r2List.objects.length) {
+    return c.json({ success: false, error: { code: 'NO_FILES', message: 'Aucun fichier R2 trouvé pour ce job' } }, 404);
+  }
+
+  // Group R2 keys by bulletinId (second path segment)
+  const bulletinGroups = new Map<string, string[]>();
+  for (const obj of r2List.objects) {
+    const parts = obj.key.replace(prefix, '').split('/');
+    const bulletinId = parts[0]!;
+    if (!bulletinGroups.has(bulletinId)) {
+      bulletinGroups.set(bulletinId, []);
+    }
+    bulletinGroups.get(bulletinId)!.push(obj.key);
+  }
+
+  // Delete existing bulletin records for this job (clean slate)
+  await db.batch([
+    db.prepare('PRAGMA foreign_keys = OFF'),
+    db.prepare(`DELETE FROM actes_bulletin WHERE bulletin_id IN (SELECT id FROM bulletins_soins WHERE ocr_job_id = ?)`).bind(jobId),
+    db.prepare(`DELETE FROM bulletins_soins WHERE ocr_job_id = ?`).bind(jobId),
+    db.prepare('PRAGMA foreign_keys = ON'),
+  ]);
+
+  // Reset job counters
+  await db.prepare(
+    `UPDATE bulletin_ocr_jobs SET status = 'processing_ocr', bulletins_ready = 0, bulletins_pending = 0,
+     total_bulletins_extracted = ?, error_message = NULL, updated_at = ? WHERE id = ?`
+  ).bind(bulletinGroups.size, now, jobId).run();
+
+  // Build OCR messages
+  const bulletinIds: string[] = [];
+  const ocrMessages: import('../queue/bulletin-validation.types').OcrAnalyseMessage[] = [];
+  for (const [bulletinId, r2FileKeys] of bulletinGroups) {
+    ocrMessages.push({
+      type: 'OCR_ANALYSE_BULLETIN',
+      bulletinId,
+      dbBinding,
+      userId: user.id,
+      companyId: String(job.company_id || ''),
+      batchId: job.batch_id as string | null,
+      ocrJobId: jobId,
+      r2FileKeys,
+    });
+    bulletinIds.push(bulletinId);
+  }
+
+  // Process in background via waitUntil (parallel)
+  c.executionCtx.waitUntil(
+    (async () => {
+      await Promise.allSettled(
+        ocrMessages.map(async (msg) => {
+          try {
+            await processOcrBulletin(c.env, db, msg);
+          } catch (err) {
+            console.error(`[retry] OCR error for ${msg.bulletinId}:`, err);
+            const ts = new Date().toISOString();
+            try { await db.prepare(`UPDATE bulletin_ocr_jobs SET bulletins_pending = bulletins_pending + 1, updated_at = ? WHERE id = ?`).bind(ts, jobId).run(); } catch (_e) {}
+          }
+        })
+      );
+      const ts = new Date().toISOString();
+      await db.prepare(`UPDATE bulletin_ocr_jobs SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?`).bind(ts, ts, jobId).run();
+    })()
+  );
+
+  return c.json({
+    success: true,
+    data: { jobId, totalBulletins: bulletinGroups.size, bulletinIds },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /ocr-jobs/:id — Get OCR job status + bulletins
+// ---------------------------------------------------------------------------
+
+bulletinsAgent.get('/ocr-jobs/:id', async (c) => {
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const jobId = c.req.param('id');
+
+  const job = await db.prepare(
+    `SELECT * FROM bulletin_ocr_jobs WHERE id = ?`
+  ).bind(jobId).first();
+
+  if (!job) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Job OCR introuvable' } }, 404);
+  }
+
+  const { results: bulletins } = await db.prepare(
+    `SELECT bs.id, bs.adherent_matricule, bs.adherent_first_name, bs.adherent_last_name,
+            bs.bulletin_date, bs.bulletin_number, bs.beneficiary_name, bs.beneficiary_relationship,
+            bs.status, bs.validation_status, bs.validation_errors, bs.validation_attempts,
+            bs.total_amount, bs.company_id, bs.ocr_job_id, bs.created_at
+     FROM bulletins_soins bs WHERE bs.ocr_job_id = ? ORDER BY bs.created_at ASC`
+  ).bind(jobId).all();
+
+  const bulletinsWithActes = await Promise.all(
+    (bulletins || []).map(async (b: Record<string, unknown>) => {
+      const { results: actes } = await db.prepare(
+        `SELECT id, code, label, amount, ref_prof_sant, nom_prof_sant, care_type FROM actes_bulletin WHERE bulletin_id = ?`
+      ).bind(b.id).all();
+      return { ...b, actes: actes || [] };
+    })
+  );
+
+  return c.json({ success: true, data: { job, bulletins: bulletinsWithActes } });
+});
+
+// ---------------------------------------------------------------------------
+// GET /pending-corrections — List bulletins needing correction
+// ---------------------------------------------------------------------------
+
+bulletinsAgent.get('/pending-corrections', async (c) => {
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const companyId = c.req.query('companyId');
+  const page = Number(c.req.query('page') || '1');
+  const limit = Number(c.req.query('limit') || '20');
+  const offset = (page - 1) * limit;
+
+  let whereClause = `WHERE bs.validation_status = 'pending_correction' AND bs.source = 'ocr_bulk'`;
+  const binds: string[] = [];
+  if (companyId) {
+    whereClause += ' AND bs.company_id = ?';
+    binds.push(companyId);
+  }
+
+  const countRow = await db.prepare(
+    `SELECT COUNT(*) as total FROM bulletins_soins bs ${whereClause}`
+  ).bind(...binds).first<{ total: number }>();
+  const total = countRow?.total || 0;
+
+  const { results } = await db.prepare(
+    `SELECT bs.id, bs.adherent_matricule, bs.adherent_first_name, bs.adherent_last_name,
+            bs.bulletin_date, bs.bulletin_number, bs.beneficiary_name, bs.beneficiary_relationship,
+            bs.status, bs.validation_status, bs.validation_errors, bs.validation_attempts,
+            bs.total_amount, bs.company_id, bs.ocr_job_id, bs.created_at
+     FROM bulletins_soins bs ${whereClause} ORDER BY bs.created_at DESC LIMIT ? OFFSET ?`
+  ).bind(...binds, limit, offset).all();
+
+  const bulletinsWithActes = await Promise.all(
+    (results || []).map(async (b: Record<string, unknown>) => {
+      const { results: actes } = await db.prepare(
+        `SELECT id, code, label, amount, ref_prof_sant, nom_prof_sant, care_type FROM actes_bulletin WHERE bulletin_id = ?`
+      ).bind(b.id).all();
+      return { ...b, actes: actes || [] };
+    })
+  );
+
+  return c.json({
+    success: true,
+    data: bulletinsWithActes,
+    meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  });
 });
 
 /**
@@ -3549,6 +3992,97 @@ bulletinsAgent.get('/:id/scan', async (c) => {
       500
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /:id/correct — Correct a bulletin and re-enqueue for validation
+// ---------------------------------------------------------------------------
+
+bulletinsAgent.put('/:id/correct', async (c) => {
+  const user = c.get('user');
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const bulletinId = c.req.param('id');
+  const body = await c.req.json<Record<string, unknown>>();
+  const now = new Date().toISOString();
+
+  // Verify bulletin exists
+  const bulletin = await db.prepare(
+    `SELECT id, company_id, ocr_job_id FROM bulletins_soins WHERE id = ?`
+  ).bind(bulletinId).first<{ id: string; company_id: string; ocr_job_id: string }>();
+
+  if (!bulletin) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Bulletin introuvable' } }, 404);
+  }
+
+  // Update bulletin fields
+  const updates: string[] = [];
+  const updateBinds: unknown[] = [];
+  const allowedFields = [
+    'adherent_matricule', 'adherent_first_name', 'adherent_last_name',
+    'bulletin_date', 'bulletin_number', 'beneficiary_name', 'beneficiary_relationship', 'company_id',
+  ];
+
+  for (const field of allowedFields) {
+    if (body[field] !== undefined) {
+      updates.push(`${field} = ?`);
+      updateBinds.push(body[field]);
+    }
+  }
+
+  if (updates.length > 0) {
+    updates.push('validation_status = ?', 'updated_at = ?');
+    updateBinds.push('pending_validation', now, bulletinId);
+    await db.prepare(
+      `UPDATE bulletins_soins SET ${updates.join(', ')} WHERE id = ?`
+    ).bind(...updateBinds).run();
+  }
+
+  // Update actes if provided
+  const actes = body.actes as Array<{ id: string; ref_prof_sant?: string; nom_prof_sant?: string; label?: string; amount?: number; code?: string; care_type?: string }> | undefined;
+  if (actes && Array.isArray(actes)) {
+    for (const acte of actes) {
+      const acteUpdates: string[] = [];
+      const acteBinds: unknown[] = [];
+      if (acte.ref_prof_sant !== undefined) { acteUpdates.push('ref_prof_sant = ?'); acteBinds.push(acte.ref_prof_sant); }
+      if (acte.nom_prof_sant !== undefined) { acteUpdates.push('nom_prof_sant = ?'); acteBinds.push(acte.nom_prof_sant); }
+      if (acte.label !== undefined) { acteUpdates.push('label = ?'); acteBinds.push(acte.label); }
+      if (acte.amount !== undefined) { acteUpdates.push('amount = ?'); acteBinds.push(acte.amount); }
+      if (acte.code !== undefined) { acteUpdates.push('code = ?'); acteBinds.push(acte.code); }
+      if (acte.care_type !== undefined) { acteUpdates.push('care_type = ?'); acteBinds.push(acte.care_type); }
+      if (acteUpdates.length > 0) {
+        acteUpdates.push('updated_at = ?');
+        acteBinds.push(now, acte.id);
+        await db.prepare(
+          `UPDATE actes_bulletin SET ${acteUpdates.join(', ')} WHERE id = ? AND bulletin_id = ?`
+        ).bind(...acteBinds, bulletinId).run();
+      }
+    }
+  }
+
+  // Re-enqueue for validation
+  const tenantCode = c.req.header('x-tenant-code') || '';
+  const dbBinding = tenantCode ? `DB_${tenantCode.toUpperCase()}` : 'DB';
+
+  await c.env.BULLETIN_QUEUE.send({
+    type: 'VALIDATE_BULLETIN',
+    bulletinId,
+    dbBinding,
+    userId: user.id,
+    companyId: bulletin.company_id,
+    ocrJobId: bulletin.ocr_job_id,
+  } satisfies import('../queue/bulletin-validation.types').BulletinValidationMessage);
+
+  await logAudit(c, {
+    action: 'BULLETIN_CORRECTION',
+    entityType: 'bulletin',
+    entityId: bulletinId,
+    details: { corrections: Object.keys(body) },
+  });
+
+  return c.json({
+    success: true,
+    data: { id: bulletinId, validation_status: 'pending_validation' },
+  });
 });
 
 export { bulletinsAgent };

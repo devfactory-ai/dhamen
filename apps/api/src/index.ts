@@ -61,6 +61,7 @@ import {
   contact,
 } from './routes';
 import type { Bindings, Variables } from './types';
+import { bulletinQueueHandler } from './queue/bulletin-validation.queue';
 
 // Export Durable Objects
 export { RateLimiter } from './durable-objects/rate-limiter';
@@ -253,4 +254,18 @@ app.notFound((c) => {
   );
 });
 
-export default app;
+export default {
+  fetch: app.fetch,
+  async queue(batch: MessageBatch, env: Bindings, _ctx: ExecutionContext) {
+    console.log(`[queue] Received batch of ${batch.messages.length} message(s), queue=${batch.queue}`);
+    try {
+      await bulletinQueueHandler(batch as MessageBatch<import('./queue/bulletin-validation.types').QueueMessage>, env);
+    } catch (err) {
+      console.error('[queue] Top-level queue handler error:', err instanceof Error ? err.message : err);
+      // Retry all messages on unhandled error
+      for (const msg of batch.messages) {
+        msg.retry();
+      }
+    }
+  },
+};
