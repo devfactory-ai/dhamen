@@ -23,6 +23,8 @@ const STATUS_LABELS: Record<string, string> = {
   pending_payment: 'En paiement',
   submitted: 'Soumis',
   in_batch: 'Dans un lot',
+  non_remboursable: 'Non remboursable',
+  archived: 'Archivé',
 };
 
 const STATUS_BADGE_COLORS: Record<string, string> = {
@@ -38,6 +40,8 @@ const STATUS_BADGE_COLORS: Record<string, string> = {
   reimbursed: 'bg-purple-100 text-purple-700',
   pending_payment: 'bg-orange-100 text-orange-700',
   in_batch: 'bg-indigo-100 text-indigo-700',
+  non_remboursable: 'bg-orange-100 text-orange-700',
+  archived: 'bg-slate-100 text-slate-700',
 };
 
 const CARE_TYPE_LABELS: Record<string, string> = {
@@ -61,6 +65,8 @@ const STATUS_OPTIONS = [
   { value: 'reimbursed', label: 'Remboursé', color: 'bg-purple-500' },
   { value: 'in_batch', label: 'Dans un lot', color: 'bg-indigo-500' },
   { value: 'pending_payment', label: 'En paiement', color: 'bg-orange-400' },
+  { value: 'non_remboursable', label: 'Non remboursable', color: 'bg-orange-500' },
+  { value: 'archived', label: 'Archivé', color: 'bg-slate-400' },
 ];
 
 const CARE_TYPE_OPTIONS = [

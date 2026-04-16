@@ -182,12 +182,21 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
       proxyForm.append('files', files);
     }
 
-    const ocrUrl = c.env.OCR_URL || "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev/analyse-bulletin";
-    const ocrRes = await fetch(ocrUrl, {
-      method: 'POST',
-      headers: { accept: 'application/json' },
-      body: proxyForm,
-    });
+    let ocrRes: Response;
+    console.log(`[analyse-bulletin] OCR_SERVICE binding available: ${!!c.env.OCR_SERVICE}`);
+    if (c.env.OCR_SERVICE) {
+      ocrRes = await c.env.OCR_SERVICE.fetch('https://ocr-service/analyse-bulletin', {
+        method: 'POST',
+        body: proxyForm,
+      });
+    } else {
+      const ocrUrl = c.env.OCR_URL || "https://ocr-api-bh-assurance-staging.yassine-techini.workers.dev/analyse-bulletin";
+      ocrRes = await fetch(ocrUrl, {
+        method: 'POST',
+        headers: { accept: 'application/json' },
+        body: proxyForm,
+      });
+    }
 
     if (!ocrRes.ok) {
       return c.json(
@@ -404,7 +413,9 @@ bulletinsAgent.get('/', async (c) => {
   let query = `
     SELECT
       bs.*,
-      b.name as batch_name
+      b.name as batch_name,
+      (SELECT COUNT(*) FROM actes_bulletin ab WHERE ab.bulletin_id = bs.id) as actes_count,
+      (SELECT COUNT(*) FROM actes_bulletin ab WHERE ab.bulletin_id = bs.id AND (ab.ref_prof_sant IS NULL OR ab.ref_prof_sant = '' OR LENGTH(ab.ref_prof_sant) < 7)) as mf_missing_count
     FROM bulletins_soins bs
     LEFT JOIN bulletin_batches b ON bs.batch_id = b.id
     WHERE bs.status IN (${statusPlaceholders})
@@ -977,12 +988,43 @@ bulletinsAgent.post('/analyse-bulk', async (c) => {
 
         console.log(`[analyse-bulk] ZIP decompressed: ${Object.keys(entries).length} entries`);
 
+        // Collect all valid entries first
+        const validEntries: { path: string; data: Uint8Array }[] = [];
         for (const [entryPath, entryData] of Object.entries(entries)) {
           if (entryPath.endsWith('/') || entryPath.startsWith('__MACOSX') || entryPath.startsWith('.')) continue;
           if (entryData.length === 0) continue;
+          validEntries.push({ path: entryPath, data: entryData });
+        }
 
+        // Detect grouping level:
+        // If all files share the same top-level folder, use the 2nd-level folder as group key
+        // e.g. Bulletin/dossier1/page.jpg → group by "dossier1"
+        // If files are in distinct top-level folders, group by top-level
+        // e.g. dossier1/page.jpg, dossier2/page.jpg → group by "dossier1", "dossier2"
+        const topLevelFolders = new Set<string>();
+        for (const e of validEntries) {
+          const parts = e.path.split('/').filter(Boolean);
+          if (parts.length >= 2) topLevelFolders.add(parts[0]!);
+        }
+        // If there's only 1 top-level folder and files have 3+ depth, use 2nd level
+        const useSecondLevel = topLevelFolders.size === 1 &&
+          validEntries.some(e => e.path.split('/').filter(Boolean).length >= 3);
+
+        console.log(`[analyse-bulk] ZIP grouping: ${topLevelFolders.size} top-level folder(s), useSecondLevel=${useSecondLevel}`);
+
+        for (const { path: entryPath, data: entryData } of validEntries) {
           const parts = entryPath.split('/').filter(Boolean);
-          const groupKey = parts.length >= 2 ? parts[0]! : `__root_${file.name}`;
+
+          let groupKey: string;
+          if (useSecondLevel && parts.length >= 3) {
+            // e.g. "RootFolder/dossier1/page.jpg" → group by "dossier1"
+            groupKey = parts[1]!;
+          } else if (parts.length >= 2) {
+            groupKey = parts[useSecondLevel ? 1 : 0]!;
+          } else {
+            // Single files at root — each file is its own bulletin
+            groupKey = `__file_${parts[0] || file.name}`;
+          }
 
           if (!bulletinGroups.has(groupKey)) {
             bulletinGroups.set(groupKey, { bulletinId: generateId(), files: [] });
@@ -1056,34 +1098,29 @@ bulletinsAgent.post('/analyse-bulk', async (c) => {
       bulletinIds.push(group.bulletinId);
     }
 
-    // Capture env and db binding BEFORE response — waitUntil runs after response
-    // c.get('tenantDb') may not survive after the response, so resolve the raw binding
+    // Use the already-resolved tenant DB reference directly (set by tenant middleware)
+    // db is a D1Database reference that survives in closures
     const envSnapshot = c.env;
-    const dbBindingName = c.req.header('x-tenant-code')
-      ? `DB_${(c.req.header('x-tenant-code') || '').toUpperCase()}`
-      : 'DB';
-    const waitUntilDb = (envSnapshot as unknown as Record<string, unknown>)[dbBindingName] as D1Database || envSnapshot.DB;
 
     // Create all bulletin shells NOW (before waitUntil) so they exist in DB immediately
     for (const msg of ocrMessages) {
       try {
         const shellNow = new Date().toISOString();
-        const existing = await waitUntilDb.prepare('SELECT id FROM bulletins_soins WHERE id = ?').bind(msg.bulletinId).first();
-        if (!existing) {
-          await waitUntilDb.batch([
-            waitUntilDb.prepare('PRAGMA foreign_keys = OFF'),
-            waitUntilDb.prepare(
-              `INSERT INTO bulletins_soins
-               (id, adherent_id, bulletin_number, bulletin_date, submission_date,
-                company_id, batch_id, status, source,
-                validation_status, ocr_job_id, created_by, created_at, updated_at)
-               VALUES (?, '', '', ?, ?, ?, ?, 'draft', 'ocr_bulk', 'pending_ocr', ?, ?, ?, ?)`
-            ).bind(msg.bulletinId, shellNow, shellNow, effectiveCompanyId, effectiveBatchId, ocrJobId, user.id, shellNow, shellNow),
-            waitUntilDb.prepare('PRAGMA foreign_keys = ON'),
-          ]);
+        await db.prepare(
+            `INSERT OR IGNORE INTO bulletins_soins
+             (id, adherent_id, bulletin_number, bulletin_date, submission_date,
+              company_id, status, source,
+              validation_status, ocr_job_id, created_by, created_at, updated_at)
+             VALUES (?, '__OCR_PENDING__', ?, ?, ?, ?, 'draft', 'ocr_bulk', 'pending_ocr', ?, ?, ?, ?)`
+          ).bind(msg.bulletinId, `OCR-${msg.bulletinId}`, shellNow, shellNow, effectiveCompanyId, ocrJobId, user.id, shellNow, shellNow).run();
+        console.log(`[analyse-bulk] Shell created: ${msg.bulletinId}`);
+        if (effectiveBatchId) {
+          await db.prepare(
+            'UPDATE bulletins_soins SET batch_id = ? WHERE id = ?'
+          ).bind(effectiveBatchId, msg.bulletinId).run();
         }
       } catch (shellErr) {
-        console.error(`[analyse-bulk] Shell creation error for ${msg.bulletinId}:`, shellErr);
+        console.error(`[analyse-bulk] Shell creation error for ${msg.bulletinId}:`, shellErr instanceof Error ? shellErr.message : shellErr);
       }
     }
 
@@ -1095,17 +1132,17 @@ bulletinsAgent.post('/analyse-bulk', async (c) => {
           ocrMessages.map(async (msg) => {
             try {
               console.log(`[analyse-bulk/waitUntil] OCR start: ${msg.bulletinId}`);
-              await processOcrBulletin(envSnapshot, waitUntilDb, msg);
+              await processOcrBulletin(envSnapshot, db, msg);
               console.log(`[analyse-bulk/waitUntil] OCR done: ${msg.bulletinId}`);
             } catch (err) {
               console.error(`[analyse-bulk/waitUntil] OCR error ${msg.bulletinId}:`, err instanceof Error ? err.message : err);
               const ts = new Date().toISOString();
               try {
-                await waitUntilDb.prepare(
+                await db.prepare(
                   `UPDATE bulletins_soins SET validation_status = 'pending_correction',
                    validation_errors = ?, updated_at = ? WHERE id = ?`
                 ).bind(JSON.stringify([{ field: 'ocr', code: 'OCR_FAILED', message: err instanceof Error ? err.message : 'Erreur OCR' }]), ts, msg.bulletinId).run();
-                await waitUntilDb.prepare(
+                await db.prepare(
                   `UPDATE bulletin_ocr_jobs SET bulletins_pending = bulletins_pending + 1, updated_at = ? WHERE id = ?`
                 ).bind(ts, ocrJobId).run();
               } catch (_e) { /* ignore */ }
@@ -1115,7 +1152,7 @@ bulletinsAgent.post('/analyse-bulk', async (c) => {
 
         // Mark job as completed
         const ts = new Date().toISOString();
-        await waitUntilDb.prepare(
+        await db.prepare(
           `UPDATE bulletin_ocr_jobs SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?`
         ).bind(ts, ts, ocrJobId).run();
         console.log(`[analyse-bulk/waitUntil] All ${ocrMessages.length} done (${results.filter(r => r.status === 'fulfilled').length} ok)`);
@@ -1569,6 +1606,15 @@ bulletinsAgent.post('/:id/submit', async (c) => {
       return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: `Impossible de soumettre un bulletin en statut "${bulletin.status}"` } }, 400);
     }
 
+    // Check if all actes have MF — incomplete bulletins cannot be validated
+    const actesWithoutMf = await db
+      .prepare(`SELECT COUNT(*) as cnt FROM actes_bulletin WHERE bulletin_id = ? AND (ref_prof_sant IS NULL OR ref_prof_sant = '' OR LENGTH(ref_prof_sant) < 7)`)
+      .bind(bulletinId)
+      .first<{ cnt: number }>();
+    if (actesWithoutMf && actesWithoutMf.cnt > 0) {
+      return c.json({ success: false, error: { code: 'MF_INCOMPLETE', message: `Impossible de valider : ${actesWithoutMf.cnt} acte(s) sans matricule fiscale praticien. Veuillez compléter le bulletin avant de le soumettre.` } }, 400);
+    }
+
     const now = new Date().toISOString();
     await db
       .prepare('UPDATE bulletins_soins SET status = ?, submission_date = ?, updated_at = ? WHERE id = ?')
@@ -1614,12 +1660,28 @@ bulletinsAgent.post('/bulk-submit', async (c) => {
     const placeholders = ids.map(() => '?').join(',');
     const now = new Date().toISOString();
 
-    // ADMIN can submit any bulletin; agents can only submit their own
-    const result = user.role === 'ADMIN'
-      ? await db.prepare(`UPDATE bulletins_soins SET status = 'paper_complete', submission_date = ?, updated_at = ? WHERE id IN (${placeholders}) AND status IN ('draft', 'in_batch')`).bind(now, now, ...ids).run()
-      : await db.prepare(`UPDATE bulletins_soins SET status = 'paper_complete', submission_date = ?, updated_at = ? WHERE id IN (${placeholders}) AND created_by = ? AND status IN ('draft', 'in_batch')`).bind(now, now, ...ids, user.id).run();
+    // Check for bulletins with incomplete MF — exclude them from submission
+    const incompleteBulletins = await db
+      .prepare(`SELECT DISTINCT ab.bulletin_id FROM actes_bulletin ab WHERE ab.bulletin_id IN (${placeholders}) AND (ab.ref_prof_sant IS NULL OR ab.ref_prof_sant = '' OR LENGTH(ab.ref_prof_sant) < 7)`)
+      .bind(...ids)
+      .all<{ bulletin_id: string }>();
+    const incompleteBulletinIds = new Set((incompleteBulletins.results || []).map((r) => r.bulletin_id));
+    const validIds = ids.filter((id) => !incompleteBulletinIds.has(id));
 
-    const submitted = result.meta?.changes ?? ids.length;
+    if (validIds.length === 0 && incompleteBulletinIds.size > 0) {
+      return c.json({ success: false, error: { code: 'MF_INCOMPLETE', message: `Aucun bulletin ne peut être soumis : ${incompleteBulletinIds.size} bulletin(s) ont des actes sans matricule fiscale praticien.` } }, 400);
+    }
+
+    const validPlaceholders = validIds.map(() => '?').join(',');
+
+    // ADMIN can submit any bulletin; agents can only submit their own
+    const result = validIds.length > 0
+      ? (user.role === 'ADMIN'
+        ? await db.prepare(`UPDATE bulletins_soins SET status = 'paper_complete', submission_date = ?, updated_at = ? WHERE id IN (${validPlaceholders}) AND status IN ('draft', 'in_batch')`).bind(now, now, ...validIds).run()
+        : await db.prepare(`UPDATE bulletins_soins SET status = 'paper_complete', submission_date = ?, updated_at = ? WHERE id IN (${validPlaceholders}) AND created_by = ? AND status IN ('draft', 'in_batch')`).bind(now, now, ...validIds, user.id).run())
+      : { meta: { changes: 0 } };
+
+    const submitted = result.meta?.changes ?? validIds.length;
 
     await logAudit(db, {
       userId: user.id,
@@ -1631,7 +1693,8 @@ bulletinsAgent.post('/bulk-submit', async (c) => {
       userAgent: c.req.header('User-Agent'),
     });
 
-    return c.json({ success: true, data: { submitted } });
+    const skipped = incompleteBulletinIds.size;
+    return c.json({ success: true, data: { submitted, skipped, skippedReason: skipped > 0 ? `${skipped} bulletin(s) ignoré(s) : matricule fiscale praticien manquante` : undefined } });
   } catch (error) {
     console.error('Error bulk submitting:', error);
     const msg = error instanceof Error ? error.message : String(error);
@@ -1874,7 +1937,30 @@ bulletinsAgent.post('/estimate', async (c) => {
       }
     }
 
-    return c.json({ success: true, data: { reimbursed_amount: total, details } });
+    // Apply adherent global plafond cap (legacy field — plafond in millimes, amounts in dinars)
+    let plafondWarning: string | undefined;
+    if (adherent && total > 0) {
+      const adh = await db
+        .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
+        .bind(adherent.id)
+        .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
+      if (adh?.plafond_global && adh.plafond_global > 0) {
+        const restantDT = Math.max(0, (adh.plafond_global - (adh.plafond_consomme || 0)) / 1000);
+        if (total > restantDT) {
+          plafondWarning = `Plafond restant : ${restantDT.toFixed(3)} DT. Le remboursement a été réduit de ${total.toFixed(3)} à ${restantDT.toFixed(3)} DT.`;
+          // Proportionally reduce each acte's reimbursement
+          const ratio = restantDT / total;
+          for (const d of details) {
+            if (d.reimbursed > 0) {
+              d.reimbursed = Math.round(d.reimbursed * ratio * 1000) / 1000;
+            }
+          }
+          total = restantDT;
+        }
+      }
+    }
+
+    return c.json({ success: true, data: { reimbursed_amount: total, details, ...(plafondWarning ? { plafond_warning: plafondWarning } : {}) } });
   } catch (error) {
     console.error('Error estimating reimbursement:', error);
     return c.json({ success: true, data: { reimbursed_amount: null, details: [] } });
@@ -2001,24 +2087,9 @@ bulletinsAgent.post('/create', async (c) => {
     );
   }
 
-  // Validate MF (matricule fiscale) on each acte — required for all care types
-  if (actes.length > 0) {
-    const actesWithoutMf = actes
-      .map((a, i) => ({ index: i, ref: a.ref_prof_sant }))
-      .filter((a) => !a.ref || a.ref.trim().length < 7);
-    if (actesWithoutMf.length > 0) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'MF_REQUIRED',
-            message: `Matricule fiscale obligatoire pour chaque acte. Acte(s) sans MF : ${actesWithoutMf.map((a) => a.index + 1).join(', ')}`,
-          },
-        },
-        400
-      );
-    }
-  }
+  // Check if any acte is missing MF — bulletin saved as draft but cannot be validated
+  const mfIncomplete = (formData['mf_incomplete'] as string) === '1' ||
+    actes.some((a) => !a.ref_prof_sant || a.ref_prof_sant.trim().length < 7);
 
   // Generate bulletin number (use user-provided if available)
   const bulletinId = generateId();
@@ -2429,7 +2500,8 @@ bulletinsAgent.post('/create', async (c) => {
       }
     }
 
-    const status = batchId ? 'in_batch' : 'draft';
+    // MF incomplete → always draft (cannot be validated until MF is filled)
+    const status = mfIncomplete ? 'draft' : (batchId ? 'in_batch' : 'draft');
 
     // --- Provider lookup / auto-registration per acte ---
     // Phase 1: Parallel lookup for all actes at once
@@ -2785,6 +2857,27 @@ bulletinsAgent.post('/create', async (c) => {
 
         reimbursedAmount = totalRembourse;
 
+        // Apply adherent global plafond cap (plafond in millimes, amounts in dinars)
+        if (adherentId && reimbursedAmount > 0) {
+          const adhPlafond = await db
+            .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
+            .bind(adherentId)
+            .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
+          if (adhPlafond?.plafond_global && adhPlafond.plafond_global > 0) {
+            const restantDT = Math.max(0, (adhPlafond.plafond_global - (adhPlafond.plafond_consomme || 0)) / 1000);
+            if (reimbursedAmount > restantDT) {
+              const ratio = restantDT / reimbursedAmount;
+              // Proportionally reduce each acte's reimbursement
+              for (const br of baremeResults) {
+                br.montantRembourse = Math.round(br.montantRembourse * ratio * 1000) / 1000;
+                br.plafondGlobalApplique = true;
+              }
+              reimbursedAmount = restantDT;
+              warnings.push(`Plafond global atteint : remboursement réduit à ${restantDT.toFixed(3)} DT.`);
+            }
+          }
+        }
+
         // Insert actes with bareme-aware reimbursement data + medication fields
         const acteIds: string[] = [];
         const stmts = actes.map((acte, i) => {
@@ -2873,18 +2966,19 @@ bulletinsAgent.post('/create', async (c) => {
           if (baremeResult.montantRembourse > 0 && familleIds[i] !== undefined) {
             await mettreAJourPlafonds(
               db, adherentId, contractId, annee,
-              familleIds[i]!, baremeResult.montantRembourse, typeMaladie
+              familleIds[i]!, baremeResult.montantRembourse * 1000, typeMaladie
             );
           }
         }
 
         // Also update legacy adherent plafond_consomme for backward compat
+        // reimbursedAmount is in dinars, plafond_consomme is in millimes (×1000)
         if (reimbursedAmount > 0) {
           await db
             .prepare(
               'UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?'
             )
-            .bind(reimbursedAmount, adherentId)
+            .bind(Math.round(reimbursedAmount * 1000), adherentId)
             .run();
         }
       } else {
@@ -2906,6 +3000,7 @@ bulletinsAgent.post('/create', async (c) => {
 
         // Get adherent plafond
         // If plafond_global is NULL (e.g. individual mode, no contract), treat as unlimited
+        // plafond_global and plafond_consomme are in millimes, convert to dinars (÷1000)
         let plafondRestant = Number.MAX_SAFE_INTEGER;
         if (adherentId) {
           const adh = await db
@@ -2913,7 +3008,7 @@ bulletinsAgent.post('/create', async (c) => {
             .bind(adherentId)
             .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
           if (adh && adh.plafond_global) {
-            plafondRestant = adh.plafond_global - (adh.plafond_consomme || 0);
+            plafondRestant = (adh.plafond_global - (adh.plafond_consomme || 0)) / 1000;
           }
         }
 
@@ -2980,12 +3075,13 @@ bulletinsAgent.post('/create', async (c) => {
           .run();
 
         // Update adherent plafond_consomme
+        // reimbursedAmount is in dinars, plafond_consomme is in millimes (×1000)
         if (adherentId && reimbursedAmount > 0) {
           await db
             .prepare(
               'UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?'
             )
-            .bind(reimbursedAmount, adherentId)
+            .bind(Math.round(reimbursedAmount * 1000), adherentId)
             .run();
         }
       }
@@ -3004,7 +3100,8 @@ bulletinsAgent.post('/create', async (c) => {
           provider_ids_per_acte: providerIds,
           adherent_auto_created: adherentAutoCreated || undefined,
           newlyRegisteredProviders: newlyRegisteredProviders.length > 0 ? newlyRegisteredProviders : undefined,
-          warnings: warnings.length > 0 ? warnings : undefined,
+          mf_incomplete: mfIncomplete || undefined,
+          warnings: [...warnings, ...(mfIncomplete ? ['Bulletin enregistré comme brouillon incomplet : matricule fiscale praticien manquante. Ce bulletin ne pourra pas être validé tant que la MF ne sera pas complétée.'] : [])].length > 0 ? [...warnings, ...(mfIncomplete ? ['Bulletin enregistré comme brouillon incomplet : matricule fiscale praticien manquante. Ce bulletin ne pourra pas être validé tant que la MF ne sera pas complétée.'] : [])] : undefined,
         },
       },
       201
@@ -3540,11 +3637,30 @@ bulletinsAgent.post('/:id/validate', async (c) => {
 
     const now = new Date().toISOString();
 
+    // Cap reimbursed_amount to adherent's remaining plafond (millimes ÷ 1000 → dinars)
+    let finalReimbursedAmount = reimbursed_amount;
+    if (bulletin.adherent_id && reimbursed_amount > 0) {
+      const adhP = await db
+        .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
+        .bind(bulletin.adherent_id)
+        .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
+      if (adhP?.plafond_global && adhP.plafond_global > 0) {
+        const previousAmount = bulletin.reimbursed_amount || 0;
+        const restantDT = Math.max(0, (adhP.plafond_global - (adhP.plafond_consomme || 0)) / 1000 + previousAmount);
+        if (finalReimbursedAmount > restantDT) {
+          finalReimbursedAmount = Math.max(0, restantDT);
+        }
+      }
+    }
+
+    // Determine status: if reimbursement is 0 (plafond exhausted), mark as non_remboursable
+    const finalStatus = finalReimbursedAmount <= 0 ? 'non_remboursable' : 'approved';
+
     // Update bulletin status and reimbursement
     await db
       .prepare(`
       UPDATE bulletins_soins
-      SET status = 'approved',
+      SET status = ?,
           reimbursed_amount = ?,
           validated_at = ?,
           validated_by = ?,
@@ -3553,19 +3669,20 @@ bulletinsAgent.post('/:id/validate', async (c) => {
           updated_at = ?
       WHERE id = ?
     `)
-      .bind(reimbursed_amount, now, user.id, now, reimbursed_amount, now, bulletinId)
+      .bind(finalStatus, finalReimbursedAmount, now, user.id, now, finalReimbursedAmount, now, bulletinId)
       .run();
 
     // Update adherent plafond_consomme (adjust delta if reimbursement changed)
+    // finalReimbursedAmount is in dinars, plafond_consomme is in millimes (×1000)
     if (bulletin.adherent_id) {
       const previousAmount = bulletin.reimbursed_amount || 0;
-      const delta = reimbursed_amount - previousAmount;
+      const delta = finalReimbursedAmount - previousAmount;
       if (delta !== 0) {
         await db
           .prepare(
             'UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?'
           )
-          .bind(delta, bulletin.adherent_id)
+          .bind(Math.round(delta * 1000), bulletin.adherent_id)
           .run();
       }
     }
@@ -3581,7 +3698,7 @@ bulletinsAgent.post('/:id/validate', async (c) => {
         user.id,
         bulletinId,
         JSON.stringify({
-          reimbursed_amount,
+          reimbursed_amount: finalReimbursedAmount,
           notes: notes || null,
           previous_status: bulletin.status,
         }),
@@ -3591,8 +3708,8 @@ bulletinsAgent.post('/:id/validate', async (c) => {
 
     const response: ValidateBulletinResponse = {
       id: bulletinId,
-      status: 'approved',
-      reimbursed_amount,
+      status: finalStatus,
+      reimbursed_amount: finalReimbursedAmount,
       validated_at: now,
       validated_by: user.id,
     };
@@ -3602,7 +3719,9 @@ bulletinsAgent.post('/:id/validate', async (c) => {
       const bulletinNumber = bulletin.bulletin_number;
       const careType = bulletin.care_type || 'soin';
       const formatAmt = (v: number) => v.toFixed(3);
-      const notifBody = `Votre bulletin ${bulletinNumber} (${careType}) a été approuvé. Montant remboursé : ${formatAmt(reimbursed_amount)} TND.`;
+      const notifBody = finalStatus === 'non_remboursable'
+        ? `Votre bulletin ${bulletinNumber} (${careType}) n'est pas remboursable — plafond annuel atteint.`
+        : `Votre bulletin ${bulletinNumber} (${careType}) a été approuvé. Montant remboursé : ${formatAmt(finalReimbursedAmount)} TND.`;
       const notifTitle = `Bulletin ${bulletinNumber} approuve`;
 
       c.executionCtx.waitUntil(
@@ -3992,6 +4111,106 @@ bulletinsAgent.get('/:id/scan', async (c) => {
       500
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// POST /:id/update — Full update of a draft bulletin (same format as /create)
+// ---------------------------------------------------------------------------
+
+bulletinsAgent.post('/:id/update', async (c) => {
+  const user = c.get('user');
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const bulletinId = c.req.param('id');
+  const now = new Date().toISOString();
+
+  // Verify bulletin exists and is editable (draft or in_batch only)
+  const bulletin = await db.prepare(
+    `SELECT id, status, company_id, batch_id FROM bulletins_soins WHERE id = ?`
+  ).bind(bulletinId).first<{ id: string; status: string; company_id: string; batch_id: string | null }>();
+
+  if (!bulletin) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Bulletin introuvable' } }, 404);
+  }
+  if (!['draft', 'in_batch'].includes(bulletin.status)) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: `Impossible de modifier un bulletin en statut "${bulletin.status}"` } }, 400);
+  }
+
+  const formData = await c.req.parseBody();
+
+  const bulletinNumber = (formData['bulletin_number'] as string) || null;
+  const bulletinDate = formData['bulletin_date'] as string;
+  const adherentMatricule = formData['adherent_matricule'] as string;
+  const adherentFirstName = formData['adherent_first_name'] as string;
+  const adherentLastName = formData['adherent_last_name'] as string;
+  const adherentEmail = (formData['adherent_email'] as string) || null;
+  const beneficiaryName = (formData['beneficiary_name'] as string) || null;
+  const beneficiaryRelationship = (formData['beneficiary_relationship'] as string) || null;
+  const actesRaw = formData['actes'] as string;
+
+  let actes: Array<{
+    code: string; label: string; amount: number;
+    ref_prof_sant: string; nom_prof_sant: string;
+    provider_id?: string; care_type: string; care_description?: string;
+  }> = [];
+  try {
+    actes = JSON.parse(actesRaw || '[]');
+  } catch {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Format actes invalide' } }, 400);
+  }
+
+  // Update bulletin fields
+  await db.prepare(`
+    UPDATE bulletins_soins SET
+      bulletin_number = ?, bulletin_date = ?,
+      adherent_matricule = ?, adherent_first_name = ?, adherent_last_name = ?,
+      beneficiary_name = ?, beneficiary_relationship = ?,
+      updated_at = ?
+    WHERE id = ?
+  `).bind(
+    bulletinNumber, bulletinDate,
+    adherentMatricule, adherentFirstName, adherentLastName,
+    beneficiaryName, beneficiaryRelationship,
+    now, bulletinId
+  ).run();
+
+  // Replace all actes: delete existing, insert new
+  await db.prepare('DELETE FROM actes_bulletin WHERE bulletin_id = ?').bind(bulletinId).run();
+
+  const generateId = () => {
+    const ts = Date.now().toString(36).toUpperCase().padStart(10, '0');
+    const rand = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return `01${ts}${rand}`.substring(0, 26);
+  };
+
+  for (const acte of actes) {
+    const acteId = generateId();
+    await db.prepare(`
+      INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, ref_prof_sant, nom_prof_sant, provider_id, care_type, care_description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      acteId, bulletinId,
+      acte.code || '', acte.label || '', acte.amount || 0,
+      acte.ref_prof_sant || '', acte.nom_prof_sant || '',
+      acte.provider_id || null, acte.care_type || 'consultation',
+      acte.care_description || '',
+      now, now
+    ).run();
+  }
+
+  // Recalculate total
+  const totalAmount = actes.reduce((sum, a) => sum + (a.amount || 0), 0);
+  await db.prepare('UPDATE bulletins_soins SET total_amount = ?, updated_at = ? WHERE id = ?')
+    .bind(totalAmount, now, bulletinId).run();
+
+  await logAudit(db, {
+    userId: user.id,
+    action: 'BULLETIN_UPDATE',
+    entityType: 'bulletin',
+    entityId: bulletinId,
+    changes: { adherentMatricule, actesCount: actes.length, totalAmount },
+  });
+
+  return c.json({ success: true, data: { id: bulletinId } });
 });
 
 // ---------------------------------------------------------------------------

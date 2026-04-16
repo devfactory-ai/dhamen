@@ -23,6 +23,9 @@ export function useBulletinValidation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
       queryClient.invalidateQueries({ queryKey: ['agent-batches'] });
+      // Refresh adherent data so plafond_consomme is up to date
+      queryClient.invalidateQueries({ queryKey: ['adherents'] });
+      queryClient.invalidateQueries({ queryKey: ['adherent-plafonds'] });
       toast.success('Bulletin validé avec succès');
     },
     onError: (error: Error) => {

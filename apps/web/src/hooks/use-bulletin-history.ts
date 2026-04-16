@@ -17,7 +17,7 @@ export interface HistoryBulletin {
   bulletinNumber: string;
   bulletinDate: string;
   careType: string;
-  status: 'approved' | 'reimbursed' | 'rejected';
+  status: 'approved' | 'reimbursed' | 'rejected' | 'non_remboursable' | 'archived';
   totalAmount: number;
   reimbursedAmount: number | null;
   validatedAt: string | null;
@@ -109,7 +109,7 @@ export interface HistoryStats {
   totalDeclared: number;
   totalReimbursed: number;
   byStatus: Record<string, number>;
-  byCareType: Array<{ careType: string; count: number; totalReimbursed: number }>;
+  byCareType: Array<{ careType: string; count: number; totalDeclared: number; totalReimbursed: number }>;
   monthly: Array<{ month: string; count: number; totalReimbursed: number }>;
 }
 

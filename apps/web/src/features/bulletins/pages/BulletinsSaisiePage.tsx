@@ -97,6 +97,7 @@ import {
   ChevronDown,
   Send,
   RefreshCw,
+  Pencil,
 } from 'lucide-react';
 import { FloatingHelp } from '@/components/ui/floating-help';
 
@@ -151,6 +152,8 @@ interface BulletinSaisie {
   batch_name: string | null;
   created_at: string;
   status: 'draft' | 'in_batch' | 'exported' | 'soumis' | 'en_examen' | 'approuve' | 'rejete' | 'paye' | 'approved' | 'rejected';
+  actes_count?: number;
+  mf_missing_count?: number;
   actes?: BulletinSaisieActe[];
 }
 
@@ -196,6 +199,7 @@ const bulletinStatusConfig: Record<string, { label: string; variant: 'secondary'
   exported: { label: 'Exporte', variant: 'outline' },
   approved: { label: 'Validé', variant: 'default', className: 'bg-green-600 hover:bg-green-700' },
   rejected: { label: 'Rejeté', variant: 'destructive' },
+  non_remboursable: { label: 'Non remboursable', variant: 'destructive', className: 'bg-orange-600 hover:bg-orange-700' },
   paper_complete: { label: 'Soumis à validation', variant: 'default', className: 'bg-orange-500 hover:bg-orange-600' },
   soumis: { label: 'Soumis', variant: 'default' },
   en_examen: { label: 'En examen', variant: 'default', className: 'bg-yellow-500 hover:bg-yellow-600' },
@@ -233,7 +237,7 @@ const acteFormSchema = z.object({
   code: z.string().optional().or(z.literal('')),
   label: z.string().min(1, 'Libelle requis'),
   amount: z.number().positive('Montant > 0'),
-  ref_prof_sant: z.string().min(1, 'Matricule fiscale du praticien requis'),
+  ref_prof_sant: z.string().optional().or(z.literal('')),
   nom_prof_sant: z.string().optional().or(z.literal('')),
   provider_id: z.string().optional(),
   care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']).default('consultation'),
@@ -375,6 +379,8 @@ export function BulletinsSaisiePage() {
   const [validateNotes, setValidateNotes] = useState("");
   const validateMutation = useBulletinValidation();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [editingBulletinId, setEditingBulletinId] = useState<string | null>(null);
+  const [analyzeProgress, setAnalyzeProgress] = useState<{ current: number; total: number; groupName: string } | null>(null);
   const [bulletinNumberFromOcr, setBulletinNumberFromOcr] = useState(false);
   const [showScanPreview, setShowScanPreview] = useState(false);
   const [ocrFeedback, setOcrFeedback] = useState<OcrFeedbackState | null>(null);
@@ -426,22 +432,24 @@ export function BulletinsSaisiePage() {
 
   // Auto-select adherent when search results contain an exact matricule match
   useEffect(() => {
-    if (!adherentResults || selectedAdherentInfo) return;
+    if (!adherentResults) return;
     const matricule = watch("adherent_matricule");
     if (!matricule) return;
     const match = (adherentResults as AdherentSearchResult[] | undefined)?.find(
       (a) => a.matricule === matricule,
     );
     if (match) {
-      setSelectedAdherentInfo(match);
-      setValue("adherent_first_name", match.firstName || "");
-      setValue("adherent_last_name", match.lastName || "");
-      if (match.email) setValue("adherent_email", match.email);
-      // Auto-select "self" as default bénéficiaire when adherent is found
-      if (!watchedBeneficiaryRel) {
-        setValue("beneficiary_relationship", "self");
+      // Always refresh plafond data; only set form fields on first selection
+      if (!selectedAdherentInfo) {
+        setValue("adherent_first_name", match.firstName || "");
+        setValue("adherent_last_name", match.lastName || "");
+        if (match.email) setValue("adherent_email", match.email);
+        if (!watchedBeneficiaryRel) {
+          setValue("beneficiary_relationship", "self");
+        }
+        setShowAdherentDropdown(false);
       }
-      setShowAdherentDropdown(false);
+      setSelectedAdherentInfo(match);
     }
   }, [adherentResults]);
 
@@ -587,19 +595,19 @@ export function BulletinsSaisiePage() {
   // Blocking statuses: 'loading' (in progress), 'invalid', 'error'
   const MF_BLOCKING_STATUSES: import("@/features/bulletins/components/mf-lookup-input").MfStatus[] =
     ["loading", "invalid", "error"];
+  // MF missing = bulletin saved as incomplete draft (can't be validated), but NOT blocking save
+  const hasMfMissing = watchedActes?.length > 0 &&
+    watchedActes.some((_a) => !_a?.ref_prof_sant?.trim());
   const hasMfBlocking =
     watchedActes?.length > 0 &&
     watchedActes.some((_a, idx) => {
       const mfValue = _a?.ref_prof_sant?.trim();
-      if (!mfValue) return true; // MF vide = bloquant
+      if (!mfValue) return false; // MF vide = not blocking save, just marks as incomplete
       const status = mfStatuses[idx];
       return status && MF_BLOCKING_STATUSES.includes(status);
     });
   const mfBlockingReason = (() => {
     if (!hasMfBlocking) return null;
-    // Check if any acte has empty MF
-    if (watchedActes?.some((_a) => !_a?.ref_prof_sant?.trim()))
-      return "Matricule fiscale du praticien requis";
     const statuses = watchedActes?.map((_a, idx) => mfStatuses[idx]);
     if (statuses?.some((s) => s === "invalid"))
       return "Matricule fiscale invalide";
@@ -725,6 +733,12 @@ export function BulletinsSaisiePage() {
       // Send actes as JSON array (include sub_items for storage)
       form.append("actes", JSON.stringify(data.formData.actes));
 
+      // Flag as incomplete if any acte is missing MF
+      const hasMissingMf = data.formData.actes.some((a) => !a.ref_prof_sant?.trim());
+      if (hasMissingMf) {
+        form.append("mf_incomplete", "1");
+      }
+
       // Attach batch_id and company_id from agent context
       if (selectedBatch) {
         form.append("batch_id", selectedBatch.id);
@@ -737,7 +751,11 @@ export function BulletinsSaisiePage() {
         form.append(`scan_${index}`, file);
       });
 
-      const result = await apiClient.upload<{ warnings?: string[] }>('/bulletins-soins/agent/create', form);
+      // If editing existing bulletin → PUT, otherwise → POST create
+      const endpoint = editingBulletinId
+        ? `/bulletins-soins/agent/${editingBulletinId}/update`
+        : '/bulletins-soins/agent/create';
+      const result = await apiClient.upload<{ warnings?: string[] }>(endpoint, form);
       if (!result.success) {
         throw new Error(result.error?.message || "Erreur lors de la saisie");
       }
@@ -777,7 +795,7 @@ export function BulletinsSaisiePage() {
         if (responseWarnings && responseWarnings.length > 0) {
           toast.warning(responseWarnings[0] || "Attention: remboursement approximatif");
         } else {
-          toast.success("Bulletin saisi avec succès!");
+          toast.success(editingBulletinId ? "Bulletin modifié avec succès!" : "Bulletin saisi avec succès!");
         }
       }
 
@@ -799,6 +817,7 @@ export function BulletinsSaisiePage() {
       setSavedBulletinIndices(new Set());
       setSavedBulletinSnapshots({});
       setActiveBulletinIndex(0);
+      setEditingBulletinId(null);
       setActiveTab("liste");
     },
     onError: (error: Error) => {
@@ -1040,7 +1059,12 @@ export function BulletinsSaisiePage() {
     try {
       const response = await apiClient.post('/bulletins-soins/agent/bulk-submit', { ids });
       if (response.success) {
-        toast.success(`${(response.data as { submitted: number })?.submitted || ids.length} bulletin(s) soumis à la validation`);
+        const resData = response.data as { submitted: number; skipped?: number; skippedReason?: string };
+        if (resData.skipped && resData.skipped > 0) {
+          toast.warning(`${resData.submitted} bulletin(s) soumis. ${resData.skippedReason}`);
+        } else {
+          toast.success(`${resData.submitted || ids.length} bulletin(s) soumis à la validation`);
+        }
         queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
         setSelectedBulletins([]);
       } else {
@@ -1051,13 +1075,67 @@ export function BulletinsSaisiePage() {
     }
   };
 
-  const fetchBulletinDetail = async (id: string) => {
+  const fetchBulletinDetail = async (id: string, editMode = false) => {
     const response = await apiClient.get<BulletinDetail>(
       `/bulletins-soins/agent/${id}`,
     );
-    if (response.success) {
+    if (!response.success || !response.data) return;
+
+    if (!editMode) {
       setViewBulletin(response.data);
+      return;
     }
+
+    // --- Edit mode: load bulletin into the saisie form ---
+    const b = response.data;
+    setEditingBulletinId(b.id);
+
+    // Pre-fill adherent search
+    const adherentLabel = [b.adherent_first_name, b.adherent_last_name].filter(Boolean).join(' ');
+    setAdherentSearch(b.adherent_matricule || adherentLabel);
+    setSelectedAdherentInfo({
+      id: '',
+      matricule: b.adherent_matricule || '',
+      firstName: b.adherent_first_name || '',
+      lastName: b.adherent_last_name || '',
+      email: null,
+      companyName: null,
+      plafondGlobal: null,
+      plafondConsomme: null,
+      contractType: null,
+      contractEndDate: null,
+      contractNumber: null,
+      contractWarning: null,
+    });
+
+    // Pre-fill form fields
+    reset({
+      bulletin_number: b.bulletin_number || '',
+      bulletin_date: b.bulletin_date ? b.bulletin_date.split('T')[0] : new Date().toISOString().split('T')[0],
+      adherent_matricule: b.adherent_matricule || '',
+      adherent_first_name: b.adherent_first_name || '',
+      adherent_last_name: b.adherent_last_name || '',
+      adherent_national_id: '',
+      adherent_email: '',
+      beneficiary_name: b.beneficiary_name || '',
+      beneficiary_relationship: (['self', 'spouse', 'child'].includes(b.beneficiary_relationship || '') ? b.beneficiary_relationship as 'self' | 'spouse' | 'child' : 'self'),
+      actes: (b.actes || []).map((a) => ({
+        code: a.code || '',
+        label: a.label || '',
+        amount: a.amount || 0,
+        ref_prof_sant: a.ref_prof_sant || '',
+        nom_prof_sant: a.nom_prof_sant || '',
+        provider_id: '',
+        care_type: (a.care_type as 'consultation' | 'pharmacy' | 'lab' | 'hospital') || 'consultation',
+        care_description: '',
+        cod_msgr: '',
+        lib_msgr: '',
+      })),
+    });
+
+    // Switch to saisie tab
+    setActiveTab('saisie');
+    toast.info('Bulletin chargé pour modification');
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1081,8 +1159,8 @@ export function BulletinsSaisiePage() {
       );
     }
 
-    // If files already exist, just append new ones (no form reset)
-    if (selectedFiles.length > 0) {
+    // If files already exist OR editing a bulletin, just append new ones (no form reset)
+    if (selectedFiles.length > 0 || editingBulletinId) {
       setSelectedFiles((prev) => [...prev, ...validFiles]);
       setFolderSubGroups(null); // Invalidate folder grouping when adding files via file input
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -1251,7 +1329,7 @@ export function BulletinsSaisiePage() {
               date_signature: firstActe.date_acte || undefined,
             };
 
-        // Build actes with sub_items (medications, analyses) instead of flat separate actes
+        // Build actes with sub_items — split pharmacie/analyse into separate actes when embedded
         const flatActes: Array<Record<string, unknown>> = [];
         for (const acte of rawActes) {
           // Normalize praticien sub-object into flat fields if needed
@@ -1262,66 +1340,71 @@ export function BulletinsSaisiePage() {
             acte.specialite = praticien.specialite || '';
           }
 
-          // Collect sub-items from nested structures
-          const subItems: Array<{ label: string; amount: number; code: string }> = [];
-
-          // pharmacie.medicaments → pharmacy sub-items (purchased meds with prix)
+          // Check for embedded pharmacie sub-object → split into separate acte
           const pharmacie = acte.pharmacie as Record<string, unknown> | undefined;
+          const pharmacieDetails = pharmacie?.details_lignes as Array<Record<string, string>> | undefined;
           const pharmacieMeds = pharmacie?.medicaments as Array<Record<string, string>> | undefined;
-          if (Array.isArray(pharmacieMeds) && pharmacieMeds.length > 0) {
-            for (const med of pharmacieMeds) {
-              const rawPrix = (med.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-              subItems.push({
-                label: med.nom || '',
-                amount: parseFloat(rawPrix) || 0,
-                code: '',
-              });
-            }
-            // Store pharmacy name for praticien display
-            if (pharmacie?.nom_pharmacie) {
-              acte._pharmacie_nom = pharmacie.nom_pharmacie;
-            }
-          }
+          const hasPharmacieData = (Array.isArray(pharmacieDetails) && pharmacieDetails.length > 0)
+            || (Array.isArray(pharmacieMeds) && pharmacieMeds.length > 0);
 
-          // ordonnance.medicaments → pharmacy sub-items (prescribed meds, may not have prix)
-          // Only if no pharmacie meds were found (avoid duplicates)
-          const ordonnance = acte.ordonnance as Record<string, unknown> | undefined;
-          const meds = (ordonnance?.medicaments || acte.medicaments) as Array<Record<string, string>> | undefined;
-          if (!pharmacieMeds?.length && Array.isArray(meds) && meds.length > 0) {
-            for (const med of meds) {
-              const rawPrix = (med.montant || med.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-              subItems.push({
-                label: [med.nom, med.dosage].filter(Boolean).join(' '),
-                amount: parseFloat(rawPrix) || 0,
-                code: '',
-              });
-            }
-          }
-
-          // analyse.resultats → lab sub-items (each result with its own price)
+          // Check for embedded analyse sub-object → will be sub-items of this acte
           const analyseObj = acte.analyse as Record<string, unknown> | undefined;
-          const resultats = analyseObj?.resultats as Array<Record<string, string>> | undefined;
+          const resultats = (analyseObj?.resultats || analyseObj?.details_lignes) as Array<Record<string, string>> | undefined;
+
+          // --- Main acte (consultation/médecin) ---
+          // Collect sub-items that belong to the main acte (ordonnance meds if no separate pharmacie)
+          const mainSubItems: Array<{ label: string; amount: number; code: string }> = [];
+
+          // ordonnance.medicaments → only as sub-items if NO separate pharmacie
+          if (!hasPharmacieData) {
+            const ordonnance = acte.ordonnance as Record<string, unknown> | undefined;
+            const meds = (ordonnance?.medicaments || acte.medicaments) as Array<Record<string, string>> | undefined;
+            if (Array.isArray(meds) && meds.length > 0) {
+              for (const med of meds) {
+                const rawPrix = (med.montant || med.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+                mainSubItems.push({
+                  label: [med.nom, med.dosage].filter(Boolean).join(' '),
+                  amount: parseFloat(rawPrix) || 0,
+                  code: '',
+                });
+              }
+            }
+          }
+
+          // analyse sub-items on main acte (lab/radiologie)
           if (Array.isArray(resultats) && resultats.length > 0) {
             for (const res of resultats) {
-              const rawPrix = (res.resultat || res.montant || res.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-              subItems.push({
-                label: res.nom || res.libelle || '',
+              const rawPrix = (res.montant || res.resultat || res.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+              mainSubItems.push({
+                label: res.designation || res.nom || res.libelle || '',
                 amount: parseFloat(rawPrix) || 0,
-                code: '',
+                code: res.code_amm || '',
               });
             }
-            // Store lab name for praticien display
             if (analyseObj?.nom_laboratoire) {
               acte._labo_nom = analyseObj.nom_laboratoire;
             }
           }
 
-          // Legacy: analyses/examens array → lab sub-items
+          // details_lignes at acte level (format actes_independants — pharmacy)
+          const acteLevelDetails = acte.details_lignes as Array<Record<string, string>> | undefined;
+          if (!resultats?.length && Array.isArray(acteLevelDetails) && acteLevelDetails.length > 0) {
+            for (const ligne of acteLevelDetails) {
+              const rawPrix = (ligne.montant || ligne.prix_unitaire || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+              mainSubItems.push({
+                label: ligne.designation || ligne.nom || '',
+                amount: parseFloat(rawPrix) || 0,
+                code: ligne.code_amm || '',
+              });
+            }
+          }
+
+          // Legacy: analyses/examens array
           const analyses = (acte.analyses || acte.examens) as Array<Record<string, string>> | undefined;
           if (!resultats?.length && Array.isArray(analyses) && analyses.length > 0) {
             for (const analyse of analyses) {
               const rawPrix = (analyse.montant || analyse.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-              subItems.push({
+              mainSubItems.push({
                 label: analyse.nom || analyse.libelle || analyse.nature || '',
                 amount: parseFloat(rawPrix) || 0,
                 code: '',
@@ -1329,13 +1412,67 @@ export function BulletinsSaisiePage() {
             }
           }
 
-          // Attach sub_items to acte
-          if (subItems.length > 0) {
-            acte._sub_items = subItems;
+          if (mainSubItems.length > 0) {
+            acte._sub_items = mainSubItems;
           }
-
-          // Always push the main acte (sub-items are embedded, not separate)
           flatActes.push(acte);
+
+          // --- Split: create separate pharmacie acte if embedded ---
+          if (hasPharmacieData) {
+            const pharmSubItems: Array<{ label: string; amount: number; code: string }> = [];
+
+            // pharmacie.details_lignes (prix réels d'achat)
+            if (Array.isArray(pharmacieDetails) && pharmacieDetails.length > 0) {
+              for (const ligne of pharmacieDetails) {
+                const rawPrix = (ligne.montant || ligne.prix_unitaire || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+                pharmSubItems.push({
+                  label: ligne.designation || ligne.nom || '',
+                  amount: parseFloat(rawPrix) || 0,
+                  code: ligne.code_amm || '',
+                });
+              }
+            } else if (Array.isArray(pharmacieMeds) && pharmacieMeds.length > 0) {
+              // pharmacie.medicaments fallback
+              for (const med of pharmacieMeds) {
+                const rawPrix = (med.prix || med.montant || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+                pharmSubItems.push({
+                  label: med.nom || '',
+                  amount: parseFloat(rawPrix) || 0,
+                  code: '',
+                });
+              }
+            }
+
+            const pharmMontant = String(pharmacie?.montant_total || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+
+            // 1 seul médicament → promouvoir au niveau acte (pas de sub-items)
+            // Plusieurs médicaments → label "Pharmacie" + sub-items
+            if (pharmSubItems.length === 1) {
+              const single = pharmSubItems[0]!;
+              const pharmActe: Record<string, unknown> = {
+                type_soin: 'Pharmacie',
+                nature_acte: single.label || 'Pharmacie',
+                date_acte: pharmacie?.date_achat || acte.date_acte,
+                montant_facture: String(single.amount || pharmMontant),
+                montant_honoraires: String(single.amount || pharmMontant),
+                nom_praticien: pharmacie?.nom_pharmacie || '',
+                _pharmacie_nom: pharmacie?.nom_pharmacie || '',
+              };
+              flatActes.push(pharmActe);
+            } else {
+              const pharmActe: Record<string, unknown> = {
+                type_soin: 'Pharmacie',
+                nature_acte: 'Pharmacie',
+                date_acte: pharmacie?.date_achat || acte.date_acte,
+                montant_facture: pharmMontant,
+                montant_honoraires: pharmMontant,
+                nom_praticien: pharmacie?.nom_pharmacie || '',
+                _pharmacie_nom: pharmacie?.nom_pharmacie || '',
+                _sub_items: pharmSubItems.length > 0 ? pharmSubItems : undefined,
+              };
+              flatActes.push(pharmActe);
+            }
+          }
         }
 
         const numero_bulletin = (item.numero_bulletin as string)
@@ -1374,16 +1511,40 @@ export function BulletinsSaisiePage() {
     );
     // Use pre-computed folder grouping from handleFolderChange (stored at selection time)
     const hasSubFolders = folderSubGroups !== null && folderSubGroups.size > 1;
-    const hasMultipleBulletins = hasZip || hasSubFolders;
     console.log('[analyzeWithOCR] hasZip:', hasZip, 'hasSubFolders:', hasSubFolders, 'folderSubGroups:', folderSubGroups ? Object.fromEntries(folderSubGroups) : null);
 
     let bulletinsArray: OcrBulletinItem[] = [];
 
-    // --- BULK: ZIP or folder with sub-folders → /analyse-bulletin per group ---
-    if (hasMultipleBulletins) {
+    // --- BULK: ZIP → /analyse-bulk (backend API, server-side OCR) ---
+    if (hasZip) {
       setIsAnalyzing(true);
       try {
-        const ocrBase = (import.meta.env.VITE_OCR_API_URL || "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev").replace(/\/+$/, "");
+        const companyId = selectedCompany?.id || '';
+        const batchId = selectedBatch?.id;
+        const result = await bulkMutation.mutateAsync({
+          files: selectedFiles,
+          companyId,
+          batchId,
+        });
+        setBulkJobId(result.jobId);
+        toast.success(`${result.totalExtracted} bulletin(s) détectés — traitement en cours`);
+      } catch (error) {
+        console.error('Bulk analysis error:', error);
+        toast.error(error instanceof Error ? error.message : "Erreur lors de l'analyse");
+      } finally {
+        setIsAnalyzing(false);
+      }
+      return;
+    }
+
+    // --- BULK: Folder with sub-folders → /analyse-bulletin per group ---
+    if (hasSubFolders && folderSubGroups) {
+      setIsAnalyzing(true);
+      try {
+        const ocrBase = (
+          import.meta.env.VITE_OCR_API_URL_STAGING ||
+          "https://ocr-api-bh-assurance-staging.yassine-techini.workers.dev"
+        ).replace(/\/+$/, "");
         const allBulletins: OcrBulletinItem[] = [];
 
         // Helper: call OCR for one bulletin (group of files)
@@ -1404,69 +1565,37 @@ export function BulletinsSaisiePage() {
         };
 
         const groups: { name: string; form: FormData }[] = [];
-
-        // --- Case 1: Folder with sub-folders (use pre-computed grouping) ---
-        if (hasSubFolders && folderSubGroups) {
-          for (const [subFolder, indices] of folderSubGroups) {
-            const form = new FormData();
-            for (const idx of indices) {
-              const f = selectedFiles[idx];
-              if (f) form.append('files', f);
-            }
-            groups.push({ name: subFolder, form });
+        for (const [subFolder, indices] of folderSubGroups) {
+          const form = new FormData();
+          for (const idx of indices) {
+            const f = selectedFiles[idx];
+            if (f) form.append('files', f);
           }
-        }
-
-        // --- Case 2: ZIP files ---
-        if (hasZip) {
-          const JSZip = (await import('jszip')).default;
-          for (const file of selectedFiles) {
-            const isZip = file.name.toLowerCase().endsWith('.zip') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed';
-            if (!isZip) {
-              const form = new FormData();
-              form.append('files', file);
-              groups.push({ name: file.name, form });
-              continue;
-            }
-            const zip = await JSZip.loadAsync(await file.arrayBuffer());
-            const folders = new Map<string, { name: string; async: (type: 'blob') => Promise<Blob> }[]>();
-            zip.forEach((relativePath, entry) => {
-              if (entry.dir || relativePath.startsWith('__MACOSX') || relativePath.startsWith('.')) return;
-              const parts = relativePath.split('/').filter(Boolean);
-              const folderKey = parts.length >= 2 ? parts[0]! : '__root';
-              if (!folders.has(folderKey)) folders.set(folderKey, []);
-              folders.get(folderKey)!.push(entry);
-            });
-            for (const [folderKey, entries] of folders) {
-              const form = new FormData();
-              for (const entry of entries) {
-                const blob = await entry.async('blob');
-                const fileName = entry.name.split('/').pop() || 'file';
-                const ext = fileName.split('.').pop()?.toLowerCase() || '';
-                const mimeMap: Record<string, string> = {
-                  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-                  gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp',
-                  pdf: 'application/pdf', tif: 'image/tiff', tiff: 'image/tiff',
-                };
-                form.append('files', new File([blob], fileName, { type: mimeMap[ext] || 'application/octet-stream' }));
-              }
-              groups.push({ name: folderKey, form });
-            }
-          }
+          groups.push({ name: subFolder, form });
         }
 
         // Process in parallel (max 4 concurrent) for speed
         const CONCURRENCY = 4;
+        let completed = 0;
         if (groups.length > 1) {
+          setAnalyzeProgress({ current: 0, total: groups.length, groupName: '' });
           toast.info(`Analyse de ${groups.length} bulletins en parallèle...`, { id: 'bulk-progress' });
         }
         for (let i = 0; i < groups.length; i += CONCURRENCY) {
           const batch = groups.slice(i, i + CONCURRENCY);
+          if (groups.length > 1) {
+            setAnalyzeProgress({ current: completed + 1, total: groups.length, groupName: batch.map(b => b.name).join(', ') });
+          }
           await Promise.allSettled(batch.map(({ name, form }) => analyseGroup(name, form)));
+          completed += batch.length;
           if (groups.length > CONCURRENCY) {
             toast.info(`Analyse ${Math.min(i + CONCURRENCY, groups.length)}/${groups.length} terminée...`, { id: 'bulk-progress' });
           }
+          if (groups.length > 1) {
+            setAnalyzeProgress({ current: completed, total: groups.length, groupName: '' });
+          }
         }
+        setAnalyzeProgress(null);
 
         if (allBulletins.length === 0) {
           toast.error("Aucun bulletin n'a pu être extrait");
@@ -1475,14 +1604,14 @@ export function BulletinsSaisiePage() {
 
         // Fall through to common form-fill logic below
         bulletinsArray = allBulletins;
-        const sourceLabel = hasSubFolders ? `${groups.length} sous-dossier(s)` : `${Array.from(new Set(selectedFiles.filter(f => f.name.toLowerCase().endsWith('.zip')).map(f => f.name))).length || 1} fichier(s) ZIP`;
-        toast.success(`${allBulletins.length} bulletin(s) extraits de ${sourceLabel}`);
+        toast.success(`${allBulletins.length} bulletin(s) extraits de ${groups.length} sous-dossier(s)`);
       } catch (error) {
         console.error('Bulk analysis error:', error);
         toast.error(error instanceof Error ? error.message : "Erreur lors de l'analyse");
         return;
       } finally {
         setIsAnalyzing(false);
+        setAnalyzeProgress(null);
       }
     } else {
       // --- SINGLE FILE: direct OCR call ---
@@ -1494,8 +1623,8 @@ export function BulletinsSaisiePage() {
         }
 
         const ocrBase = (
-          import.meta.env.VITE_OCR_API_URL ||
-          "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev"
+          import.meta.env.VITE_OCR_API_URL_STAGING ||
+          "https://ocr-api-bh-assurance-staging.yassine-techini.workers.dev"
         ).replace(/\/+$/, "");
         const ocrApiUrl = `${ocrBase}/analyse-bulletin`;
         const res = await fetch(ocrApiUrl, {
@@ -1622,30 +1751,35 @@ export function BulletinsSaisiePage() {
         }
       }
 
-      // Helper: detect care_type from OCR type_soin string
+      // Helper: detect care_type from OCR type_soin / nature_acte string
       const detectCareType = (
         typeSoin?: string | null,
+        natureActe?: string | null,
       ): "consultation" | "pharmacy" | "lab" | "hospital" => {
-        if (!typeSoin) return "consultation";
-        const ts = typeSoin
+        // Check both type_soin and nature_acte
+        const combined = [typeSoin, natureActe]
+          .filter(Boolean)
+          .join(" ")
           .toLowerCase()
           .normalize("NFD")
           .replace(/[\u0300-\u036f]/g, "");
-        if (ts.includes("pharmac") || ts.includes("medicament"))
+        if (!combined) return "consultation";
+        if (combined.includes("pharmac") || combined.includes("medicament"))
           return "pharmacy";
         if (
-          ts.includes("labo") ||
-          ts.includes("analyse") ||
-          ts.includes("biolog")
+          combined.includes("labo") ||
+          combined.includes("analyse") ||
+          combined.includes("biolog") ||
+          combined.includes("radiolog")
         )
           return "lab";
-        if (ts.includes("hosp") || ts.includes("clinique")) return "hospital";
+        if (combined.includes("hosp") || combined.includes("clinique")) return "hospital";
         return "consultation";
       };
 
       // Auto-fill global care type from first acte's type_soin
       if (Array.isArray(actes) && actes.length > 0 && actes[0]?.type_soin) {
-        setValue("care_type", detectCareType(actes[0].type_soin));
+        setValue("care_type", detectCareType(actes[0].type_soin, actes[0].nature_acte as string | null));
       }
 
       // Auto-fill actes with enriched codes from backend (TASK-003)
@@ -1657,7 +1791,7 @@ export function BulletinsSaisiePage() {
 
         actes.forEach((acte: Record<string, unknown>, i: number) => {
           // Detect care_type per acte from its own type_soin
-          const acteCareType = detectCareType(acte.type_soin as string | null);
+          const acteCareType = detectCareType(acte.type_soin as string | null, acte.nature_acte as string | null);
           const isPharmacy = acteCareType === "pharmacy";
           const rawMontant = (
             (acte.montant_facture as string) ||
@@ -1944,24 +2078,24 @@ export function BulletinsSaisiePage() {
       if (info.nom_beneficiaire) setValue("beneficiary_name", info.nom_beneficiaire.trim());
     }
 
-    // Care type from first acte
-    const detectCareType = (typeSoin?: string | null): "consultation" | "pharmacy" | "lab" | "hospital" => {
-      if (!typeSoin) return "consultation";
-      const ts = typeSoin.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-      if (ts.includes("pharmac") || ts.includes("medicament")) return "pharmacy";
-      if (ts.includes("labo") || ts.includes("analyse") || ts.includes("biolog")) return "lab";
-      if (ts.includes("hosp") || ts.includes("clinique")) return "hospital";
+    // Care type from type_soin + nature_acte
+    const detectCareType = (typeSoin?: string | null, natureActe?: string | null): "consultation" | "pharmacy" | "lab" | "hospital" => {
+      const combined = [typeSoin, natureActe].filter(Boolean).join(" ").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      if (!combined) return "consultation";
+      if (combined.includes("pharmac") || combined.includes("medicament")) return "pharmacy";
+      if (combined.includes("labo") || combined.includes("analyse") || combined.includes("biolog") || combined.includes("radiolog")) return "lab";
+      if (combined.includes("hosp") || combined.includes("clinique")) return "hospital";
       return "consultation";
     };
 
     if (Array.isArray(actes) && actes.length > 0 && actes[0]?.type_soin) {
-      setValue("care_type", detectCareType(actes[0].type_soin));
+      setValue("care_type", detectCareType(actes[0].type_soin, actes[0].nature_acte as string | null));
     }
 
     // Fill actes with sub_items
     if (Array.isArray(actes) && actes.length > 0) {
       actes.forEach((acte: Record<string, unknown>, i: number) => {
-        const acteCareType = detectCareType(acte.type_soin as string | null);
+        const acteCareType = detectCareType(acte.type_soin as string | null, acte.nature_acte as string | null);
         const isPharmacy = acteCareType === "pharmacy";
         const rawMontant = ((acte.montant_facture as string) || (acte.montant_honoraires as string) || "0").replace(/[^\d.,]/g, "").replace(",", ".");
         const montant = parseFloat(rawMontant) || 0;
@@ -2002,8 +2136,8 @@ export function BulletinsSaisiePage() {
     if (!ocrFeedback) return;
     setIsSendingFeedback(true);
     const ocrBase = (
-      import.meta.env.VITE_OCR_API_URL ||
-      "https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev"
+      import.meta.env.VITE_OCR_API_URL_STAGING ||
+      "https://ocr-api-bh-assurance-staging.yassine-techini.workers.dev"
     ).replace(/\/+$/, "");
     try {
       const res = await fetch(`${ocrBase}/valider-bulletin`, {
@@ -2927,6 +3061,24 @@ export function BulletinsSaisiePage() {
                                 )}
                               </Button>
                             </div>
+                            {/* Bulk OCR progress bar */}
+                            {isAnalyzing && analyzeProgress && analyzeProgress.total > 1 && (
+                              <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 space-y-2">
+                                <div className="flex items-center justify-between text-sm">
+                                  <span className="text-blue-800 font-medium flex items-center gap-2">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    En cours de traitement bulletin {analyzeProgress.current}/{analyzeProgress.total}
+                                  </span>
+                                  <span className="text-blue-600 text-xs">{analyzeProgress.groupName}</span>
+                                </div>
+                                <div className="h-2 w-full rounded-full bg-blue-200 overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full bg-blue-600 transition-all duration-300"
+                                    style={{ width: `${(analyzeProgress.current / analyzeProgress.total) * 100}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div
@@ -2996,7 +3148,7 @@ export function BulletinsSaisiePage() {
                         />
 
                         {/* Bulk ZIP Processing Panel */}
-                        {bulkJobId && bulkJobData && (
+                        {bulkJobId && bulkJobData &&  selectedFiles.length > 0 &&(
                           <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 space-y-3">
                             <div className="flex items-center justify-between">
                               <h3 className="text-sm font-semibold text-blue-900 flex items-center gap-2">
@@ -3449,6 +3601,8 @@ export function BulletinsSaisiePage() {
                       </div>
                     </div>
 
+                    {/* Section 02 + 03 + 04 — disabled pendant l'analyse OCR */}
+                    <div className={`space-y-6 transition-opacity duration-300 ${isAnalyzing ? 'opacity-50 pointer-events-none' : ''}`}>
                     {/* Section 02 + 03 side by side */}
                     <div className="grid gap-6 lg:grid-cols-2">
                       {/* Section 02: Infos Générales */}
@@ -4887,6 +5041,7 @@ export function BulletinsSaisiePage() {
                     </div>
                   </div>
 
+                  </div>
                   {/* ===== RIGHT SIDEBAR ===== */}
                   <div className="space-y-5">
                     {/* Workflow stepper */}
@@ -5132,6 +5287,7 @@ export function BulletinsSaisiePage() {
                         isSubmitting ||
                         hasMfBlocking ||
                         hasBeneficiaryBlocking ||
+                        (!selectedAdherentInfo && !!watchedMatricule) ||
                         !(
                           watchedActes?.length > 0 &&
                           watchedMatricule
@@ -5144,6 +5300,10 @@ export function BulletinsSaisiePage() {
                           <Loader2 className="h-4 w-4 animate-spin" />{" "}
                           Enregistrement...
                         </>
+                      ) : !selectedAdherentInfo && !!watchedMatricule ? (
+                        <>
+                          <AlertTriangle className="h-4 w-4" /> Adhérent non enregistré
+                        </>
                       ) : hasBeneficiaryBlocking ? (
                         <>
                           <AlertTriangle className="h-4 w-4" />{" "}
@@ -5155,8 +5315,12 @@ export function BulletinsSaisiePage() {
                         <>
                           <XCircle className="h-4 w-4" /> {mfBlockingReason}
                         </>
+                      ) : hasMfMissing ? (
+                        <>
+                          <AlertTriangle className="h-4 w-4" /> {editingBulletinId ? 'Sauvegarder comme brouillon' : 'Enregistrer comme brouillon'} (MF praticien manquante)
+                        </>
                       ) : (
-                        <>Enregistrer le bulletin</>
+                        <>{editingBulletinId ? 'Sauvegarder les modifications' : 'Enregistrer le bulletin'}</>
                       )}
                     </button>}
                     <button
@@ -5365,27 +5529,35 @@ export function BulletinsSaisiePage() {
                       label: row.status,
                       variant: "secondary" as const,
                     };
+                    const isMfIncomplete = (row.mf_missing_count ?? 0) > 0;
                     return (
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide",
-                          row.status === "draft"
-                            ? "bg-gray-100 text-gray-600"
-                            : row.status === "in_batch"
-                              ? "bg-blue-50 text-blue-700"
-                              : row.status === "approved" ||
-                                  row.status === "approuve"
-                                ? "bg-green-50 text-green-700"
-                                : row.status === "rejected" ||
-                                    row.status === "rejete"
-                                  ? "bg-red-50 text-red-700"
-                                  : row.status === "paye"
-                                    ? "bg-emerald-50 text-emerald-700"
-                                    : "bg-gray-100 text-gray-600",
+                      <div className="flex flex-col items-center gap-1">
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide",
+                            row.status === "draft"
+                              ? "bg-gray-100 text-gray-600"
+                              : row.status === "in_batch"
+                                ? "bg-blue-50 text-blue-700"
+                                : row.status === "approved" ||
+                                    row.status === "approuve"
+                                  ? "bg-green-50 text-green-700"
+                                  : row.status === "rejected" ||
+                                      row.status === "rejete"
+                                    ? "bg-red-50 text-red-700"
+                                    : row.status === "paye"
+                                      ? "bg-emerald-50 text-emerald-700"
+                                      : "bg-gray-100 text-gray-600",
+                          )}
+                        >
+                          {statusConf.label}
+                        </span>
+                        {isMfIncomplete && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700" title={`${row.mf_missing_count} acte(s) sans matricule fiscale`}>
+                            <AlertTriangle className="h-3 w-3" /> MF manquante
+                          </span>
                         )}
-                      >
-                        {statusConf.label}
-                      </span>
+                      </div>
                     );
                   },
                 },
@@ -5408,32 +5580,68 @@ export function BulletinsSaisiePage() {
                       </button>
                       {["draft", "in_batch"].includes(row.status) && (
                         <>
+                          {/* Modifier — always available for drafts */}
                           <button
                             type="button"
-                            className="rounded-lg p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
-                            title="Valider"
-                            onClick={async () => {
-                              const response =
-                                await apiClient.get<BulletinDetail>(
-                                  `/bulletins-soins/agent/${row.id}`,
-                                );
-                              if (response.success && response.data) {
-                                setValidateBulletinTarget(response.data);
-                                setShowValidateDialog(true);
-                              }
-                            }}
+                            className="rounded-lg p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                            title="Modifier le bulletin"
+                            onClick={() => fetchBulletinDetail(row.id, true)}
                           >
-                            <CheckCircle2 className="h-4 w-4" />
+                            <Pencil className="h-4 w-4" />
                           </button>
-                          <button
-                            type="button"
-                            className="rounded-lg p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 transition-colors"
-                            title="Soumettre à validation"
-                            disabled={submittingId === row.id}
-                            onClick={() => submitToValidation(row.id)}
-                          >
-                            <Send className="h-4 w-4" />
-                          </button>
+                          {/* Valider — blocked when incomplete or MF missing */}
+                          {(() => {
+                            const incomplete = (row.actes_count ?? 0) === 0;
+                            const mfMissing = (row.mf_missing_count ?? 0) > 0;
+                            const blocked = incomplete || mfMissing;
+                            const reason = incomplete
+                              ? "Bulletin incomplet — aucun acte saisi"
+                              : mfMissing
+                                ? "MF praticien manquante — modifier le bulletin d'abord"
+                                : "Valider";
+                            return (
+                              <button
+                                type="button"
+                                className={cn("rounded-lg p-2 transition-colors", blocked ? "text-gray-300 cursor-not-allowed" : "text-gray-400 hover:text-green-600 hover:bg-green-50")}
+                                title={reason}
+                                disabled={blocked}
+                                onClick={async () => {
+                                  const response =
+                                    await apiClient.get<BulletinDetail>(
+                                      `/bulletins-soins/agent/${row.id}`,
+                                    );
+                                  if (response.success && response.data) {
+                                    setValidateBulletinTarget(response.data);
+                                    setShowValidateDialog(true);
+                                  }
+                                }}
+                              >
+                                <CheckCircle2 className="h-4 w-4" />
+                              </button>
+                            );
+                          })()}
+                          {/* Soumettre — blocked when incomplete or MF missing */}
+                          {(() => {
+                            const incomplete = (row.actes_count ?? 0) === 0;
+                            const mfMissing = (row.mf_missing_count ?? 0) > 0;
+                            const blocked = incomplete || mfMissing;
+                            const reason = incomplete
+                              ? "Bulletin incomplet — aucun acte saisi"
+                              : mfMissing
+                                ? "MF praticien manquante — modifier le bulletin d'abord"
+                                : "Soumettre à validation";
+                            return (
+                              <button
+                                type="button"
+                                className={cn("rounded-lg p-2 transition-colors", blocked ? "text-gray-300 cursor-not-allowed" : "text-gray-400 hover:text-orange-600 hover:bg-orange-50")}
+                                title={reason}
+                                disabled={submittingId === row.id || blocked}
+                                onClick={() => submitToValidation(row.id)}
+                              >
+                                <Send className="h-4 w-4" />
+                              </button>
+                            );
+                          })()}
                         </>
                       )}
                       {canDelete && row.status !== "exported" && (
@@ -6171,7 +6379,7 @@ export function BulletinsSaisiePage() {
                           Plafond global
                         </span>
                         <span className="font-medium">
-                          {formatAmount(viewBulletin.plafond_global)}
+                          {formatAmount(viewBulletin.plafond_global / 1000)}
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -6180,7 +6388,7 @@ export function BulletinsSaisiePage() {
                         </span>
                         <span className="font-medium">
                           {formatAmount(
-                            viewBulletin.plafond_consomme_avant ?? 0,
+                            (viewBulletin.plafond_consomme_avant ?? 0) / 1000,
                           )}
                         </span>
                       </div>
@@ -6196,8 +6404,8 @@ export function BulletinsSaisiePage() {
                         <span className="text-muted-foreground">Restant</span>
                         <span className="font-bold text-green-600">
                           {formatAmount(
-                            viewBulletin.plafond_global -
-                              (viewBulletin.plafond_consomme || 0),
+                            (viewBulletin.plafond_global -
+                              (viewBulletin.plafond_consomme || 0)) / 1000,
                           )}
                         </span>
                       </div>
@@ -6213,7 +6421,7 @@ export function BulletinsSaisiePage() {
                       <div
                         className={`h-2 ${(viewBulletin.plafond_consomme || 0) >= viewBulletin.plafond_global ? "bg-orange-500" : "bg-green-500"}`}
                         style={{
-                          width: `${Math.min(100 - ((viewBulletin.plafond_consomme_avant ?? 0) / viewBulletin.plafond_global) * 100, ((viewBulletin.reimbursed_amount || 0) / viewBulletin.plafond_global) * 100)}%`,
+                          width: `${Math.min(100 - ((viewBulletin.plafond_consomme_avant ?? 0) / viewBulletin.plafond_global) * 100, (((viewBulletin.reimbursed_amount || 0) * 1000) / viewBulletin.plafond_global) * 100)}%`,
                         }}
                       />
                     </div>
@@ -6290,15 +6498,35 @@ export function BulletinsSaisiePage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Valider le bulletin</AlertDialogTitle>
+            <AlertDialogTitle>
+              {(validateBulletinTarget?.reimbursed_amount || 0) <= 0
+                ? "Bulletin non remboursable"
+                : "Valider le bulletin"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Confirmez la validation du bulletin{" "}
-              {validateBulletinTarget?.bulletin_number}. Le remboursement sera
-              enregistré définitivement.
+              {(validateBulletinTarget?.reimbursed_amount || 0) <= 0 ? (
+                <>
+                  Le bulletin {validateBulletinTarget?.bulletin_number} ne peut pas être remboursé — <span className="font-semibold text-orange-600">plafond annuel atteint</span>. Il sera classé comme non remboursable dans l&apos;historique.
+                </>
+              ) : (
+                <>
+                  Confirmez la validation du bulletin{" "}
+                  {validateBulletinTarget?.bulletin_number}. Le remboursement sera
+                  enregistré définitivement.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {validateBulletinTarget && (
             <div className="py-4 space-y-3">
+              {(validateBulletinTarget.reimbursed_amount || 0) <= 0 && (
+                <div className="rounded-md border border-orange-200 bg-orange-50 p-3 flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-orange-600 mt-0.5 shrink-0" />
+                  <p className="text-xs text-orange-800">
+                    Le plafond global de cet adhérent est épuisé. Le montant remboursable est de 0 DT. Ce bulletin sera marqué comme &quot;non remboursable&quot;.
+                  </p>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-muted-foreground">Adhérent</p>
@@ -6321,7 +6549,7 @@ export function BulletinsSaisiePage() {
                 </div>
                 <div>
                   <p className="text-muted-foreground">Montant rembourse</p>
-                  <p className="font-medium text-green-600">
+                  <p className={`font-medium ${(validateBulletinTarget.reimbursed_amount || 0) <= 0 ? 'text-orange-600' : 'text-green-600'}`}>
                     {(validateBulletinTarget.reimbursed_amount || 0).toFixed(3)}{" "}
                     TND
                   </p>
@@ -6342,6 +6570,7 @@ export function BulletinsSaisiePage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             <Button
+              className={(validateBulletinTarget?.reimbursed_amount || 0) <= 0 ? 'bg-orange-600 hover:bg-orange-700' : ''}
               onClick={(e) => {
                 e.preventDefault();
                 if (!validateBulletinTarget) return;
@@ -6349,28 +6578,43 @@ export function BulletinsSaisiePage() {
                   {
                     id: validateBulletinTarget.id,
                     reimbursed_amount:
-                      validateBulletinTarget.reimbursed_amount ||
-                      validateBulletinTarget.total_amount ||
-                      0,
+                      validateBulletinTarget.reimbursed_amount != null
+                        ? validateBulletinTarget.reimbursed_amount
+                        : (validateBulletinTarget.total_amount || 0),
                     notes: validateNotes || undefined,
                   },
                   {
-                    onSuccess: () => {
+                    onSuccess: async () => {
                       setShowValidateDialog(false);
                       setValidateBulletinTarget(null);
                       setValidateNotes("");
                       setViewBulletin(null);
+                      // Refresh selectedAdherentInfo so plafond is up to date
+                      if (selectedAdherentInfo?.matricule) {
+                        const companyId = selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__' ? selectedCompany.id : undefined;
+                        const params: Record<string, string> = { q: selectedAdherentInfo.matricule };
+                        if (companyId) params.companyId = companyId;
+                        const res = await apiClient.get<AdherentSearchResult[]>('/adherents/search', { params });
+                        if (res.success && res.data && res.data.length > 0) {
+                          const updated = res.data.find(a => a.matricule === selectedAdherentInfo.matricule);
+                          if (updated) setSelectedAdherentInfo(updated);
+                        }
+                      }
                     },
                   },
                 );
               }}
               disabled={validateMutation.isPending}
-              className="bg-green-600 hover:bg-green-700"
             >
               {validateMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Validation...
+                  {(validateBulletinTarget?.reimbursed_amount || 0) <= 0 ? 'Traitement...' : 'Validation...'}
+                </>
+              ) : (validateBulletinTarget?.reimbursed_amount || 0) <= 0 ? (
+                <>
+                  <AlertTriangle className="mr-2 h-4 w-4" />
+                  Marquer non remboursable
                 </>
               ) : (
                 <>

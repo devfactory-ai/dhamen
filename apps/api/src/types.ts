@@ -66,6 +66,7 @@ export interface Bindings {
   API_BASE_URL?: string;
   WEB_BASE_URL?: string;
   OCR_URL?: string;
+  OCR_SERVICE?: Fetcher;
   GEMINI_API_KEY?: string;
 
   // Notification providers (optional)

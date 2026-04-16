@@ -33,15 +33,40 @@ import { usePermissions } from '@/hooks/usePermissions';
 
 // --- Constants ---
 
-const bulletinStatusConfig: Record<string, { label: string; variant: 'secondary' | 'default' | 'outline' | 'destructive'; className?: string }> = {
-  draft: { label: 'Brouillon', variant: 'secondary' },
-  in_batch: { label: 'Dans un lot', variant: 'default' },
-  exported: { label: 'Exporté', variant: 'outline' },
-  soumis: { label: 'Soumis', variant: 'default' },
-  en_examen: { label: 'En examen', variant: 'default', className: 'bg-yellow-500 hover:bg-yellow-600' },
-  approuve: { label: 'Approuvé', variant: 'default', className: 'bg-green-600 hover:bg-green-700' },
-  rejete: { label: 'Rejeté', variant: 'destructive' },
-  paye: { label: 'Payé', variant: 'default', className: 'bg-emerald-700 hover:bg-emerald-800' },
+const bulletinStatusConfig: Record<
+  string,
+  {
+    label: string;
+    variant: "secondary" | "default" | "outline" | "destructive";
+    className?: string;
+  }
+> = {
+  draft: { label: "Brouillon", variant: "secondary" },
+  in_batch: { label: "Dans un lot", variant: "default" },
+  exported: { label: "Exporté", variant: "outline" },
+  soumis: { label: "Soumis", variant: "default" },
+  en_examen: {
+    label: "En examen",
+    variant: "default",
+    className: "bg-yellow-500 hover:bg-yellow-600",
+  },
+  approuve: {
+    label: "Approuvé",
+    variant: "default",
+    className: "bg-green-600 hover:bg-green-700",
+  },
+  rejete: { label: "Rejeté", variant: "destructive" },
+  paye: {
+    label: "Payé",
+    variant: "default",
+    className: "bg-emerald-700 hover:bg-emerald-800",
+  },
+  reimbursed: {
+    label: "Remboursé",
+    variant: "default",
+    className: "bg-green-600 hover:bg-green-700",
+  },
+  archived: { label: "Archivé", variant: "outline" },
 };
 
 // --- Types ---
@@ -68,9 +93,16 @@ interface AdherentDetail {
 
 // --- Helpers ---
 
+// Pour les montants en millimes (plafonds du contrat)
 function formatAmount(amount: number | null): string {
   if (amount == null) return '—';
   return new Intl.NumberFormat('fr-TN', { maximumFractionDigits: 0 }).format(amount / 1000) + ' DT';
+}
+
+// Pour les montants en dinars (bulletins de soins)
+function formatDinars(amount: number | null): string {
+  if (amount == null) return '—';
+  return new Intl.NumberFormat('fr-TN', { maximumFractionDigits: 3 }).format(amount) + ' DT';
 }
 
 function formatDate(date: string | null): string {
@@ -137,41 +169,74 @@ function BulletinHistory({ adherentId }: { adherentId: string }) {
   return (
     <div>
       <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b text-left text-xs text-gray-500">
-            <th className="py-2">Date</th><th>Statut</th><th className="text-right">Déclaré</th><th className="text-right">Remboursé</th><th className="text-right">Actes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {bulletins.map((b) => {
-            const cfg = bulletinStatusConfig[b.status] || { label: b.status, variant: 'outline' as const };
-            return (
-              <tr key={b.id} className="border-b last:border-0">
-                <td className="py-2">{formatDate(b.dateSoins)}</td>
-                <td><Badge variant={cfg.variant} className={cfg.className}>{cfg.label}</Badge></td>
-                <td className="text-right">{formatAmount(b.declaredAmount)}</td>
-                <td className="text-right font-medium">{formatAmount(b.reimbursedAmount)}</td>
-                <td className="text-right">{b.actesCount}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-        <tfoot>
-          <tr className="border-t font-medium text-sm">
-            <td colSpan={2} className="py-2">Total</td>
-            <td className="text-right">{formatAmount(totalDeclared)}</td>
-            <td className="text-right">{formatAmount(totalReimbursed)}</td>
-            <td />
-          </tr>
-        </tfoot>
-      </table>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-left text-xs text-gray-500">
+              <th className="py-2">Date</th>
+              <th>Statut</th>
+              <th className="text-right">Déclaré</th>
+              <th className="text-right">Remboursé</th>
+              <th className="text-right">Actes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {bulletins.map((b) => {
+              const cfg = bulletinStatusConfig[b.status] || {
+                label: b.status,
+                variant: "outline" as const,
+              };
+              return (
+                <tr key={b.id} className="border-b last:border-0">
+                  <td className="py-2">{formatDate(b.dateSoins)}</td>
+                  <td>
+                    <Badge variant={cfg.variant} className={cfg.className}>
+                      {cfg.label}
+                    </Badge>
+                  </td>
+                  <td className="text-right">
+                    {formatDinars(b.declaredAmount)}
+                  </td>
+                  <td className="text-right font-medium">
+                    {formatDinars(b.reimbursedAmount)}
+                  </td>
+                  <td className="text-right">{b.actesCount}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="border-t font-medium text-sm">
+              <td colSpan={2} className="py-2">
+                Total
+              </td>
+              <td className="text-right">{formatDinars(totalDeclared)}</td>
+              <td className="text-right">{formatDinars(totalReimbursed)}</td>
+              <td />
+            </tr>
+          </tfoot>
+        </table>
       </div>
       {meta && meta.totalPages > 1 && (
         <div className="flex justify-center gap-2 mt-3">
-          <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>Précédent</Button>
-          <span className="text-xs text-gray-500 self-center">{page} / {meta.totalPages}</span>
-          <Button size="sm" variant="outline" disabled={page >= meta.totalPages} onClick={() => setPage(page + 1)}>Suivant</Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={page === 1}
+            onClick={() => setPage(page - 1)}
+          >
+            Précédent
+          </Button>
+          <span className="text-xs text-gray-500 self-center">
+            {page} / {meta.totalPages}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={page >= meta.totalPages}
+            onClick={() => setPage(page + 1)}
+          >
+            Suivant
+          </Button>
         </div>
       )}
     </div>

@@ -10,8 +10,8 @@ export const acteBulletinSchema = z.object({
   code: z.string().optional(),
   label: z.string().min(1, 'Libellé de l\'acte requis'),
   amount: z.number().positive('Le montant doit être supérieur à 0'),
-  ref_prof_sant: z.string().min(1, 'Matricule fiscale requis'),
-  nom_prof_sant: z.string().min(1, 'Nom du praticien requis'),
+  ref_prof_sant: z.string().optional().or(z.literal('')),
+  nom_prof_sant: z.string().optional().or(z.literal('')),
   /** Provider ID resolved by frontend MF lookup — skips backend re-search if set */
   provider_id: z.string().optional(),
   care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']).optional(),

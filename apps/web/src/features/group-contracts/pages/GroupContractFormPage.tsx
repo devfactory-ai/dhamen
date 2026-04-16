@@ -272,8 +272,12 @@ interface GeminiGuarantee {
   perEventLimit?: number | null;
   dailyLimit?: number | null;
   maxDays?: number | null;
+  // Object form (from multi-pass extraction)
   letterKeys?: Record<string, number> | null;
   subLimits?: Record<string, number> | null;
+  // String form (fallback if backend serializes early)
+  letterKeysJson?: string | null;
+  subLimitsJson?: string | null;
   conditionsText?: string | null;
   requiresPrescription?: boolean;
   requiresCnamComplement?: boolean;
@@ -533,233 +537,307 @@ export function GroupContractFormPage() {
   }, [insurers, isEditing, currentInsurerId, setValue]);
 
   // ---- PDF Upload ----
+const handlePdfUpload = useCallback(
+  async (file: File) => {
+    if (!file || file.type !== "application/pdf") {
+      toast({
+        title: "Veuillez selectionner un fichier PDF",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  const handlePdfUpload = useCallback(
-    async (file: File) => {
-      if (!file || file.type !== 'application/pdf') {
-        toast({ title: 'Veuillez selectionner un fichier PDF', variant: 'destructive' });
-        return;
+    setPdfUploading(true);
+    setPdfExtracted(false);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await apiClient.upload<PdfAnalyseResponse>(
+        "/group-contracts/analyse-pdf",
+        formData,
+        { timeout: 120000 },
+      );
+
+      if (!response.success) {
+        throw new Error(
+          response.error?.message || "Erreur lors de l'analyse du PDF",
+        );
       }
 
-      setPdfUploading(true);
-      setPdfExtracted(false);
+      const result = response.data;
+      if (!result?.extractedData) throw new Error("Aucune donnee extraite");
 
-      try {
-        const formData = new FormData();
-        formData.append('file', file);
+      const extracted = result.extractedData;
 
-        const response = await apiClient.upload<PdfAnalyseResponse>(
-          '/group-contracts/analyse-pdf',
-          formData,
-          { timeout: 120000 }
+      // Clean spaces from regex extraction artifacts
+      const cleanSpaces = (s: string | null | undefined): string =>
+        s ? s.replace(/\s+/g, " ").trim() : "";
+
+      // Pre-fill contract header info
+      if (extracted.contractNumber)
+        setValue("contract_number", extracted.contractNumber);
+      if (extracted.companyName)
+        setValue("company_name_extracted", cleanSpaces(extracted.companyName));
+      if (extracted.companyAddress)
+        setValue("company_address", cleanSpaces(extracted.companyAddress));
+      if (extracted.matriculeFiscale)
+        setValue("matricule_fiscale", extracted.matriculeFiscale);
+      if (extracted.insurerName)
+        setValue("insurer_name_extracted", cleanSpaces(extracted.insurerName));
+      if (extracted.intermediaryName)
+        setValue("intermediary_name", cleanSpaces(extracted.intermediaryName));
+      if (extracted.intermediaryCode)
+        setValue("intermediary_code", extracted.intermediaryCode);
+      if (extracted.effectiveDate)
+        setValue("effective_date", extracted.effectiveDate);
+      if (extracted.annualRenewalDate)
+        setValue("expiry_date", extracted.annualRenewalDate);
+      if (extracted.annualGlobalLimit != null)
+        setValue("global_ceiling", extracted.annualGlobalLimit * 1000);
+      if (extracted.planCategory) setValue("category", extracted.planCategory);
+
+      // Beneficiaries
+      if (extracted.coversSpouse != null)
+        setValue("covers_spouse", extracted.coversSpouse);
+      if (extracted.coversChildren != null)
+        setValue("covers_children", extracted.coversChildren);
+      if (extracted.childrenMaxAge != null)
+        setValue("children_max_age", extracted.childrenMaxAge);
+      if (extracted.childrenStudentMaxAge != null)
+        setValue("children_student_max_age", extracted.childrenStudentMaxAge);
+      if (extracted.coversDisabledChildren != null)
+        setValue("covers_disabled_children", extracted.coversDisabledChildren);
+      if (extracted.coversRetirees != null)
+        setValue("covers_retirees", extracted.coversRetirees);
+
+      // Map covered risks from boolean flags
+      const risks: string[] = [];
+      if (extracted.riskIllness) {
+        risks.push("Maladie");
+        risks.push("Maternité");
+      }
+      if (extracted.riskDeath) risks.push("Décès");
+      if (extracted.riskDisability) risks.push("Invalidité");
+      setValue("covered_risks", risks);
+
+      // Try to match company by name
+      if (extracted.companyName && companies) {
+        const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+        const extractedNorm = normalize(extracted.companyName);
+        const matchedCompany = companies.find(
+          (co) =>
+            normalize(co.name).includes(extractedNorm) ||
+            extractedNorm.includes(normalize(co.name)),
         );
+        if (matchedCompany) setValue("company_id", matchedCompany.id);
+      }
 
-        if (!response.success) {
-          throw new Error(response.error?.message || 'Erreur lors de l\'analyse du PDF');
+      // Try to match insurer by name
+      if (extracted.insurerName && insurers) {
+        const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+        const extractedNorm = normalize(extracted.insurerName);
+        const matchedInsurer = insurers.find(
+          (ins) =>
+            normalize(ins.name).includes(extractedNorm) ||
+            extractedNorm.includes(normalize(ins.name)),
+        );
+        if (matchedInsurer) setValue("insurer_id", matchedInsurer.id);
+      }
+
+      // Pre-fill guarantees from Gemini extracted data
+      const geminiGuarantees = extracted.guarantees || [];
+
+      const CARE_TYPE_ALIASES: Record<string, string> = {
+        consultation: "consultation_visite",
+        consultation_visite: "consultation_visite",
+        consultations_visites: "consultation_visite",
+        "soins medicaux": "consultation_visite",
+        "soins médicaux": "consultation_visite",
+        pharmacy: "pharmacie",
+        pharmacie: "pharmacie",
+        "frais pharmaceutiques": "pharmacie",
+        laboratory: "laboratoire",
+        laboratoire: "laboratoire",
+        analyses: "laboratoire",
+        "analyses et travaux de laboratoire": "laboratoire",
+        optical: "optique",
+        optique: "optique",
+        refractive_surgery: "chirurgie_refractive",
+        chirurgie_refractive: "chirurgie_refractive",
+        "chirurgie refractive": "chirurgie_refractive",
+        medical_acts: "actes_courants",
+        actes_courants: "actes_courants",
+        "actes medicaux courants": "actes_courants",
+        "actes médicaux courants": "actes_courants",
+        transport: "transport",
+        "transport du malade": "transport",
+        surgery: "chirurgie",
+        chirurgie: "chirurgie",
+        "frais chirurgicaux": "chirurgie",
+        orthopedics: "orthopedie",
+        orthopedie: "orthopedie",
+        orthopédie: "orthopedie",
+        "orthopedie protheses": "orthopedie",
+        hospitalization: "hospitalisation",
+        hospitalisation: "hospitalisation",
+        maternity: "accouchement",
+        accouchement: "accouchement",
+        ivg: "interruption_grossesse",
+        interruption_grossesse: "interruption_grossesse",
+        "interruption involontaire de grossesse": "interruption_grossesse",
+        dental: "dentaire",
+        dentaire: "dentaire",
+        "soins et protheses dentaires": "dentaire",
+        "soins et prothèses dentaires": "dentaire",
+        orthodontics: "orthodontie",
+        orthodontie: "orthodontie",
+        "soins orthodontiques": "orthodontie",
+        circumcision: "circoncision",
+        circoncision: "circoncision",
+        sanatorium: "sanatorium",
+        "sanatorium preventorium": "sanatorium",
+        thermal_cure: "cures_thermales",
+        cures_thermales: "cures_thermales",
+        "cures thermales": "cures_thermales",
+        funeral: "frais_funeraires",
+        frais_funeraires: "frais_funeraires",
+        "frais funeraires": "frais_funeraires",
+        "frais funéraires": "frais_funeraires",
+      };
+
+      const normalizeCareType = (raw: string): string => {
+        const key = raw
+          .toLowerCase()
+          .trim()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-z0-9_ ]/g, "");
+        if (CARE_TYPE_ALIASES[key]) return CARE_TYPE_ALIASES[key]!;
+        for (const [alias, value] of Object.entries(CARE_TYPE_ALIASES)) {
+          if (key.includes(alias) || alias.includes(key)) return value;
         }
+        return raw;
+      };
 
-        const result = response.data;
-        if (!result?.extractedData) throw new Error('Aucune donnee extraite');
-
-        const extracted = result.extractedData;
-
-        // Pre-fill contract header info
-        if (extracted.contractNumber) setValue('contract_number', extracted.contractNumber);
-        if (extracted.companyName) setValue('company_name_extracted', extracted.companyName);
-        if (extracted.companyAddress) setValue('company_address', extracted.companyAddress);
-        if (extracted.matriculeFiscale) setValue('matricule_fiscale', extracted.matriculeFiscale);
-        if (extracted.insurerName) setValue('insurer_name_extracted', extracted.insurerName);
-        if (extracted.intermediaryName) setValue('intermediary_name', extracted.intermediaryName);
-        if (extracted.intermediaryCode) setValue('intermediary_code', extracted.intermediaryCode);
-        if (extracted.effectiveDate) setValue('effective_date', extracted.effectiveDate);
-        if (extracted.annualRenewalDate) setValue('expiry_date', extracted.annualRenewalDate);
-        if (extracted.annualGlobalLimit != null) setValue('global_ceiling', extracted.annualGlobalLimit);
-        if (extracted.planCategory) setValue('category', extracted.planCategory);
-
-        // Beneficiaries
-        if (extracted.coversSpouse != null) setValue('covers_spouse', extracted.coversSpouse);
-        if (extracted.coversChildren != null) setValue('covers_children', extracted.coversChildren);
-        if (extracted.childrenMaxAge != null) setValue('children_max_age', extracted.childrenMaxAge);
-        if (extracted.childrenStudentMaxAge != null) setValue('children_student_max_age', extracted.childrenStudentMaxAge);
-        if (extracted.coversDisabledChildren != null) setValue('covers_disabled_children', extracted.coversDisabledChildren);
-        if (extracted.coversRetirees != null) setValue('covers_retirees', extracted.coversRetirees);
-
-        // Map covered risks from boolean flags
-        const risks: string[] = [];
-        if (extracted.riskIllness) {
-          risks.push('Maladie');
-          risks.push('Maternité'); // Maladie includes maternite in Tunisian contracts
-        }
-        if (extracted.riskDeath) risks.push('Décès');
-        if (extracted.riskDisability) risks.push('Invalidité');
-        setValue('covered_risks', risks);
-
-        // Try to match company by name
-        if (extracted.companyName && companies) {
-          const matchedCompany = companies.find(
-            (co) => co.name.toLowerCase().includes(extracted.companyName!.toLowerCase()) ||
-                     extracted.companyName!.toLowerCase().includes(co.name.toLowerCase())
-          );
-          if (matchedCompany) setValue('company_id', matchedCompany.id);
-        }
-
-        // Try to match insurer by name
-        if (extracted.insurerName && insurers) {
-          const matchedInsurer = insurers.find(
-            (ins) => ins.name.toLowerCase().includes(extracted.insurerName!.toLowerCase()) ||
-                     extracted.insurerName!.toLowerCase().includes(ins.name.toLowerCase())
-          );
-          if (matchedInsurer) setValue('insurer_id', matchedInsurer.id);
-        }
-
-        // Pre-fill guarantees from Gemini extracted data
-        const geminiGuarantees = extracted.guarantees || [];
-
-        // Normalize careType from AI/API values to frontend CARE_TYPES values
-        // Handles case-insensitive matching + alias mapping
-        const CARE_TYPE_ALIASES: Record<string, string> = {
-          consultation: 'consultation_visite',
-          consultation_visite: 'consultation_visite',
-          consultations_visites: 'consultation_visite',
-          'soins medicaux': 'consultation_visite',
-          'soins médicaux': 'consultation_visite',
-          pharmacy: 'pharmacie',
-          pharmacie: 'pharmacie',
-          'frais pharmaceutiques': 'pharmacie',
-          laboratory: 'laboratoire',
-          laboratoire: 'laboratoire',
-          analyses: 'laboratoire',
-          'analyses et travaux de laboratoire': 'laboratoire',
-          optical: 'optique',
-          optique: 'optique',
-          refractive_surgery: 'chirurgie_refractive',
-          chirurgie_refractive: 'chirurgie_refractive',
-          'chirurgie refractive': 'chirurgie_refractive',
-          medical_acts: 'actes_courants',
-          actes_courants: 'actes_courants',
-          'actes medicaux courants': 'actes_courants',
-          'actes médicaux courants': 'actes_courants',
-          transport: 'transport',
-          'transport du malade': 'transport',
-          surgery: 'chirurgie',
-          chirurgie: 'chirurgie',
-          'frais chirurgicaux': 'chirurgie',
-          orthopedics: 'orthopedie',
-          orthopedie: 'orthopedie',
-          'orthopédie': 'orthopedie',
-          'orthopedie protheses': 'orthopedie',
-          hospitalization: 'hospitalisation',
-          hospitalisation: 'hospitalisation',
-          maternity: 'accouchement',
-          accouchement: 'accouchement',
-          ivg: 'interruption_grossesse',
-          interruption_grossesse: 'interruption_grossesse',
-          'interruption involontaire de grossesse': 'interruption_grossesse',
-          dental: 'dentaire',
-          dentaire: 'dentaire',
-          'soins et protheses dentaires': 'dentaire',
-          'soins et prothèses dentaires': 'dentaire',
-          orthodontics: 'orthodontie',
-          orthodontie: 'orthodontie',
-          'soins orthodontiques': 'orthodontie',
-          circumcision: 'circoncision',
-          circoncision: 'circoncision',
-          sanatorium: 'sanatorium',
-          'sanatorium preventorium': 'sanatorium',
-          thermal_cure: 'cures_thermales',
-          cures_thermales: 'cures_thermales',
-          'cures thermales': 'cures_thermales',
-          funeral: 'frais_funeraires',
-          frais_funeraires: 'frais_funeraires',
-          'frais funeraires': 'frais_funeraires',
-          'frais funéraires': 'frais_funeraires',
-        };
-
-        const normalizeCareType = (raw: string): string => {
-          const key = raw.toLowerCase().trim()
-            .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents
-            .replace(/[^a-z0-9_ ]/g, '');                    // strip special chars
-          // Try exact match first
-          if (CARE_TYPE_ALIASES[key]) return CARE_TYPE_ALIASES[key]!;
-          // Try partial match
-          for (const [alias, value] of Object.entries(CARE_TYPE_ALIASES)) {
-            if (key.includes(alias) || alias.includes(key)) return value;
-          }
-          // Fallback: return as-is (will show in form for manual correction)
-          return raw;
-        };
-
-        if (geminiGuarantees.length > 0) {
-          const mappedGuarantees = geminiGuarantees.map((g) => {
-            // Convert reimbursementRate (0-1 decimal) to percentage (0-100)
-            const ratePercent = g.reimbursementRate != null
+      if (geminiGuarantees.length > 0) {
+        const mappedGuarantees = geminiGuarantees.map((g) => {
+          const ratePercent =
+            g.reimbursementRate != null
               ? Math.round(g.reimbursementRate * 100)
               : null;
 
-            // Map renewalPeriodMonths to select value
-            let renewalPeriod = '';
-            if (g.renewalPeriodMonths) {
-              if (g.renewalPeriodMonths <= 12) renewalPeriod = 'annual';
-              else if (g.renewalPeriodMonths <= 24) renewalPeriod = 'biennial';
-              else renewalPeriod = 'triennial';
-            }
+          let renewalPeriod = "";
+          if (g.renewalPeriodMonths) {
+            if (g.renewalPeriodMonths <= 12) renewalPeriod = "annual";
+            else if (g.renewalPeriodMonths <= 24) renewalPeriod = "biennial";
+            else renewalPeriod = "triennial";
+          }
 
-            // Build conditions from conditionsText + exclusionsText
-            const conditionParts: string[] = [];
-            if (g.conditionsText) conditionParts.push(g.conditionsText);
-            if (g.exclusionsText) conditionParts.push(`Exclusions: ${g.exclusionsText}`);
+          const conditionParts: string[] = [];
+          if (g.conditionsText) conditionParts.push(g.conditionsText);
+          if (g.exclusionsText)
+            conditionParts.push(`Exclusions: ${g.exclusionsText}`);
 
-            const normalizedCareType = normalizeCareType(g.careType || g.label || '');
+          const normalizedCareType = normalizeCareType(
+            g.careType || g.label || "",
+          );
 
-            return {
-              care_type: normalizedCareType,
-              label: g.label || CARE_TYPES.find((ct) => ct.value === normalizedCareType)?.label || '',
-              rate: ratePercent,
-              annual_ceiling: g.annualLimit ?? null,
-              per_act_ceiling: g.perEventLimit ?? null,
-              per_day_ceiling: g.dailyLimit ?? null,
-              letter_keys: g.letterKeys
-                ? Object.entries(g.letterKeys).map(([key, value]) => ({ key, value }))
-                : [],
-              sub_limits: g.subLimits
-                ? Object.entries(g.subLimits).map(([key, value]) => ({ key, value }))
-                : [],
-              conditions: conditionParts.join('. '),
-              requires_prescription: g.requiresPrescription || false,
-              requires_cnam_complement: g.requiresCnamComplement || false,
-              renewal_period: renewalPeriod,
-              age_limit: g.ageLimit ?? null,
-            };
-          });
-
-          setValue('guarantees', mappedGuarantees);
-
-          // Expand all guarantees to show extracted data
-          const expanded: Record<number, boolean> = {};
-          mappedGuarantees.forEach((_, i) => { expanded[i] = true; });
-          setExpandedGuarantees(expanded);
-        }
-
-        // Map confidence string to number for display
-        const confidenceMap: Record<string, number> = { high: 0.9, medium: 0.7, low: 0.4 };
-        setPdfConfidence(confidenceMap[result.confidence] ?? 0.5);
-        setPdfExtracted(true);
-
-        const guaranteeCount = geminiGuarantees.length;
-        toast({
-          title: 'PDF analysé avec succès',
-          description: `${guaranteeCount} garantie${guaranteeCount > 1 ? 's' : ''} extraite${guaranteeCount > 1 ? 's' : ''} automatiquement`,
-          variant: 'success',
+          return {
+            care_type: normalizedCareType,
+            label:
+              g.label ||
+              CARE_TYPES.find((ct) => ct.value === normalizedCareType)?.label ||
+              "",
+            rate: ratePercent,
+            annual_ceiling: g.annualLimit != null ? g.annualLimit * 1000 : null,
+            per_act_ceiling:
+              g.perEventLimit != null ? g.perEventLimit * 1000 : null,
+            per_day_ceiling: g.dailyLimit != null ? g.dailyLimit * 1000 : null,
+            letter_keys: (() => {
+              let keys = g.letterKeys;
+              if (!keys && g.letterKeysJson) {
+                try {
+                  keys = JSON.parse(g.letterKeysJson);
+                } catch {
+                  keys = null;
+                }
+              }
+              return keys
+                ? Object.entries(keys).map(([key, value]) => ({
+                    key,
+                    value: Number(value),
+                  }))
+                : [];
+            })(),
+            sub_limits: (() => {
+              let limits = g.subLimits;
+              if (!limits && g.subLimitsJson) {
+                try {
+                  limits = JSON.parse(g.subLimitsJson);
+                } catch {
+                  limits = null;
+                }
+              }
+              return limits
+                ? Object.entries(limits).map(([key, value]) => ({
+                    key,
+                    value: Number(value),
+                  }))
+                : [];
+            })(),
+            conditions: conditionParts.join(". "),
+            requires_prescription: g.requiresPrescription || false,
+            requires_cnam_complement: g.requiresCnamComplement || false,
+            renewal_period: renewalPeriod,
+            age_limit: g.ageLimit ?? null,
+          };
         });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Erreur inconnue';
-        toast({ title: 'Erreur d\'analyse PDF', description: message, variant: 'destructive' });
-      } finally {
-        setPdfUploading(false);
+
+        setValue("guarantees", mappedGuarantees);
+
+        const expanded: Record<number, boolean> = {};
+        mappedGuarantees.forEach((_, i) => {
+          expanded[i] = true;
+        });
+        setExpandedGuarantees(expanded);
       }
-    },
-    [setValue, toast, companies, insurers]
-  );
+
+      const confidenceMap: Record<string, number> = {
+        high: 0.9,
+        medium: 0.7,
+        low: 0.4,
+      };
+      setPdfConfidence(confidenceMap[result.confidence] ?? 0.5);
+      setPdfExtracted(true);
+
+      const guaranteeCount = geminiGuarantees.length;
+      toast({
+        title: "PDF analysé avec succès",
+        description: `${guaranteeCount} garantie${guaranteeCount > 1 ? "s" : ""} extraite${guaranteeCount > 1 ? "s" : ""} automatiquement`,
+        variant: "success",
+      });
+      if (result.errors && result.errors.length > 0) {
+        toast({
+          title: "Avertissements",
+          description: result.errors.join(" | "),
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Erreur inconnue";
+      toast({
+        title: "Erreur d'analyse PDF",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setPdfUploading(false);
+    }
+  },
+  [setValue, toast, companies, insurers],
+);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {

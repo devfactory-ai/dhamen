@@ -106,7 +106,7 @@ export function PlafondsCard({
 
       {!global && parFamille.length === 0 && (
         <p className="text-sm text-gray-500">
-          Aucun plafond configure pour cet adherent.
+          Aucun plafond configure pour cet adhérent.
         </p>
       )}
 

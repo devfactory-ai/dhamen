@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { FilterDropdown, FilterOption } from '@/components/ui/filter-dropdown';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/page-header';
@@ -26,12 +26,21 @@ import {
   CheckCircle,
   XCircle,
   CreditCard,
+  Archive,
   Loader2,
   RotateCcw,
   TrendingUp,
   Trash2,
   Filter,
   FileText,
+  AlertTriangle,
+  BarChart3,
+  Stethoscope,
+  Pill,
+  FlaskConical,
+  Glasses,
+  Building2,
+  Heart,
 } from 'lucide-react';
 import { FloatingHelp } from '@/components/ui/floating-help';
 import {
@@ -56,15 +65,32 @@ const careTypeLabels: Record<string, string> = {
   dentaire: 'Dentaire',
 };
 
+const careTypeIcons: Record<string, React.ReactNode> = {
+  consultation: <Stethoscope className="h-4 w-4 text-blue-500" />,
+  pharmacie: <Pill className="h-4 w-4 text-emerald-500" />,
+  pharmacy: <Pill className="h-4 w-4 text-emerald-500" />,
+  hospital: <Building2 className="h-4 w-4 text-purple-500" />,
+  lab: <FlaskConical className="h-4 w-4 text-amber-500" />,
+  laboratory: <FlaskConical className="h-4 w-4 text-amber-500" />,
+  radio: <BarChart3 className="h-4 w-4 text-indigo-500" />,
+  radiology: <BarChart3 className="h-4 w-4 text-indigo-500" />,
+  optique: <Glasses className="h-4 w-4 text-cyan-500" />,
+  optical: <Glasses className="h-4 w-4 text-cyan-500" />,
+  dentaire: <Heart className="h-4 w-4 text-rose-500" />,
+  dental: <Heart className="h-4 w-4 text-rose-500" />,
+};
+
 const statusConfig: Record<string, { label: string; variant: string; icon: typeof CheckCircle }> = {
   approved: { label: 'Approuvé', variant: 'default', icon: CheckCircle },
   reimbursed: { label: 'Remboursé', variant: 'success', icon: CreditCard },
   rejected: { label: 'Rejeté', variant: 'destructive', icon: XCircle },
+  non_remboursable: { label: 'Non remboursable', variant: 'warning', icon: XCircle },
+  archived: { label: 'Archivé', variant: 'secondary', icon: Archive },
 };
 
 function formatAmount(amount: number | null | undefined): string {
   if (amount == null) return '0.000 TND';
-  return `${(amount / 1000).toFixed(3)} TND`;
+  return `${(amount).toFixed(3)} TND`;
 }
 
 function formatDate(date: string | null | undefined): string {
@@ -287,6 +313,19 @@ export default function BulletinsHistoryPage() {
       ),
     },
     {
+      key: 'taux',
+      header: 'Taux',
+      render: (row: HistoryBulletin) => {
+        if (!row.totalAmount || row.totalAmount <= 0) return <span className="text-xs text-muted-foreground">—</span>;
+        const taux = Math.round(((row.reimbursedAmount || 0) / row.totalAmount) * 100);
+        return (
+          <span className={`text-xs font-semibold ${taux >= 80 ? 'text-green-600' : taux >= 50 ? 'text-amber-600' : taux > 0 ? 'text-orange-600' : 'text-red-500'}`}>
+            {taux}%
+          </span>
+        );
+      },
+    },
+    {
       key: 'status',
       header: 'Statut',
       render: (row: HistoryBulletin) => {
@@ -312,7 +351,7 @@ export default function BulletinsHistoryPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div>
       <FloatingHelp
         title="Aide - Historique des bulletins"
         subtitle="Suivi et consultation des bulletins traités"
@@ -340,49 +379,117 @@ export default function BulletinsHistoryPage() {
       />
 
       <>
-      {/* Stats cards */}
+      {/* Synthèse globale — Décompte de remboursement */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total remboursé</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">{formatAmount(stats.totalReimbursed)}</div>
-              <p className="text-xs text-muted-foreground">sur {formatAmount(stats.totalDeclared)} déclaré</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Bulletins approuvés</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.byStatus.approved || 0}</div>
-              <p className="text-xs text-muted-foreground">en attente de paiement</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Bulletins remboursés</CardTitle>
-              <CreditCard className="h-4 w-4 text-blue-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.byStatus.reimbursed || 0}</div>
-              <p className="text-xs text-muted-foreground">paiement effectué</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Bulletins rejetés</CardTitle>
-              <XCircle className="h-4 w-4 text-red-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600">{stats.byStatus.rejected || 0}</div>
-              <p className="text-xs text-muted-foreground">non remboursés</p>
-            </CardContent>
-          </Card>
+        <div className="space-y-4">
+          {/* Row 1: KPI cards */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total déclaré</CardTitle>
+                <BarChart3 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{formatAmount(stats.totalDeclared)}</div>
+                <p className="text-xs text-muted-foreground">{stats.totalBulletins} bulletin(s)</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total remboursé</CardTitle>
+                <TrendingUp className="h-4 w-4 text-green-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600">{formatAmount(stats.totalReimbursed)}</div>
+                <p className="text-xs text-muted-foreground">
+                  Taux moyen : {stats.totalDeclared > 0 ? Math.round((stats.totalReimbursed / stats.totalDeclared) * 100) : 0}%
+                </p>
+              </CardContent>
+            </Card>
+            {/* <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Approuvés</CardTitle>
+                <CheckCircle className="h-4 w-4 text-green-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats.byStatus.approved || 0}</div>
+                <p className="text-xs text-muted-foreground">en attente de paiement</p>
+              </CardContent>
+            </Card> */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Remboursés</CardTitle>
+                <CreditCard className="h-4 w-4 text-blue-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{stats.byStatus.reimbursed || 0}</div>
+                <p className="text-xs text-muted-foreground">paiement effectué</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Rejetés / Non remb.</CardTitle>
+                <XCircle className="h-4 w-4 text-red-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-red-600">{(stats.byStatus.rejected || 0) + (stats.byStatus.non_remboursable || 0)}</div>
+                <p className="text-xs text-muted-foreground">
+                  {stats.byStatus.rejected || 0} rejeté(s) · {stats.byStatus.non_remboursable || 0} non remb.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Row 2: Répartition par type de soins — style décompte BH Assurance */}
+          {stats.byCareType && stats.byCareType.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Heart className="h-4 w-4 text-rose-500" />
+                  Répartition par type de soins
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                  {stats.byCareType
+                    .sort((a, b) => b.totalReimbursed - a.totalReimbursed)
+                    .map((ct) => {
+                      const label = careTypeLabels[ct.careType] || ct.careType;
+                      const icon = careTypeIcons[ct.careType];
+                      const tauxRemb = ct.totalDeclared > 0 ? Math.round((ct.totalReimbursed / ct.totalDeclared) * 100) : 0;
+                      const pctOfTotal = stats.totalReimbursed > 0 ? Math.round((ct.totalReimbursed / stats.totalReimbursed) * 100) : 0;
+                      return (
+                        <div key={ct.careType} className="rounded-lg border border-gray-100 bg-gray-50/50 p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              {icon}
+                              <span className="text-sm font-medium">{label}</span>
+                            </div>
+                            <Badge variant="secondary" className="text-xs">{ct.count}</Badge>
+                          </div>
+                          <div className="flex items-baseline justify-between">
+                            <span className="text-lg font-bold text-green-700">{formatAmount(ct.totalReimbursed)}</span>
+                            <span className="text-xs text-muted-foreground">sur {formatAmount(ct.totalDeclared)}</span>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Taux remb. : {tauxRemb}%</span>
+                              <span>{pctOfTotal}% du total</span>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-green-500 transition-all"
+                                style={{ width: `${Math.min(100, tauxRemb)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -459,14 +566,20 @@ export default function BulletinsHistoryPage() {
                   <FilterOption selected={!filters.status} onClick={() => { updateFilter('status', undefined); setStatusDropdownOpen(false); }}>
                     Tous
                   </FilterOption>
-                  <FilterOption selected={filters.status === 'approved'} onClick={() => { updateFilter('status', 'approved'); setStatusDropdownOpen(false); }}>
+                  {/* <FilterOption selected={filters.status === 'approved'} onClick={() => { updateFilter('status', 'approved'); setStatusDropdownOpen(false); }}>
                     Approuvé
-                  </FilterOption>
+                  </FilterOption> */}
                   <FilterOption selected={filters.status === 'reimbursed'} onClick={() => { updateFilter('status', 'reimbursed'); setStatusDropdownOpen(false); }}>
                     Remboursé
                   </FilterOption>
                   <FilterOption selected={filters.status === 'rejected'} onClick={() => { updateFilter('status', 'rejected'); setStatusDropdownOpen(false); }}>
                     Rejeté
+                  </FilterOption>
+                  <FilterOption selected={filters.status === 'non_remboursable'} onClick={() => { updateFilter('status', 'non_remboursable'); setStatusDropdownOpen(false); }}>
+                    Non remboursable
+                  </FilterOption>
+                  <FilterOption selected={filters.status === 'archived'} onClick={() => { updateFilter('status', 'archived'); setStatusDropdownOpen(false); }}>
+                    Archivé
                   </FilterOption>
                 </FilterDropdown>
               </div>

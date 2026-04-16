@@ -939,8 +939,36 @@ adherents.get(
     };
 
     const all = results.map((r: Record<string, unknown>) => mapPlafond(r));
-    const global = all.find((p) => p.familleActeId === null) || null;
+    let global = all.find((p) => p.familleActeId === null) || null;
     const parFamille = all.filter((p) => p.familleActeId !== null);
+
+    // Fallback: if no plafonds_beneficiaire rows, build global from adherents.plafond_global/plafond_consomme
+    if (!global && parFamille.length === 0) {
+      const adh = await db
+        .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
+        .bind(id)
+        .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
+      if (adh?.plafond_global && adh.plafond_global > 0) {
+        const plafond = adh.plafond_global;
+        const consomme = adh.plafond_consomme || 0;
+        global = {
+          id: 'legacy-global',
+          adherentId: id,
+          contractId: null,
+          annee,
+          familleActeId: null,
+          typeMaladie: 'ordinaire',
+          montantPlafond: plafond,
+          montantConsomme: consomme,
+          familleCode: null,
+          familleLabel: null,
+          pourcentageConsomme: plafond > 0 ? Math.round((consomme / plafond) * 100) : 0,
+          montantRestant: Math.max(0, plafond - consomme),
+          createdAt: null,
+          updatedAt: null,
+        };
+      }
+    }
 
     return success(c, {
       global,

@@ -127,11 +127,16 @@ export default function BulletinHistoryDetailPage() {
           title={`Bulletin ${detail.bulletinNumber}`}
           description={`${careTypeLabels[detail.careType] || detail.careType} — ${formatDate(detail.bulletinDate)}`}
           breadcrumb={[
-            { label: 'Historique', href: '/bulletins/history' },
+            { label: "Historique", href: "/bulletins/history" },
             { label: detail.bulletinNumber },
           ]}
         />
-        <Badge variant={statusCfg?.variant as 'default' | 'destructive' | 'secondary'} className="gap-1 text-sm px-3 py-1">
+        <Badge
+          variant={
+            statusCfg?.variant as "default" | "destructive" | "secondary"
+          }
+          className="gap-1 text-sm px-3 py-1"
+        >
           <StatusIcon className="h-4 w-4" />
           {statusCfg?.label}
         </Badge>
@@ -141,19 +146,25 @@ export default function BulletinHistoryDetailPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Montant declare</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Montant déclaré
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{formatAmount(detail.totalAmount)}</p>
+            <p className="text-2xl font-bold">{detail.totalAmount} TND</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Montant rembourse</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Montant Remboursé
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className={`text-2xl font-bold ${detail.reimbursedAmount && detail.reimbursedAmount > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>
-              {formatAmount(detail.reimbursedAmount)}
+            <p
+              className={`text-2xl font-bold ${detail.reimbursedAmount && detail.reimbursedAmount > 0 ? "text-green-600" : "text-muted-foreground"}`}
+            >
+              {detail.reimbursedAmount} TND
             </p>
           </CardContent>
         </Card>
@@ -169,26 +180,36 @@ export default function BulletinHistoryDetailPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Adherent</p>
-                <p className="font-medium">{detail.adherent.firstName} {detail.adherent.lastName}</p>
+                <p className="font-medium">
+                  {detail.adherent.firstName} {detail.adherent.lastName}
+                </p>
                 {detail.adherent.matricule && (
-                  <p className="text-sm text-muted-foreground">Matricule: {detail.adherent.matricule}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Matricule: {detail.adherent.matricule}
+                  </p>
                 )}
               </div>
               {detail.beneficiary && (
                 <div>
                   <p className="text-sm text-muted-foreground">Beneficiaire</p>
                   <p className="font-medium">{detail.beneficiary.name}</p>
-                  <p className="text-sm text-muted-foreground">{detail.beneficiary.relationship}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {detail.beneficiary.relationship}
+                  </p>
                 </div>
               )}
               <div>
                 <p className="text-sm text-muted-foreground">Praticien</p>
-                <p className="font-medium">{detail.providerName || '-'}</p>
-                <p className="text-sm text-muted-foreground">{detail.providerSpecialty || ''}</p>
+                <p className="font-medium">{detail.providerName || "-"}</p>
+                <p className="text-sm text-muted-foreground">
+                  {detail.providerSpecialty || ""}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Type de soin</p>
-                <p className="font-medium">{careTypeLabels[detail.careType] || detail.careType}</p>
+                <p className="font-medium">
+                  {careTypeLabels[detail.careType] || detail.careType}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Date bulletin</p>
@@ -196,26 +217,38 @@ export default function BulletinHistoryDetailPage() {
               </div>
               {detail.validatedAt && (
                 <div>
-                  <p className="text-sm text-muted-foreground">Date validation</p>
-                  <p className="font-medium">{formatDate(detail.validatedAt)}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Date validation
+                  </p>
+                  <p className="font-medium">
+                    {formatDate(detail.validatedAt)}
+                  </p>
                 </div>
               )}
               {detail.paymentDate && (
                 <div>
                   <p className="text-sm text-muted-foreground">Date paiement</p>
-                  <p className="font-medium">{formatDate(detail.paymentDate)}</p>
+                  <p className="font-medium">
+                    {formatDate(detail.paymentDate)}
+                  </p>
                 </div>
               )}
               {detail.paymentMethod && (
                 <div>
-                  <p className="text-sm text-muted-foreground">Mode de paiement</p>
+                  <p className="text-sm text-muted-foreground">
+                    Mode de paiement
+                  </p>
                   <p className="font-medium">{detail.paymentMethod}</p>
                 </div>
               )}
               {detail.paymentReference && (
                 <div>
-                  <p className="text-sm text-muted-foreground">Reference paiement</p>
-                  <p className="font-medium font-mono">{detail.paymentReference}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Reference paiement
+                  </p>
+                  <p className="font-medium font-mono">
+                    {detail.paymentReference}
+                  </p>
                 </div>
               )}
             </div>
@@ -224,8 +257,12 @@ export default function BulletinHistoryDetailPage() {
               <div className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 p-3 mt-4">
                 <XCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-red-800">Raison du rejet</p>
-                  <p className="text-sm text-red-700">{detail.rejectionReason}</p>
+                  <p className="text-sm font-semibold text-red-800">
+                    Raison du rejet
+                  </p>
+                  <p className="text-sm text-red-700">
+                    {detail.rejectionReason}
+                  </p>
                 </div>
               </div>
             )}
@@ -233,7 +270,9 @@ export default function BulletinHistoryDetailPage() {
             {detail.agentNotes && (
               <div className="rounded-md border bg-muted/50 p-3 mt-4">
                 <p className="text-sm font-medium">Notes agent</p>
-                <p className="text-sm text-muted-foreground">{detail.agentNotes}</p>
+                <p className="text-sm text-muted-foreground">
+                  {detail.agentNotes}
+                </p>
               </div>
             )}
           </CardContent>
@@ -244,27 +283,44 @@ export default function BulletinHistoryDetailPage() {
           {detail.adherent.plafondGlobal > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm font-medium">Plafond adherent</CardTitle>
+                <CardTitle className="text-sm font-medium">
+                  Plafond adherent
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-1 gap-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Global</span>
-                    <span className="font-medium">{formatAmount(detail.adherent.plafondGlobal)}</span>
+                    <span className="font-medium">
+                      {formatAmount(detail.adherent.plafondGlobal)}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Consomme</span>
-                    <span className="font-medium">{formatAmount(detail.adherent.plafondConsomme)}</span>
+                    <span className="font-medium">
+                      {formatAmount(detail.adherent.plafondConsomme)}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Restant</span>
-                    <span className={`font-medium ${detail.adherent.plafondRestant <= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    <span
+                      className={`font-medium ${detail.adherent.plafondRestant <= 0 ? "text-red-600" : "text-green-600"}`}
+                    >
                       {formatAmount(detail.adherent.plafondRestant)}
                     </span>
                   </div>
                 </div>
                 <Progress
-                  value={detail.adherent.plafondGlobal > 0 ? Math.min(100, (detail.adherent.plafondConsomme / detail.adherent.plafondGlobal) * 100) : 0}
+                  value={
+                    detail.adherent.plafondGlobal > 0
+                      ? Math.min(
+                          100,
+                          (detail.adherent.plafondConsomme /
+                            detail.adherent.plafondGlobal) *
+                            100,
+                        )
+                      : 0
+                  }
                   className="h-2"
                 />
               </CardContent>
@@ -284,23 +340,28 @@ export default function BulletinHistoryDetailPage() {
                     ) : (
                       <FileText className="h-5 w-5 text-red-500" />
                     )}
-                    <p className="text-sm font-medium truncate">{detail.scanFilename || 'Scan'}</p>
+                    <p className="text-sm font-medium truncate">
+                      {detail.scanFilename || "Scan"}
+                    </p>
                   </div>
-                  {detail.scanFilename?.match(/\.(jpg|jpeg|png)$/i) && scanBlobUrl && (
-                    <div className="rounded-md border p-2">
-                      <img
-                        src={scanBlobUrl}
-                        alt="Scan bulletin"
-                        className="max-w-full max-h-64 mx-auto rounded"
-                      />
-                    </div>
-                  )}
+                  {detail.scanFilename?.match(/\.(jpg|jpeg|png)$/i) &&
+                    scanBlobUrl && (
+                      <div className="rounded-md border p-2">
+                        <img
+                          src={scanBlobUrl}
+                          alt="Scan bulletin"
+                          className="max-w-full max-h-64 mx-auto rounded"
+                        />
+                      </div>
+                    )}
                   <Button
                     variant="outline"
                     size="sm"
                     className="w-full"
                     disabled={!scanBlobUrl}
-                    onClick={() => scanBlobUrl && window.open(scanBlobUrl, '_blank')}
+                    onClick={() =>
+                      scanBlobUrl && window.open(scanBlobUrl, "_blank")
+                    }
                   >
                     <Download className="mr-2 h-4 w-4" />
                     Télécharger
@@ -327,34 +388,59 @@ export default function BulletinHistoryDetailPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-gray-50/80 hover:bg-gray-50/80">
-                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Code</TableHead>
-                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Libelle</TableHead>
-                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Praticien</TableHead>
-                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Montant</TableHead>
-                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Taux</TableHead>
-                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">Rembourse</TableHead>
-                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-center">Plafond</TableHead>
+                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    Code
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    Libelle
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    Praticien
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">
+                    Montant
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">
+                    Taux
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-right">
+                    Remboursé
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold text-gray-600 uppercase tracking-wider text-center">
+                    Plafond
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {detail.actes.map((acte, index) => (
-                  <TableRow key={acte.id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'} hover:bg-gray-50/50 transition-colors duration-150`}>
+                  <TableRow
+                    key={acte.id}
+                    className={`${index % 2 === 0 ? "bg-white" : "bg-gray-50/30"} hover:bg-gray-50/50 transition-colors duration-150`}
+                  >
                     <TableCell className="py-4 font-mono">
-                      {acte.code || '-'}
-                      {acte.acteRefLabel && acte.acteRefLabel !== acte.label && (
-                        <p className="text-[10px] text-muted-foreground">{acte.acteRefLabel}</p>
-                      )}
+                      {acte.code || "-"}
+                      {acte.acteRefLabel &&
+                        acte.acteRefLabel !== acte.label && (
+                          <p className="text-[10px] text-muted-foreground">
+                            {acte.acteRefLabel}
+                          </p>
+                        )}
                     </TableCell>
                     <TableCell className="py-4">
                       <div>{acte.label}</div>
                       {acte.medicationName && (
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {acte.medicationName}
-                          {acte.medicationDci && acte.medicationDci !== acte.medicationName && (
-                            <span className="italic ml-1">({acte.medicationDci})</span>
-                          )}
+                          {acte.medicationDci &&
+                            acte.medicationDci !== acte.medicationName && (
+                              <span className="italic ml-1">
+                                ({acte.medicationDci})
+                              </span>
+                            )}
                           {acte.medicationFamilyName && (
-                            <span className="ml-1 text-[10px] bg-muted px-1 rounded">{acte.medicationFamilyName}</span>
+                            <span className="ml-1 text-[10px] bg-muted px-1 rounded">
+                              {acte.medicationFamilyName}
+                            </span>
                           )}
                         </p>
                       )}
@@ -367,14 +453,24 @@ export default function BulletinHistoryDetailPage() {
                         <div>
                           <p>{acte.providerNameResolved || acte.nomProfSant}</p>
                           {acte.refProfSant && (
-                            <p className="font-mono text-[10px] text-muted-foreground">MF {acte.refProfSant}</p>
+                            <p className="font-mono text-[10px] text-muted-foreground">
+                              MF {acte.refProfSant}
+                            </p>
                           )}
                         </div>
                       )}
                     </TableCell>
-                    <TableCell className="py-4 text-right">{formatAmount(acte.amount)}</TableCell>
-                    <TableCell className="py-4 text-right">{acte.tauxRemboursement ? `${(acte.tauxRemboursement * 100).toFixed(0)}%` : '-'}</TableCell>
-                    <TableCell className="py-4 text-right font-medium text-green-600">{formatAmount(acte.montantRembourse)}</TableCell>
+                    <TableCell className="py-4 text-right">
+                      {(acte.amount)} TND
+                    </TableCell>
+                    <TableCell className="py-4 text-right">
+                      {acte.tauxRemboursement
+                        ? `${(acte.tauxRemboursement).toFixed(0)}%`
+                        : "-"}
+                    </TableCell>
+                    <TableCell className="py-4 text-right font-medium text-green-600">
+                      {(acte.montantRembourse)} TND
+                    </TableCell>
                     <TableCell className="py-4 text-center">
                       {acte.plafondDepasse && (
                         <Badge variant="destructive" className="text-xs">
@@ -386,13 +482,21 @@ export default function BulletinHistoryDetailPage() {
                   </TableRow>
                 ))}
                 <TableRow className="bg-gray-50/80 font-medium">
-                  <TableCell colSpan={3} className="py-4">Total ({detail.totaux.nbActes} actes)</TableCell>
-                  <TableCell className="py-4 text-right">{formatAmount(detail.totaux.totalDeclare)}</TableCell>
+                  <TableCell colSpan={3} className="py-4">
+                    Total ({detail.totaux.nbActes} actes)
+                  </TableCell>
+                  <TableCell className="py-4 text-right">
+                    {(detail.totaux.totalDeclare)} TND
+                  </TableCell>
                   <TableCell className="py-4" />
-                  <TableCell className="py-4 text-right text-green-600">{formatAmount(detail.totaux.totalRembourse)}</TableCell>
+                  <TableCell className="py-4 text-right text-green-600">
+                    {(detail.totaux.totalRembourse)} TND
+                  </TableCell>
                   <TableCell className="py-4 text-center">
                     {detail.totaux.nbPlafondDepasse > 0 && (
-                      <span className="text-xs text-red-600">{detail.totaux.nbPlafondDepasse} depasse(s)</span>
+                      <span className="text-xs text-red-600">
+                        {detail.totaux.nbPlafondDepasse} depasse(s)
+                      </span>
                     )}
                   </TableCell>
                 </TableRow>

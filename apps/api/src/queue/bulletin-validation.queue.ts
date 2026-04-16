@@ -53,6 +53,27 @@ function resolveDb(env: Bindings, dbBinding: string): D1Database {
   return db || env.DB;
 }
 
+/** Parse French date format (DD.MM.YY or DD/MM/YYYY) to ISO YYYY-MM-DD */
+function parseFrenchDate(input: string): string {
+  const cleaned = input.replace(/\s/g, '');
+  const m = cleaned.match(/^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$/);
+  if (!m) return '';
+  const day = m[1]!.padStart(2, '0');
+  const month = m[2]!.padStart(2, '0');
+  let year = m[3]!;
+  if (year.length === 2) year = (Number(year) > 50 ? '19' : '20') + year;
+  return `${year}-${month}-${day}`;
+}
+
+/** Parse amount string: handles "50.000", "10,340", etc. */
+function parseAmount(val: unknown): number {
+  if (typeof val === 'number') return val;
+  const s = String(val || '0').replace(/\s/g, '');
+  // If comma is used as decimal separator (French format): "10,340" → "10.340"
+  const normalized = s.includes(',') && !s.includes('.') ? s.replace(',', '.') : s;
+  return Number(normalized) || 0;
+}
+
 /**
  * Insert a minimal bulletin_soins record for OCR-created bulletins.
  * Uses empty adherent_id with FK checks disabled since the real adherent
@@ -67,21 +88,19 @@ async function insertBulletinShell(
   userId: string,
   now: string
 ): Promise<void> {
-  // Check if already exists (idempotency for retries)
-  const existing = await db.prepare('SELECT id FROM bulletins_soins WHERE id = ?').bind(bulletinId).first();
-  if (existing) return;
-
-  await db.batch([
-    db.prepare('PRAGMA foreign_keys = OFF'),
-    db.prepare(
-      `INSERT INTO bulletins_soins
+  // Use INSERT OR IGNORE for idempotency (avoids UNIQUE constraint errors on retries)
+  await db.prepare(
+      `INSERT OR IGNORE INTO bulletins_soins
        (id, adherent_id, bulletin_number, bulletin_date, submission_date,
-        company_id, batch_id, status, source,
+        company_id, status, source,
         validation_status, ocr_job_id, created_by, created_at, updated_at)
-       VALUES (?, '', '', ?, ?, ?, ?, 'draft', 'ocr_bulk', 'pending_ocr', ?, ?, ?, ?)`
-    ).bind(bulletinId, now, now, companyId, batchId, ocrJobId, userId, now, now),
-    db.prepare('PRAGMA foreign_keys = ON'),
-  ]);
+       VALUES (?, '__OCR_PENDING__', ?, ?, ?, ?, 'draft', 'ocr_bulk', 'pending_ocr', ?, ?, ?, ?)`
+    ).bind(bulletinId, `OCR-${bulletinId}`, now, now, companyId, ocrJobId, userId, now, now).run();
+  if (batchId) {
+    await db.prepare(
+      'UPDATE bulletins_soins SET batch_id = ? WHERE id = ?'
+    ).bind(batchId, bulletinId).run();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +195,7 @@ async function validateBulletin(
 
     const provider = await db.prepare(
       `SELECT id FROM providers
-       WHERE matricule_fiscale = ? AND deleted_at IS NULL
+       WHERE mf_number = ? AND deleted_at IS NULL
        LIMIT 1`
     ).bind(acte.ref_prof_sant).first<{ id: string }>();
 
@@ -237,17 +256,31 @@ export async function processOcrBulletin(
   // 3. Call external OCR API
   const proxyForm = new FormData();
   for (const blob of fileBlobs) {
-    proxyForm.append('files', new File([blob.data], blob.name, { type: blob.type }));
+    // Use Blob with explicit filename — File constructor may not be available in all runtimes
+    const fileBlob = new Blob([blob.data], { type: blob.type });
+    proxyForm.append('files', fileBlob, blob.name);
   }
 
-  const ocrUrl = env.OCR_URL || 'https://ocr-api-bh-assurance-dev.yassine-techini.workers.dev/analyse-bulletin';
+  const ocrPath = '/analyse-bulletin';
+  const hasServiceBinding = !!env.OCR_SERVICE;
+  console.log(`[processOcrBulletin] Calling OCR: ${ocrPath} with ${fileBlobs.length} file(s), serviceBinding=${hasServiceBinding}, files: ${fileBlobs.map(f => f.name).join(', ')}`);
   let ocrRes: Response;
   try {
-    ocrRes = await fetch(ocrUrl, {
-      method: 'POST',
-      headers: { accept: 'application/json' },
-      body: proxyForm,
-    });
+    if (env.OCR_SERVICE) {
+      // Use Service Binding (Worker-to-Worker, avoids error 1042)
+      ocrRes = await env.OCR_SERVICE.fetch(`https://ocr-service${ocrPath}`, {
+        method: 'POST',
+        body: proxyForm,
+      });
+    } else {
+      // Fallback to direct URL (works only cross-account or local dev)
+      const ocrUrl = env.OCR_URL || "https://ocr-api-bh-assurance-staging.yassine-techini.workers.dev/analyse-bulletin";
+      ocrRes = await fetch(ocrUrl, {
+        method: 'POST',
+        headers: { accept: 'application/json' },
+        body: proxyForm,
+      });
+    }
   } catch (err) {
     await db.prepare(
       `UPDATE bulletins_soins SET validation_status = 'pending_correction',
@@ -258,10 +291,14 @@ export async function processOcrBulletin(
   }
 
   if (!ocrRes.ok) {
+    let errBody = '';
+    try { errBody = await ocrRes.text(); } catch { /* ignore */ }
+    console.error(`[processOcrBulletin] OCR error ${ocrRes.status} for ${bulletinId}: ${errBody.slice(0, 500)}`);
+    console.error(`[processOcrBulletin] OCR path: ${ocrPath}, files: ${fileBlobs.length}, names: ${fileBlobs.map(f => f.name).join(', ')}`);
     await db.prepare(
       `UPDATE bulletins_soins SET validation_status = 'pending_correction',
        validation_errors = ?, updated_at = ? WHERE id = ?`
-    ).bind(JSON.stringify([{ field: 'ocr', code: 'OCR_ERROR', message: `OCR retourné ${ocrRes.status}` }]), now, bulletinId).run();
+    ).bind(JSON.stringify([{ field: 'ocr', code: 'OCR_ERROR', message: `OCR retourné ${ocrRes.status}: ${errBody.slice(0, 200)}` }]), now, bulletinId).run();
     await updateJobCounter(db, ocrJobId, 'pending', now);
     return;
   }
@@ -283,23 +320,53 @@ export async function processOcrBulletin(
     return;
   }
 
-  // If the response wraps data in donnees_ia, unwrap it
-  const bulletinData = (parsed.donnees_ia && typeof parsed.donnees_ia === 'object' && !Array.isArray(parsed.donnees_ia))
-    ? parsed.donnees_ia as Record<string, unknown>
-    : parsed;
+  // Unwrap response: support donnees_ia wrapper AND resultat wrapper
+  let bulletinData = parsed as Record<string, unknown>;
+  if (parsed.donnees_ia && typeof parsed.donnees_ia === 'object' && !Array.isArray(parsed.donnees_ia)) {
+    bulletinData = parsed.donnees_ia as Record<string, unknown>;
+  }
+  if (parsed.resultat && typeof parsed.resultat === 'object' && !Array.isArray(parsed.resultat)) {
+    bulletinData = parsed.resultat as Record<string, unknown>;
+  }
 
-  // 5. Extract adherent info and update bulletin
-  const infos = (bulletinData.infos_adherent || {}) as Record<string, unknown>;
-  const voletMedical = bulletinData.volet_medical as Record<string, unknown>[] | undefined;
+  // 5. Extract adherent info — support multiple OCR response formats:
+  //   Format A: { infos_adherent, infos_patient, actes_independants }
+  //   Format B: { adherent, actes } (praticien is object, details_lignes under analyse)
+  const infos = (bulletinData.infos_adherent || bulletinData.adherent || {}) as Record<string, unknown>;
+  const infosPatient = (bulletinData.infos_patient || {}) as Record<string, unknown>;
 
-  const matricule = String(infos.matricule || infos.numero_adherent || infos.numero_matricule || '').trim();
+  // Support all actes array formats
+  const actesSource = (bulletinData.volet_medical || bulletinData.actes_independants || bulletinData.actes || []) as Record<string, unknown>[];
+
+  const matricule = String(infos.matricule || infos.numero_adherent || infos.numero_contrat || infos.numero_matricule || '').trim();
   const nomPrenom = String(infos.nom_prenom || '').trim();
   const nomAdherent = String(infos.nom || infos.nom_adherent || '').trim() || (nomPrenom ? nomPrenom.split(/\s+/).slice(1).join(' ') : '');
   const prenomAdherent = String(infos.prenom || '').trim() || (nomPrenom ? nomPrenom.split(/\s+/)[0] || '' : '');
-  const bulletinDate = String(infos.date_soins || infos.date_signature || infos.date || '').trim() || now.split('T')[0];
   const numeroBulletin = String(infos.numero_bulletin || '').trim() || null;
   const beneficiaire = String(infos.beneficiaire_coche || infos.beneficiaire || '').trim() || null;
-  const nomBeneficiaire = String(infos.nom_beneficiaire || '').trim() || null;
+
+  // Beneficiary name: from multiple possible locations
+  const conjointObj = (infos.conjoint || {}) as Record<string, unknown>;
+  const enfantsArr = (infos.enfants || []) as Record<string, unknown>[];
+  let nomBeneficiaire: string | null = null;
+  if (infosPatient.nom_prenom_malade) {
+    nomBeneficiaire = String(infosPatient.nom_prenom_malade).trim();
+  } else if (conjointObj.nom_prenom) {
+    nomBeneficiaire = String(conjointObj.nom_prenom).trim();
+  } else if (enfantsArr.length > 0 && enfantsArr[0]?.nom_prenom) {
+    nomBeneficiaire = String(enfantsArr[0].nom_prenom).trim();
+  } else if (infos.nom_beneficiaire) {
+    nomBeneficiaire = String(infos.nom_beneficiaire).trim();
+  }
+
+  // Parse bulletin date: try adherent fields, then first acte date, then fallback to now
+  let bulletinDate = String(infos.date_soins || infos.date_signature || infos.date || '').trim();
+  if (!bulletinDate && Array.isArray(actesSource) && actesSource.length > 0) {
+    const firstActe = actesSource[0] as Record<string, unknown>;
+    const firstActeDate = String(firstActe.date_acte || firstActe.date || '').trim();
+    if (firstActeDate) bulletinDate = parseFrenchDate(firstActeDate);
+  }
+  if (!bulletinDate) bulletinDate = now.split('T')[0]!;
 
   // Determine beneficiary relationship
   let beneficiaryRelationship: string | null = null;
@@ -329,28 +396,89 @@ export async function processOcrBulletin(
     now, bulletinId
   ).run();
 
-  // 6. Insert actes from volet_medical
+  // 6. Insert actes — support both volet_medical and actes_independants formats
+  // actes_independants format: { type, date, praticien, matricule_fiscale, acte, montant, details_lignes? }
+  // volet_medical format: { nature_acte, montant_honoraires, ... }
   let totalAmount = 0;
-  if (Array.isArray(voletMedical)) {
-    for (const acte of voletMedical) {
-      const acteObj = acte as Record<string, unknown>;
-      const acteId = generateId();
 
-      const natureActe = String(acteObj.nature_acte || acteObj.designation || acteObj.label || '');
+  // Map OCR type to care_type
+  const typeToCaretype: Record<string, string> = {
+    'MEDECIN': 'consultation', 'CONSULTATION': 'consultation',
+    'PHARMACIE': 'pharmacie', 'PHARMACY': 'pharmacie',
+    'LABORATOIRE': 'lab', 'LABO': 'lab', 'ANALYSES': 'lab',
+    'RADIOLOGIE': 'radio', 'RADIO': 'radio',
+    'OPTIQUE': 'optique', 'OPTICAL': 'optique',
+    'DENTAIRE': 'dentaire', 'DENTAL': 'dentaire',
+    'HOSPITALISATION': 'hospital', 'HOSPITAL': 'hospital',
+  };
+
+  if (Array.isArray(actesSource)) {
+    for (const acte of actesSource) {
+      const acteObj = acte as Record<string, unknown>;
+
+      // Determine care type from 'type' field (actes_independants) or 'type_soin'/'care_type' (volet_medical)
+      const rawType = String(acteObj.type || acteObj.type_soin || acteObj.care_type || '').toUpperCase().trim();
+      const careType = typeToCaretype[rawType] || rawType.toLowerCase() || '';
+
+      // Extract acte label
+      const natureActe = String(acteObj.acte || acteObj.nature_acte || acteObj.designation || acteObj.label || '');
       const match = mapNatureActeToCode(natureActe);
       const code = String(acteObj.code || acteObj.matched_code || match?.code || '');
       const label = String(match?.label || natureActe || '');
-      const amount = Number(acteObj.montant_honoraires || acteObj.montant_facture || acteObj.montant || acteObj.amount || 0);
-      const refProfSant = String(acteObj.matricule_fiscale || acteObj.ref_prof_sant || '');
-      const nomProfSant = String(acteObj.nom_praticien || acteObj.nom_prof_sant || '');
-      const careType = String(acteObj.type_soin || acteObj.care_type || '');
 
-      totalAmount += amount;
+      // Extract MF and praticien name — praticien can be string or object
+      const praticienObj = (typeof acteObj.praticien === 'object' && acteObj.praticien !== null)
+        ? acteObj.praticien as Record<string, unknown>
+        : null;
+      const refProfSant = String(
+        praticienObj?.matricule_fiscale || acteObj.matricule_fiscale || acteObj.ref_prof_sant || ''
+      ).replace(/\[ILLISIBLE\]/gi, '').trim();
+      const nomProfSant = String(
+        praticienObj?.nom_prenom || (typeof acteObj.praticien === 'string' ? acteObj.praticien : '') ||
+        acteObj.pharmacie || acteObj.nom_praticien || acteObj.nom_prof_sant || ''
+      ).replace(/\[ILLISIBLE\]/gi, '').trim();
 
-      await db.prepare(
-        `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, ref_prof_sant, nom_prof_sant, care_type, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(acteId, bulletinId, code, label, amount, refProfSant, nomProfSant, careType, now, now).run();
+      // Amount: montant_facture (preferred), montant_total, montant_honoraires, montant
+      const analyseObj = (typeof acteObj.analyse === 'object' && acteObj.analyse !== null)
+        ? acteObj.analyse as Record<string, unknown>
+        : null;
+      const mainAmount = parseAmount(
+        acteObj.montant_facture || analyseObj?.montant_total || acteObj.montant_total ||
+        acteObj.montant_honoraires || acteObj.montant || acteObj.amount || 0
+      );
+
+      // Sub-lines: details_lignes can be at acte level OR under analyse
+      const detailsLignes = (acteObj.details_lignes || analyseObj?.details_lignes || undefined) as Record<string, unknown>[] | undefined;
+
+      if (mainAmount > 0 || (Array.isArray(detailsLignes) && detailsLignes.length > 0)) {
+        const acteId = generateId();
+        const effectiveAmount = mainAmount > 0 ? mainAmount : (
+          Array.isArray(detailsLignes) ? detailsLignes.reduce((s, l) => s + parseAmount(l.montant), 0) : 0
+        );
+        totalAmount += effectiveAmount;
+
+        await db.prepare(
+          `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, ref_prof_sant, nom_prof_sant, care_type, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(acteId, bulletinId, code, label, effectiveAmount || 0.001, refProfSant || null, nomProfSant || null, careType, now).run();
+
+        // Insert sub_items for pharmacy detail lines (table may not exist yet)
+        if (Array.isArray(detailsLignes) && detailsLignes.length > 0) {
+          try {
+            for (const ligne of detailsLignes) {
+              const ligneObj = ligne as Record<string, unknown>;
+              const subId = generateId();
+              const subLabel = String(ligneObj.designation || ligneObj.label || '').replace(/\[ILLISIBLE\]/gi, 'Médicament').trim();
+              const subAmount = parseAmount(ligneObj.montant || ligneObj.prix_unitaire || 0);
+              const subCode = String(ligneObj.code_amm || '').trim();
+              await db.prepare(
+                `INSERT OR IGNORE INTO sub_items_acte (id, acte_bulletin_id, label, code, amount, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`
+              ).bind(subId, acteId, subLabel, subCode, subAmount, now, now).run();
+            }
+          } catch { /* sub_items_acte table may not exist — skip */ }
+        }
+      }
     }
   }
 

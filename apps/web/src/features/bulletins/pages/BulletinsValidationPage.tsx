@@ -81,7 +81,8 @@ type BulletinStatus =
   | 'rejected'
   | 'in_batch'
   | 'exported'
-  | 'archived';
+  | 'archived'
+  | 'non_remboursable';
 
 interface BulletinSoins {
   id: string;
@@ -124,6 +125,7 @@ interface BulletinStats {
   reimbursed: number;
   rejected: number;
   archived: number;
+  non_remboursable: number;
   total_amount: number;
   total_reimbursed: number;
   awaiting_payment_amount: number;
@@ -221,6 +223,13 @@ const statusConfig: Record<BulletinStatus, {
     color: 'text-gray-500 bg-gray-50',
     description: 'Bulletin archivé',
   },
+  non_remboursable: {
+    label: 'Non remboursable',
+    icon: XCircle,
+    variant: 'warning',
+    color: 'text-orange-600 bg-orange-50',
+    description: 'Plafond annuel atteint — non remboursable',
+  },
 };
 
 const defaultStatusConfig = {
@@ -256,6 +265,7 @@ const validTransitions: Record<BulletinStatus, BulletinStatus[]> = {
   in_batch: ['reimbursed', 'rejected'],
   exported: ['reimbursed', 'rejected'],
   archived: [],
+  non_remboursable: ['archived'],
 };
 
 export function BulletinsValidationPage() {
@@ -669,6 +679,18 @@ export function BulletinsValidationPage() {
               )}
             </>
           )}
+          {!['paper_complete', 'processing', 'reimbursed', 'rejected', 'non_remboursable', 'approved', 'pending_payment', 'archived'].includes(row.status) && canReject && (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                setSelectedBulletin(row);
+                setShowRejectDialog(true);
+              }}
+            >
+              <ThumbsDown className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       ),
     },
@@ -834,6 +856,7 @@ export function BulletinsValidationPage() {
                 pending_payment: "En attente paiement",
                 reimbursed: "Remboursé",
                 rejected: "Rejeté",
+                non_remboursable: "Non remboursable",
               }[statusFilter] || "Tous les statuts"
             }
             open={statusDropdownOpen}
@@ -939,6 +962,15 @@ export function BulletinsValidationPage() {
               }}
             >
               Rejeté
+            </FilterOption>
+            <FilterOption
+              selected={statusFilter === "non_remboursable"}
+              onClick={() => {
+                setStatusFilter("non_remboursable");
+                setStatusDropdownOpen(false);
+              }}
+            >
+              Non remboursable
             </FilterOption>
           </FilterDropdown>
           {selectedIds.length > 0 && (
@@ -1278,7 +1310,7 @@ export function BulletinsValidationPage() {
                     </Button>
                   )}
                 {canReject &&
-                  !["reimbursed", "rejected"].includes(
+                  !["reimbursed", "rejected", "non_remboursable", "approved", "pending_payment", "archived"].includes(
                     selectedBulletin.status,
                   ) && (
                     <Button

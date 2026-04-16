@@ -103,6 +103,11 @@ class_name = "NotificationHub"
 [ai]
 binding = "AI"
 
+# Service Binding — OCR Worker (same-account Worker-to-Worker)
+[[services]]
+binding = "OCR_SERVICE"
+service = "ocr-api-bh-assurance-staging"
+
 # Bulletin validation queue
 [[queues.producers]]
 binding = "BULLETIN_QUEUE"
@@ -209,6 +214,11 @@ class_name = "NotificationHub"
 [env.dev.ai]
 binding = "AI"
 
+# Service Binding — OCR Worker
+[[env.dev.services]]
+binding = "OCR_SERVICE"
+service = "ocr-api-bh-assurance-staging"
+
 # Bulletin validation queue
 [[env.dev.queues.producers]]
 binding = "BULLETIN_QUEUE"
@@ -303,6 +313,11 @@ class_name = "RateLimiter"
 [[env.staging.durable_objects.bindings]]
 name = "NOTIFICATION_HUB"
 class_name = "NotificationHub"
+
+# Service Binding — OCR Worker
+[[env.staging.services]]
+binding = "OCR_SERVICE"
+service = "ocr-api-bh-assurance-staging"
 
 # AI
 [env.staging.ai]

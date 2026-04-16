@@ -963,6 +963,7 @@ bulletinsSoins.get('/manage', async (c) => {
         WHEN 'paper_incomplete' THEN 3
         WHEN 'paper_complete' THEN 4
         WHEN 'processing' THEN 5
+        WHEN 'non_remboursable' THEN 7
         ELSE 6
       END,
       bs.submission_date DESC
@@ -1016,10 +1017,11 @@ bulletinsSoins.get('/manage/stats', async (c) => {
       SUM(CASE WHEN bs.status = 'reimbursed' THEN 1 ELSE 0 END) as reimbursed,
       SUM(CASE WHEN bs.status = 'rejected' THEN 1 ELSE 0 END) as rejected,
       SUM(CASE WHEN bs.status = 'archived' THEN 1 ELSE 0 END) as archived,
+      SUM(CASE WHEN bs.status = 'non_remboursable' THEN 1 ELSE 0 END) as non_remboursable,
       COALESCE(SUM(bs.total_amount), 0) as total_amount,
       COALESCE(SUM(bs.reimbursed_amount), 0) as total_reimbursed,
       COALESCE(SUM(CASE WHEN bs.status IN ('approved', 'pending_payment') THEN bs.total_amount ELSE 0 END), 0) as awaiting_payment_amount,
-      COALESCE(SUM(CASE WHEN bs.status NOT IN ('reimbursed', 'rejected') THEN bs.total_amount ELSE 0 END), 0) as pending_amount
+      COALESCE(SUM(CASE WHEN bs.status NOT IN ('reimbursed', 'rejected', 'non_remboursable') THEN bs.total_amount ELSE 0 END), 0) as pending_amount
     FROM bulletins_soins bs
     JOIN adherents a ON bs.adherent_id = a.id
     JOIN companies co ON a.company_id = co.id
@@ -1167,7 +1169,7 @@ bulletinsSoins.put('/manage/:id/status', async (c) => {
   const { status, notes, missing_documents, reimbursed_amount } = body;
 
   // Validate status
-  const validStatuses = ['paper_received', 'paper_incomplete', 'paper_complete', 'processing', 'approved', 'pending_payment', 'reimbursed', 'rejected'];
+  const validStatuses = ['paper_received', 'paper_incomplete', 'paper_complete', 'processing', 'approved', 'pending_payment', 'reimbursed', 'rejected', 'non_remboursable', 'archived'];
   if (!validStatuses.includes(status)) {
     return c.json({
       success: false,
@@ -1255,6 +1257,21 @@ bulletinsSoins.put('/manage/:id/status', async (c) => {
   await db.prepare(`
     UPDATE bulletins_soins SET ${updateFields} WHERE id = ?
   `).bind(...updateParams, bulletinId).run();
+
+  // Update adherent plafond_consomme when reimbursing (delta to avoid double-counting)
+  // Bulletin amounts are in dinars, plafond_consomme is in millimes (×1000)
+  if (status === 'reimbursed') {
+    const bul = bulletin as Record<string, unknown>;
+    const adherentId = bul.adherent_id as string | null;
+    const finalAmount = body.reimbursed_amount || bul.approved_amount || bul.total_amount;
+    const previousReimbursed = Number(bul.reimbursed_amount) || 0;
+    const delta = Number(finalAmount) - previousReimbursed;
+    if (adherentId && delta > 0) {
+      await db.prepare(
+        'UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?'
+      ).bind(Math.round(delta * 1000), adherentId).run();
+    }
+  }
 
   // Log the action
   await db.prepare(`
@@ -2056,15 +2073,17 @@ bulletinsSoins.get('/history/stats', async (c) => {
     const { results: byStatus } = await db.prepare(`
       SELECT bs.status, COUNT(*) as count, COALESCE(SUM(bs.total_amount), 0) as total_declared, COALESCE(SUM(bs.reimbursed_amount), 0) as total_reimbursed
       ${histJoin}
-      WHERE bs.status IN ('approved', 'reimbursed', 'rejected')${periodClause}
+      WHERE bs.status IN ('approved', 'reimbursed', 'rejected', 'non_remboursable', 'archived')${periodClause}
       GROUP BY bs.status
     `).bind(...periodParams).all();
 
     // By care type
     const { results: byCareType } = await db.prepare(`
-      SELECT bs.care_type, COUNT(*) as count, COALESCE(SUM(bs.reimbursed_amount), 0) as total_reimbursed
+      SELECT bs.care_type, COUNT(*) as count,
+        COALESCE(SUM(bs.total_amount), 0) as total_declared,
+        COALESCE(SUM(bs.reimbursed_amount), 0) as total_reimbursed
       ${histJoin}
-      WHERE bs.status IN ('approved', 'reimbursed', 'rejected')${periodClause}
+      WHERE bs.status IN ('approved', 'reimbursed', 'rejected', 'non_remboursable', 'archived')${periodClause}
       GROUP BY bs.care_type
     `).bind(...periodParams).all();
 
@@ -2072,7 +2091,7 @@ bulletinsSoins.get('/history/stats', async (c) => {
     const { results: monthly } = await db.prepare(`
       SELECT strftime('%Y-%m', bs.bulletin_date) as month, COUNT(*) as count, COALESCE(SUM(bs.reimbursed_amount), 0) as total_reimbursed
       ${histJoin}
-      WHERE bs.status IN ('approved', 'reimbursed', 'rejected')${periodClause}
+      WHERE bs.status IN ('approved', 'reimbursed', 'rejected', 'non_remboursable', 'archived')${periodClause}
       GROUP BY strftime('%Y-%m', bs.bulletin_date)
       ORDER BY month DESC
       LIMIT 12
@@ -2082,7 +2101,7 @@ bulletinsSoins.get('/history/stats', async (c) => {
     let totalBulletins = 0;
     let totalDeclared = 0;
     let totalReimbursed = 0;
-    const statusCounts: Record<string, number> = { approved: 0, reimbursed: 0, rejected: 0 };
+    const statusCounts: Record<string, number> = { approved: 0, reimbursed: 0, rejected: 0, non_remboursable: 0, archived: 0 };
 
     for (const row of byStatus) {
       const count = Number(row.count) || 0;
@@ -2102,6 +2121,7 @@ bulletinsSoins.get('/history/stats', async (c) => {
         byCareType: byCareType.map((r) => ({
           careType: r.care_type,
           count: Number(r.count),
+          totalDeclared: Number(r.total_declared),
           totalReimbursed: Number(r.total_reimbursed),
         })),
         monthly: monthly.map((r) => ({
@@ -2149,7 +2169,7 @@ bulletinsSoins.get('/history/export', async (c) => {
     }, 400);
   }
 
-  let whereClause = "WHERE bs.status IN ('approved', 'reimbursed', 'rejected')";
+  let whereClause = "WHERE bs.status IN ('approved', 'reimbursed', 'rejected', 'non_remboursable', 'archived')";
   const params: (string | number)[] = [];
 
   // Filter by insurer
@@ -2292,7 +2312,7 @@ bulletinsSoins.get('/history/:id', async (c) => {
     }
 
     // Non-admin users can only view bulletins with final status
-    const finalStatuses = ['approved', 'reimbursed', 'rejected'];
+    const finalStatuses = ['approved', 'reimbursed', 'rejected', 'non_remboursable', 'archived'];
     if (user.role !== 'ADMIN' && !finalStatuses.includes(bulletin.status as string)) {
       return c.json({
         success: false,
@@ -2456,7 +2476,7 @@ bulletinsSoins.get('/history', async (c) => {
   };
   const sortColumn = allowedSortColumns[sortBy] || 'bs.bulletin_date';
 
-  let whereClause = "WHERE bs.status IN ('approved', 'reimbursed', 'rejected')";
+  let whereClause = "WHERE bs.status IN ('approved', 'reimbursed', 'rejected', 'non_remboursable', 'archived')";
   const params: (string | number)[] = [];
 
   // Filter by company — use adherent's company_id as primary filter
@@ -2508,7 +2528,7 @@ bulletinsSoins.get('/history', async (c) => {
     whereClause += ' AND bs.care_type = ?';
     params.push(careType);
   }
-  if (status && ['approved', 'reimbursed', 'rejected'].includes(status)) {
+  if (status && ['approved', 'reimbursed', 'rejected', 'non_remboursable', 'archived'].includes(status)) {
     whereClause += ' AND bs.status = ?';
     params.push(status);
   }

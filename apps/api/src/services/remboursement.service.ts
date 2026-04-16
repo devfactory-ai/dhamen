@@ -203,7 +203,8 @@ async function calculerViaContractGuarantees(
     }
 
     if (plafondRow) {
-      const restant = Math.max(0, plafondRow.montant_plafond - plafondRow.montant_consomme);
+      // plafonds_beneficiaire stores amounts in millimes, calculation is in dinars (÷1000)
+      const restant = Math.max(0, (plafondRow.montant_plafond - plafondRow.montant_consomme) / 1000);
       if (apresPlafondFamille > restant) {
         apresPlafondFamille = restant;
         plafondFamilleApplique = true;
@@ -234,7 +235,8 @@ async function calculerViaContractGuarantees(
   }
 
   if (plafondGlobal) {
-    const restantGlobal = Math.max(0, plafondGlobal.montant_plafond - plafondGlobal.montant_consomme);
+    // plafonds_beneficiaire stores amounts in millimes, calculation is in dinars (÷1000)
+    const restantGlobal = Math.max(0, (plafondGlobal.montant_plafond - plafondGlobal.montant_consomme) / 1000);
     if (apresPlafondGlobal > restantGlobal) {
       apresPlafondGlobal = restantGlobal;
       plafondGlobalApplique = true;
@@ -476,7 +478,8 @@ export async function calculerRemboursement(
     }
 
     if (plafondRow) {
-      const restant = Math.max(0, plafondRow.montant_plafond - plafondRow.montant_consomme);
+      // plafonds_beneficiaire stores amounts in millimes, calculation is in dinars (÷1000)
+      const restant = Math.max(0, (plafondRow.montant_plafond - plafondRow.montant_consomme) / 1000);
       if (apresPlafondFamille > restant) {
         apresPlafondFamille = restant;
         plafondFamilleApplique = true;
@@ -506,9 +509,10 @@ export async function calculerRemboursement(
   }
 
   if (plafondGlobal) {
+    // plafonds_beneficiaire stores amounts in millimes, calculation is in dinars (÷1000)
     const restantGlobal = Math.max(
       0,
-      plafondGlobal.montant_plafond - plafondGlobal.montant_consomme
+      (plafondGlobal.montant_plafond - plafondGlobal.montant_consomme) / 1000
     );
     if (apresPlafondGlobal > restantGlobal) {
       apresPlafondGlobal = restantGlobal;
