@@ -103,7 +103,9 @@ export function ContractDetailsPage() {
   return (
     <div className="space-y-6">
       <nav className="flex flex-wrap items-center gap-1.5 text-sm text-gray-500">
-        <Link to="/contracts" className="hover:text-gray-900 transition-colors">Contrats</Link>
+        <Link to="/contracts" className="hover:text-gray-900 transition-colors">
+          Contrats
+        </Link>
         <ChevronRight className="w-4 h-4" />
         <span className="text-gray-900 font-medium">Détails</span>
       </nav>
@@ -143,7 +145,9 @@ export function ContractDetailsPage() {
                 <CreditCard className="h-6 w-6 text-green-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{formatAmount(contract.annualCeiling)}</p>
+                <p className="text-2xl font-bold">
+                  {formatAmount(contract.annualCeiling)}
+                </p>
                 <p className="text-sm text-muted-foreground">Plafond annuel</p>
               </div>
             </div>
@@ -157,8 +161,12 @@ export function ContractDetailsPage() {
                 <Calendar className="h-6 w-6 text-blue-600" />
               </div>
               <div>
-                <p className="text-lg font-semibold">{formatDate(contract.endDate)}</p>
-                <p className="text-sm text-muted-foreground">Date d'expiration</p>
+                <p className="text-lg font-semibold">
+                  {formatDate(contract.endDate)}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Date d'expiration
+                </p>
               </div>
             </div>
           </CardContent>
@@ -180,12 +188,14 @@ export function ContractDetailsPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Type</p>
-                <span className={`inline-block mt-1 rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}>
+                <span
+                  className={`inline-block mt-1 rounded-full px-2 py-1 font-medium text-xs ${typeInfo.color}`}
+                >
                   {typeInfo.label}
                 </span>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Date de debut</p>
+                <p className="text-sm text-muted-foreground">Date de début</p>
                 <p className="font-medium">{formatDate(contract.startDate)}</p>
               </div>
               <div>
@@ -194,10 +204,14 @@ export function ContractDetailsPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Statut</p>
-                <Badge variant={statusInfo.variant} className="mt-1">{statusInfo.label}</Badge>
+                <Badge variant={statusInfo.variant} className="mt-1">
+                  {statusInfo.label}
+                </Badge>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Date de création</p>
+                <p className="text-sm text-muted-foreground">
+                  Date de création
+                </p>
                 <p className="font-medium">{formatDate(contract.createdAt)}</p>
               </div>
               {contract.policyNumber && (
@@ -214,7 +228,9 @@ export function ContractDetailsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Taux de couverture</CardTitle>
-            <CardDescription>Pourcentage de prise en charge par type de soin</CardDescription>
+            <CardDescription>
+              Pourcentage de prise en charge par type de soin
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -227,7 +243,9 @@ export function ContractDetailsPage() {
                       style={{ width: `${contract.coveragePharmacy}%` }}
                     />
                   </div>
-                  <span className="font-semibold w-12 text-right">{contract.coveragePharmacy}%</span>
+                  <span className="font-semibold w-12 text-right">
+                    {contract.coveragePharmacy}%
+                  </span>
                 </div>
               </div>
               <div className="flex items-center justify-between">
@@ -239,7 +257,9 @@ export function ContractDetailsPage() {
                       style={{ width: `${contract.coverageConsultation}%` }}
                     />
                   </div>
-                  <span className="font-semibold w-12 text-right">{contract.coverageConsultation}%</span>
+                  <span className="font-semibold w-12 text-right">
+                    {contract.coverageConsultation}%
+                  </span>
                 </div>
               </div>
               <div className="flex items-center justify-between">
@@ -251,7 +271,9 @@ export function ContractDetailsPage() {
                       style={{ width: `${contract.coverageLab}%` }}
                     />
                   </div>
-                  <span className="font-semibold w-12 text-right">{contract.coverageLab}%</span>
+                  <span className="font-semibold w-12 text-right">
+                    {contract.coverageLab}%
+                  </span>
                 </div>
               </div>
               <div className="flex items-center justify-between">
@@ -263,7 +285,9 @@ export function ContractDetailsPage() {
                       style={{ width: `${contract.coverageHospitalization}%` }}
                     />
                   </div>
-                  <span className="font-semibold w-12 text-right">{contract.coverageHospitalization}%</span>
+                  <span className="font-semibold w-12 text-right">
+                    {contract.coverageHospitalization}%
+                  </span>
                 </div>
               </div>
             </div>
@@ -288,8 +312,12 @@ export function ContractDetailsPage() {
                   <FileText className="h-8 w-8 text-red-600" />
                 </div>
                 <div>
-                  <p className="font-medium">Contrat_{contract.contractNumber}.pdf</p>
-                  <p className="text-sm text-muted-foreground">Document PDF du contrat</p>
+                  <p className="font-medium">
+                    Contrat_{contract.contractNumber}.pdf
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Document PDF du contrat
+                  </p>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -297,7 +325,10 @@ export function ContractDetailsPage() {
                   variant="outline"
                   onClick={() => {
                     const apiUrl = API_BASE_URL;
-                    window.open(`${apiUrl}/documents/${contract.documentId}/download`, '_blank');
+                    window.open(
+                      `${apiUrl}/documents/${contract.documentId}/download`,
+                      "_blank",
+                    );
                   }}
                 >
                   <Download className="h-4 w-4 mr-2" />
@@ -307,7 +338,10 @@ export function ContractDetailsPage() {
                   variant="ghost"
                   onClick={() => {
                     const apiUrl = API_BASE_URL;
-                    window.open(`${apiUrl}/documents/${contract.documentId}/download?disposition=inline`, '_blank');
+                    window.open(
+                      `${apiUrl}/documents/${contract.documentId}/download?disposition=inline`,
+                      "_blank",
+                    );
                   }}
                 >
                   <ExternalLink className="h-4 w-4 mr-2" />
@@ -319,7 +353,9 @@ export function ContractDetailsPage() {
             <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-lg text-muted-foreground">
               <FileText className="h-12 w-12 mb-3 opacity-50" />
               <p className="font-medium">Aucun document associe</p>
-              <p className="text-sm">Vous pouvez ajouter un PDF en modifiant le contrat</p>
+              <p className="text-sm">
+                Vous pouvez ajouter un PDF en modifiant le contrat
+              </p>
               {canUpdate && (
                 <Button
                   variant="outline"

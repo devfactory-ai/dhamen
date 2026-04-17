@@ -331,6 +331,37 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
       }
     }
 
+    // Check for duplicate bulletin by numero_bulletin
+    const numeroBulletin = parsed?.numero_bulletin
+      || parsed?.infos_adherent?.numero_bulletin
+      || null;
+
+    if (numeroBulletin) {
+      const companyId = c.req.query('companyId') || null;
+      let duplicateQuery = `SELECT id, status, bulletin_date, adherent_first_name, adherent_last_name, reimbursed_amount
+        FROM bulletins_soins WHERE bulletin_number = ? AND status NOT IN ('draft', 'in_batch')`;
+      const duplicateParams: string[] = [String(numeroBulletin)];
+
+      if (companyId) {
+        duplicateQuery += ' AND company_id = ?';
+        duplicateParams.push(companyId);
+      }
+      duplicateQuery += ' LIMIT 1';
+
+      const existing = await db.prepare(duplicateQuery).bind(...duplicateParams)
+        .first<{ id: string; status: string; bulletin_date: string; adherent_first_name: string; adherent_last_name: string; reimbursed_amount: number | null }>();
+
+      if (existing) {
+        parsed._duplicate_warning = {
+          message: `Ce bulletin N° ${numeroBulletin} a déjà été traité (${existing.adherent_first_name} ${existing.adherent_last_name}, ${existing.bulletin_date}).`,
+          existing_id: existing.id,
+          existing_status: existing.status,
+          existing_date: existing.bulletin_date,
+          existing_reimbursed: existing.reimbursed_amount,
+        };
+      }
+    }
+
     return c.json({ success: true, data: parsed });
   } catch (error) {
     console.error('OCR proxy error:', error);
@@ -1825,25 +1856,32 @@ bulletinsAgent.post('/estimate', async (c) => {
     adherent_matricule: string;
     bulletin_date: string;
     actes: Array<{ code?: string; amount: number; care_type?: string }>;
+    company_id?: string;
   }>();
 
-  const { adherent_matricule, bulletin_date, actes } = body;
+  const { adherent_matricule, bulletin_date, actes, company_id } = body;
   if (!adherent_matricule || !actes || actes.length === 0) {
     return c.json({ success: true, data: { reimbursed_amount: null, details: [] } });
   }
 
   try {
-    // Find adherent — same logic as /create: normalize whitespace, filter by insurer only when applicable
+    // Find adherent — normalize whitespace, filter by company when available, then by insurer
     const cleanMatricule = adherent_matricule.replace(/\s+/g, '');
-    const insurerFilter = user.insurerId
-      ? `AND (co.insurer_id = ? OR a.company_id IS NULL OR a.company_id = '__INDIVIDUAL__')`
-      : '';
-    const joinClause = user.insurerId
-      ? 'LEFT JOIN companies co ON a.company_id = co.id'
-      : '';
-    const bindParams = user.insurerId
-      ? [cleanMatricule, user.insurerId]
-      : [cleanMatricule];
+    let insurerFilter = '';
+    let joinClause = '';
+    const bindParams: unknown[] = [cleanMatricule];
+
+    if (company_id && company_id !== '__INDIVIDUAL__') {
+      // When company_id is provided, filter directly by company for precise match
+      joinClause = 'LEFT JOIN companies co ON a.company_id = co.id';
+      insurerFilter = 'AND a.company_id = ?';
+      bindParams.push(company_id);
+    } else if (user.insurerId) {
+      joinClause = 'LEFT JOIN companies co ON a.company_id = co.id';
+      insurerFilter = `AND (co.insurer_id = ? OR a.company_id IS NULL OR a.company_id = '__INDIVIDUAL__')`;
+      bindParams.push(user.insurerId);
+    }
+
     const adherent = await db
       .prepare(
         `SELECT a.id FROM adherents a ${joinClause} WHERE REPLACE(a.matricule, ' ', '') = ? AND a.deleted_at IS NULL ${insurerFilter}`
@@ -2196,33 +2234,36 @@ bulletinsAgent.post('/create', async (c) => {
       ? 'LEFT JOIN companies co ON a.company_id = co.id'
       : '';
 
-    // Step 1: Exact matricule match
-    adherentResult = await db
-      .prepare(
-        `SELECT ${adherentSelectCols} FROM adherents a ${joinClause} WHERE REPLACE(a.matricule, ' ', '') = ? AND a.deleted_at IS NULL ${insurerFilter}`
-      )
-      .bind(...(user.insurerId ? [cleanMatricule, user.insurerId] : [cleanMatricule]))
-      .first();
-
-    // Step 2: National ID fallback
-    if (!adherentResult && adherentNationalId) {
-      adherentResult = await db
+    // Run all 3 adherent searches in parallel (matricule, CIN, name) — pick first match by priority
+    const [byMatricule, byCIN, byName] = await Promise.all([
+      // Step 1: Exact matricule match
+      db
         .prepare(
-          `SELECT ${adherentSelectCols} FROM adherents a ${joinClause} WHERE (a.national_id_encrypted LIKE ? OR a.national_id_hash = ?) AND a.deleted_at IS NULL ${insurerFilter}`
+          `SELECT ${adherentSelectCols} FROM adherents a ${joinClause} WHERE REPLACE(a.matricule, ' ', '') = ? AND a.deleted_at IS NULL ${insurerFilter}`
         )
-        .bind(...(user.insurerId ? [`%${adherentNationalId}%`, adherentNationalId, user.insurerId] : [`%${adherentNationalId}%`, adherentNationalId]))
-        .first();
-    }
-
-    // Step 3: Name fallback (case-insensitive)
-    if (!adherentResult && adherentFirstName && adherentLastName) {
-      adherentResult = await db
-        .prepare(
-          `SELECT ${adherentSelectCols} FROM adherents a ${joinClause} WHERE LOWER(a.first_name) = LOWER(?) AND LOWER(a.last_name) = LOWER(?) AND a.deleted_at IS NULL ${insurerFilter}`
-        )
-        .bind(...(user.insurerId ? [adherentFirstName, adherentLastName, user.insurerId] : [adherentFirstName, adherentLastName]))
-        .first();
-    }
+        .bind(...(user.insurerId ? [cleanMatricule, user.insurerId] : [cleanMatricule]))
+        .first(),
+      // Step 2: National ID fallback
+      adherentNationalId
+        ? db
+            .prepare(
+              `SELECT ${adherentSelectCols} FROM adherents a ${joinClause} WHERE (a.national_id_encrypted LIKE ? OR a.national_id_hash = ?) AND a.deleted_at IS NULL ${insurerFilter}`
+            )
+            .bind(...(user.insurerId ? [`%${adherentNationalId}%`, adherentNationalId, user.insurerId] : [`%${adherentNationalId}%`, adherentNationalId]))
+            .first()
+        : Promise.resolve(null),
+      // Step 3: Name fallback (case-insensitive)
+      adherentFirstName && adherentLastName
+        ? db
+            .prepare(
+              `SELECT ${adherentSelectCols} FROM adherents a ${joinClause} WHERE LOWER(a.first_name) = LOWER(?) AND LOWER(a.last_name) = LOWER(?) AND a.deleted_at IS NULL ${insurerFilter}`
+            )
+            .bind(...(user.insurerId ? [adherentFirstName, adherentLastName, user.insurerId] : [adherentFirstName, adherentLastName]))
+            .first()
+        : Promise.resolve(null),
+    ]);
+    // Priority: matricule > CIN > name
+    adherentResult = (byMatricule || byCIN || byName) as Record<string, unknown> | null;
 
     let adherentAutoCreated = false;
 
@@ -2374,28 +2415,25 @@ bulletinsAgent.post('/create', async (c) => {
       }
 
       adherentId = adherentResult.id as string;
-      // Update adherent email if provided and not already set
+      // Parallel: update email/matricule + check existing contract
+      const patchStmts: ReturnType<typeof db.prepare>[] = [];
       if (adherentEmail) {
-        await db
-          .prepare('UPDATE adherents SET email = ? WHERE id = ? AND (email IS NULL OR email = ?)')
-          .bind(adherentEmail, adherentId, adherentEmail)
-          .run();
+        patchStmts.push(
+          db.prepare('UPDATE adherents SET email = ? WHERE id = ? AND (email IS NULL OR email = ?)').bind(adherentEmail, adherentId, adherentEmail)
+        );
       }
-      // Update matricule if empty
       if (adherentMatricule) {
-        await db
-          .prepare(
-            'UPDATE adherents SET matricule = ? WHERE id = ? AND (matricule IS NULL OR matricule = "")'
-          )
-          .bind(adherentMatricule, adherentId)
-          .run();
+        patchStmts.push(
+          db.prepare('UPDATE adherents SET matricule = ? WHERE id = ? AND (matricule IS NULL OR matricule = "")').bind(adherentMatricule, adherentId)
+        );
       }
-
-      // Auto-create individual contract if adherent exists but has no active contract
-      const existingContract = await db
-        .prepare("SELECT id FROM contracts WHERE adherent_id = ? AND status = 'active' LIMIT 1")
-        .bind(adherentId)
-        .first<{ id: string }>();
+      const [, existingContract] = await Promise.all([
+        patchStmts.length > 0 ? db.batch(patchStmts) : Promise.resolve(),
+        db
+          .prepare("SELECT id FROM contracts WHERE adherent_id = ? AND status = 'active' LIMIT 1")
+          .bind(adherentId)
+          .first<{ id: string }>(),
+      ]);
 
       if (!existingContract) {
         // Try to auto-create individual contract only if active group contract exists
@@ -2894,12 +2932,6 @@ bulletinsAgent.post('/create', async (c) => {
         });
         if (subItemStmts.length > 0) await db.batch(subItemStmts);
 
-        // Update bulletin reimbursed_amount
-        await db
-          .prepare('UPDATE bulletins_soins SET reimbursed_amount = ? WHERE id = ?')
-          .bind(reimbursedAmount, bulletinId)
-          .run();
-
         // Update plafonds via mettreAJourPlafonds for each acte (TASK-006)
         // Parallel lookup of famille_ids, then sequential plafond updates
         const annee = Number(bulletinDate.split('-')[0]);
@@ -2931,16 +2963,16 @@ bulletinsAgent.post('/create', async (c) => {
           }
         }
 
-        // Also update legacy adherent plafond_consomme for backward compat
-        // reimbursedAmount is in dinars, plafond_consomme is in millimes (×1000)
+        // Batch: update bulletin reimbursed_amount + legacy adherent plafond_consomme
+        const finalUpdates: ReturnType<typeof db.prepare>[] = [
+          db.prepare('UPDATE bulletins_soins SET reimbursed_amount = ? WHERE id = ?').bind(reimbursedAmount, bulletinId),
+        ];
         if (reimbursedAmount > 0) {
-          await db
-            .prepare(
-              'UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?'
-            )
-            .bind(Math.round(reimbursedAmount * 1000), adherentId)
-            .run();
+          finalUpdates.push(
+            db.prepare('UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?').bind(Math.round(reimbursedAmount * 1000), adherentId)
+          );
         }
+        await db.batch(finalUpdates);
       } else {
         // No contract found — reimbursement is 0
         if (!contractId) {
@@ -3028,22 +3060,16 @@ bulletinsAgent.post('/create', async (c) => {
         });
         if (subItemStmts2.length > 0) await db.batch(subItemStmts2);
 
-        // Update bulletin reimbursed_amount
-        await db
-          .prepare('UPDATE bulletins_soins SET reimbursed_amount = ? WHERE id = ?')
-          .bind(reimbursedAmount, bulletinId)
-          .run();
-
-        // Update adherent plafond_consomme
-        // reimbursedAmount is in dinars, plafond_consomme is in millimes (×1000)
+        // Batch: update bulletin reimbursed_amount + adherent plafond_consomme
+        const finalUpdates2: ReturnType<typeof db.prepare>[] = [
+          db.prepare('UPDATE bulletins_soins SET reimbursed_amount = ? WHERE id = ?').bind(reimbursedAmount, bulletinId),
+        ];
         if (adherentId && reimbursedAmount > 0) {
-          await db
-            .prepare(
-              'UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?'
-            )
-            .bind(Math.round(reimbursedAmount * 1000), adherentId)
-            .run();
+          finalUpdates2.push(
+            db.prepare('UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?').bind(Math.round(reimbursedAmount * 1000), adherentId)
+          );
         }
+        await db.batch(finalUpdates2);
       }
     }
 
@@ -4096,8 +4122,8 @@ bulletinsAgent.post('/:id/update', async (c) => {
 
   // Verify bulletin exists and is editable (draft or in_batch only)
   const bulletin = await db.prepare(
-    `SELECT id, status, company_id, batch_id FROM bulletins_soins WHERE id = ?`
-  ).bind(bulletinId).first<{ id: string; status: string; company_id: string; batch_id: string | null }>();
+    `SELECT id, status, company_id, batch_id, adherent_id, care_type FROM bulletins_soins WHERE id = ?`
+  ).bind(bulletinId).first<{ id: string; status: string; company_id: string; batch_id: string | null; adherent_id: string | null; care_type: string | null }>();
 
   if (!bulletin) {
     return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Bulletin introuvable' } }, 404);
@@ -4144,7 +4170,8 @@ bulletinsAgent.post('/:id/update', async (c) => {
     now, bulletinId
   ).run();
 
-  // Replace all actes: delete existing, insert new
+  // Replace all actes: delete existing (including sub_items), insert new
+  await db.prepare('DELETE FROM acte_sub_items WHERE acte_id IN (SELECT id FROM actes_bulletin WHERE bulletin_id = ?)').bind(bulletinId).run();
   await db.prepare('DELETE FROM actes_bulletin WHERE bulletin_id = ?').bind(bulletinId).run();
 
   const generateId = () => {
@@ -4153,35 +4180,236 @@ bulletinsAgent.post('/:id/update', async (c) => {
     return `01${ts}${rand}`.substring(0, 26);
   };
 
-  for (const acte of actes) {
-    const acteId = generateId();
-    await db.prepare(`
-      INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, ref_prof_sant, nom_prof_sant, provider_id, care_type, care_description, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      acteId, bulletinId,
-      acte.code || '', acte.label || '', acte.amount || 0,
-      acte.ref_prof_sant || '', acte.nom_prof_sant || '',
-      acte.provider_id || null, acte.care_type || 'consultation',
-      acte.care_description || '',
-      now, now
-    ).run();
-  }
-
   // Recalculate total
   const totalAmount = actes.reduce((sum, a) => sum + (a.amount || 0), 0);
-  await db.prepare('UPDATE bulletins_soins SET total_amount = ?, updated_at = ? WHERE id = ?')
-    .bind(totalAmount, now, bulletinId).run();
+  const careType = bulletin.care_type || 'consultation';
+  const adherentId = bulletin.adherent_id;
+  const warnings: string[] = [];
+
+  // Recalculate reimbursement based on active contract at bulletin date
+  let reimbursedAmount: number | null = null;
+
+  if (actes.length > 0 && adherentId) {
+    // Find active contract at bulletin date
+    let contractId: string | null = null;
+    const contract = await db
+      .prepare(
+        `SELECT c.id FROM contracts c
+         WHERE c.adherent_id = ? AND c.status = 'active'
+           AND c.start_date <= ? AND c.end_date >= ?
+         ORDER BY CASE WHEN c.group_contract_id IS NOT NULL THEN 0 ELSE 1 END, c.created_at DESC
+         LIMIT 1`
+      )
+      .bind(adherentId, bulletinDate, bulletinDate)
+      .first<{ id: string }>();
+    contractId = contract?.id ?? null;
+
+    const isPharmacy = careType === 'pharmacy' || careType === 'pharmacie_chronique';
+
+    // Resolve acte refs + medication matches in parallel
+    const [acteRefs, medicationMatches] = await Promise.all([
+      Promise.all(
+        actes.map(async (acte) => {
+          const code = acte.code?.trim();
+          if (code) {
+            const ref = await findActeRefByCode(db, code);
+            return { ref: ref as { id: string; taux_remboursement: number } | null, code };
+          }
+          return { ref: null, code: '' };
+        })
+      ),
+      Promise.all(
+        actes.map(async (acte) => {
+          if (!isPharmacy) return { medicationId: null, medicationFamilyId: null, tauxApplique: null };
+          const code = acte.code?.trim();
+          if (!code) return { medicationId: null, medicationFamilyId: null, tauxApplique: null };
+          const med = await db
+            .prepare(
+              `SELECT id, family_id, reimbursement_rate FROM medications
+               WHERE (code_pct = ? OR code_amm = ?) AND deleted_at IS NULL AND is_active = 1
+               LIMIT 1`
+            )
+            .bind(code, code)
+            .first<{ id: string; family_id: string | null; reimbursement_rate: number | null }>();
+          if (med) return { medicationId: med.id, medicationFamilyId: med.family_id, tauxApplique: med.reimbursement_rate };
+          return { medicationId: null, medicationFamilyId: null, tauxApplique: null };
+        })
+      ),
+    ]);
+
+    if (contractId) {
+      // Contract-aware calculation
+      const baremeResults: CalculRemboursementResult[] = [];
+      let totalRembourse = 0;
+
+      for (let i = 0; i < actes.length; i++) {
+        const acte = actes[i]!;
+        const acteRefInfo = acteRefs[i]!;
+        if (acteRefInfo.ref) {
+          try {
+            const medMatch = medicationMatches[i];
+            const calcInput: CalculRemboursementInput = {
+              adherentId,
+              contractId,
+              acteRefId: acteRefInfo.ref.id,
+              fraisEngages: acte.amount,
+              dateSoin: bulletinDate,
+              typeMaladie: (careType === 'pharmacie_chronique' ? 'chronique' : 'ordinaire') as 'ordinaire' | 'chronique',
+              medicationFamilyId: medMatch?.medicationFamilyId ?? undefined,
+            };
+            const result = await calculerRemboursement(db, calcInput);
+            baremeResults.push(result);
+            totalRembourse += result.montantRembourse;
+          } catch {
+            baremeResults.push({
+              montantRembourse: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)),
+              typeCalcul: 'taux', valeurBareme: acteRefInfo.ref.taux_remboursement || 0,
+              plafondActeApplique: false, plafondFamilleApplique: false, plafondGlobalApplique: false,
+              details: { montantBrut: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)), apresPlafondActe: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)), apresPlafondFamille: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)), apresPlafondGlobal: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)) },
+            });
+            totalRembourse += baremeResults[baremeResults.length - 1]!.montantRembourse;
+          }
+        } else {
+          baremeResults.push({
+            montantRembourse: 0, typeCalcul: 'taux', valeurBareme: 0,
+            plafondActeApplique: false, plafondFamilleApplique: false, plafondGlobalApplique: false,
+            details: { montantBrut: 0, apresPlafondActe: 0, apresPlafondFamille: 0, apresPlafondGlobal: 0 },
+          });
+        }
+      }
+
+      reimbursedAmount = totalRembourse;
+
+      // Apply adherent global plafond cap
+      if (reimbursedAmount > 0) {
+        const adhPlafond = await db
+          .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
+          .bind(adherentId)
+          .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
+        if (adhPlafond?.plafond_global && adhPlafond.plafond_global > 0) {
+          const restantDT = Math.max(0, (adhPlafond.plafond_global - (adhPlafond.plafond_consomme || 0)) / 1000);
+          if (reimbursedAmount > restantDT) {
+            const ratio = restantDT / reimbursedAmount;
+            for (const br of baremeResults) {
+              br.montantRembourse = Math.round(br.montantRembourse * ratio * 1000) / 1000;
+              br.plafondGlobalApplique = true;
+            }
+            reimbursedAmount = restantDT;
+          }
+        }
+      }
+
+      // Insert actes with reimbursement data
+      const acteIds: string[] = [];
+      const stmts = actes.map((acte, i) => {
+        const acteId = generateId();
+        acteIds.push(acteId);
+        const baremeResult = baremeResults[i]!;
+        const medMatch = medicationMatches[i];
+        return db
+          .prepare(
+            `INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, care_type, taux_remboursement, montant_rembourse, remboursement_brut, plafond_depasse, acte_ref_id, ref_prof_sant, nom_prof_sant, cod_msgr, lib_msgr, medication_id, medication_family_id, taux_applique, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT id FROM actes_referentiel WHERE code = ? AND is_active = 1), ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          )
+          .bind(
+            acteId, bulletinId,
+            acte.code?.trim() || null, acte.label || '', acte.amount || 0,
+            acte.care_type || careType,
+            baremeResult.valeurBareme, baremeResult.montantRembourse,
+            baremeResult.details.montantBrut,
+            baremeResult.plafondActeApplique || baremeResult.plafondFamilleApplique || baremeResult.plafondGlobalApplique ? 1 : 0,
+            acte.code?.trim() || null,
+            acte.ref_prof_sant?.trim() || null, acte.nom_prof_sant?.trim() || null,
+            null, null,
+            medMatch?.medicationId || null, medMatch?.medicationFamilyId || null,
+            medMatch?.tauxApplique || null
+          );
+      });
+      await db.batch(stmts);
+
+      // Insert sub_items
+      const subItemStmts: ReturnType<typeof db.prepare>[] = [];
+      actes.forEach((acte, i) => {
+        const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; amount: number }> | undefined;
+        if (subs && subs.length > 0) {
+          for (const si of subs) {
+            subItemStmts.push(
+              db.prepare(
+                `INSERT INTO acte_sub_items (id, acte_id, label, code, amount, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
+              ).bind(generateId(), acteIds[i], si.label, si.code || null, si.amount)
+            );
+          }
+        }
+      });
+      if (subItemStmts.length > 0) await db.batch(subItemStmts);
+    } else {
+      // No active contract at this date → reimbursement = 0
+      reimbursedAmount = 0;
+      warnings.push('Aucun contrat actif à la date du bulletin. Remboursement à 0.');
+
+      // Insert actes without reimbursement
+      const acteIds: string[] = [];
+      for (const acte of actes) {
+        const acteId = generateId();
+        acteIds.push(acteId);
+        await db.prepare(`
+          INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, ref_prof_sant, nom_prof_sant, care_type, taux_remboursement, montant_rembourse, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
+        `).bind(
+          acteId, bulletinId,
+          acte.code || '', acte.label || '', acte.amount || 0,
+          acte.ref_prof_sant || '', acte.nom_prof_sant || '',
+          acte.care_type || careType,
+          now
+        ).run();
+      }
+
+      // Insert sub_items
+      const subItemStmts: ReturnType<typeof db.prepare>[] = [];
+      actes.forEach((acte, i) => {
+        const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; amount: number }> | undefined;
+        if (subs && subs.length > 0) {
+          for (const si of subs) {
+            subItemStmts.push(
+              db.prepare(
+                `INSERT INTO acte_sub_items (id, acte_id, label, code, amount, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
+              ).bind(generateId(), acteIds[i], si.label, si.code || null, si.amount)
+            );
+          }
+        }
+      });
+      if (subItemStmts.length > 0) await db.batch(subItemStmts);
+    }
+  } else {
+    // No actes or no adherent — insert actes without reimbursement
+    for (const acte of actes) {
+      const acteId = generateId();
+      await db.prepare(`
+        INSERT INTO actes_bulletin (id, bulletin_id, code, label, amount, ref_prof_sant, nom_prof_sant, care_type, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        acteId, bulletinId,
+        acte.code || '', acte.label || '', acte.amount || 0,
+        acte.ref_prof_sant || '', acte.nom_prof_sant || '',
+        acte.care_type || 'consultation',
+        now
+      ).run();
+    }
+  }
+
+  // Update total_amount + reimbursed_amount
+  await db.prepare('UPDATE bulletins_soins SET total_amount = ?, reimbursed_amount = ?, updated_at = ? WHERE id = ?')
+    .bind(totalAmount, reimbursedAmount, now, bulletinId).run();
 
   await logAudit(db, {
     userId: user.id,
     action: 'BULLETIN_UPDATE',
     entityType: 'bulletin',
     entityId: bulletinId,
-    changes: { adherentMatricule, actesCount: actes.length, totalAmount },
+    changes: { adherentMatricule, actesCount: actes.length, totalAmount, reimbursedAmount },
   });
 
-  return c.json({ success: true, data: { id: bulletinId } });
+  return c.json({ success: true, data: { id: bulletinId, warnings: warnings.length > 0 ? warnings : undefined } });
 });
 
 // ---------------------------------------------------------------------------

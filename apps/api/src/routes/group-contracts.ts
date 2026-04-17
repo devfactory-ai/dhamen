@@ -153,7 +153,38 @@ groupContracts.get("/:id", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT","
   if (user?.insurerId && (user.role === "INSURER_ADMIN" || user.role === "INSURER_AGENT") && contract.insurer_id !== user.insurerId) return notFound(c, "Contrat groupe non trouvé");
   if (user.role === "HR" && contract.company_id !== user.companyId) return notFound(c, "Contrat non trouvé");
   const guarantees = await db.prepare(`SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1 ORDER BY guarantee_number ASC`).bind(id).all();
-  return success(c, { ...contract, guarantees: guarantees.results ?? [] });
+
+  // Build covered_risks array from boolean columns
+  const coveredRisks: string[] = [];
+  if (contract.risk_illness) coveredRisks.push('Maladie');
+  if (contract.risk_disability) coveredRisks.push('Invalidité');
+  if (contract.risk_death) coveredRisks.push('Décès');
+
+  // Map guarantees: keep raw DB fields + add detail-page aliases
+  const mappedGuarantees = (guarantees.results ?? []).map((g: Record<string, unknown>) => ({
+    ...g,
+    // Aliases for detail page
+    rate: g.reimbursement_rate,
+    annual_ceiling: g.annual_limit,
+    per_act_ceiling: g.per_event_limit,
+    per_day_ceiling: g.daily_limit,
+    letter_keys: g.letter_keys_json ? (typeof g.letter_keys_json === 'string' ? JSON.parse(g.letter_keys_json) : g.letter_keys_json) : null,
+    sub_limits: g.sub_limits_json ? (typeof g.sub_limits_json === 'string' ? JSON.parse(g.sub_limits_json) : g.sub_limits_json) : null,
+    conditions: g.conditions_text,
+    renewal_period: g.renewal_period_months,
+    sort_order: g.guarantee_number ?? 0,
+  }));
+
+  return success(c, {
+    ...contract,
+    // Aliases for detail page
+    expiry_date: contract.annual_renewal_date || contract.end_date || null,
+    global_ceiling: contract.annual_global_limit,
+    intermediary: contract.intermediary_name,
+    category: contract.plan_category,
+    covered_risks: JSON.stringify(coveredRisks),
+    guarantees: mappedGuarantees,
+  });
 });
 
 // ---------------------------------------------------------------------------

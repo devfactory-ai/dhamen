@@ -1025,30 +1025,55 @@ adherents.get(
       .bind(principalId)
       .all();
 
-    const mapAdherent = (r: Record<string, unknown>) => ({
-      id: r.id,
-      matricule: r.matricule,
-      firstName: r.first_name,
-      lastName: r.last_name,
-      dateOfBirth: r.date_of_birth,
-      gender: r.gender,
-      email: r.email || null,
-      phone: r.phone_encrypted ? String(r.phone_encrypted) : null,
-      nationalId: r.national_id_encrypted ? String(r.national_id_encrypted) : null,
-      typePieceIdentite: r.type_piece_identite || 'CIN',
-      codeType: r.code_type || 'A',
-      rangPres: r.rang_pres ?? 0,
-      codeSituationFam: r.code_situation_fam,
-      parentAdherentId: r.parent_adherent_id,
-    });
+    const encryptionKey = getEncryptionKey(c);
+
+    const mapAdherent = async (r: Record<string, unknown>) => {
+      let decryptedNationalId: string | null = null;
+      let decryptedPhone: string | null = null;
+
+      if (r.national_id_encrypted) {
+        try {
+          const enc = String(r.national_id_encrypted);
+          decryptedNationalId = enc.startsWith('ENC_') ? enc.replace('ENC_', '') : await decrypt(enc, encryptionKey);
+        } catch {
+          decryptedNationalId = null;
+        }
+      }
+
+      if (r.phone_encrypted) {
+        try {
+          const enc = String(r.phone_encrypted);
+          decryptedPhone = enc.startsWith('ENC_') ? enc.replace('ENC_', '') : await decrypt(enc, encryptionKey);
+        } catch {
+          decryptedPhone = null;
+        }
+      }
+
+      return {
+        id: r.id,
+        matricule: r.matricule,
+        firstName: r.first_name,
+        lastName: r.last_name,
+        dateOfBirth: r.date_of_birth,
+        gender: r.gender,
+        email: r.email || null,
+        phone: decryptedPhone,
+        nationalId: decryptedNationalId,
+        typePieceIdentite: r.type_piece_identite || 'CIN',
+        codeType: r.code_type || 'A',
+        rangPres: r.rang_pres ?? 0,
+        codeSituationFam: r.code_situation_fam,
+        parentAdherentId: r.parent_adherent_id,
+      };
+    };
 
     const conjoint = ayantsDroit.find((a: Record<string, unknown>) => a.code_type === 'C') || null;
     const enfants = ayantsDroit.filter((a: Record<string, unknown>) => a.code_type === 'E');
 
     return success(c, {
-      principal: mapAdherent(principal),
-      conjoint: conjoint ? mapAdherent(conjoint) : null,
-      enfants: enfants.map((e: Record<string, unknown>) => mapAdherent(e)),
+      principal: await mapAdherent(principal),
+      conjoint: conjoint ? await mapAdherent(conjoint) : null,
+      enfants: await Promise.all(enfants.map((e: Record<string, unknown>) => mapAdherent(e))),
     });
   }
 );
@@ -1385,18 +1410,21 @@ adherents.post(
 
       if (createInsurerId) {
         const contractId = generateId();
-        const now2 = new Date();
-        const endDate = new Date(now2);
-        endDate.setFullYear(endDate.getFullYear() + 1);
         const contractNumber = data.contractNumber || `${data.matricule || id}-IND`;
 
-        // Find the group contract of the insurer to link guarantees
-        let groupContractId: string | null = null;
+        // Find the group contract of the insurer to link guarantees and inherit dates
         const gc = await db
-          .prepare("SELECT id FROM group_contracts WHERE insurer_id = ? AND status = 'active' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1")
+          .prepare("SELECT id, effective_date, annual_renewal_date, end_date FROM group_contracts WHERE insurer_id = ? AND status = 'active' AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1")
           .bind(createInsurerId)
-          .first<{ id: string }>();
-        groupContractId = gc?.id || null;
+          .first<{ id: string; effective_date: string | null; annual_renewal_date: string | null; end_date: string | null }>();
+        const groupContractId = gc?.id || null;
+
+        // Use group contract dates if available, fallback to today + 1 year
+        const now2 = new Date();
+        const fallbackEnd = new Date(now2);
+        fallbackEnd.setFullYear(fallbackEnd.getFullYear() + 1);
+        const startDate = gc?.effective_date || now2.toISOString().split('T')[0];
+        const endDateStr = gc?.annual_renewal_date || gc?.end_date || fallbackEnd.toISOString().split('T')[0];
 
         await db
           .prepare(
@@ -1408,8 +1436,8 @@ adherents.post(
             createInsurerId,
             id,
             contractNumber,
-            now2.toISOString().split('T')[0],
-            endDate.toISOString().split('T')[0],
+            startDate,
+            endDateStr,
             data.plafondGlobal ? data.plafondGlobal : null,
             groupContractId
           )
@@ -1713,21 +1741,27 @@ adherents.put(
         }
         if (resolvedInsurerId) {
           const contractId = generateId();
-          const now2 = new Date();
-          const endDate = new Date(now2);
-          endDate.setFullYear(endDate.getFullYear() + 1);
-          let groupContractId: string | null = null;
+
+          // Find the group contract to inherit dates
           const gc = await db
-            .prepare("SELECT id FROM group_contracts WHERE insurer_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1")
+            .prepare("SELECT id, effective_date, annual_renewal_date, end_date FROM group_contracts WHERE insurer_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1")
             .bind(resolvedInsurerId)
-            .first<{ id: string }>();
-          groupContractId = gc?.id || null;
+            .first<{ id: string; effective_date: string | null; annual_renewal_date: string | null; end_date: string | null }>();
+          const groupContractId = gc?.id || null;
+
+          // Use group contract dates if available, fallback to today + 1 year
+          const now2 = new Date();
+          const fallbackEnd = new Date(now2);
+          fallbackEnd.setFullYear(fallbackEnd.getFullYear() + 1);
+          const startDate = gc?.effective_date || now2.toISOString().split('T')[0];
+          const endDateStr = gc?.annual_renewal_date || gc?.end_date || fallbackEnd.toISOString().split('T')[0];
+
           await db.prepare(
             `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, group_contract_id, created_at, updated_at)
              VALUES (?, ?, ?, ?, 'individual', ?, ?, 0, ?, '{}', 'active', ?, datetime('now'), datetime('now'))`
           ).bind(
             contractId, resolvedInsurerId, id, data.contractNumber,
-            now2.toISOString().split('T')[0], endDate.toISOString().split('T')[0],
+            startDate, endDateStr,
             data.plafondGlobal || null, groupContractId
           ).run();
         }

@@ -1,3 +1,4 @@
+import JSZip from 'jszip';
 import React,{ useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
@@ -56,7 +57,7 @@ import { ActeSelector } from '@/features/agent/bulletins/components/ActeSelector
 import { MedicationAutocomplete } from '@/features/bulletins/components/medication-autocomplete';
 import { MfLookupInput } from '@/features/bulletins/components/mf-lookup-input';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
-import { useBulkAnalyseMutation, useOcrJobQuery, useRetryOcrJobMutation } from '@/features/bulletins/hooks/useBulkAnalyse';
+import { useOcrJobQuery, useRetryOcrJobMutation } from '@/features/bulletins/hooks/useBulkAnalyse';
 import {
   FileText,
   Upload,
@@ -390,7 +391,6 @@ export function BulletinsSaisiePage() {
 
   // Bulk ZIP analysis state
   const [bulkJobId, setBulkJobId] = useState<string | null>(null);
-  const bulkMutation = useBulkAnalyseMutation();
   const retryMutation = useRetryOcrJobMutation();
   const { data: bulkJobData } = useOcrJobQuery(bulkJobId);
   const [expandedBulkBulletinId, setExpandedBulkBulletinId] = useState<string | null>(null);
@@ -563,7 +563,7 @@ export function BulletinsSaisiePage() {
   const watchedBulletinDate = watch("bulletin_date");
   const estimateKey = JSON.stringify((watchedActes || []).map(a => ({ code: a.code, amount: Number(a.amount) || 0, care_type: a.care_type })));
   const { data: estimateData } = useQuery({
-    queryKey: ['estimate-reimbursement', watchedMatricule, watchedBulletinDate, estimateKey],
+    queryKey: ['estimate-reimbursement', watchedMatricule, watchedBulletinDate, estimateKey, selectedCompany?.id],
     queryFn: async () => {
       const actes = (watchedActes || []).filter(a => a.code && Number(a.amount) > 0).map(a => ({ code: a.code, amount: Number(a.amount), care_type: a.care_type }));
       if (!actes.length) return null;
@@ -577,6 +577,7 @@ export function BulletinsSaisiePage() {
         adherent_matricule: watchedMatricule,
         bulletin_date: watchedBulletinDate,
         actes,
+        company_id: selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__' ? selectedCompany.id : undefined,
       });
       return res.success ? res.data : null;
     },
@@ -1211,38 +1212,43 @@ export function BulletinsSaisiePage() {
     const remaining = selectedFiles.filter((_, i) => i !== index);
     setSelectedFiles(remaining);
     setFolderSubGroups(null); // Grouping invalidated when files change
-    // Reset form fields when all files are removed
+
+    // Reset OCR bulletins and actes, but preserve adherent info
+    setOcrBulletins([]);
+    setSavedBulletinIndices(new Set());
+    setSavedBulletinSnapshots({});
+    setActiveBulletinIndex(0);
+    setOcrFeedback(null);
+    setOcrPraticienInfos({});
+    setAutoRegisterPraticien({});
+    setMfStatuses({});
+    // Reset only bulletin/actes fields, keep adherent fields intact
+    setValue("bulletin_number", "");
+    setValue("actes", [
+      {
+        care_type: watch("actes.0.care_type") || "consultation",
+        code: "",
+        label: "",
+        amount: 0,
+        ref_prof_sant: "",
+        nom_prof_sant: "",
+        care_description: "",
+        cod_msgr: "",
+        lib_msgr: "",
+      },
+    ]);
     if (remaining.length === 0) {
-      reset({
-        care_type: watch("care_type"),
-        bulletin_date: new Date().toISOString().split("T")[0],
-        bulletin_number: "",
-        adherent_matricule: "",
-        adherent_first_name: "",
-        adherent_last_name: "",
-        adherent_national_id: "",
-        adherent_contract_number: "",
-        adherent_email: "",
-        adherent_address: "",
-        beneficiary_name: "",
-        actes: [
-          {
-            code: "",
-            label: "",
-            amount: 0,
-            ref_prof_sant: "",
-            nom_prof_sant: "",
-            care_description: "",
-            cod_msgr: "",
-            lib_msgr: "",
-          },
-        ],
-      });
+      // Reset everything including adherent when no files left
+      setValue("adherent_matricule", "");
+      setValue("adherent_first_name", "");
+      setValue("adherent_last_name", "");
+      setValue("adherent_national_id", "");
+      setValue("adherent_contract_number", "");
+      setValue("adherent_email", "");
+      setValue("adherent_address", "");
+      setValue("beneficiary_name", "");
+      setValue("bulletin_date", new Date().toISOString().split("T")[0] as string);
       setSelectedAdherentInfo(null);
-      setOcrFeedback(null);
-      setOcrPraticienInfos({});
-      setAutoRegisterPraticien({});
-      setMfStatuses({});
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
@@ -1271,6 +1277,28 @@ export function BulletinsSaisiePage() {
     // Build sub-folder grouping from webkitRelativePath BEFORE storing in state
     // (webkitRelativePath is set by the browser and may not persist reliably)
     const groupMap = new Map<string, number[]>();
+
+    // If editing or files already exist, append and reindex groups from current offset
+    if (selectedFiles.length > 0 || editingBulletinId) {
+      const offset = selectedFiles.length;
+      for (let i = 0; i < validFiles.length; i++) {
+        const relPath = validFiles[i]!.webkitRelativePath;
+        if (relPath) {
+          const parts = relPath.split('/').filter(Boolean);
+          if (parts.length >= 3) {
+            const subFolder = parts[1]!;
+            if (!groupMap.has(subFolder)) groupMap.set(subFolder, []);
+            groupMap.get(subFolder)!.push(offset + i);
+          }
+        }
+      }
+      setSelectedFiles((prev) => [...prev, ...validFiles]);
+      setFolderSubGroups(groupMap.size > 1 ? groupMap : null);
+      if (folderInputRef.current) folderInputRef.current.value = "";
+      toast.success(`${validFiles.length} fichier(s) ajouté(s) depuis le dossier`);
+      return;
+    }
+
     for (let i = 0; i < validFiles.length; i++) {
       const relPath = validFiles[i]!.webkitRelativePath;
       if (relPath) {
@@ -1312,8 +1340,31 @@ export function BulletinsSaisiePage() {
         const adherentRaw = item.infos_adherent || item.adherent || {};
         const adh = adherentRaw as Record<string, unknown>;
 
-        // Determine raw actes
-        const rawActes = (item.volet_medical || item.actes || []) as Array<Record<string, unknown>>;
+        // Determine raw actes (support volet_medical, actes, and actes_independants formats)
+        const rawActesSource = (item.volet_medical || item.actes || item.actes_independants || []) as Array<Record<string, unknown>>;
+
+        // Normalize actes_independants format to standard format
+        const rawActes: Array<Record<string, unknown>> = rawActesSource.map((a) => {
+          // Already in standard format (has type_soin or nature_acte)
+          if (a.type_soin || a.nature_acte) return a;
+          // actes_independants format → normalize
+          const typeRaw = ((a.type as string) || '').toUpperCase();
+          const isPharm = typeRaw.includes('PHARMAC');
+          const isLab = typeRaw.includes('LABORAT') || typeRaw.includes('ANALYSE');
+          const typeSoin = isPharm ? 'Pharmacie' : isLab ? 'Laboratoire' : 'Médecin';
+          const montantRaw = String(a.montant || a.total_ligne || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+          return {
+            ...a,
+            type_soin: typeSoin,
+            nature_acte: a.acte || a.medicament || typeSoin,
+            date_acte: a.date,
+            montant_facture: montantRaw,
+            montant_honoraires: montantRaw,
+            nom_praticien: a.praticien || a.pharmacie || a.laboratoire || '',
+            matricule_fiscale: a.matricule_fiscale,
+            cotation: a.cotation,
+          };
+        });
 
         // Extract date from first acte if available (Format B)
         const firstActe = (rawActes[0] || {}) as Record<string, unknown>;
@@ -1325,7 +1376,14 @@ export function BulletinsSaisiePage() {
               numero_contrat: adh.numero_contrat,
               adresse: adh.adresse,
               beneficiaire_coche: adh.beneficiaire,
-              nom_beneficiaire: (adh.conjoint as Record<string, string>)?.nom_prenom || undefined,
+              nom_beneficiaire: (() => {
+                const benef = ((adh.beneficiaire as string) || '').toLowerCase();
+                if (benef.includes('enfant')) {
+                  const enfants = adh.enfants as Array<Record<string, string>> | undefined;
+                  return enfants?.[0]?.nom_prenom || undefined;
+                }
+                return (adh.conjoint as Record<string, string>)?.nom_prenom || undefined;
+              })(),
               date_signature: firstActe.date_acte || undefined,
             };
 
@@ -1515,30 +1573,125 @@ export function BulletinsSaisiePage() {
 
     let bulletinsArray: OcrBulletinItem[] = [];
 
-    // --- BULK: ZIP → /analyse-bulk (backend API, server-side OCR) ---
+    // --- BULK: ZIP → extract client-side, group by sub-folder, /analyse-bulletin per group ---
     if (hasZip) {
       setIsAnalyzing(true);
       try {
-        const companyId = selectedCompany?.id || '';
-        const batchId = selectedBatch?.id;
-        const result = await bulkMutation.mutateAsync({
-          files: selectedFiles,
-          companyId,
-          batchId,
-        });
-        setBulkJobId(result.jobId);
-        toast.success(`${result.totalExtracted} bulletin(s) détectés — traitement en cours`);
+        const ocrBase = (
+          import.meta.env.VITE_OCR_API_URL_STAGING ||
+          "https://ocr-api-bh-assurance-staging.yassine-techini.workers.dev"
+        ).replace(/\/+$/, "");
+
+        // 1. Extract files from ZIP and group by sub-folder
+        const folderGroups = new Map<string, File[]>();
+        for (const file of selectedFiles) {
+          const isZip = file.name.toLowerCase().endsWith('.zip') ||
+            file.type === 'application/zip' ||
+            file.type === 'application/x-zip-compressed';
+          if (isZip) {
+            const zip = await JSZip.loadAsync(file);
+            const entries = Object.entries(zip.files).filter(
+              ([name, entry]) => !entry.dir && /\.(pdf|jpg|jpeg|png)$/i.test(name)
+            );
+            for (const [name, entry] of entries) {
+              const blob = await entry.async('blob');
+              const ext = name.split('.').pop()?.toLowerCase() || 'pdf';
+              const mimeMap: Record<string, string> = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' };
+              const fileName = name.split('/').pop() || name;
+              const extracted = new File([blob], fileName, { type: mimeMap[ext] || 'application/octet-stream' });
+
+              // Group by parent folder path (first-level sub-folder)
+              const parts = name.split('/').filter(Boolean);
+              const groupKey = parts.length > 1 ? parts.slice(0, -1).join('/') : 'racine';
+              const existing = folderGroups.get(groupKey) || [];
+              existing.push(extracted);
+              folderGroups.set(groupKey, existing);
+            }
+          } else {
+            // Non-zip files go to 'racine' group
+            const existing = folderGroups.get('racine') || [];
+            existing.push(file);
+            folderGroups.set('racine', existing);
+          }
+        }
+
+        if (folderGroups.size === 0) {
+          toast.error("Aucun fichier valide trouvé dans le ZIP");
+          return;
+        }
+
+        // 2. Build groups (same principle as folder import)
+        const groups: { name: string; form: FormData }[] = [];
+        for (const [folderName, files] of folderGroups) {
+          const form = new FormData();
+          for (const f of files) {
+            form.append('files', f);
+          }
+          groups.push({ name: folderName, form });
+        }
+
+        toast.info(`${groups.length} groupe(s) détecté(s) dans le ZIP — analyse OCR en cours...`);
+
+        // 3. Call /analyse-bulletin per group (same as folder import)
+        const allBulletins: OcrBulletinItem[] = [];
+
+        const analyseGroup = async (groupName: string, form: FormData): Promise<void> => {
+          try {
+            const res = await fetch(`${ocrBase}/analyse-bulletin`, {
+              method: 'POST', headers: { accept: 'application/json' }, body: form,
+            });
+            if (!res.ok) {
+              toast.error(`Erreur OCR pour "${groupName}"`);
+              return;
+            }
+            allBulletins.push(...parseOcrResponse(await res.json()));
+          } catch (err) {
+            console.error(`[zip-ocr] Erreur "${groupName}":`, err);
+            toast.error(`Erreur pour "${groupName}"`);
+          }
+        };
+
+        const CONCURRENCY = 4;
+        let completed = 0;
+        if (groups.length > 1) {
+          setAnalyzeProgress({ current: 0, total: groups.length, groupName: '' });
+          toast.info(`Analyse de ${groups.length} bulletins en parallèle...`, { id: 'bulk-progress' });
+        }
+        for (let i = 0; i < groups.length; i += CONCURRENCY) {
+          const batch = groups.slice(i, i + CONCURRENCY);
+          if (groups.length > 1) {
+            setAnalyzeProgress({ current: completed + 1, total: groups.length, groupName: batch.map(b => b.name).join(', ') });
+          }
+          await Promise.allSettled(batch.map(({ name, form }) => analyseGroup(name, form)));
+          completed += batch.length;
+          if (groups.length > CONCURRENCY) {
+            toast.info(`Analyse ${Math.min(i + CONCURRENCY, groups.length)}/${groups.length} terminée...`, { id: 'bulk-progress' });
+          }
+          if (groups.length > 1) {
+            setAnalyzeProgress({ current: completed, total: groups.length, groupName: '' });
+          }
+        }
+        setAnalyzeProgress(null);
+
+        if (allBulletins.length === 0) {
+          toast.error("Aucun bulletin n'a pu être extrait du ZIP");
+          return;
+        }
+
+        bulletinsArray = allBulletins;
+        toast.success(`${allBulletins.length} bulletin(s) analysés depuis ${groups.length} groupe(s) du ZIP`);
       } catch (error) {
         console.error('Bulk analysis error:', error);
         toast.error(error instanceof Error ? error.message : "Erreur lors de l'analyse");
+        return;
       } finally {
         setIsAnalyzing(false);
+        setAnalyzeProgress(null);
       }
-      return;
     }
 
     // --- BULK: Folder with sub-folders → /analyse-bulletin per group ---
-    if (hasSubFolders && folderSubGroups) {
+    else if (hasSubFolders && folderSubGroups) {
       setIsAnalyzing(true);
       try {
         const ocrBase = (
@@ -1675,6 +1828,22 @@ export function BulletinsSaisiePage() {
       if (numeroBulletin) {
         setValue("bulletin_number", numeroBulletin);
         setBulletinNumberFromOcr(true);
+
+        // Check for duplicate bulletin (already validated/processed)
+        const companyParam = selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__' ? `&companyId=${selectedCompany.id}` : '';
+        apiClient.get<BulletinSaisie[]>(
+          `/bulletins-soins/agent?search=${encodeURIComponent(String(numeroBulletin))}&status=approved,approuve,non_remboursable,soumis,en_examen,paye,exported${companyParam}`
+        ).then((res) => {
+          if (res.success && res.data && res.data.length > 0) {
+            const dup = res.data.find((b) => b.bulletin_number === String(numeroBulletin));
+            if (dup) {
+              toast.warning(
+                `Attention : le bulletin N° ${numeroBulletin} existe déjà (${dup.adherent_first_name} ${dup.adherent_last_name}, statut: ${dup.status}). Vérifiez qu'il ne s'agit pas d'un doublon.`,
+                { duration: 10000 }
+              );
+            }
+          }
+        }).catch(() => { /* silent — non-blocking check */ });
       } else {
         setBulletinNumberFromOcr(false);
       }
@@ -2226,11 +2395,25 @@ export function BulletinsSaisiePage() {
         if (result.data.matricule) {
           setValue("adherent_matricule", result.data.matricule);
         }
+        // Pre-fill ayantDroitForm from current beneficiary data before UI switches to "registered" mode
+        const currentBenefName = watch("beneficiary_name");
+        const currentBenefDob = watch("beneficiary_date_of_birth");
+        const currentBenefEmail = watch("beneficiary_email");
+        if (currentBenefName) {
+          const parts = currentBenefName.trim().split(/\s+/);
+          setAyantDroitForm((prev) => ({
+            ...prev,
+            lastName: parts[0] || prev.lastName,
+            firstName: parts.length >= 2 ? parts.slice(1).join(" ") : prev.firstName,
+            dateOfBirth: currentBenefDob || prev.dateOfBirth,
+            email: currentBenefEmail || prev.email,
+          }));
+        }
         // Refresh adherent search + estimation to pick up the new record and contract
         setAdherentSearch(matricule || lastName);
         setShowAdherentDropdown(true);
-        queryClient.invalidateQueries({ queryKey: ["adherents"] });
-        queryClient.invalidateQueries({ queryKey: ["estimate-reimbursement"] });
+        await queryClient.invalidateQueries({ queryKey: ["adherents"] });
+        await queryClient.invalidateQueries({ queryKey: ["estimate-reimbursement"] });
       } else if (!result.success) {
         toast.error(result.error?.message || "Erreur lors de l'enregistrement");
       }
@@ -3827,6 +4010,20 @@ export function BulletinsSaisiePage() {
                                     watchedBeneficiaryRel === "self"
                                   }
                                   onChange={() => {
+                                    // Preserve current beneficiary data in ayantDroitForm before clearing
+                                    const currentName = watch("beneficiary_name");
+                                    const currentDob = watch("beneficiary_date_of_birth");
+                                    const currentEmail = watch("beneficiary_email");
+                                    if (currentName) {
+                                      const parts = currentName.trim().split(/\s+/);
+                                      setAyantDroitForm((prev) => ({
+                                        ...prev,
+                                        lastName: parts[0] || prev.lastName,
+                                        firstName: parts.length >= 2 ? parts.slice(1).join(" ") : prev.firstName,
+                                        dateOfBirth: currentDob || prev.dateOfBirth,
+                                        email: currentEmail || prev.email,
+                                      }));
+                                    }
                                     setValue(
                                       "beneficiary_relationship",
                                       "self",
@@ -3870,6 +4067,12 @@ export function BulletinsSaisiePage() {
                                         "beneficiary_id",
                                         familleData.conjoint.id,
                                       );
+                                    } else if (ayantDroitForm.firstName || ayantDroitForm.lastName) {
+                                      // Restore from saved ayantDroitForm (e.g. OCR data preserved across radio switches)
+                                      setValue(
+                                        "beneficiary_name",
+                                        `${ayantDroitForm.lastName} ${ayantDroitForm.firstName}`.trim(),
+                                      );
                                     }
                                   }}
                                 />
@@ -3908,6 +4111,12 @@ export function BulletinsSaisiePage() {
                                       setValue(
                                         "beneficiary_id",
                                         firstEnfant.id,
+                                      );
+                                    } else if (ayantDroitForm.firstName || ayantDroitForm.lastName) {
+                                      // Restore from saved ayantDroitForm (e.g. OCR data preserved across radio switches)
+                                      setValue(
+                                        "beneficiary_name",
+                                        `${ayantDroitForm.lastName} ${ayantDroitForm.firstName}`.trim(),
                                       );
                                     }
                                   }}
@@ -4021,6 +4230,7 @@ export function BulletinsSaisiePage() {
                                       <Input
                                         type="date"
                                         {...register("adherent_date_of_birth")}
+                                        max={new Date().toISOString().split("T")[0]}
                                         className="rounded-xl text-sm"
                                       />
                                     </div>
@@ -4162,6 +4372,7 @@ export function BulletinsSaisiePage() {
                                       <Input
                                         type="date"
                                         className="rounded-xl text-sm"
+                                        max={new Date().toISOString().split("T")[0]}
                                         value={ayantDroitForm.dateOfBirth}
                                         onChange={(e) => setAyantDroitForm((p) => ({ ...p, dateOfBirth: e.target.value }))}
                                       />
@@ -4347,6 +4558,7 @@ export function BulletinsSaisiePage() {
                                       <Input
                                         type="date"
                                         className="rounded-xl text-sm"
+                                        max={new Date().toISOString().split("T")[0]}
                                         value={ayantDroitForm.dateOfBirth}
                                         onChange={(e) => setAyantDroitForm((p) => ({ ...p, dateOfBirth: e.target.value }))}
                                       />
@@ -4776,6 +4988,8 @@ export function BulletinsSaisiePage() {
 
                                 {/* Acte description / selector */}
                                 <div className="sm:col-span-6 space-y-2">
+                                  {/* Hide individual medication field when sub_items has multiple meds */}
+                                  {!(acteCareType === "pharmacy" && ((currentActe as unknown as Record<string, unknown>)?.sub_items as Array<unknown> || []).length > 0) && (<>
                                   <div>
                                     <Label className="text-sm text-gray-700">
                                       {acteCareType === "pharmacy"
@@ -4896,6 +5110,7 @@ export function BulletinsSaisiePage() {
                                       }
                                       return null;
                                     })()}
+                                  </>)}
                                   {/* Description de soin — Textarea */}
                                   <div>
                                     <Label className="text-sm text-gray-700">
@@ -4999,6 +5214,9 @@ export function BulletinsSaisiePage() {
                                                 const updated = [...currentSubItems];
                                                 updated[subIdx] = { ...updated[subIdx]!, amount: parseFloat(e.target.value) || 0 };
                                                 setValue(`actes.${index}.sub_items`, updated);
+                                                // Recalculate total amount from sub_items
+                                                const newTotal = updated.reduce((s, si) => s + (Number(si.amount) || 0), 0);
+                                                setValue(`actes.${index}.amount`, Math.round(newTotal * 1000) / 1000);
                                               }}
                                               placeholder="0.000"
                                               className="rounded-lg text-sm text-right h-8"
@@ -5010,6 +5228,9 @@ export function BulletinsSaisiePage() {
                                             onClick={() => {
                                               const updated = currentSubItems.filter((_, si) => si !== subIdx);
                                               setValue(`actes.${index}.sub_items`, updated);
+                                              // Recalculate total amount from remaining sub_items
+                                              const newTotal = updated.reduce((s, si) => s + (Number(si.amount) || 0), 0);
+                                              setValue(`actes.${index}.amount`, Math.round(newTotal * 1000) / 1000);
                                             }}
                                             className="shrink-0 p-1 text-gray-300 hover:text-red-500 transition-colors"
                                           >
@@ -5620,8 +5841,8 @@ export function BulletinsSaisiePage() {
                               </button>
                             );
                           })()}
-                          {/* Soumettre — blocked when incomplete or MF missing */}
-                          {(() => {
+                          {/* Soumettre — only for reimbursable bulletins, blocked when incomplete or MF missing */}
+                          {(row.reimbursed_amount != null && row.reimbursed_amount > 0) && (() => {
                             const incomplete = (row.actes_count ?? 0) === 0;
                             const mfMissing = (row.mf_missing_count ?? 0) > 0;
                             const blocked = incomplete || mfMissing;
@@ -6506,7 +6727,7 @@ export function BulletinsSaisiePage() {
             <AlertDialogDescription>
               {(validateBulletinTarget?.reimbursed_amount || 0) <= 0 ? (
                 <>
-                  Le bulletin {validateBulletinTarget?.bulletin_number} ne peut pas être remboursé — <span className="font-semibold text-orange-600">plafond annuel atteint</span>. Il sera classé comme non remboursable dans l&apos;historique.
+                  Le bulletin {validateBulletinTarget?.bulletin_number} ne peut pas être remboursé (contrat non actif à la date du bulletin, plafond épuisé, ou acte non couvert). Il sera classé comme non remboursable.
                 </>
               ) : (
                 <>
@@ -6523,7 +6744,7 @@ export function BulletinsSaisiePage() {
                 <div className="rounded-md border border-orange-200 bg-orange-50 p-3 flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 text-orange-600 mt-0.5 shrink-0" />
                   <p className="text-xs text-orange-800">
-                    Le plafond global de cet adhérent est épuisé. Le montant remboursable est de 0 DT. Ce bulletin sera marqué comme &quot;non remboursable&quot;.
+                    Le montant remboursable est de 0 DT. Ce bulletin sera marqué comme &quot;non remboursable&quot;.
                   </p>
                 </div>
               )}
