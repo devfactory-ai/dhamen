@@ -3,53 +3,56 @@
  *
  * CRUD + OCR analysis for group insurance contracts (contrat d'assurance groupe).
  * Models real Tunisian group contracts with 18 guarantee categories.
+ *
+ * Gemini model configurable via env var GEMINI_MODEL:
+ *   - "gemini-2.5-flash" (default) — fast, cheap, good for most contracts
+ *   - "gemini-2.5-pro"            — slower, expensive, best accuracy
+ * Set in wrangler.toml: [vars] GEMINI_MODEL = "gemini-2.5-pro"
+ * Or in .dev.vars: GEMINI_MODEL=gemini-2.5-pro
  */
-import { zValidator } from '@hono/zod-validator';
-import { Hono } from 'hono';
-import pako from 'pako';
-import { z } from 'zod';
-import { getDb } from '../lib/db';
-import { conflict, created, notFound, paginated, success, validationError, error as errorResponse } from '../lib/response';
-import { generateId } from '../lib/ulid';
-import { logAudit } from '../middleware/audit-trail';
-import { authMiddleware, requireRole } from '../middleware/auth';
-import type { Bindings, Variables } from '../types';
+import { zValidator } from "@hono/zod-validator";
+import { Hono } from "hono";
+import pako from "pako";
+import { z } from "zod";
+import { getDb } from "../lib/db";
+import {
+  conflict, created, notFound, paginated, success, validationError,
+  error as errorResponse,
+} from "../lib/response";
+import { generateId } from "../lib/ulid";
+import { logAudit } from "../middleware/audit-trail";
+import { authMiddleware, requireRole } from "../middleware/auth";
+import type { Bindings, Variables } from "../types";
 
 // ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------
-
 const CARE_TYPES = [
-  'consultation', 'consultation_visite', 'pharmacy', 'pharmacie',
-  'laboratory', 'laboratoire', 'optical', 'optique',
-  'refractive_surgery', 'chirurgie_refractive',
-  'medical_acts', 'actes_courants', 'transport',
-  'surgery', 'chirurgie', 'orthopedics', 'orthopedie',
-  'hospitalization', 'hospitalisation',
-  'maternity', 'accouchement',
-  'ivg', 'interruption_grossesse',
-  'dental', 'dentaire', 'orthodontics', 'orthodontie',
-  'circumcision', 'circoncision',
-  'sanatorium', 'thermal_cure', 'cures_thermales',
-  'funeral', 'frais_funeraires',
+  "consultation","consultation_visite","pharmacy","pharmacie",
+  "laboratory","laboratoire","optical","optique",
+  "refractive_surgery","chirurgie_refractive","medical_acts","actes_courants",
+  "transport","surgery","chirurgie","orthopedics","orthopedie",
+  "hospitalization","hospitalisation","maternity","accouchement",
+  "ivg","interruption_grossesse","dental","dentaire",
+  "orthodontics","orthodontie","circumcision","circoncision",
+  "sanatorium","thermal_cure","cures_thermales","funeral","frais_funeraires",
 ] as const;
 
-const PLAN_CATEGORIES = ['basic', 'standard', 'premium', 'vip'] as const;
-const CONTRACT_STATUSES = ['draft', 'active', 'suspended', 'expired', 'cancelled'] as const;
-
-const CONTRACT_TYPES = ['group', 'individual'] as const;
+const PLAN_CATEGORIES = ["basic","standard","premium","vip"] as const;
+const CONTRACT_STATUSES = ["draft","active","suspended","expired","cancelled"] as const;
+const CONTRACT_TYPES = ["group","individual"] as const;
 
 const groupContractCreateSchema = z.object({
-  contractType: z.enum(CONTRACT_TYPES).default('group'),
-  contractNumber: z.string().min(1, 'Numéro de contrat requis'),
+  contractType: z.enum(CONTRACT_TYPES).default("group"),
+  contractNumber: z.string().min(1, "Numéro de contrat requis"),
   companyId: z.string().optional(),
   adherentId: z.string().optional(),
-  insurerId: z.string().min(1, 'Assureur requis'),
+  insurerId: z.string().min(1, "Assureur requis"),
   companyAddress: z.string().optional(),
   matriculeFiscale: z.string().optional(),
   intermediaryName: z.string().optional(),
   intermediaryCode: z.string().optional(),
-  effectiveDate: z.string().min(1, 'Date d\'effet requise'),
+  effectiveDate: z.string().min(1, "Date d'effet requise"),
   annualRenewalDate: z.string().optional(),
   endDate: z.string().optional(),
   riskIllness: z.boolean().default(true),
@@ -65,8 +68,8 @@ const groupContractCreateSchema = z.object({
   coversRetirees: z.boolean().default(false),
   documentUrl: z.string().optional(),
   documentId: z.string().optional(),
-  planCategory: z.enum(PLAN_CATEGORIES).default('standard'),
-  status: z.enum(CONTRACT_STATUSES).default('draft'),
+  planCategory: z.enum(PLAN_CATEGORIES).default("standard"),
+  status: z.enum(CONTRACT_STATUSES).default("draft"),
   notes: z.string().optional(),
   guarantees: z.array(z.object({
     guaranteeNumber: z.number().int().min(1).max(18),
@@ -97,2034 +100,789 @@ const groupContractFiltersSchema = z.object({
   insurerId: z.string().optional(),
   status: z.enum(CONTRACT_STATUSES).optional(),
   planCategory: z.enum(PLAN_CATEGORIES).optional(),
-  contractType: z.enum([...CONTRACT_TYPES, 'all']).optional(),
+  contractType: z.enum([...CONTRACT_TYPES, "all"]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(500).default(20),
 });
 
 // ---------------------------------------------------------------------------
+// Gemini config — override via env GEMINI_MODEL
+// ---------------------------------------------------------------------------
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
-
 const groupContracts = new Hono<{ Bindings: Bindings; Variables: Variables }>();
-
-// Apply auth middleware to all routes
-groupContracts.use('*', authMiddleware());
+groupContracts.use("*", authMiddleware());
 
 // ---------------------------------------------------------------------------
-// GET / — List group contracts with filters + pagination
+// GET / — List
 // ---------------------------------------------------------------------------
-groupContracts.get(
-  '/',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
-  zValidator('query', groupContractFiltersSchema),
-  async (c) => {
-    const { companyId, insurerId, status, planCategory, contractType, page, limit } = c.req.valid('query');
-    const user = c.get('user');
-    const db = getDb(c);
+groupContracts.get("/", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT","HR"), zValidator("query", groupContractFiltersSchema), async (c) => {
+  const { companyId, insurerId, status, planCategory, contractType, page, limit } = c.req.valid("query");
+  const user = c.get("user");
+  const db = getDb(c);
+  if (user.role === "HR" && !user.companyId) return c.json({ success: false, error: { code: "NO_COMPANY", message: "Votre compte n'est associé à aucune entreprise" }}, 403);
+  let effectiveInsurerId = insurerId;
+  if (user?.insurerId && (user.role === "INSURER_ADMIN" || user.role === "INSURER_AGENT")) effectiveInsurerId = user.insurerId;
+  const conditions: string[] = ["gc.deleted_at IS NULL"];
+  const params: unknown[] = [];
+  if (effectiveInsurerId) { conditions.push("gc.insurer_id = ?"); params.push(effectiveInsurerId); }
+  if (user.role === "HR") { conditions.push("gc.company_id = ?"); params.push(user.companyId); }
+  else if (companyId) { conditions.push("gc.company_id = ?"); params.push(companyId); }
+  if (status) { conditions.push("gc.status = ?"); params.push(status); }
+  if (planCategory) { conditions.push("gc.plan_category = ?"); params.push(planCategory); }
+  if (contractType && contractType !== "all") { conditions.push("gc.contract_type = ?"); params.push(contractType); }
+  conditions.push("gc.company_id != '__INDIVIDUAL__' OR gc.contract_type = 'individual'");
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const countResult = await db.prepare(`SELECT COUNT(*) as total FROM group_contracts gc ${whereClause}`).bind(...params).first<{ total: number }>();
+  const total = countResult?.total ?? 0;
+  const offset = (page - 1) * limit;
+  const rows = await db.prepare(`SELECT gc.*, CASE WHEN gc.contract_type = 'individual' THEN (a.first_name || ' ' || a.last_name) ELSE co.name END as company_name, ins.name as insurer_name FROM group_contracts gc LEFT JOIN companies co ON gc.company_id = co.id LEFT JOIN adherents a ON gc.adherent_id = a.id LEFT JOIN insurers ins ON gc.insurer_id = ins.id ${whereClause} ORDER BY gc.created_at DESC LIMIT ? OFFSET ?`).bind(...params, limit, offset).all();
+  return paginated(c, rows.results ?? [], { page, limit, total });
+});
 
-    // HR: must have a company_id, scope to own company only
-    if (user.role === 'HR' && !user.companyId) {
-      return c.json({
-        success: false,
-        error: { code: 'NO_COMPANY', message: 'Votre compte n\'est associé à aucune entreprise' },
-      }, 403);
+// ---------------------------------------------------------------------------
+// GET /:id — Detail
+// ---------------------------------------------------------------------------
+groupContracts.get("/:id", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT","HR"), async (c) => {
+  const id = c.req.param("id"); const user = c.get("user"); const db = getDb(c);
+  const contract = await db.prepare(`SELECT gc.*, CASE WHEN gc.contract_type = 'individual' THEN (a.first_name || ' ' || a.last_name) ELSE co.name END as company_name, a.first_name as adherent_first_name, a.last_name as adherent_last_name, a.matricule as adherent_matricule, ins.name as insurer_name FROM group_contracts gc LEFT JOIN companies co ON gc.company_id = co.id LEFT JOIN adherents a ON gc.adherent_id = a.id LEFT JOIN insurers ins ON gc.insurer_id = ins.id WHERE gc.id = ? AND gc.deleted_at IS NULL`).bind(id).first();
+  if (!contract) return notFound(c, "Contrat non trouvé");
+  if (user?.insurerId && (user.role === "INSURER_ADMIN" || user.role === "INSURER_AGENT") && contract.insurer_id !== user.insurerId) return notFound(c, "Contrat groupe non trouvé");
+  if (user.role === "HR" && contract.company_id !== user.companyId) return notFound(c, "Contrat non trouvé");
+  const guarantees = await db.prepare(`SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1 ORDER BY guarantee_number ASC`).bind(id).all();
+  return success(c, { ...contract, guarantees: guarantees.results ?? [] });
+});
+
+// ---------------------------------------------------------------------------
+// POST / — Create
+// ---------------------------------------------------------------------------
+groupContracts.post("/", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT"), zValidator("json", groupContractCreateSchema), async (c) => {
+  const data = c.req.valid("json"); const user = c.get("user"); const db = getDb(c);
+  let effectiveInsurerId = data.insurerId;
+  if (user?.insurerId && user.role === "INSURER_ADMIN") effectiveInsurerId = user.insurerId;
+  const isIndividual = data.contractType === "individual";
+  if (!isIndividual && !data.companyId) return validationError(c, [{ path: "companyId", message: "Entreprise requise pour un contrat groupe" }]);
+  if (isIndividual && !data.adherentId) return validationError(c, [{ path: "adherentId", message: "Adhérent requis pour un contrat individuel" }]);
+  const existing = await db.prepare("SELECT id FROM group_contracts WHERE contract_number = ? AND deleted_at IS NULL").bind(data.contractNumber).first();
+  if (existing) return errorResponse(c, "DUPLICATE_CONTRACT", "Un contrat avec ce numéro existe déjà", 409);
+  const contractId = generateId(); const now = new Date().toISOString();
+  const effectiveCompanyId = isIndividual ? "__INDIVIDUAL__" : data.companyId;
+  await db.prepare(`INSERT INTO group_contracts (id, contract_number, company_id, insurer_id, contract_type, adherent_id, company_address, matricule_fiscale, intermediary_name, intermediary_code, effective_date, annual_renewal_date, end_date, risk_illness, risk_disability, risk_death, annual_global_limit, carence_days, covers_spouse, covers_children, children_max_age, children_student_max_age, covers_disabled_children, covers_retirees, document_url, document_id, plan_category, status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(contractId, data.contractNumber, effectiveCompanyId, effectiveInsurerId, data.contractType, data.adherentId ?? null, data.companyAddress ?? null, data.matriculeFiscale ?? null, data.intermediaryName ?? null, data.intermediaryCode ?? null, data.effectiveDate, data.annualRenewalDate ?? null, data.endDate ?? null, data.riskIllness ? 1 : 0, data.riskDisability ? 1 : 0, data.riskDeath ? 1 : 0, data.annualGlobalLimit ?? null, data.carenceDays, data.coversSpouse ? 1 : 0, data.coversChildren ? 1 : 0, data.childrenMaxAge, data.childrenStudentMaxAge, data.coversDisabledChildren ? 1 : 0, data.coversRetirees ? 1 : 0, data.documentUrl ?? null, data.documentId ?? null, data.planCategory, data.status, data.notes ?? null, now, now).run();
+  if (data.guarantees && data.guarantees.length > 0) {
+    for (const g of data.guarantees) {
+      const gid = generateId();
+      await db.prepare(`INSERT INTO contract_guarantees (id, group_contract_id, guarantee_number, care_type, label, reimbursement_rate, is_fixed_amount, annual_limit, per_event_limit, daily_limit, max_days, letter_keys_json, sub_limits_json, conditions_text, requires_prescription, requires_cnam_complement, renewal_period_months, age_limit, waiting_period_days, exclusions_text, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`).bind(gid, contractId, g.guaranteeNumber, g.careType, g.label, g.reimbursementRate ?? null, g.isFixedAmount ? 1 : 0, g.annualLimit ?? null, g.perEventLimit ?? null, g.dailyLimit ?? null, g.maxDays ?? null, g.letterKeysJson ?? null, g.subLimitsJson ?? null, g.conditionsText ?? null, g.requiresPrescription ? 1 : 0, g.requiresCnamComplement ? 1 : 0, g.renewalPeriodMonths ?? null, g.ageLimit ?? null, g.waitingPeriodDays, g.exclusionsText ?? null, now, now).run();
     }
-
-    // Insurer users can only see their own contracts
-    let effectiveInsurerId = insurerId;
-    if (user?.insurerId && (user.role === 'INSURER_ADMIN' || user.role === 'INSURER_AGENT')) {
-      effectiveInsurerId = user.insurerId;
-    }
-
-    const conditions: string[] = ['gc.deleted_at IS NULL'];
-    const params: unknown[] = [];
-
-    if (effectiveInsurerId) {
-      conditions.push('gc.insurer_id = ?');
-      params.push(effectiveInsurerId);
-    }
-
-    // HR: force scope to own company (ignore companyId query param)
-    if (user.role === 'HR') {
-      conditions.push('gc.company_id = ?');
-      params.push(user.companyId);
-    } else if (companyId) {
-      conditions.push('gc.company_id = ?');
-      params.push(companyId);
-    }
-    if (status) {
-      conditions.push('gc.status = ?');
-      params.push(status);
-    }
-    if (planCategory) {
-      conditions.push('gc.plan_category = ?');
-      params.push(planCategory);
-    }
-    // Filter by contract type (group/individual)
-    if (contractType && contractType !== 'all') {
-      conditions.push('gc.contract_type = ?');
-      params.push(contractType);
-    }
-    // Exclude sentinel company from default views
-    conditions.push("gc.company_id != '__INDIVIDUAL__' OR gc.contract_type = 'individual'");
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const countResult = await db
-      .prepare(`SELECT COUNT(*) as total FROM group_contracts gc ${whereClause}`)
-      .bind(...params)
-      .first<{ total: number }>();
-    const total = countResult?.total ?? 0;
-
-    const offset = (page - 1) * limit;
-    const rows = await db
-      .prepare(
-        `SELECT gc.*,
-                CASE WHEN gc.contract_type = 'individual'
-                     THEN (a.first_name || ' ' || a.last_name)
-                     ELSE co.name
-                END as company_name,
-                ins.name as insurer_name
-         FROM group_contracts gc
-         LEFT JOIN companies co ON gc.company_id = co.id
-         LEFT JOIN adherents a ON gc.adherent_id = a.id
-         LEFT JOIN insurers ins ON gc.insurer_id = ins.id
-         ${whereClause}
-         ORDER BY gc.created_at DESC
-         LIMIT ? OFFSET ?`
-      )
-      .bind(...params, limit, offset)
-      .all();
-
-    return paginated(c, rows.results ?? [], {
-      page,
-      limit,
-      total,
-    });
   }
-);
-
-// ---------------------------------------------------------------------------
-// GET /:id — Get a group contract with its guarantees
-// ---------------------------------------------------------------------------
-groupContracts.get(
-  '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT', 'HR'),
-  async (c) => {
-    const id = c.req.param('id');
-    const user = c.get('user');
-    const db = getDb(c);
-
-    const contract = await db
-      .prepare(
-        `SELECT gc.*,
-                CASE WHEN gc.contract_type = 'individual'
-                     THEN (a.first_name || ' ' || a.last_name)
-                     ELSE co.name
-                END as company_name,
-                a.first_name as adherent_first_name,
-                a.last_name as adherent_last_name,
-                a.matricule as adherent_matricule,
-                ins.name as insurer_name
-         FROM group_contracts gc
-         LEFT JOIN companies co ON gc.company_id = co.id
-         LEFT JOIN adherents a ON gc.adherent_id = a.id
-         LEFT JOIN insurers ins ON gc.insurer_id = ins.id
-         WHERE gc.id = ? AND gc.deleted_at IS NULL`
-      )
-      .bind(id)
-      .first();
-
-    if (!contract) {
-      return notFound(c, 'Contrat non trouvé');
-    }
-
-    // Access control for insurer roles
-    if (
-      user?.insurerId &&
-      (user.role === 'INSURER_ADMIN' || user.role === 'INSURER_AGENT') &&
-      contract.insurer_id !== user.insurerId
-    ) {
-      return notFound(c, 'Contrat groupe non trouvé');
-    }
-
-    // HR: verify company ownership
-    if (user.role === 'HR' && contract.company_id !== user.companyId) {
-      return notFound(c, 'Contrat non trouvé');
-    }
-
-    // Fetch guarantees
-    const guarantees = await db
-      .prepare(
-        `SELECT * FROM contract_guarantees
-         WHERE group_contract_id = ? AND is_active = 1
-         ORDER BY guarantee_number ASC`
-      )
-      .bind(id)
-      .all();
-
-    return success(c, {
-      ...contract,
-      guarantees: guarantees.results ?? [],
-    });
+  let individualContractId: string | null = null;
+  if (isIndividual && data.adherentId) {
+    individualContractId = generateId();
+    const coverageMap: Record<string, unknown> = {};
+    if (data.guarantees) { for (const g of data.guarantees) { coverageMap[g.careType] = { enabled: true, reimbursementRate: g.reimbursementRate ? Number(g.reimbursementRate) * 100 : null, annualLimit: g.annualLimit ?? null, perEventLimit: g.perEventLimit ?? null }; } }
+    const endDate = data.endDate ?? data.annualRenewalDate ?? new Date(new Date(data.effectiveDate).getTime() + 365*24*60*60*1000).toISOString().split("T")[0];
+    await db.prepare(`INSERT INTO contracts (id, contract_number, adherent_id, insurer_id, plan_type, status, coverage_json, start_date, end_date, group_contract_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`).bind(individualContractId, `${data.contractNumber}-IND`, data.adherentId, effectiveInsurerId, data.planCategory ?? "individual", JSON.stringify(coverageMap), data.effectiveDate, endDate, contractId, now, now).run();
   }
-);
+  await logAudit(getDb(c), { userId: user?.sub, action: "group_contract.create", entityType: "group_contract", entityId: contractId, changes: { contractNumber: data.contractNumber, companyId: data.companyId, insurerId: effectiveInsurerId, guaranteesCount: data.guarantees?.length ?? 0, contractType: data.contractType, individualContractCreated: !!individualContractId }, ipAddress: c.req.header("CF-Connecting-IP"), userAgent: c.req.header("User-Agent") });
+  const result = await db.prepare("SELECT * FROM group_contracts WHERE id = ?").bind(contractId).first();
+  const guarantees = await db.prepare("SELECT * FROM contract_guarantees WHERE group_contract_id = ? ORDER BY guarantee_number").bind(contractId).all();
+  return created(c, { ...result, guarantees: guarantees.results ?? [], individualContractId });
+});
 
 // ---------------------------------------------------------------------------
-// POST / — Create a group contract (with optional guarantees)
+// PUT /:id — Update
 // ---------------------------------------------------------------------------
-groupContracts.post(
-  '/',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
-  zValidator('json', groupContractCreateSchema),
-  async (c) => {
-    const data = c.req.valid('json');
-    const user = c.get('user');
-    const db = getDb(c);
-
-    // Force insurer ID for insurer users
-    let effectiveInsurerId = data.insurerId;
-    if (user?.insurerId && user.role === 'INSURER_ADMIN') {
-      effectiveInsurerId = user.insurerId;
-    }
-
-    const isIndividual = data.contractType === 'individual';
-
-    // Validate required fields based on contract type
-    if (!isIndividual && !data.companyId) {
-      return validationError(c, [{ path: 'companyId', message: 'Entreprise requise pour un contrat groupe' }]);
-    }
-    if (isIndividual && !data.adherentId) {
-      return validationError(c, [{ path: 'adherentId', message: 'Adhérent requis pour un contrat individuel' }]);
-    }
-
-    // Check for duplicate contract number
-    const existing = await db
-      .prepare('SELECT id FROM group_contracts WHERE contract_number = ? AND deleted_at IS NULL')
-      .bind(data.contractNumber)
-      .first();
-    if (existing) {
-      return errorResponse(c, 'DUPLICATE_CONTRACT', 'Un contrat avec ce numéro existe déjà', 409);
-    }
-
-    const contractId = generateId();
+groupContracts.put("/:id", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT"), zValidator("json", groupContractUpdateSchema), async (c) => {
+  const id = c.req.param("id"); const data = c.req.valid("json"); const user = c.get("user"); const db = getDb(c);
+  const existing = await db.prepare("SELECT * FROM group_contracts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
+  if (!existing) return notFound(c, "Contrat groupe non trouvé");
+  if (user?.insurerId && user.role === "INSURER_ADMIN" && existing.insurer_id !== user.insurerId) return notFound(c, "Contrat groupe non trouvé");
+  const sets: string[] = []; const values: unknown[] = [];
+  const fieldMap: Record<string,string> = { companyId:"company_id", insurerId:"insurer_id", contractNumber:"contract_number", contractType:"contract_type", intermediaryName:"intermediary_name", intermediaryCode:"intermediary_code", companyAddress:"company_address", matriculeFiscale:"matricule_fiscale", effectiveDate:"effective_date", annualRenewalDate:"annual_renewal_date", endDate:"end_date", annualGlobalLimit:"annual_global_limit", carenceDays:"carence_days", childrenMaxAge:"children_max_age", childrenStudentMaxAge:"children_student_max_age", documentUrl:"document_url", documentId:"document_id", planCategory:"plan_category", status:"status", notes:"notes" };
+  const boolFieldMap: Record<string,string> = { riskIllness:"risk_illness", riskDisability:"risk_disability", riskDeath:"risk_death", coversSpouse:"covers_spouse", coversChildren:"covers_children", coversDisabledChildren:"covers_disabled_children", coversRetirees:"covers_retirees" };
+  for (const [jsKey, dbCol] of Object.entries(fieldMap)) { if ((data as Record<string,unknown>)[jsKey] !== undefined) { sets.push(`${dbCol} = ?`); values.push((data as Record<string,unknown>)[jsKey]); } }
+  for (const [jsKey, dbCol] of Object.entries(boolFieldMap)) { if ((data as Record<string,unknown>)[jsKey] !== undefined) { sets.push(`${dbCol} = ?`); values.push((data as Record<string,unknown>)[jsKey] ? 1 : 0); } }
+  if (data.contractNumber && data.contractNumber !== existing.contract_number) {
+    const dup = await db.prepare("SELECT id FROM group_contracts WHERE contract_number = ? AND id != ? AND deleted_at IS NULL LIMIT 1").bind(data.contractNumber, id).first();
+    if (dup) return conflict(c, `Le numéro de contrat "${data.contractNumber}" existe déjà`);
+  }
+  if (sets.length === 0 && !data.guarantees) return success(c, existing);
+  if (sets.length > 0) { sets.push("updated_at = ?"); values.push(new Date().toISOString()); values.push(id); await db.prepare(`UPDATE group_contracts SET ${sets.join(", ")} WHERE id = ?`).bind(...values).run(); }
+  if (data.guarantees) {
+    await db.prepare("UPDATE contract_guarantees SET is_active = 0 WHERE group_contract_id = ?").bind(id).run();
     const now = new Date().toISOString();
-    const effectiveCompanyId = isIndividual ? '__INDIVIDUAL__' : data.companyId;
-
-    await db
-      .prepare(
-        `INSERT INTO group_contracts (
-          id, contract_number, company_id, insurer_id,
-          contract_type, adherent_id,
-          company_address, matricule_fiscale,
-          intermediary_name, intermediary_code,
-          effective_date, annual_renewal_date, end_date,
-          risk_illness, risk_disability, risk_death,
-          annual_global_limit, carence_days,
-          covers_spouse, covers_children, children_max_age,
-          children_student_max_age, covers_disabled_children, covers_retirees,
-          document_url, document_id,
-          plan_category, status, notes,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        contractId,
-        data.contractNumber,
-        effectiveCompanyId,
-        effectiveInsurerId,
-        data.contractType,
-        data.adherentId ?? null,
-        data.companyAddress ?? null,
-        data.matriculeFiscale ?? null,
-        data.intermediaryName ?? null,
-        data.intermediaryCode ?? null,
-        data.effectiveDate,
-        data.annualRenewalDate ?? null,
-        data.endDate ?? null,
-        data.riskIllness ? 1 : 0,
-        data.riskDisability ? 1 : 0,
-        data.riskDeath ? 1 : 0,
-        data.annualGlobalLimit ?? null,
-        data.carenceDays,
-        data.coversSpouse ? 1 : 0,
-        data.coversChildren ? 1 : 0,
-        data.childrenMaxAge,
-        data.childrenStudentMaxAge,
-        data.coversDisabledChildren ? 1 : 0,
-        data.coversRetirees ? 1 : 0,
-        data.documentUrl ?? null,
-        data.documentId ?? null,
-        data.planCategory,
-        data.status,
-        data.notes ?? null,
-        now,
-        now
-      )
-      .run();
-
-    // Insert guarantees if provided
-    if (data.guarantees && data.guarantees.length > 0) {
-      for (const g of data.guarantees) {
-        const guaranteeId = generateId();
-        await db
-          .prepare(
-            `INSERT INTO contract_guarantees (
-              id, group_contract_id, guarantee_number, care_type, label,
-              reimbursement_rate, is_fixed_amount,
-              annual_limit, per_event_limit, daily_limit, max_days,
-              letter_keys_json, sub_limits_json,
-              conditions_text, requires_prescription, requires_cnam_complement,
-              renewal_period_months, age_limit, waiting_period_days,
-              exclusions_text, is_active, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
-          )
-          .bind(
-            guaranteeId,
-            contractId,
-            g.guaranteeNumber,
-            g.careType,
-            g.label,
-            g.reimbursementRate ?? null,
-            g.isFixedAmount ? 1 : 0,
-            g.annualLimit ?? null,
-            g.perEventLimit ?? null,
-            g.dailyLimit ?? null,
-            g.maxDays ?? null,
-            g.letterKeysJson ?? null,
-            g.subLimitsJson ?? null,
-            g.conditionsText ?? null,
-            g.requiresPrescription ? 1 : 0,
-            g.requiresCnamComplement ? 1 : 0,
-            g.renewalPeriodMonths ?? null,
-            g.ageLimit ?? null,
-            g.waitingPeriodDays,
-            g.exclusionsText ?? null,
-            now,
-            now
-          )
-          .run();
-      }
-    }
-
-    // For individual contracts, auto-create the individual `contracts` record
-    // since there's only one adherent — no need for a separate "apply-to-adherents" step
-    let individualContractId: string | null = null;
-    if (isIndividual && data.adherentId) {
-      individualContractId = generateId();
-      const indContractNumber = `${data.contractNumber}-IND`;
-
-      // Build coverage from guarantees
-      const coverageMap: Record<string, unknown> = {};
-      if (data.guarantees) {
-        for (const g of data.guarantees) {
-          coverageMap[g.careType] = {
-            enabled: true,
-            reimbursementRate: g.reimbursementRate ? Number(g.reimbursementRate) * 100 : null,
-            annualLimit: g.annualLimit ?? null,
-            perEventLimit: g.perEventLimit ?? null,
-          };
-        }
-      }
-
-      const endDate = data.endDate
-        ?? data.annualRenewalDate
-        ?? new Date(new Date(data.effectiveDate).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-      await db
-        .prepare(
-          `INSERT INTO contracts (
-            id, contract_number, adherent_id, insurer_id,
-            plan_type, status, coverage_json,
-            start_date, end_date,
-            group_contract_id,
-            created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`
-        )
-        .bind(
-          individualContractId,
-          indContractNumber,
-          data.adherentId,
-          effectiveInsurerId,
-          data.planCategory ?? 'individual',
-          JSON.stringify(coverageMap),
-          data.effectiveDate,
-          endDate,
-          contractId, // link to the group_contract
-          now,
-          now
-        )
-        .run();
-    }
-
-    // Audit log
-    await logAudit(getDb(c), {
-      userId: user?.sub,
-      action: 'group_contract.create',
-      entityType: 'group_contract',
-      entityId: contractId,
-      changes: {
-        contractNumber: data.contractNumber,
-        companyId: data.companyId,
-        insurerId: effectiveInsurerId,
-        guaranteesCount: data.guarantees?.length ?? 0,
-        contractType: data.contractType,
-        individualContractCreated: !!individualContractId,
-      },
-      ipAddress: c.req.header('CF-Connecting-IP'),
-      userAgent: c.req.header('User-Agent'),
-    });
-
-    // Return the created contract with guarantees
-    const result = await db
-      .prepare('SELECT * FROM group_contracts WHERE id = ?')
-      .bind(contractId)
-      .first();
-
-    const guarantees = await db
-      .prepare('SELECT * FROM contract_guarantees WHERE group_contract_id = ? ORDER BY guarantee_number')
-      .bind(contractId)
-      .all();
-
-    return created(c, { ...result, guarantees: guarantees.results ?? [], individualContractId });
-  }
-);
-
-// ---------------------------------------------------------------------------
-// PUT /:id — Update a group contract
-// ---------------------------------------------------------------------------
-groupContracts.put(
-  '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
-  zValidator('json', groupContractUpdateSchema),
-  async (c) => {
-    const id = c.req.param('id');
-    const data = c.req.valid('json');
-    const user = c.get('user');
-    const db = getDb(c);
-
-    // Check existence & access
-    const existing = await db
-      .prepare('SELECT * FROM group_contracts WHERE id = ? AND deleted_at IS NULL')
-      .bind(id)
-      .first();
-
-    if (!existing) {
-      return notFound(c, 'Contrat groupe non trouvé');
-    }
-
-    if (
-      user?.insurerId &&
-      user.role === 'INSURER_ADMIN' &&
-      existing.insurer_id !== user.insurerId
-    ) {
-      return notFound(c, 'Contrat groupe non trouvé');
-    }
-
-    // Build dynamic UPDATE
-    const sets: string[] = [];
-    const values: unknown[] = [];
-
-    const fieldMap: Record<string, string> = {
-      companyId: 'company_id',
-      insurerId: 'insurer_id',
-      contractNumber: 'contract_number',
-      contractType: 'contract_type',
-      intermediaryName: 'intermediary_name',
-      intermediaryCode: 'intermediary_code',
-      companyAddress: 'company_address',
-      matriculeFiscale: 'matricule_fiscale',
-      effectiveDate: 'effective_date',
-      annualRenewalDate: 'annual_renewal_date',
-      endDate: 'end_date',
-      annualGlobalLimit: 'annual_global_limit',
-      carenceDays: 'carence_days',
-      childrenMaxAge: 'children_max_age',
-      childrenStudentMaxAge: 'children_student_max_age',
-      documentUrl: 'document_url',
-      documentId: 'document_id',
-      planCategory: 'plan_category',
-      status: 'status',
-      notes: 'notes',
-    };
-
-    const boolFieldMap: Record<string, string> = {
-      riskIllness: 'risk_illness',
-      riskDisability: 'risk_disability',
-      riskDeath: 'risk_death',
-      coversSpouse: 'covers_spouse',
-      coversChildren: 'covers_children',
-      coversDisabledChildren: 'covers_disabled_children',
-      coversRetirees: 'covers_retirees',
-    };
-
-    for (const [jsKey, dbCol] of Object.entries(fieldMap)) {
-      if ((data as Record<string, unknown>)[jsKey] !== undefined) {
-        sets.push(`${dbCol} = ?`);
-        values.push((data as Record<string, unknown>)[jsKey]);
-      }
-    }
-
-    for (const [jsKey, dbCol] of Object.entries(boolFieldMap)) {
-      if ((data as Record<string, unknown>)[jsKey] !== undefined) {
-        sets.push(`${dbCol} = ?`);
-        values.push((data as Record<string, unknown>)[jsKey] ? 1 : 0);
-      }
-    }
-
-    // Check contract number uniqueness if changed
-    if (data.contractNumber && data.contractNumber !== existing.contract_number) {
-      const duplicate = await db
-        .prepare('SELECT id FROM group_contracts WHERE contract_number = ? AND id != ? AND deleted_at IS NULL LIMIT 1')
-        .bind(data.contractNumber, id)
-        .first();
-      if (duplicate) {
-        return conflict(c, `Le numéro de contrat "${data.contractNumber}" existe déjà`);
-      }
-    }
-
-    if (sets.length === 0 && !data.guarantees) {
-      return success(c, existing);
-    }
-
-    if (sets.length > 0) {
-      sets.push('updated_at = ?');
-      values.push(new Date().toISOString());
-      values.push(id);
-
-      await db
-        .prepare(`UPDATE group_contracts SET ${sets.join(', ')} WHERE id = ?`)
-        .bind(...values)
-        .run();
-    }
-
-    // Update guarantees if provided (replace all)
-    if (data.guarantees) {
-      // Deactivate existing guarantees
-      await db
-        .prepare('UPDATE contract_guarantees SET is_active = 0 WHERE group_contract_id = ?')
-        .bind(id)
-        .run();
-
-      const now = new Date().toISOString();
-      for (const g of data.guarantees) {
-        const guaranteeId = generateId();
-        await db
-          .prepare(
-            `INSERT INTO contract_guarantees (
-              id, group_contract_id, guarantee_number, care_type, label,
-              reimbursement_rate, is_fixed_amount,
-              annual_limit, per_event_limit, daily_limit, max_days,
-              letter_keys_json, sub_limits_json,
-              conditions_text, requires_prescription, requires_cnam_complement,
-              renewal_period_months, age_limit, waiting_period_days,
-              exclusions_text, is_active, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
-          )
-          .bind(
-            guaranteeId,
-            id,
-            g.guaranteeNumber,
-            g.careType,
-            g.label,
-            g.reimbursementRate ?? null,
-            g.isFixedAmount ? 1 : 0,
-            g.annualLimit ?? null,
-            g.perEventLimit ?? null,
-            g.dailyLimit ?? null,
-            g.maxDays ?? null,
-            g.letterKeysJson ?? null,
-            g.subLimitsJson ?? null,
-            g.conditionsText ?? null,
-            g.requiresPrescription ? 1 : 0,
-            g.requiresCnamComplement ? 1 : 0,
-            g.renewalPeriodMonths ?? null,
-            g.ageLimit ?? null,
-            g.waitingPeriodDays,
-            g.exclusionsText ?? null,
-            now,
-            now
-          )
-          .run();
-      }
-    }
-
-    // Auto-apply to adherents when status changes to 'active'
-    let applyResult: { created: number; skipped: number } | null = null;
-    const statusChanged = (data as Record<string, unknown>).status === 'active' && existing.status !== 'active';
-
-    if (statusChanged) {
-      const updatedContract = await db
-        .prepare('SELECT * FROM group_contracts WHERE id = ? AND deleted_at IS NULL')
-        .bind(id)
-        .first<Record<string, unknown>>();
-
-      if (updatedContract) {
-        // Get adherents based on contract type
-        let adherentList: { id: string; first_name: string; last_name: string }[];
-
-        if (updatedContract.contract_type === 'individual' && updatedContract.adherent_id) {
-          const adherent = await db
-            .prepare('SELECT id, first_name, last_name FROM adherents WHERE id = ? AND is_active = 1 AND deleted_at IS NULL')
-            .bind(updatedContract.adherent_id)
-            .first<{ id: string; first_name: string; last_name: string }>();
-          adherentList = adherent ? [adherent] : [];
-        } else {
-          const adherents = await db
-            .prepare('SELECT id, first_name, last_name FROM adherents WHERE company_id = ? AND is_active = 1 AND deleted_at IS NULL AND parent_adherent_id IS NULL')
-            .bind(updatedContract.company_id)
-            .all<{ id: string; first_name: string; last_name: string }>();
-          adherentList = adherents.results ?? [];
-        }
-
-        if (adherentList.length > 0) {
-          // Fetch guarantees for coverage JSON
-          const gResults = await db
-            .prepare('SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1')
-            .bind(id)
-            .all();
-
-          const coverage: Record<string, unknown> = {};
-          for (const g of (gResults.results ?? [])) {
-            const gt = g as Record<string, unknown>;
-            coverage[gt.care_type as string] = {
-              enabled: true,
-              reimbursementRate: gt.reimbursement_rate ? Number(gt.reimbursement_rate) * 100 : null,
-              annualLimit: gt.annual_limit,
-              perEventLimit: gt.per_event_limit,
-            };
-          }
-
-          const now = new Date().toISOString();
-          let created = 0;
-          let skipped = 0;
-
-          for (const adherent of adherentList) {
-            // Check if already has active contract from this group
-            const existingContract = await db
-              .prepare(
-                `SELECT id FROM contracts
-                 WHERE adherent_id = ? AND insurer_id = ? AND status = 'active' AND group_contract_id = ?`
-              )
-              .bind(adherent.id, updatedContract.insurer_id, id)
-              .first();
-
-            if (existingContract) {
-              skipped++;
-              continue;
-            }
-
-            const contractId = generateId();
-            const contractNumber = `${updatedContract.contract_number}-${contractId.slice(-6).toUpperCase()}`;
-            const endDate = updatedContract.end_date
-              ?? updatedContract.annual_renewal_date
-              ?? new Date(new Date(updatedContract.effective_date as string).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-            await db
-              .prepare(
-                `INSERT INTO contracts (
-                  id, contract_number, adherent_id, insurer_id,
-                  plan_type, status, coverage_json,
-                  start_date, end_date, group_contract_id,
-                  created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`
-              )
-              .bind(
-                contractId, contractNumber, adherent.id, updatedContract.insurer_id,
-                updatedContract.contract_type === 'individual' ? 'individual' : 'corporate',
-                JSON.stringify(coverage),
-                updatedContract.effective_date, endDate, id, now, now
-              )
-              .run();
-
-            created++;
-          }
-
-          applyResult = { created, skipped };
-        }
-      }
-    }
-
-    // Audit log
-    await logAudit(getDb(c), {
-      userId: user?.sub,
-      action: 'group_contract.update',
-      entityType: 'group_contract',
-      entityId: id,
-      changes: data as Record<string, unknown>,
-      ipAddress: c.req.header('CF-Connecting-IP'),
-      userAgent: c.req.header('User-Agent'),
-    });
-
-    // Return updated contract
-    const updated = await db
-      .prepare('SELECT * FROM group_contracts WHERE id = ?')
-      .bind(id)
-      .first();
-
-    const guarantees = await db
-      .prepare('SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1 ORDER BY guarantee_number')
-      .bind(id)
-      .all();
-
-    return success(c, {
-      ...updated,
-      guarantees: guarantees.results ?? [],
-      ...(applyResult ? { adherentsApplied: applyResult } : {}),
-    });
-  }
-);
-
-// ---------------------------------------------------------------------------
-// GET /:id/guarantees — Get guarantees for a group contract
-// ---------------------------------------------------------------------------
-groupContracts.get(
-  '/:id/guarantees',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
-  async (c) => {
-    const id = c.req.param('id');
-    const user = c.get('user');
-    const db = getDb(c);
-
-    // Check contract exists and access
-    const contract = await db
-      .prepare('SELECT id, insurer_id FROM group_contracts WHERE id = ? AND deleted_at IS NULL')
-      .bind(id)
-      .first();
-
-    if (!contract) {
-      return notFound(c, 'Contrat groupe non trouvé');
-    }
-
-    if (
-      user?.insurerId &&
-      (user.role === 'INSURER_ADMIN' || user.role === 'INSURER_AGENT') &&
-      contract.insurer_id !== user.insurerId
-    ) {
-      return notFound(c, 'Contrat groupe non trouvé');
-    }
-
-    const guarantees = await db
-      .prepare(
-        `SELECT * FROM contract_guarantees
-         WHERE group_contract_id = ? AND is_active = 1
-         ORDER BY guarantee_number ASC`
-      )
-      .bind(id)
-      .all();
-
-    return success(c, guarantees.results ?? []);
-  }
-);
-
-// ---------------------------------------------------------------------------
-// POST /analyse-pdf — Upload contract PDF/images & extract data via Gemini AI
-// ---------------------------------------------------------------------------
-
-// Keep for potential future use with vision model for image-only uploads
-function _buildContractExtractionPrompt(pageNumber: number, totalPages: number): string {
-  return `Analyse cette image (page ${pageNumber}/${totalPages}) d'un contrat d'assurance groupe santé tunisien.
-
-Extrais TOUTES les informations visibles dans cette page au format JSON. Selon le contenu de la page, extrais:
-
-## Si c'est la page d'en-tête du contrat:
-{
-  "pageType": "header",
-  "contractNumber": "numéro complet du contrat (ex: N°2026 701 000 08)",
-  "companyName": "raison sociale du souscripteur",
-  "companyAddress": "adresse du souscripteur",
-  "matriculeFiscale": "matricule fiscale",
-  "insurerName": "nom de la compagnie d'assurance (ex: BH ASSURANCE, GAT, STAR, COMAR, AMI)",
-  "intermediaryName": "nom de l'intermédiaire/courtier",
-  "intermediaryCode": "code intermédiaire (ex: 111)",
-  "effectiveDate": "date d'effet au format YYYY-MM-DD",
-  "annualRenewalDate": "échéance annuelle au format MM-DD",
-  "risks": {
-    "illness": true,
-    "disability": true/false,
-    "death": true/false
-  }
-}
-
-## Si c'est la page des dispositions spéciales / bénéficiaires:
-{
-  "pageType": "beneficiaries",
-  "coversSpouse": true/false,
-  "coversChildren": true/false,
-  "childrenMaxAge": nombre (souvent 20),
-  "childrenStudentMaxAge": nombre (souvent 28),
-  "coversDisabledChildren": true/false,
-  "coversRetirees": true/false,
-  "effectifAssurable": "description de l'effectif"
-}
-
-## Si c'est le TABLEAU DES PRESTATIONS (le plus important):
-{
-  "pageType": "guarantees",
-  "annualGlobalLimit": nombre en DT (ex: 6000 pour "6000 DT par bénéficiaire et par an"),
-  "guarantees": [
-    {
-      "guaranteeNumber": numéro de 1 à 18,
-      "careType": "TYPE (voir mapping ci-dessous)",
-      "label": "libellé exact tel qu'écrit dans le tableau",
-      "reimbursementRate": taux entre 0 et 1 (ex: 0.80 pour 80%, 0.90 pour 90%, 1.0 pour 100%),
-      "isFixedAmount": true si forfait fixe (pas de pourcentage),
-      "annualLimit": plafond annuel en DT (nombre, ex: 1000 pour "1000,000 DT/an"),
-      "perEventLimit": plafond par acte/événement en DT,
-      "dailyLimit": plafond journalier en DT (pour hospitalisation, sanatorium),
-      "maxDays": nombre max de jours (pour séjours),
-      "letterKeys": {
-        "C1": valeur en DT de la lettre-clé C1 (consultation généraliste),
-        "C2": valeur C2 (consultation spécialiste),
-        "C3": valeur C3 (consultation professeur/agrégé),
-        "V1": valeur V1 (visite généraliste),
-        "V2": valeur V2 (visite spécialiste),
-        "V3": valeur V3 (visite professeur),
-        "B": valeur lettre B (biologie/analyses),
-        "P": valeur lettre P (anatomo-cytologie),
-        "Z": valeur lettre Z (radiologie),
-        "E": valeur lettre E (échographie),
-        "K": valeur lettre K (actes chirurgicaux),
-        "KC": valeur lettre KC (chirurgie),
-        "AM": valeur des auxiliaires médicaux,
-        "AMM": valeur AMM (injection insuline)
-      },
-      "subLimits": {
-        "monture": plafond monture en DT,
-        "verres_normaux": plafond verres normaux,
-        "verres_doubles_foyers": plafond verres doubles foyers,
-        "lentilles": plafond lentilles,
-        "hopital": plafond journalier hôpital,
-        "clinique": plafond journalier clinique,
-        "salle_operation": plafond salle opération,
-        "anesthesie": plafond anesthésie,
-        "medicaments_chirurgie": plafond médicaments chirurgie,
-        "hopital_accouchement": forfait accouchement hôpital,
-        "clinique_accouchement": forfait accouchement clinique,
-        "maladies_ordinaires": plafond maladies ordinaires,
-        "maladies_chroniques": plafond maladies chroniques
-      },
-      "conditionsText": "conditions et remarques visibles dans la colonne de droite",
-      "requiresPrescription": true si "sur prescription médicale" ou "sur ordonnance",
-      "requiresCnamComplement": true si "en complément de la CNAM" ou "après prise en charge CNAM",
-      "renewalPeriodMonths": période de renouvellement en mois (ex: 24 pour "tous les 2 ans"),
-      "ageLimit": limite d'âge si mentionnée (ex: 20 pour orthodontie < 20 ans),
-      "exclusionsText": "exclusions mentionnées"
-    }
-  ]
-}
-
-## Mapping des rubriques vers careType:
-1. SOINS MEDICAUX / CONSULTATIONS ET VISITES → "consultation"
-2. FRAIS PHARMACEUTIQUES → "pharmacy"
-3. ANALYSES ET TRAVAUX DE LABORATOIRE → "laboratory"
-4. OPTIQUE → "optical"
-5. CHIRURGIE REFRACTIVE (laser) → "refractive_surgery"
-6. ACTES MEDICAUX COURANTS / RADIOLOGIE / TRAITEMENTS SPECIAUX → "medical_acts"
-7. TRANSPORT DU MALADE → "transport"
-8. FRAIS CHIRURGICAUX → "surgery"
-9. ORTHOPEDIE / PROTHESES → "orthopedics"
-10. HOSPITALISATION → "hospitalization"
-11. ACCOUCHEMENT → "maternity"
-12. INTERRUPTION INVOLONTAIRE DE GROSSESSE (IVG) → "ivg"
-13. SOINS ET PROTHESES DENTAIRES → "dental"
-14. SOINS ORTHODONTIQUES → "orthodontics"
-15. CIRCONCISION → "circumcision"
-16. SANATORIUM / PREVENTORIUM → "sanatorium"
-17. CURES THERMALES → "thermal_cure"
-18. FRAIS FUNERAIRES → "funeral"
-
-## Règles d'extraction des montants tunisiens:
-- "45,000 DT" ou "45,000DT" → 45 (en Dinars tunisiens)
-- "1000,000 Dinars" → 1000
-- "Maximum=300,000 Dinars/acte" → perEventLimit: 300
-- "100% des frais engagés" → reimbursementRate: 1.0
-- "90% des frais engagés" → reimbursementRate: 0.9
-- "80%" → reimbursementRate: 0.8
-- "Forfait par enfant =200,000 Dinars" → isFixedAmount: true, perEventLimit: 200
-- "B =0.320DT" → letterKeys.B: 0.32
-- "Maximum/an/prestataire" → annualLimit (NB: "prestataire" dans le contrat BH = bénéficiaire/membre famille)
-- Inclure UNIQUEMENT les lettres-clés et sous-limites qui sont VISIBLES sur cette page.
-- Si une valeur n'est pas visible, ne l'inclure PAS dans le JSON (ne pas mettre null).
-
-IMPORTANT: Retourne UNIQUEMENT le JSON, sans aucun texte explicatif avant ou après.`;
-}
-
-/**
- * Fusionne les données extraites de plusieurs pages en un objet unique.
- */
-function mergeExtractedPages(pages: Array<Record<string, unknown>>): Record<string, unknown> {
-  const merged: Record<string, unknown> = {
-    contractNumber: null,
-    companyName: null,
-    companyAddress: null,
-    matriculeFiscale: null,
-    insurerName: null,
-    intermediaryName: null,
-    intermediaryCode: null,
-    effectiveDate: null,
-    annualRenewalDate: null,
-    riskIllness: true,
-    riskDisability: false,
-    riskDeath: false,
-    coversSpouse: true,
-    coversChildren: true,
-    childrenMaxAge: 20,
-    childrenStudentMaxAge: 28,
-    coversDisabledChildren: true,
-    coversRetirees: false,
-    annualGlobalLimit: null,
-    planCategory: 'standard',
-    guarantees: [] as Record<string, unknown>[],
-  };
-
-  for (const page of pages) {
-    const pageType = page.pageType as string;
-
-    if (pageType === 'header') {
-      if (page.contractNumber) merged.contractNumber = page.contractNumber;
-      if (page.companyName) merged.companyName = page.companyName;
-      if (page.companyAddress) merged.companyAddress = page.companyAddress;
-      if (page.matriculeFiscale) merged.matriculeFiscale = page.matriculeFiscale;
-      if (page.insurerName) merged.insurerName = page.insurerName;
-      if (page.intermediaryName) merged.intermediaryName = page.intermediaryName;
-      if (page.intermediaryCode) merged.intermediaryCode = page.intermediaryCode;
-      if (page.effectiveDate) merged.effectiveDate = page.effectiveDate;
-      if (page.annualRenewalDate) merged.annualRenewalDate = page.annualRenewalDate;
-      const risks = page.risks as Record<string, boolean> | undefined;
-      if (risks) {
-        if (risks.illness !== undefined) merged.riskIllness = risks.illness;
-        if (risks.disability !== undefined) merged.riskDisability = risks.disability;
-        if (risks.death !== undefined) merged.riskDeath = risks.death;
-      }
-    }
-
-    if (pageType === 'beneficiaries') {
-      if (page.coversSpouse !== undefined) merged.coversSpouse = page.coversSpouse;
-      if (page.coversChildren !== undefined) merged.coversChildren = page.coversChildren;
-      if (page.childrenMaxAge) merged.childrenMaxAge = page.childrenMaxAge;
-      if (page.childrenStudentMaxAge) merged.childrenStudentMaxAge = page.childrenStudentMaxAge;
-      if (page.coversDisabledChildren !== undefined) merged.coversDisabledChildren = page.coversDisabledChildren;
-      if (page.coversRetirees !== undefined) merged.coversRetirees = page.coversRetirees;
-    }
-
-    if (pageType === 'guarantees') {
-      if (page.annualGlobalLimit) merged.annualGlobalLimit = page.annualGlobalLimit;
-      const pageGuarantees = page.guarantees as Record<string, unknown>[] | undefined;
-      if (Array.isArray(pageGuarantees)) {
-        (merged.guarantees as Record<string, unknown>[]).push(...pageGuarantees);
-      }
+    for (const g of data.guarantees) {
+      const gid = generateId();
+      await db.prepare(`INSERT INTO contract_guarantees (id, group_contract_id, guarantee_number, care_type, label, reimbursement_rate, is_fixed_amount, annual_limit, per_event_limit, daily_limit, max_days, letter_keys_json, sub_limits_json, conditions_text, requires_prescription, requires_cnam_complement, renewal_period_months, age_limit, waiting_period_days, exclusions_text, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`).bind(gid, id, g.guaranteeNumber, g.careType, g.label, g.reimbursementRate ?? null, g.isFixedAmount ? 1 : 0, g.annualLimit ?? null, g.perEventLimit ?? null, g.dailyLimit ?? null, g.maxDays ?? null, g.letterKeysJson ?? null, g.subLimitsJson ?? null, g.conditionsText ?? null, g.requiresPrescription ? 1 : 0, g.requiresCnamComplement ? 1 : 0, g.renewalPeriodMonths ?? null, g.ageLimit ?? null, g.waitingPeriodDays, g.exclusionsText ?? null, now, now).run();
     }
   }
-
-  // Dédupliquer les garanties par guaranteeNumber
-  const guaranteesMap = new Map<number, Record<string, unknown>>();
-  for (const g of merged.guarantees as Record<string, unknown>[]) {
-    const num = Number(g.guaranteeNumber);
-    if (num > 0) {
-      const existing = guaranteesMap.get(num);
-      if (existing) {
-        // Merge: keep non-null values
-        for (const [key, val] of Object.entries(g)) {
-          if (val !== null && val !== undefined) {
-            existing[key] = val;
-          }
-        }
+  // Auto-apply when status → active
+  let applyResult: { created: number; skipped: number } | null = null;
+  if ((data as Record<string,unknown>).status === "active" && existing.status !== "active") {
+    const uc = await db.prepare("SELECT * FROM group_contracts WHERE id = ? AND deleted_at IS NULL").bind(id).first<Record<string,unknown>>();
+    if (uc) {
+      let adherentList: { id: string; first_name: string; last_name: string }[];
+      if (uc.contract_type === "individual" && uc.adherent_id) {
+        const a = await db.prepare("SELECT id, first_name, last_name FROM adherents WHERE id = ? AND is_active = 1 AND deleted_at IS NULL").bind(uc.adherent_id).first<{ id: string; first_name: string; last_name: string }>();
+        adherentList = a ? [a] : [];
       } else {
-        guaranteesMap.set(num, { ...g });
+        const as2 = await db.prepare("SELECT id, first_name, last_name FROM adherents WHERE company_id = ? AND is_active = 1 AND deleted_at IS NULL AND parent_adherent_id IS NULL").bind(uc.company_id).all<{ id: string; first_name: string; last_name: string }>();
+        adherentList = as2.results ?? [];
+      }
+      if (adherentList.length > 0) {
+        const gR = await db.prepare("SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1").bind(id).all();
+        const coverage: Record<string,unknown> = {};
+        for (const g of gR.results ?? []) { const gt = g as Record<string,unknown>; coverage[gt.care_type as string] = { enabled: true, reimbursementRate: gt.reimbursement_rate ? Number(gt.reimbursement_rate)*100 : null, annualLimit: gt.annual_limit, perEventLimit: gt.per_event_limit }; }
+        const now = new Date().toISOString(); let cr = 0; let sk = 0;
+        for (const adh of adherentList) {
+          const ec = await db.prepare(`SELECT id FROM contracts WHERE adherent_id = ? AND insurer_id = ? AND status = 'active' AND group_contract_id = ?`).bind(adh.id, uc.insurer_id, id).first();
+          if (ec) { sk++; continue; }
+          const cid = generateId(); const cn = `${uc.contract_number}-${cid.slice(-6).toUpperCase()}`;
+          const ed = uc.end_date ?? uc.annual_renewal_date ?? new Date(new Date(uc.effective_date as string).getTime()+365*24*60*60*1000).toISOString().split("T")[0];
+          await db.prepare(`INSERT INTO contracts (id, contract_number, adherent_id, insurer_id, plan_type, status, coverage_json, start_date, end_date, group_contract_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`).bind(cid, cn, adh.id, uc.insurer_id, uc.contract_type === "individual" ? "individual" : "corporate", JSON.stringify(coverage), uc.effective_date, ed, id, now, now).run();
+          cr++;
+        }
+        applyResult = { created: cr, skipped: sk };
       }
     }
   }
-  merged.guarantees = Array.from(guaranteesMap.values()).sort(
-    (a, b) => Number(a.guaranteeNumber) - Number(b.guaranteeNumber)
-  );
+  await logAudit(getDb(c), { userId: user?.sub, action: "group_contract.update", entityType: "group_contract", entityId: id, changes: data as Record<string,unknown>, ipAddress: c.req.header("CF-Connecting-IP"), userAgent: c.req.header("User-Agent") });
+  const updated = await db.prepare("SELECT * FROM group_contracts WHERE id = ?").bind(id).first();
+  const guarantees = await db.prepare("SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1 ORDER BY guarantee_number").bind(id).all();
+  return success(c, { ...updated, guarantees: guarantees.results ?? [], ...(applyResult ? { adherentsApplied: applyResult } : {}) });
+});
 
-  return merged;
-}
+// ---------------------------------------------------------------------------
+// GET /:id/guarantees
+// ---------------------------------------------------------------------------
+groupContracts.get("/:id/guarantees", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT"), async (c) => {
+  const id = c.req.param("id"); const user = c.get("user"); const db = getDb(c);
+  const contract = await db.prepare("SELECT id, insurer_id FROM group_contracts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
+  if (!contract) return notFound(c, "Contrat groupe non trouvé");
+  if (user?.insurerId && (user.role === "INSURER_ADMIN" || user.role === "INSURER_AGENT") && contract.insurer_id !== user.insurerId) return notFound(c, "Contrat groupe non trouvé");
+  const guarantees = await db.prepare("SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1 ORDER BY guarantee_number ASC").bind(id).all();
+  return success(c, guarantees.results ?? []);
+});
 
-/**
- * Prompt Gemini pour l'analyse complète d'un contrat d'assurance groupe tunisien.
- * Gemini supporte nativement les PDFs et images — pas besoin d'extraction de texte.
- */
-const GEMINI_CONTRACT_PROMPT = `Tu es un expert en assurance santé groupe en Tunisie. Tu travailles pour la plateforme E-Santé de tiers payant.
+// ===========================================================================
+// PDF Analysis — Multi-pass Gemini + regex fallback + validation + JSON repair
+// ===========================================================================
 
-Analyse ce document de contrat d'assurance groupe multirisques tunisien. Ce document contient PLUSIEURS SECTIONS IMPORTANTES:
-
-## SECTION 1 — EN-TÊTE DU CONTRAT (PREMIÈRE PAGE)
-La PREMIERE PAGE contient TOUJOURS les informations suivantes dans un cadre ou en-tête:
-- Le TITRE "CONTRAT D'ASSURANCE GROUPE MULTIRISQUES"
-- Le NUMERO DU CONTRAT: "N°2026 701 000 08" ou similaire — C'EST OBLIGATOIRE À EXTRAIRE
-- "CONDITIONS PARTICULIERES"
-- "Intermédiaire: Bureaux Direct" et "Code: 111" — le courtier et son code
-- SOUSCRIPTEUR: la raison sociale de l'entreprise (ex: "Société De Promotion De Logements Sociaux")
-- ADRESSE: l'adresse complète (ex: "Rue Mohieddine ElKlibi El Manar 2, Tunis 2092")
-- MATRICULE FISCALE: le numéro fiscal (ex: "0002788H")
-- EFFET DU CONTRAT: la date d'effet (ex: "LE 1er JANVIER 2026")
-- ECHEANCE ANNUELLE: la date d'échéance (ex: "LE 1er JANVIER DE CHAQUE ANNEE")
-
-## SECTION 2 — ARTICLES ET DISPOSITIONS
-- ARTICLE PREMIER: mentionne l'assureur (ex: "BH ASSURANCE") et le souscripteur
-- ARTICLE 2 - RISQUES GARANTIS: liste des risques (maladie, incapacité, décès)
-- ARTICLE 6 - DISPOSITIONS SPECIALES: prestataires assurés, bénéficiaires, âges limites
-
-## SECTION 3 — TABLEAU DES PRESTATIONS
-Le tableau avec les 18 rubriques de garantie et leurs barèmes détaillés.
-Le bas du tableau contient: "MAXIMUM DES PRESTATIONS: X,000 DINARS PAR PRESTATAIRE ET PAR AN" (NB: "prestataire" = bénéficiaire dans la terminologie BH Assurance)
-
-EXTRAIS ABSOLUMENT TOUTES CES INFORMATIONS. Ne mets null QUE si l'information est réellement ABSENTE du document.
-
-Retourne UNIQUEMENT du JSON valide (pas de texte avant/après, pas de bloc markdown \`\`\`):
-
+const PROMPT_PASS_HEADER = `Tu es un OCR spécialisé en contrats d'assurance tunisiens.
+Extrais UNIQUEMENT les informations d'identification de ce contrat. Retourne du JSON pur.
 {
-  "contractNumber": "numéro EXACT tel qu'il apparaît (ex: '2026 701 000 08'). REGARDE le titre en haut de la première page après 'N°'",
-  "companyName": "raison sociale du SOUSCRIPTEUR. REGARDE après 'SOUSCRIPTEUR:' sur la première page",
-  "companyAddress": "adresse COMPLETE. REGARDE après 'ADRESSE:' sur la première page",
-  "matriculeFiscale": "REGARDE après 'MATRICULE FISCALE:' sur la première page (ex: '0002788H')",
-  "insurerName": "nom de l'ASSUREUR mentionné dans l'Article Premier ou la signature (ex: 'BH ASSURANCE'). REGARDE aussi 'P/ BH ASSURANCE' en bas",
-  "intermediaryName": "REGARDE 'Intermédiaire:' dans le cadre d'en-tête (ex: 'Bureaux Direct')",
-  "intermediaryCode": "REGARDE 'Code:' à côté de l'intermédiaire (ex: '111')",
-  "effectiveDate": "date d'effet au format YYYY-MM-DD. REGARDE 'EFFET DU CONTRAT:'. '1er JANVIER 2026' → '2026-01-01'",
-  "annualRenewalDate": "REGARDE 'ECHEANCE ANNUELLE:'. '1er JANVIER DE CHAQUE ANNEE' → même année que effectiveDate mais année suivante, format YYYY-MM-DD",
+  "contractNumber": "numéro après N° (ex: '2026 701 000 08')",
+  "companyName": "raison sociale après SOUSCRIPTEUR",
+  "companyAddress": "adresse complète après ADRESSE",
+  "matriculeFiscale": "après MATRICULE FISCALE (ex: '0002788H')",
+  "insurerName": "nom assureur (BH ASSURANCE, GAT, STAR, COMAR, AMI, CARTE, MAGHREBIA, ASTREE, LLOYD...)",
+  "intermediaryName": "après Intermédiaire (ex: 'Bureaux Direct')",
+  "intermediaryCode": "après Code (ex: '111')",
+  "effectiveDate": "date d'effet format YYYY-MM-DD",
+  "annualRenewalDate": "échéance annuelle format YYYY-MM-DD (année suivante)",
   "riskIllness": true,
-  "riskDisability": "REGARDE Article 2. 'Risques Incapacité/Invalidité' → true",
-  "riskDeath": "REGARDE Article 2. 'Risque Décès' → true",
-  "annualGlobalLimit": "nombre en DT. REGARDE 'MAXIMUM DES PRESTATIONS' en bas du tableau. '6000,000 DINARS' → 6000",
-  "coversSpouse": "REGARDE Article 6. 'leurs conjoints' → true",
-  "coversChildren": "REGARDE Article 6. 'enfants à charge' → true",
-  "childrenMaxAge": "REGARDE Article 6. 'enfants âgés de moins de X ans' → nombre",
-  "childrenStudentMaxAge": "REGARDE Article 6. 'enfants âgés de 20 à X ans scolarisés' → nombre",
-  "coversDisabledChildren": "REGARDE Article 6. 'enfants handicapés sans limite d'âge' → true/false",
-  "coversRetirees": "REGARDE Article 6. 'personnel retraité' → true/false",
-  "planCategory": "standard",
-  "guarantees": [
-    {
-      "guaranteeNumber": 1,
-      "careType": "consultation",
-      "label": "libellé exact de la rubrique",
-      "reimbursementRate": taux entre 0 et 1 (0.80 pour 80%, 0.90 pour 90%, 1.0 pour 100%) ou null si forfait,
-      "isFixedAmount": true si c'est un forfait fixe (pas de pourcentage),
-      "annualLimit": plafond annuel en DT ou null,
-      "perEventLimit": plafond par acte/événement en DT ou null,
-      "dailyLimit": plafond journalier en DT (hospitalisation) ou null,
-      "maxDays": nombre max de jours ou null,
-      "letterKeys": {"C1": 45.0, "C2": 55.0, ...} — UNIQUEMENT les lettres-clés visibles pour cette rubrique,
-      "subLimits": {"monture": 300, "verres_normaux": 200, ...} — sous-plafonds spécifiques,
-      "conditionsText": "conditions et remarques extraites",
-      "requiresPrescription": true si "sur prescription médicale" ou "sur ordonnance",
-      "requiresCnamComplement": true si "en complément de la CNAM" ou "après prise en charge CNAM",
-      "renewalPeriodMonths": période de renouvellement en mois (24 pour "tous les 2 ans") ou null,
-      "ageLimit": limite d'âge ou null (ex: 20 pour orthodontie < 20 ans),
-      "exclusionsText": "exclusions mentionnées" ou null
-    }
-  ]
+  "riskDisability": "true si Incapacité/Invalidité mentionné dans Article 2",
+  "riskDeath": "true si Décès mentionné dans Article 2"
+}
+Règle date: "1er JANVIER 2026" → "2026-01-01". Échéance: année suivante.
+Si info absente → null. JSON uniquement.`;
+
+const PROMPT_PASS_BENEFICIARIES = `Tu es un OCR spécialisé en contrats d'assurance tunisiens.
+Extrais UNIQUEMENT les informations sur les bénéficiaires/prestataires. Cherche dans l'Article 6.
+{
+  "coversSpouse": "true si 'conjoints' mentionné",
+  "coversChildren": "true si 'enfants à charge' mentionné",
+  "childrenMaxAge": "nombre (souvent 20)",
+  "childrenStudentMaxAge": "nombre (souvent 25 ou 28)",
+  "coversDisabledChildren": "true si 'handicapés sans limite d'âge'",
+  "coversRetirees": "true si 'personnel retraité'"
+}
+Si info absente → null. JSON uniquement.`;
+
+const PROMPT_PASS_GUARANTEES = `Tu es un expert en assurance santé tunisienne. Extrais le TABLEAU DES PRESTATIONS COMPLET.
+
+IMPORTANT: Ce contrat contient EXACTEMENT 18 rubriques numérotées de 1 à 18. Tu DOIS extraire les 18.
+Les voici: 1/SOINS MEDICAUX, 2/FRAIS PHARMACEUTIQUES, 3/ANALYSES ET TRAVAUX DE LABORATOIRE,
+4/OPTIQUE, 5/CHIRURGIE REFRACTIVE, 6/ACTES MEDICAUX COURANTS, 7/TRANSPORT DU MALADE,
+8/FRAIS CHIRURGICAUX, 9/ORTHOPEDIE PROTHESES, 10/HOSPITALISATION, 11/ACCOUCHEMENT,
+12/INTERRUPTION INVOLONTAIRE DE GROSSESSE, 13/SOINS ET PROTHESES DENTAIRES,
+14/SOINS ORTHODONTIQUES, 15/CIRCONCISION, 16/SANATORIUM/PREVENTORIUM,
+17/CURES THERMALES, 18/FRAIS FUNERAIRE
+
+RÈGLE CRITIQUE — Montants tunisiens: "45,000 DT"=45 dinars, "1000,000 DT"=1000 dinars, "0,320 DT"=0.32 dinars.
+Si 3 chiffres après virgule → millimes, divise par 1000.
+
+Retourne ce JSON avec un tableau "guarantees" de 18 éléments:
+{
+  "annualGlobalLimit": "MAXIMUM DES PRESTATIONS en dinars (cherche en bas: 6000,000 DINARS)",
+  "guarantees": [{
+    "guaranteeNumber": "1-18", "careType": "voir mapping", "label": "libellé exact du tableau",
+    "reimbursementRate": "entre 0 et 1 (0.80=80%, 0.90=90%, 1.0=100%) ou null si lettres-clés uniquement",
+    "isFixedAmount": "true UNIQUEMENT si forfait fixe (ex: circoncision, funéraire)",
+    "annualLimit": "plafond annuel en dinars ou null",
+    "perEventLimit": "plafond par acte en dinars ou null",
+    "dailyLimit": "plafond journalier en dinars ou null",
+    "maxDays": "nombre max de jours ou null",
+    "letterKeys": {"clé":"valeur en dinars"},
+    "subLimits": {"description":"valeur en dinars"},
+    "conditionsText": "conditions/remarques ou null",
+    "requiresPrescription": "true si 'prescription médicale' ou 'ordonnance'",
+    "requiresCnamComplement": "true si 'complément CNAM' ou 'après prise en charge CNAM'",
+    "renewalPeriodMonths": "période renouvellement en mois ou null",
+    "ageLimit": "limite d'âge ou null",
+    "exclusionsText": "exclusions ou null"
+  }]
 }
 
-## MAPPING OBLIGATOIRE des rubriques vers careType:
-1. SOINS MEDICAUX / CONSULTATIONS ET VISITES → "consultation"
-2. FRAIS PHARMACEUTIQUES → "pharmacy"
-3. ANALYSES ET TRAVAUX DE LABORATOIRE → "laboratory"
-4. OPTIQUE (lunettes, verres, montures, lentilles) → "optical"
-5. CHIRURGIE REFRACTIVE / LASER → "refractive_surgery"
-6. ACTES MEDICAUX COURANTS / RADIOLOGIE / ELECTRORADIOLOGIE / TRAITEMENTS SPECIAUX / AUXILIAIRES MEDICAUX → "medical_acts"
-7. TRANSPORT DU MALADE → "transport"
-8. FRAIS CHIRURGICAUX (KC, salle opération, anesthésie) → "surgery"
-9. ORTHOPEDIE / PROTHESES (non dentaires) → "orthopedics"
-10. HOSPITALISATION (hôpital + clinique) → "hospitalization"
-11. ACCOUCHEMENT / MATERNITE → "maternity"
-12. INTERRUPTION INVOLONTAIRE DE GROSSESSE → "ivg"
-13. SOINS ET PROTHESES DENTAIRES (y compris détartrage) → "dental"
-14. SOINS ORTHODONTIQUES → "orthodontics"
-15. CIRCONCISION → "circumcision"
-16. SANATORIUM / PREVENTORIUM → "sanatorium"
-17. CURES THERMALES → "thermal_cure"
-18. FRAIS FUNERAIRES → "funeral"
+MAPPING careType obligatoire: 1=consultation, 2=pharmacy, 3=laboratory, 4=optical, 5=refractive_surgery,
+6=medical_acts, 7=transport, 8=surgery, 9=orthopedics, 10=hospitalization,
+11=maternity, 12=ivg, 13=dental, 14=orthodontics, 15=circumcision,
+16=sanatorium, 17=thermal_cure, 18=funeral
 
-## LETTRES-CLÉS tunisiennes à extraire du tableau:
-- C1 = consultation généraliste, C2 = spécialiste, C3 = professeur agrégé
-- V1 = visite généraliste, V2 = visite spécialiste, V3 = visite professeur
-- B = analyses biologiques (valeur unitaire de la lettre B)
-- P = anatomo-cytologie/pathologie
-- Z = radiologie (valeur de la lettre Z)
-- E = échographie
-- K ou KC = actes chirurgicaux (valeur du KC)
-- AM = auxiliaires médicaux
-- AMM = injection insuline
+ATTENTION pour rubrique 1: reimbursementRate=null car c'est par lettres-clés, isFixedAmount=true
+ATTENTION pour rubrique 2: il y a 3 sous-catégories (ordinaires 90% max 1000DT, chroniques 90% max 1500DT, stérilité 80% max 1000DT)
+ATTENTION pour rubrique 8: chirurgie=80% + salle opération 100% max 300DT/acte + anesthésie 100% max 300DT/acte
+ATTENTION pour rubrique 10: hôpital max 45DT/jour, clinique max 120DT/jour
+ATTENTION pour rubrique 11: hôpital 100% max 200DT/acte, clinique complément CNAM max 500DT
 
-## SOUS-LIMITES à extraire (clés à utiliser dans subLimits):
-- Pour PHARMACIE: "maladies_ordinaires", "maladies_chroniques", "sterilite"
-- Pour OPTIQUE: "monture", "verres_normaux", "verres_doubles_foyers", "lentilles"
-- Pour CHIRURGIE: "salle_operation", "anesthesie", "medicaments_chirurgie", "kc_valeur"
-- Pour HOSPITALISATION: "hopital_jour", "clinique_jour"
-- Pour ACCOUCHEMENT: "hopital_simple", "clinique_simple", "clinique_plafond_cnam"
-- Pour ACTES MEDICAUX: "radio_z", "echo_e", "irm_plafond", "scanner_plafond", "endoscopie", "am_valeur", "amm_valeur"
+Tu DOIS retourner exactement 18 garanties. JSON uniquement, aucun texte.`;
 
-## RÈGLES DE CONVERSION DES MONTANTS TUNISIENS:
-- "45,000 DT" ou "45,000DT" → 45 (en Dinars tunisiens, diviser par 1000 les millimes)
-- "1000,000 Dinars/an/prestataire" → annualLimit: 1000  (prestataire = bénéficiaire)
-- "1500,000 Dinars" → 1500
-- "Maximum=300,000 Dinars/acte" → perEventLimit: 300
-- "B =0,320DT" ou "B =0.320DT" → letterKeys.B = 0.32
-- "KC=10,000 DT" → subLimits.kc_valeur = 10 ET letterKeys.KC = 10
-- "90% des frais engagés" → reimbursementRate: 0.9
-- "100% des frais engagés" → reimbursementRate: 1.0
-- "80%" → reimbursementRate: 0.8
-- "Forfait par enfant =200,000 Dinars" → isFixedAmount: true, perEventLimit: 200
+// ---- Validation ----
+function validateAndFixAmount(value: unknown, fieldName: string): number | null {
+  if (value === null || value === undefined) return null;
+  const num = Number(value); if (isNaN(num)) return null;
+  if (num > 50000) { console.warn(`[Validation] ${fieldName}: ${num} → ${num/1000}`); return num / 1000; }
+  return num;
+}
+function validateRate(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const num = Number(value); if (isNaN(num)) return null;
+  if (num > 1 && num <= 100) return num / 100;
+  if (num >= 0 && num <= 1) return num;
+  return null;
+}
+const VALID_CARE_TYPES = new Set(["consultation","consultation_visite","pharmacy","pharmacie","laboratory","laboratoire","optical","optique","refractive_surgery","chirurgie_refractive","medical_acts","actes_courants","transport","surgery","chirurgie","orthopedics","orthopedie","hospitalization","hospitalisation","maternity","accouchement","ivg","interruption_grossesse","dental","dentaire","orthodontics","orthodontie","circumcision","circoncision","sanatorium","thermal_cure","cures_thermales","funeral","frais_funeraires"]);
+const GUARANTEE_NUM_TO_CARE_TYPE: Record<number,string> = {1:"consultation",2:"pharmacy",3:"laboratory",4:"optical",5:"refractive_surgery",6:"medical_acts",7:"transport",8:"surgery",9:"orthopedics",10:"hospitalization",11:"maternity",12:"ivg",13:"dental",14:"orthodontics",15:"circumcision",16:"sanatorium",17:"thermal_cure",18:"funeral"};
 
-IMPORTANT:
-- Extrais TOUTES les garanties du tableau des prestations (il y en a généralement entre 15 et 18)
-- Sois PRECIS sur les montants — ne confonds pas millimes et dinars
-- Les lettres-clés ne concernent que certaines rubriques, ne les invente pas
-- Si une information n'est pas dans le document, mets null (pas de valeur inventée)
-- Retourne UNIQUEMENT le JSON, aucun texte explicatif`;
-
-/**
- * Décompresse un buffer avec Deflate via l'API Web DecompressionStream.
- * Compatible Cloudflare Workers (pas besoin de zlib Node.js).
- */
-function inflateBuffer(compressed: Uint8Array): Uint8Array {
-  // Use pako for Workers-compatible deflate decompression
-  // Try zlib-wrapped inflate first, then raw inflate
-  try {
-    return pako.inflate(compressed);
-  } catch {
-    return pako.inflateRaw(compressed);
-  }
+function validateGuarantee(g: Record<string,unknown>): Record<string,unknown> {
+  const num = Number(g.guaranteeNumber);
+  let careType = g.careType as string;
+  if (!careType || !VALID_CARE_TYPES.has(careType)) { const fb = GUARANTEE_NUM_TO_CARE_TYPE[num]; if (fb) careType = fb; }
+  const annualLimit = validateAndFixAmount(g.annualLimit, `g${num}.annualLimit`);
+  const perEventLimit = validateAndFixAmount(g.perEventLimit, `g${num}.perEventLimit`);
+  const dailyLimit = validateAndFixAmount(g.dailyLimit, `g${num}.dailyLimit`);
+  const reimbursementRate = validateRate(g.reimbursementRate);
+  const lk = g.letterKeys as Record<string,unknown>|undefined; const fixedLK: Record<string,number> = {};
+  if (lk && typeof lk === "object") { for (const [k,v] of Object.entries(lk)) { if (v!=null) { const f = validateAndFixAmount(v, `g${num}.lk.${k}`); if (f!=null) fixedLK[k]=f; } } }
+  const sl = g.subLimits as Record<string,unknown>|undefined; const fixedSL: Record<string,number> = {};
+  if (sl && typeof sl === "object") { for (const [k,v] of Object.entries(sl)) { if (v!=null) { const f = validateAndFixAmount(v, `g${num}.sl.${k}`); if (f!=null) fixedSL[k]=f; } } }
+  return {
+    guaranteeNumber: num, careType, label: g.label ?? `Garantie ${num}`,
+    reimbursementRate, isFixedAmount: g.isFixedAmount ?? false,
+    annualLimit, perEventLimit, dailyLimit,
+    maxDays: g.maxDays != null ? Number(g.maxDays) : null,
+    letterKeys: Object.keys(fixedLK).length > 0 ? fixedLK : null,
+    subLimits: Object.keys(fixedSL).length > 0 ? fixedSL : null,
+    letterKeysJson: Object.keys(fixedLK).length > 0 ? JSON.stringify(fixedLK) : null,
+    subLimitsJson: Object.keys(fixedSL).length > 0 ? JSON.stringify(fixedSL) : null,
+    conditionsText: g.conditionsText ?? null, requiresPrescription: g.requiresPrescription ?? false,
+    requiresCnamComplement: g.requiresCnamComplement ?? false,
+    renewalPeriodMonths: g.renewalPeriodMonths != null ? Number(g.renewalPeriodMonths) : null,
+    ageLimit: g.ageLimit != null ? Number(g.ageLimit) : null,
+    waitingPeriodDays: 0, exclusionsText: g.exclusionsText ?? null,
+  };
 }
 
-/**
- * Extrait les chaînes de texte depuis un contenu PDF décompressé.
- */
-function extractTextFromContent(content: string): string[] {
-  const parts: string[] = [];
-  const strRegex = /\(([^)]*)\)/g;
-  let strMatch: RegExpExecArray | null;
-  while ((strMatch = strRegex.exec(content)) !== null) {
-    const text = (strMatch[1] ?? '')
-      .replace(/\\n/g, '\n')
-      .replace(/\\r/g, '\r')
-      .replace(/\\t/g, '\t')
-      .replace(/\\\(/g, '(')
-      .replace(/\\\)/g, ')')
-      .replace(/\\\\/g, '\\');
-    if (text.trim().length > 0) {
-      parts.push(text);
-    }
-  }
-  return parts;
-}
+// ---- PDF text extraction (regex fallback) ----
+function inflateBuffer(c: Uint8Array): Uint8Array { try { return pako.inflate(c); } catch { return pako.inflateRaw(c); } }
+function extractTextFromContent(content: string): string[] { const p: string[] = []; const r = /\(([^)]*)\)/g; let m; while ((m = r.exec(content)) !== null) { const t = (m[1]??"").replace(/\\n/g,"\n").replace(/\\r/g,"\r").replace(/\\t/g,"\t").replace(/\\\(/g,"(").replace(/\\\)/g,")").replace(/\\\\/g,"\\"); if (t.trim().length>0) p.push(t); } return p; }
+function findBytes(h: Uint8Array, n: Uint8Array, s=0): number { for (let i=s;i<=h.length-n.length;i++) { let f=true; for (let j=0;j<n.length;j++) { if (h[i+j]!==n[j]) { f=false; break; } } if (f) return i; } return -1; }
 
-/**
- * Recherche un motif d'octets dans un buffer.
- * Retourne l'index de la première occurrence ou -1.
- */
-function findBytes(haystack: Uint8Array, needle: Uint8Array, startFrom = 0): number {
-  for (let i = startFrom; i <= haystack.length - needle.length; i++) {
-    let found = true;
-    for (let j = 0; j < needle.length; j++) {
-      if (haystack[i + j] !== needle[j]) {
-        found = false;
-        break;
-      }
-    }
-    if (found) return i;
-  }
-  return -1;
-}
-
-/**
- * Extracteur de texte brut depuis un PDF.
- * Fonctionne en environnement Cloudflare Workers.
- * Travaille directement avec les octets bruts pour éviter la corruption
- * lors de la conversion texte ↔ binaire.
- */
 async function extractRawTextFromPdf(buffer: ArrayBuffer): Promise<string> {
-  const bytes = new Uint8Array(buffer);
-  const textParts: string[] = [];
-
-  const streamMarker = new TextEncoder().encode('stream');
-  const endstreamMarker = new TextEncoder().encode('endstream');
-  const flateDecodeMarker = new TextEncoder().encode('FlateDecode');
-
-  let searchPos = 0;
-  let decompressedCount = 0;
-  let failedCount = 0;
-
-  while (searchPos < bytes.length) {
-    // Trouver "stream"
-    const streamStart = findBytes(bytes, streamMarker, searchPos);
-    if (streamStart === -1) break;
-
-    // Avancer après "stream\r\n" ou "stream\n"
-    let dataStart = streamStart + streamMarker.length;
-    if (dataStart < bytes.length && bytes[dataStart] === 0x0D) dataStart++; // \r
-    if (dataStart < bytes.length && bytes[dataStart] === 0x0A) dataStart++; // \n
-
-    // Trouver "endstream"
-    const endstreamPos = findBytes(bytes, endstreamMarker, dataStart);
-    if (endstreamPos === -1) break;
-
-    // Les données du stream sont entre dataStart et endstreamPos
-    // Vérifier si FlateDecode apparaît dans les 300 octets avant "stream"
-    const lookbackStart = Math.max(0, streamStart - 300);
-    const lookback = bytes.slice(lookbackStart, streamStart);
-    const isCompressed = findBytes(lookback, flateDecodeMarker) !== -1;
-
-    // Extraire les données brutes du stream (en retirant \r\n avant endstream)
-    let dataEnd = endstreamPos;
-    while (dataEnd > dataStart && (bytes[dataEnd - 1] === 0x0A || bytes[dataEnd - 1] === 0x0D)) {
-      dataEnd--;
-    }
-    const streamData = bytes.slice(dataStart, dataEnd);
-
-    if (isCompressed && streamData.length > 0) {
-      try {
-        const decompressed = inflateBuffer(streamData);
-        const text = new TextDecoder('latin1').decode(decompressed);
-        const parts = extractTextFromContent(text);
-        textParts.push(...parts);
-        if (parts.length > 0) decompressedCount++;
-      } catch {
-        failedCount++;
-      }
-    } else if (streamData.length > 0) {
-      const text = new TextDecoder('latin1').decode(streamData);
-      textParts.push(...extractTextFromContent(text));
-    }
-
-    searchPos = endstreamPos + endstreamMarker.length;
+  const bytes = new Uint8Array(buffer); const tp: string[] = [];
+  const sm = new TextEncoder().encode("stream"); const em = new TextEncoder().encode("endstream"); const fm = new TextEncoder().encode("FlateDecode");
+  let sp = 0;
+  while (sp < bytes.length) {
+    const ss = findBytes(bytes,sm,sp); if (ss===-1) break;
+    let ds = ss+sm.length; if (ds<bytes.length&&bytes[ds]===0x0d) ds++; if (ds<bytes.length&&bytes[ds]===0x0a) ds++;
+    const ep = findBytes(bytes,em,ds); if (ep===-1) break;
+    const lb = Math.max(0,ss-300); const isC = findBytes(bytes.slice(lb,ss),fm)!==-1;
+    let de = ep; while (de>ds&&(bytes[de-1]===0x0a||bytes[de-1]===0x0d)) de--;
+    const sd = bytes.slice(ds,de);
+    if (isC&&sd.length>0) { try { const d = inflateBuffer(sd); tp.push(...extractTextFromContent(new TextDecoder("latin1").decode(d))); } catch{} }
+    else if (sd.length>0) tp.push(...extractTextFromContent(new TextDecoder("latin1").decode(sd)));
+    sp = ep+em.length;
   }
-
-  console.log(`PDF extraction: ${decompressedCount} decompressed with text, ${failedCount} failed`);
-  return textParts.join(' ');
+  return tp.join(" ");
 }
 
-/**
- * Convertit un mot en pattern regex tolérant les espaces entre caractères.
- * Ex: "SOUSCRIPTEUR" → "S\\s*O\\s*U\\s*S\\s*C\\s*R\\s*I\\s*P\\s*T\\s*E\\s*U\\s*R"
- * Nécessaire car les PDF utilisent souvent du positionnement caractère par caractère.
- */
-function spaced(word: string): string {
-  return word.split('').join('\\s*');
+function spaced(w: string): string { return w.split("").join("\\s*"); }
+function normalizePdfText(t: string): string { return t.replace(/fr-FR/g," ").replace(/\s+/g," ").trim(); }
+function cleanExtractedValue(v: string): string {
+  return v.replace(/fr-FR/g, " ").replace(/\s+/g, " ").trim();
+}
+function extractHeaderFromText(text: string): Record<string,unknown> {
+  const r: Record<string,unknown> = {}; const n = normalizePdfText(text);
+  const months: Record<string,string> = {JANVIER:"01",FEVRIER:"02",MARS:"03",AVRIL:"04",MAI:"05",JUIN:"06",JUILLET:"07",AOUT:"08",SEPTEMBRE:"09",OCTOBRE:"10",NOVEMBRE:"11",DECEMBRE:"12"};
+  const monthPattern = Object.keys(months).map(m=>spaced(m)).join("|");
+  let m; if ((m=n.match(new RegExp(`N[°o]\\s*([0-9][0-9\\s]+[0-9])`,"i")))) r.contractNumber=(m[1]??"").replace(/\s/g,"");
+  if ((m=n.match(new RegExp(`${spaced("SOUSCRIPTEUR")}\\s*:?\\s*(.+?)(?=${spaced("ADRESSE")}|${spaced("MATRICULE")}|$)`,"is")))) r.companyName=cleanExtractedValue(m[1]??"").replace(/^:\s*/,"");
+  if ((m=n.match(new RegExp(`${spaced("ADRESSE")}\\s*:?\\s*(.+?)(?=${spaced("MATRICULE")}|${spaced("EFFET")}|$)`,"is")))) r.companyAddress=cleanExtractedValue(m[1]??"").replace(/^:\s*/,"");
+  if ((m=n.match(new RegExp(`${spaced("MATRICULE")}\\s*${spaced("FISCAL")}[E\\s]*:?\\s*([A-Z0-9][A-Z0-9\\s]*[A-Z0-9])(?=\\s*${spaced("EFFET")}|\\s*$)`,"i")))) r.matriculeFiscale=(m[1]??"").replace(/\s/g,"");
+  if ((m=n.match(new RegExp(`${spaced("Interm")}[ée\\s]*${spaced("diaire")}\\s*:?\\s*(.+?)(?=${spaced("Code")}|$)`,"i")))) r.intermediaryName=cleanExtractedValue(m[1]??"").replace(/^:\s*/,"");
+  if ((m=n.match(new RegExp(`${spaced("Code")}\\s*:?\\s*([0-9][0-9\\s]{0,20})(?=\\s*\\d\\s*\\.\\s*\\d|\\s*${spaced("RISQ")}|\\s*$)`,"i")))) r.intermediaryCode=(m[1]??"").replace(/\s/g,"");
+  if ((m=n.match(new RegExp(`${spaced("EFFET")}\\s*(?:${spaced("DU")}\\s*${spaced("CONTRAT")})?\\s*:?\\s*(?:${spaced("LE")}\\s*)?(\\d[\\d\\s]*)\\s*(?:er|[èe]me)?\\s*(${monthPattern})\\s*(\\d[\\d\\s]*)`,"i")))) { const d=(m[1]??"1").replace(/\s/g,"").padStart(2,"0"); const mo=months[(m[2]??"").replace(/\s/g,"").toUpperCase()]??"01"; const y=(m[3]??"2026").replace(/\s/g,""); r.effectiveDate=`${y}-${mo}-${d}`; }
+  if ((m=n.match(new RegExp(`${spaced("ECHEANCE")}\\s*${spaced("ANNUELLE")}\\s*:?\\s*(?:${spaced("LE")}\\s*)?(\\d[\\d\\s]*)\\s*(?:er|[èe]me)?\\s*(${monthPattern})`,"i")))) { const d=(m[1]??"1").replace(/\s/g,"").padStart(2,"0"); const mo=months[(m[2]??"").replace(/\s/g,"").toUpperCase()]??"01"; const ey=typeof r.effectiveDate==="string"?r.effectiveDate.substring(0,4):"2026"; r.annualRenewalDate=`${String(Number(ey)+1)}-${mo}-${d}`; }
+  const ip=[`${spaced("BH")}\\s*${spaced("ASSURANCE")}`,`${spaced("GAT")}`,`${spaced("STAR")}`,`${spaced("COMAR")}`,`${spaced("AMI")}`,`${spaced("CARTE")}`,`${spaced("LLOYD")}`,`${spaced("MAGHREBIA")}`,`${spaced("ASTREE")}`];
+  if ((m=n.match(new RegExp(`(${ip.join("|")})`,"i")))) r.insurerName=cleanExtractedValue(m[0]);
+  r.riskIllness=new RegExp(spaced("maladie"),"i").test(n);
+  r.riskDisability=new RegExp(`${spaced("incapacit")}|${spaced("invalidit")}`,"i").test(n);
+  r.riskDeath=new RegExp(`${spaced("d")}[ée\\s]*${spaced("c")}[èe\\s]*s`,"i").test(n);
+  r.coversSpouse=new RegExp(spaced("conjoint"),"i").test(n);
+  r.coversChildren=new RegExp(spaced("enfant"),"i").test(n);
+  r.coversRetirees=new RegExp(spaced("retrait"),"i").test(n);
+  r.coversDisabledChildren=new RegExp(spaced("handicap"),"i").test(n);
+  if ((m=n.match(new RegExp(`${spaced("enfant")}s?\\s*[âa\\s]*g[ée\\s]*s?\\s*${spaced("de")}\\s*${spaced("moins")}\\s*${spaced("de")}\\s*(\\d+)\\s*${spaced("ans")}`,"i")))) r.childrenMaxAge=Number(m[1]);
+  if ((m=n.match(new RegExp(`20\\s*[àa]\\s*(\\d+)\\s*${spaced("ans")}|(?:(\\d+)\\s*${spaced("ans")}\\s*(?:\\(inclus\\))?\\s*${spaced("scolaris")})`,"i")))) r.childrenStudentMaxAge=Number(m[1]??m[2]);
+  if ((m=n.match(new RegExp(`${spaced("MAXIMUM")}\\s*(?:${spaced("DES")}\\s*${spaced("PRESTATIONS")})?\\s*:?\\s*(\\d[\\d\\s.,]*)\\s*(?:${spaced("DINARS")}|${spaced("DT")})`,"i")))) r.annualGlobalLimit=Number((m[1]??"").replace(/[\s.,]/g,""));
+  return r;
 }
 
-/**
- * Normalise le texte extrait du PDF en supprimant les marqueurs fr-FR
- * et en nettoyant les espaces excessifs.
- */
-function normalizePdfText(text: string): string {
-  return text
-    .replace(/fr-FR/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/**
- * Nettoie une valeur extraite en reconstituant les mots fragmentés par le PDF.
- * Le PDF utilise du positionnement caractère par caractère, résultant en
- * "S oc iét é D e P r om otion" au lieu de "Société De Promotion".
- * Stratégie: coller les fragments courts (1-3 chars) au fragment suivant.
- */
-function cleanExtractedValue(val: string): string {
-  const cleaned = val
-    .replace(/fr-FR/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  // Reconstituer les mots: coller les fragments courts entre eux
-  const tokens = cleaned.split(' ');
-  const words: string[] = [];
-  let current = '';
-
-  for (const token of tokens) {
-    if (current.length === 0) {
-      current = token;
-    } else if (current.length <= 3 || token.length <= 2) {
-      // Fragment court → coller au mot en cours
-      current += token;
-    } else {
-      // Fragment long → nouveau mot
-      words.push(current);
-      current = token;
-    }
-  }
-  if (current.length > 0) words.push(current);
-
-  return words.join(' ');
-}
-
-/**
- * Extraction par regex directe des champs d'en-tête du contrat.
- * Fonctionne même sans Gemini — utilise le texte brut extrait du PDF.
- * Les regex utilisent spaced() pour tolérer les espaces inter-caractères
- * typiques des PDF avec positionnement individuel des glyphes.
- */
-function extractHeaderFromText(text: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  const normalized = normalizePdfText(text);
-
-  // Numéro de contrat: cherche "N°" suivi du numéro (chiffres potentiellement espacés)
-  const contractNumRegex = new RegExp(`N[°o]\\s*([0-9][0-9\\s]+[0-9])`, 'i');
-  const contractNumMatch = normalized.match(contractNumRegex);
-  if (contractNumMatch) result.contractNumber = (contractNumMatch[1] ?? '').replace(/\s/g, '');
-
-  // Souscripteur — mot-clé avec espaces tolérées
-  const souscRegex = new RegExp(`${spaced('SOUSCRIPTEUR')}\\s*:?\\s*(.+?)(?=${spaced('ADRESSE')}|${spaced('MATRICULE')}|$)`, 'is');
-  const souscripteurMatch = normalized.match(souscRegex);
-  if (souscripteurMatch) {
-    result.companyName = cleanExtractedValue(souscripteurMatch[1] ?? '').replace(/^:\s*/, '');
-  }
-
-  // Adresse
-  const adresseRegex = new RegExp(`${spaced('ADRESSE')}\\s*:?\\s*(.+?)(?=${spaced('MATRICULE')}|${spaced('EFFET')}|$)`, 'is');
-  const adresseMatch = normalized.match(adresseRegex);
-  if (adresseMatch) {
-    result.companyAddress = cleanExtractedValue(adresseMatch[1] ?? '').replace(/^:\s*/, '');
-  }
-
-  // Matricule fiscale — stop at EFFET or end
-  const matriculeRegex = new RegExp(`${spaced('MATRICULE')}\\s*${spaced('FISCAL')}[E\\s]*:?\\s*([A-Z0-9][A-Z0-9\\s]*[A-Z0-9])(?=\\s*${spaced('EFFET')}|\\s*$)`, 'i');
-  const matriculeMatch = normalized.match(matriculeRegex);
-  if (matriculeMatch) result.matriculeFiscale = (matriculeMatch[1] ?? '').replace(/\s/g, '').trim();
-
-  // Intermédiaire
-  const intermRegex = new RegExp(`${spaced('Interm')}[ée\\s]*${spaced('diaire')}\\s*:?\\s*(.+?)(?=${spaced('Code')}|$)`, 'i');
-  const intermMatch = normalized.match(intermRegex);
-  if (intermMatch) {
-    result.intermediaryName = cleanExtractedValue(intermMatch[1] ?? '').replace(/^:\s*/, '');
-  }
-
-  // Code intermédiaire — stop before section numbers (e.g., "3 . 2")
-  const codeRegex = new RegExp(`${spaced('Code')}\\s*:?\\s*([0-9][0-9\\s]{0,20})(?=\\s*\\d\\s*\\.\\s*\\d|\\s*${spaced('RISQ')}|\\s*$)`, 'i');
-  const codeMatch = normalized.match(codeRegex);
-  if (codeMatch) result.intermediaryCode = (codeMatch[1] ?? '').replace(/\s/g, '').trim();
-
-  // Effet du contrat — cherche une date avec mois en français (mots potentiellement espacés)
-  const monthNames = ['JANVIER', 'FEVRIER', 'MARS', 'AVRIL', 'MAI', 'JUIN', 'JUILLET', 'AOUT', 'SEPTEMBRE', 'OCTOBRE', 'NOVEMBRE', 'DECEMBRE'];
-  const monthPattern = monthNames.map(m => spaced(m)).join('|');
-  const effetRegex = new RegExp(
-    `${spaced('EFFET')}\\s*(?:${spaced('DU')}\\s*${spaced('CONTRAT')})?\\s*:?\\s*(?:${spaced('LE')}\\s*)?` +
-    `(\\d[\\d\\s]*)\\s*(?:er|[èe]me)?\\s*(${monthPattern})\\s*(\\d[\\d\\s]*)`,
-    'i'
-  );
-  const effetMatch = normalized.match(effetRegex);
-  if (effetMatch) {
-    const months: Record<string, string> = {
-      'JANVIER': '01', 'FEVRIER': '02', 'MARS': '03', 'AVRIL': '04',
-      'MAI': '05', 'JUIN': '06', 'JUILLET': '07', 'AOUT': '08',
-      'SEPTEMBRE': '09', 'OCTOBRE': '10', 'NOVEMBRE': '11', 'DECEMBRE': '12',
-    };
-    const day = (effetMatch[1] ?? '1').replace(/\s/g, '').padStart(2, '0');
-    const monthText = (effetMatch[2] ?? '').replace(/\s/g, '').toUpperCase();
-    const month = months[monthText] ?? '01';
-    const year = (effetMatch[3] ?? '2026').replace(/\s/g, '');
-    result.effectiveDate = `${year}-${month}-${day}`;
-  }
-
-  // Échéance annuelle
-  const echeanceRegex = new RegExp(
-    `${spaced('ECHEANCE')}\\s*${spaced('ANNUELLE')}\\s*:?\\s*(?:${spaced('LE')}\\s*)?` +
-    `(\\d[\\d\\s]*)\\s*(?:er|[èe]me)?\\s*(${monthPattern})`,
-    'i'
-  );
-  const echeanceMatch = normalized.match(echeanceRegex);
-  if (echeanceMatch) {
-    const months: Record<string, string> = {
-      'JANVIER': '01', 'FEVRIER': '02', 'MARS': '03', 'AVRIL': '04',
-      'MAI': '05', 'JUIN': '06', 'JUILLET': '07', 'AOUT': '08',
-      'SEPTEMBRE': '09', 'OCTOBRE': '10', 'NOVEMBRE': '11', 'DECEMBRE': '12',
-    };
-    const day = (echeanceMatch[1] ?? '1').replace(/\s/g, '').padStart(2, '0');
-    const monthText = (echeanceMatch[2] ?? '').replace(/\s/g, '').toUpperCase();
-    const month = months[monthText] ?? '01';
-    const effYear = typeof result.effectiveDate === 'string' ? result.effectiveDate.substring(0, 4) : '2026';
-    const nextYear = String(Number(effYear) + 1);
-    result.annualRenewalDate = `${nextYear}-${month}-${day}`;
-  }
-
-  // Assureur — noms connus avec espaces tolérées
-  const insurerPatterns = [
-    `${spaced('BH')}\\s*${spaced('ASSURANCE')}`,
-    `${spaced('GAT')}\\s*${spaced('Assurance')}s?`,
-    `${spaced('STAR')}\\s*(?:${spaced('Assurance')}s?)?`,
-    `${spaced('COMAR')}`,
-    `${spaced('AMI')}\\s*${spaced('Assurance')}s?`,
-    `${spaced('CARTE')}\\s*${spaced('Assurance')}s?`,
-    `${spaced('LLOYD')}`,
-    `${spaced('MAGHREBIA')}`,
-    `${spaced('ASTREE')}`,
-  ];
-  const assureurRegex = new RegExp(`(${insurerPatterns.join('|')})`, 'i');
-  const assureurMatch = normalized.match(assureurRegex);
-  if (assureurMatch) result.insurerName = cleanExtractedValue(assureurMatch[0]);
-
-  // Risques garantis — tolérer espaces dans les mots-clés
-  const maladie = new RegExp(spaced('maladie'), 'i');
-  const incapacite = new RegExp(`${spaced('incapacit')}|${spaced('invalidit')}`, 'i');
-  const deces = new RegExp(`${spaced('d')}[ée\\s]*${spaced('c')}[èe\\s]*s`, 'i');
-  result.riskIllness = maladie.test(normalized);
-  result.riskDisability = incapacite.test(normalized);
-  result.riskDeath = deces.test(normalized);
-
-  // Bénéficiaires
-  result.coversSpouse = new RegExp(spaced('conjoint'), 'i').test(normalized);
-  result.coversChildren = new RegExp(spaced('enfant'), 'i').test(normalized);
-  result.coversRetirees = new RegExp(spaced('retrait'), 'i').test(normalized);
-  result.coversDisabledChildren = new RegExp(spaced('handicap'), 'i').test(normalized);
-
-  // Ages
-  const ageMaxRegex = new RegExp(`${spaced('enfant')}s?\\s*[âa\\s]*g[ée\\s]*s?\\s*${spaced('de')}\\s*${spaced('moins')}\\s*${spaced('de')}\\s*(\\d+)\\s*${spaced('ans')}`, 'i');
-  const ageMaxMatch = normalized.match(ageMaxRegex);
-  if (ageMaxMatch) result.childrenMaxAge = Number(ageMaxMatch[1]);
-
-  const ageStudentRegex = new RegExp(`20\\s*[àa]\\s*(\\d+)\\s*${spaced('ans')}|(?:(\\d+)\\s*${spaced('ans')}\\s*(?:\\(inclus\\))?\\s*${spaced('scolaris')})`, 'i');
-  const ageStudentMatch = normalized.match(ageStudentRegex);
-  if (ageStudentMatch) result.childrenStudentMaxAge = Number(ageStudentMatch[1] ?? ageStudentMatch[2]);
-
-  // Maximum global
-  const maxRegex = new RegExp(`${spaced('MAXIMUM')}\\s*(?:${spaced('DES')}\\s*${spaced('PRESTATIONS')})?\\s*:?\\s*(\\d[\\d\\s.,]*)\\s*(?:${spaced('DINARS')}|${spaced('DT')})`, 'i');
-  const maxMatch = normalized.match(maxRegex);
-  if (maxMatch) {
-    const num = (maxMatch[1] ?? '').replace(/[\s.,]/g, '');
-    result.annualGlobalLimit = Number(num);
-  }
-
-  return result;
-}
-
+// ---- Gemini API caller with JSON repair ----
 type GeminiResult = { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
 
-/**
- * Appelle Gemini avec un prompt donné et retourne le JSON parsé.
- */
-async function callGemini(
+function repairJson(jsonStr: string): Record<string, unknown> | null {
+  // Strategy 1: Fix common issues and try parse
+  for (const attempt of [
+    // Attempt 1: Remove trailing comma + close brackets
+    () => {
+      let s = jsonStr;
+      s = s.replace(/,\s*$/, "");
+      s = s.replace(/,\s*"[^"]*"?\s*:?\s*"?[^"{}[\]]*$/, "");
+      const ob = (s.match(/\[/g) || []).length - (s.match(/\]/g) || []).length;
+      const oc = (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length;
+      for (let i = 0; i < ob; i++) s += "]";
+      for (let i = 0; i < oc; i++) s += "}";
+      return s;
+    },
+    // Attempt 2: Truncate at last complete object in guarantees array
+    () => {
+      const lastGoodClose = jsonStr.lastIndexOf("},");
+      if (lastGoodClose === -1) return null;
+      let s = jsonStr.substring(0, lastGoodClose + 1);
+      // Close any open arrays and objects
+      const ob = (s.match(/\[/g) || []).length - (s.match(/\]/g) || []).length;
+      const oc = (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length;
+      for (let i = 0; i < ob; i++) s += "]";
+      for (let i = 0; i < oc; i++) s += "}";
+      return s;
+    },
+    // Attempt 3: Find the guarantees array and truncate at last complete element
+    () => {
+      const guarIdx = jsonStr.indexOf('"guarantees"');
+      if (guarIdx === -1) return null;
+      const arrStart = jsonStr.indexOf("[", guarIdx);
+      if (arrStart === -1) return null;
+      // Find all complete guarantee objects (matching { ... })
+      let depth = 0;
+      let lastCompleteEnd = -1;
+      for (let i = arrStart + 1; i < jsonStr.length; i++) {
+        const ch = jsonStr[i];
+        if (ch === '"') {
+          // Skip string content
+          i++;
+          while (i < jsonStr.length && jsonStr[i] !== '"') {
+            if (jsonStr[i] === "\\") i++;
+            i++;
+          }
+        } else if (ch === "{") {
+          depth++;
+        } else if (ch === "}") {
+          depth--;
+          if (depth === 0) lastCompleteEnd = i;
+        }
+      }
+      if (lastCompleteEnd === -1) return null;
+      let s = jsonStr.substring(0, lastCompleteEnd + 1);
+      const ob = (s.match(/\[/g) || []).length - (s.match(/\]/g) || []).length;
+      const oc = (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length;
+      for (let i = 0; i < ob; i++) s += "]";
+      for (let i = 0; i < oc; i++) s += "}";
+      return s;
+    },
+  ]) {
+    try {
+      const fixed = attempt();
+      if (fixed) {
+        const parsed = JSON.parse(fixed);
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+async function callGeminiPass(
   apiKey: string,
   base64Data: string,
   mimeType: string,
   prompt: string,
+  passName: string,
+  model: string,
   maxOutputTokens = 8192,
 ): Promise<{ data: Record<string, unknown> | null; error?: string }> {
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${apiKey}`;
-
-  const requestBody = {
-    contents: [{
-      parts: [
-        { inline_data: { mime_type: mimeType, data: base64Data } },
-        { text: prompt },
-      ],
-    }],
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens,
-      responseMimeType: 'application/json',
-    },
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const body = {
+    contents: [
+      {
+        parts: [
+          { inline_data: { mime_type: mimeType, data: base64Data } },
+          { text: prompt },
+        ],
+      },
+    ],
+    generationConfig: { temperature: 0.05, maxOutputTokens },
   };
-
-  const response = await fetch(geminiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`Gemini API error (${response.status}):`, errorText);
-    return { data: null, error: `Gemini API erreur ${response.status}: ${errorText.slice(0, 200)}` };
-  }
-
-  const result = await response.json() as GeminiResult;
-  const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    return { data: null, error: 'Réponse Gemini vide' };
-  }
-
-  const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    return { data: null, error: 'Pas de JSON dans la réponse Gemini' };
-  }
-
   try {
-    return { data: JSON.parse(jsonMatch[0]) };
-  } catch {
-    return { data: null, error: 'JSON invalide dans la réponse Gemini' };
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const et = await res.text();
+      console.error(`[${passName}] Gemini ${res.status}:`, et.slice(0, 300));
+      return {
+        data: null,
+        error: `${passName}: Gemini API erreur ${res.status}`,
+      };
+    }
+    const result = (await res.json()) as GeminiResult;
+    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) return { data: null, error: `${passName}: réponse Gemini vide` };
+    const cleaned = text
+      .replace(/```json\s*/g, "")
+      .replace(/```\s*/g, "")
+      .trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch)
+      return { data: null, error: `${passName}: pas de JSON dans la réponse` };
+    const jsonStr = jsonMatch[0];
+    try {
+      return { data: JSON.parse(jsonStr) };
+    } catch (parseErr) {
+      console.warn(`[${passName}] JSON parse failed, attempting repair...`);
+      const repaired = repairJson(jsonStr);
+      if (repaired) {
+        console.log(`[${passName}] JSON repair succeeded`);
+        return { data: repaired };
+      }
+      return { data: null, error: `${passName}: ${String(parseErr)}` };
+    }
+  } catch (err) {
+    console.error(`[${passName}] Error:`, err);
+    return { data: null, error: `${passName}: ${String(err)}` };
   }
 }
 
-/**
- * Analyse un contrat PDF en 2 étapes:
- * 1. Extraction regex du texte brut pour les infos d'en-tête (instantané, sans API)
- * 2. Gemini pour le tableau des garanties (API, le modèle lite excelle sur les tableaux)
- * Les résultats sont fusionnés.
- */
-async function analyseWithGemini(
+// ---- Multi-pass orchestrator ----
+async function analyseContractMultiPass(
   apiKey: string,
   fileBuffer: ArrayBuffer,
   mimeType: string,
-  _fileName: string
-): Promise<{ data: Record<string, unknown> | null; error?: string }> {
-  const uint8Array = new Uint8Array(fileBuffer);
-  let binary = '';
-  for (let i = 0; i < uint8Array.length; i++) {
-    binary += String.fromCharCode(uint8Array[i]!);
-  }
-  const base64Data = btoa(binary);
-
-  // Étape 1: Extraction regex directe des infos d'en-tête depuis le texte brut du PDF
-  // (le modèle lite ne peut pas lire le texte des en-têtes PDF, seulement les tableaux)
-  let rawText = '';
-  let headerData: Record<string, unknown> = {};
-  try {
-    rawText = await extractRawTextFromPdf(fileBuffer);
-    headerData = extractHeaderFromText(rawText);
-    console.log('PDF text extraction - raw text length:', rawText.length);
-    console.log('PDF text extraction - raw text sample:', rawText.substring(0, 500));
-    console.log('PDF text extraction - header fields found:', JSON.stringify(
-      Object.fromEntries(Object.entries(headerData).filter(([, v]) => v != null && v !== false))
-    ));
-  } catch (extractError) {
-    console.error('PDF text extraction failed:', extractError);
-  }
-
-  // Étape 2: Gemini pour les garanties du tableau (le modèle lite est excellent pour ça)
-  const guaranteesResult = await callGemini(apiKey, base64Data, mimeType, GEMINI_CONTRACT_PROMPT, 8192);
-
+  _fileName: string,
+  model: string,
+): Promise<{
+  data: Record<string, unknown> | null;
+  error?: string;
+  errors: string[];
+}> {
+  const u8 = new Uint8Array(fileBuffer);
+  let bin = "";
+  for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]!);
+  const b64 = btoa(bin);
   const errors: string[] = [];
-  if (guaranteesResult.error) errors.push(`Garanties: ${guaranteesResult.error}`);
-
-  const guaranteesData = guaranteesResult.data || {};
-
-  // Merge: header regex data + Gemini guarantees data
-  // Header regex overrides Gemini for contract fields (more reliable for text)
-  // Gemini data fills gaps for fields not found by regex
-  const merged: Record<string, unknown> = {
-    ...guaranteesData,
+  let regexHeader: Record<string, unknown> = {};
+  try {
+    regexHeader = extractHeaderFromText(
+      await extractRawTextFromPdf(fileBuffer),
+    );
+  } catch {
+    errors.push("Regex: extraction échouée");
+  }
+  const [hr, br, gr] = await Promise.all([
+    callGeminiPass(
+      apiKey,
+      b64,
+      mimeType,
+      PROMPT_PASS_HEADER,
+      "header",
+      model,
+      2048,
+    ),
+    callGeminiPass(
+      apiKey,
+      b64,
+      mimeType,
+      PROMPT_PASS_BENEFICIARIES,
+      "beneficiaries",
+      model,
+      2048,
+    ),
+    callGeminiPass(
+      apiKey,
+      b64,
+      mimeType,
+      PROMPT_PASS_GUARANTEES,
+      "guarantees",
+      model,
+      65536,
+    ),
+  ]);
+  if (hr.error) errors.push(hr.error);
+  if (br.error) errors.push(br.error);
+  if (gr.error) errors.push(gr.error);
+  const gh = hr.data ?? {};
+  const gb = br.data ?? {};
+  const gg = gr.data ?? {};
+  const pick = (...s: unknown[]): unknown => {
+    for (const v of s) {
+      if (v !== null && v !== undefined && v !== "" && v !== false) return v;
+    }
+    return null;
   };
+  const merged: Record<string, unknown> = {
+    contractNumber: pick(regexHeader.contractNumber, gh.contractNumber),
+    companyName: pick(gh.companyName, regexHeader.companyName),
+    companyAddress: pick(gh.companyAddress, regexHeader.companyAddress),
+    matriculeFiscale: pick(regexHeader.matriculeFiscale, gh.matriculeFiscale),
+    insurerName: pick(gh.insurerName, regexHeader.insurerName),
+    intermediaryName: pick(gh.intermediaryName, regexHeader.intermediaryName),
+    intermediaryCode: pick(gh.intermediaryCode, regexHeader.intermediaryCode),
+    effectiveDate: pick(regexHeader.effectiveDate, gh.effectiveDate),
+    annualRenewalDate: pick(
+      regexHeader.annualRenewalDate,
+      gh.annualRenewalDate,
+    ),
+    riskIllness: gh.riskIllness ?? regexHeader.riskIllness ?? true,
+    riskDisability: gh.riskDisability ?? regexHeader.riskDisability ?? false,
+    riskDeath: gh.riskDeath ?? regexHeader.riskDeath ?? false,
+    coversSpouse: gb.coversSpouse ?? regexHeader.coversSpouse ?? true,
+    coversChildren: gb.coversChildren ?? regexHeader.coversChildren ?? true,
+    childrenMaxAge: gb.childrenMaxAge ?? regexHeader.childrenMaxAge ?? 20,
+    childrenStudentMaxAge:
+      gb.childrenStudentMaxAge ?? regexHeader.childrenStudentMaxAge ?? 28,
+    coversDisabledChildren:
+      gb.coversDisabledChildren ?? regexHeader.coversDisabledChildren ?? true,
+    coversRetirees: gb.coversRetirees ?? regexHeader.coversRetirees ?? false,
+    annualGlobalLimit: validateAndFixAmount(
+      gg.annualGlobalLimit ?? regexHeader.annualGlobalLimit,
+      "annualGlobalLimit",
+    ),
+    planCategory: "standard",
+    guarantees: [],
+  };
+  const rawG = (gg.guarantees as Record<string, unknown>[]) || [];
+  const validG = rawG.map((g) => validateGuarantee(g));
 
-  // Apply header data — only override if we found a real value (not null/undefined/false)
-  for (const [key, value] of Object.entries(headerData)) {
-    if (value != null && value !== '' && value !== false) {
-      merged[key] = value;
+  // -------------------------------------------------------------------
+  // Post-fix: fill missing rates/limits from known Tunisian patterns
+  // -------------------------------------------------------------------
+  for (const g of validG) {
+    const num = Number(g.guaranteeNumber);
+
+    // Fix missing reimbursement rates
+    if (g.reimbursementRate == null) {
+      const KNOWN_RATES: Record<number, number> = {
+        2: 0.9, // Pharmacie: 90% maladies ordinaires/chroniques
+        3: 1.0, // Laboratoire: lettres-clés mais taux implicite 100%
+        7: 1.0, // Transport: 100%
+        9: 1.0, // Orthopédie: 100%
+        10: 1.0, // Hospitalisation: 100%
+        11: 1.0, // Accouchement: 100% (hôpital)
+        12: 1.0, // IVG: 100%
+        16: 1.0, // Sanatorium: 100% après CNAM
+        17: 1.0, // Cures thermales: 100% après CNAM
+      };
+      if (KNOWN_RATES[num] !== undefined) {
+        g.reimbursementRate = KNOWN_RATES[num];
+      }
+    }
+
+    // Fix missing limits from contract patterns
+    if (num === 2 && g.annualLimit == null) {
+      // Pharmacie: maladies ordinaires 1000 DT, chroniques 1500 DT
+      g.annualLimit = 1000;
+      if (
+        !g.subLimits ||
+        (typeof g.subLimits === "object" &&
+          Object.keys(g.subLimits as object).length === 0)
+      ) {
+        g.subLimits = {
+          maladies_ordinaires: 1000,
+          maladies_chroniques: 1500,
+          sterilite: 1000,
+        };
+        g.subLimitsJson = JSON.stringify(g.subLimits);
+      }
+    }
+
+    if (num === 8) {
+      // Chirurgie: KC=10 DT, salle 300 DT/acte, anesthésie 300 DT/acte
+      if (g.perEventLimit == null) g.perEventLimit = 300;
+      if (
+        !g.subLimits ||
+        (typeof g.subLimits === "object" &&
+          Object.keys(g.subLimits as object).length === 0)
+      ) {
+        g.subLimits = {
+          salle_operation: 300,
+          anesthesie: 300,
+          medicaments_chirurgie: 300,
+        };
+        g.subLimitsJson = JSON.stringify(g.subLimits);
+      }
+    }
+
+    if (num === 10) {
+      // Hospitalisation: hôpital 45 DT/jour, clinique 120 DT/jour
+      if (g.dailyLimit == null) g.dailyLimit = 120;
+      if (
+        !g.subLimits ||
+        (typeof g.subLimits === "object" &&
+          Object.keys(g.subLimits as object).length === 0)
+      ) {
+        g.subLimits = { hopital_jour: 45, clinique_jour: 120 };
+        g.subLimitsJson = JSON.stringify(g.subLimits);
+      }
+    }
+
+    if (num === 11) {
+      // Accouchement: hôpital 200 DT/acte, clinique CNAM plafond 500 DT
+      if (g.perEventLimit == null) g.perEventLimit = 200;
+      if (
+        !g.subLimits ||
+        (typeof g.subLimits === "object" &&
+          Object.keys(g.subLimits as object).length === 0)
+      ) {
+        g.subLimits = { hopital: 200, clinique_plafond_cnam: 500 };
+        g.subLimitsJson = JSON.stringify(g.subLimits);
+      }
     }
   }
 
-  // Always keep guarantees from Gemini
-  merged.guarantees = guaranteesData.guarantees || [];
-
-  if (Object.keys(headerData).length === 0 && !guaranteesResult.data) {
-    return { data: null, error: errors.join('; ') };
+  const nums = new Set(validG.map((g) => Number(g.guaranteeNumber)));
+  const miss: number[] = [];
+  for (let i = 1; i <= 18; i++) {
+    if (!nums.has(i)) miss.push(i);
   }
-
-  return { data: merged, error: errors.length > 0 ? errors.join('; ') : undefined };
+  if (miss.length > 0 && miss.length <= 5)
+    errors.push(`Garanties manquantes: ${miss.join(", ")}`);
+  const gMap = new Map<number, Record<string, unknown>>();
+  for (const g of validG) gMap.set(Number(g.guaranteeNumber), g);
+  merged.guarantees = Array.from(gMap.values()).sort(
+    (a, b) => Number(a.guaranteeNumber) - Number(b.guaranteeNumber),
+  );
+  if (!merged.contractNumber && !merged.companyName && validG.length === 0)
+    return {
+      data: null,
+      errors,
+      error: errors.join("; ") || "Aucune donnée extraite",
+    };
+  return {
+    data: merged,
+    errors,
+    error: errors.length > 0 ? errors.join("; ") : undefined,
+  };
 }
 
-// Debug endpoint to test PDF text extraction (temporary)
-groupContracts.post(
-  '/debug-pdf-extract',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
-  async (c) => {
-    try {
-      const body = await c.req.parseBody({ all: true });
-      const fileField = body['files'];
-      const file = fileField instanceof File ? fileField : Array.isArray(fileField) ? fileField[0] : null;
-      if (!file || !(file instanceof File)) {
-        return c.json({ error: 'No file' }, 400);
-      }
-      const buffer = await file.arrayBuffer();
-      const rawText = await extractRawTextFromPdf(buffer);
-      const headerData = extractHeaderFromText(rawText);
-      return c.json({
-        rawTextLength: rawText.length,
-        rawTextSample: rawText.substring(0, 500),
-        headerData,
-      });
-    } catch (e) {
-      return c.json({ error: String(e), stack: (e as Error)?.stack?.substring(0, 500) }, 500);
-    }
-  }
-);
-
-groupContracts.post(
-  '/analyse-pdf',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
-  async (c) => {
-    const user = c.get('user');
-
-    try {
-      const geminiApiKey = c.env.GEMINI_API_KEY;
-      if (!geminiApiKey) {
-        return errorResponse(c, 'CONFIG_ERROR', 'Clé API Gemini non configurée', 500);
-      }
-
-      const body = await c.req.parseBody({ all: true });
-
-      // Collect all uploaded files from "file" and "files" fields
-      const uploadedFilesList: File[] = [];
-      const filesField = body['files'];
-      if (Array.isArray(filesField)) {
-        for (const f of filesField) {
-          if (f instanceof File) uploadedFilesList.push(f);
-        }
-      } else if (filesField instanceof File) {
-        uploadedFilesList.push(filesField);
-      }
-      const singleFile = body['file'];
-      if (singleFile instanceof File) {
-        uploadedFilesList.push(singleFile);
-      }
-
-      if (uploadedFilesList.length === 0) {
-        return errorResponse(c, 'VALIDATION_ERROR', 'Fichier requis (PDF ou images du contrat)', 400);
-      }
-
-      // Validate file types (PDF + images supported by Gemini)
-      for (const f of uploadedFilesList) {
-        const isPdf = f.type.includes('pdf') || f.name.toLowerCase().endsWith('.pdf');
-        const isImage = f.type.startsWith('image/') || f.name.match(/\.(jpg|jpeg|png|webp|gif)$/i);
-        if (!isPdf && !isImage) {
-          return errorResponse(c, 'VALIDATION_ERROR', `Format non supporté: ${f.name}. Utilisez un PDF ou des images.`, 400);
-        }
-      }
-
-      // Upload all files to R2
-      const storage = c.env.STORAGE;
-      const documentId = generateId();
-      const r2Files: Array<{ name: string; r2Key: string; size: number }> = [];
-
-      for (const f of uploadedFilesList) {
-        const r2Key = `contracts/${documentId}/${f.name.replace(/\s+/g, '_')}`;
-        const buffer = await f.arrayBuffer();
-        await storage.put(r2Key, buffer, {
-          httpMetadata: { contentType: f.type || 'application/octet-stream' },
-        });
-        r2Files.push({ name: f.name, r2Key, size: f.size });
-      }
-
-      // Analyse each file with Gemini
-      const pageResults: Array<Record<string, unknown>> = [];
-      const errors: string[] = [];
-
-      for (const f of uploadedFilesList) {
-        const buffer = await f.arrayBuffer();
-        const mimeType = f.type || (f.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
-
-        const result = await analyseWithGemini(geminiApiKey, buffer, mimeType, f.name);
-
-        if (result.data) {
-          pageResults.push(result.data);
-        }
-        if (result.error) {
-          errors.push(result.error);
-        }
-      }
-
-      // Merge results (in case multiple files were uploaded)
-      let extractedData: Record<string, unknown> | null = null;
-      if (pageResults.length === 1) {
-        // Single file — contains both header and guarantees data
-        // Use directly without mergeExtractedPages to preserve all fields
-        const single = pageResults[0]!;
-        extractedData = {
-          contractNumber: single.contractNumber ?? null,
-          companyName: single.companyName ?? null,
-          companyAddress: single.companyAddress ?? null,
-          matriculeFiscale: single.matriculeFiscale ?? null,
-          insurerName: single.insurerName ?? null,
-          intermediaryName: single.intermediaryName ?? null,
-          intermediaryCode: single.intermediaryCode ?? null,
-          effectiveDate: single.effectiveDate ?? null,
-          annualRenewalDate: single.annualRenewalDate ?? null,
-          riskIllness: single.riskIllness ?? true,
-          riskDisability: single.riskDisability ?? false,
-          riskDeath: single.riskDeath ?? false,
-          coversSpouse: single.coversSpouse ?? true,
-          coversChildren: single.coversChildren ?? true,
-          childrenMaxAge: single.childrenMaxAge ?? 20,
-          childrenStudentMaxAge: single.childrenStudentMaxAge ?? 28,
-          coversDisabledChildren: single.coversDisabledChildren ?? true,
-          coversRetirees: single.coversRetirees ?? false,
-          annualGlobalLimit: single.annualGlobalLimit ?? null,
-          planCategory: single.planCategory ?? 'standard',
-          guarantees: Array.isArray(single.guarantees) ? single.guarantees : [],
-        };
-      } else if (pageResults.length > 1) {
-        extractedData = mergeExtractedPages(pageResults);
-      }
-
-      // Calculate confidence
-      let confidence: 'high' | 'medium' | 'low' = 'low';
-      if (extractedData) {
-        const guarantees = extractedData.guarantees as Record<string, unknown>[];
-        const hasContract = !!extractedData.contractNumber;
-        const hasCompany = !!extractedData.companyName;
-
-        if (hasContract && hasCompany && guarantees.length >= 10) {
-          confidence = 'high';
-        } else if ((hasContract || hasCompany) && guarantees.length > 0) {
-          confidence = 'medium';
-        }
-      }
-
-      // Audit log
-      await logAudit(getDb(c), {
-        userId: user?.sub,
-        action: 'group_contract.analyse_pdf',
-        entityType: 'group_contract',
-        entityId: documentId,
-        changes: {
-          filesCount: uploadedFilesList.length,
-          fileNames: uploadedFilesList.map(f => f.name),
-          totalSize: uploadedFilesList.reduce((sum, f) => sum + f.size, 0),
-          engine: 'gemini-3.1-flash-lite-preview',
-          guaranteesExtracted: extractedData ? (extractedData.guarantees as unknown[]).length : 0,
-          confidence,
-          errors: errors.length > 0 ? errors : undefined,
-        },
-        ipAddress: c.req.header('CF-Connecting-IP'),
-        userAgent: c.req.header('User-Agent'),
-      });
-
-      return success(c, {
-        documentId,
-        uploadedFiles: r2Files,
-        extractedData,
-        totalFiles: uploadedFilesList.length,
-        confidence,
-        engine: 'gemini-3.1-flash-lite-preview',
-        errors: errors.length > 0 ? errors : undefined,
-        message: extractedData
-          ? `Extraction réussie: ${(extractedData.guarantees as unknown[]).length} garanties extraites. Veuillez vérifier et corriger si nécessaire.`
-          : 'L\'extraction automatique n\'a pas pu aboutir. Veuillez saisir les données manuellement.',
-      });
-    } catch (err) {
-      console.error('Contract analysis error:', err);
-      return errorResponse(c, 'OCR_ERROR', 'Erreur lors de l\'analyse du contrat', 500);
-    }
-  }
-);
+function mergeExtractedPages(pages: Array<Record<string,unknown>>): Record<string,unknown> {
+  const merged: Record<string,unknown> = { contractNumber:null,companyName:null,companyAddress:null,matriculeFiscale:null,insurerName:null,intermediaryName:null,intermediaryCode:null,effectiveDate:null,annualRenewalDate:null,riskIllness:true,riskDisability:false,riskDeath:false,coversSpouse:true,coversChildren:true,childrenMaxAge:20,childrenStudentMaxAge:28,coversDisabledChildren:true,coversRetirees:false,annualGlobalLimit:null,planCategory:"standard",guarantees:[] as Record<string,unknown>[] };
+  for (const p of pages) { for (const [k,v] of Object.entries(p)) { if (k==="guarantees") continue; if (v!=null&&v!=="") merged[k]=v; } const pg=p.guarantees as Record<string,unknown>[]|undefined; if (Array.isArray(pg)) (merged.guarantees as Record<string,unknown>[]).push(...pg); }
+  const gMap = new Map<number,Record<string,unknown>>(); for (const g of merged.guarantees as Record<string,unknown>[]) { const n=Number(g.guaranteeNumber); if (n>0) { const e=gMap.get(n); if (e) { for (const [k,v] of Object.entries(g)) { if (v!=null) e[k]=v; } } else gMap.set(n,{...g}); } }
+  merged.guarantees = Array.from(gMap.values()).sort((a,b)=>Number(a.guaranteeNumber)-Number(b.guaranteeNumber));
+  return merged;
+}
 
 // ---------------------------------------------------------------------------
-// POST /:id/apply-to-adherents — Apply group contract to company adherents
+// POST /analyse-pdf
 // ---------------------------------------------------------------------------
-groupContracts.post(
-  '/:id/apply-to-adherents',
-  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
-  async (c) => {
-    const id = c.req.param('id');
-    const user = c.get('user');
-    const db = getDb(c);
+groupContracts.post("/debug-pdf-extract", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT"), async (c) => {
+  try { const body=await c.req.parseBody({all:true}); const ff=body["files"]; const file=ff instanceof File?ff:Array.isArray(ff)?ff[0]:null; if (!file||!(file instanceof File)) return c.json({error:"No file"},400); const buf=await file.arrayBuffer(); const raw=await extractRawTextFromPdf(buf); return c.json({rawTextLength:raw.length,rawTextSample:raw.substring(0,500),headerData:extractHeaderFromText(raw)}); } catch (e) { return c.json({error:String(e)},500); }
+});
 
-    // Fetch group contract
-    const groupContract = await db
-      .prepare('SELECT * FROM group_contracts WHERE id = ? AND deleted_at IS NULL')
-      .bind(id)
-      .first<Record<string, unknown>>();
+groupContracts.post("/analyse-pdf", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT"), async (c) => {
+  const user = c.get("user");
+  try {
+    const geminiApiKey = c.env.GEMINI_API_KEY;
+    if (!geminiApiKey) return errorResponse(c,"CONFIG_ERROR","Clé API Gemini non configurée",500);
+    const geminiModel = (c.env as Record<string,string>).GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+    const body = await c.req.parseBody({all:true});
+    const uploadedFilesList: File[] = [];
+    const ff = body["files"]; if (Array.isArray(ff)) { for (const f of ff) { if (f instanceof File) uploadedFilesList.push(f); } } else if (ff instanceof File) uploadedFilesList.push(ff);
+    const sf = body["file"]; if (sf instanceof File) uploadedFilesList.push(sf);
+    if (uploadedFilesList.length===0) return errorResponse(c,"VALIDATION_ERROR","Fichier requis",400);
+    for (const f of uploadedFilesList) { const isPdf=f.type.includes("pdf")||f.name.toLowerCase().endsWith(".pdf"); const isImg=f.type.startsWith("image/")||f.name.match(/\.(jpg|jpeg|png|webp|gif)$/i); if (!isPdf&&!isImg) return errorResponse(c,"VALIDATION_ERROR",`Format non supporté: ${f.name}`,400); }
+    const storage=c.env.STORAGE; const documentId=generateId(); const r2Files: Array<{name:string;r2Key:string;size:number}>=[];
+    for (const f of uploadedFilesList) { const r2Key=`contracts/${documentId}/${f.name.replace(/\s+/g,"_")}`; await storage.put(r2Key,await f.arrayBuffer(),{httpMetadata:{contentType:f.type||"application/octet-stream"}}); r2Files.push({name:f.name,r2Key,size:f.size}); }
+    const pageResults: Array<Record<string,unknown>>=[]; const allErrors: string[]=[];
+    for (const f of uploadedFilesList) { const buf=await f.arrayBuffer(); const mt=f.type||(f.name.toLowerCase().endsWith(".pdf")?"application/pdf":"image/jpeg"); const result=await analyseContractMultiPass(geminiApiKey,buf,mt,f.name,geminiModel); if (result.data) pageResults.push(result.data); if (result.errors.length>0) allErrors.push(...result.errors); }
+    let extractedData: Record<string,unknown>|null=null;
+    if (pageResults.length===1) extractedData=pageResults[0]!; else if (pageResults.length>1) extractedData=mergeExtractedPages(pageResults);
+    let confidence: "high"|"medium"|"low"="low";
+    if (extractedData) { const g=extractedData.guarantees as Record<string,unknown>[]; const hc=!!extractedData.contractNumber; const hn=!!extractedData.companyName; if (hc&&hn&&g.length>=15) confidence="high"; else if ((hc||hn)&&g.length>=10) confidence="medium"; }
+    await logAudit(getDb(c),{userId:user?.sub,action:"group_contract.analyse_pdf",entityType:"group_contract",entityId:documentId,changes:{filesCount:uploadedFilesList.length,fileNames:uploadedFilesList.map(f=>f.name),totalSize:uploadedFilesList.reduce((s,f)=>s+f.size,0),engine:geminiModel,architecture:"3-pass",guaranteesExtracted:extractedData?(extractedData.guarantees as unknown[]).length:0,confidence,errors:allErrors.length>0?allErrors:undefined},ipAddress:c.req.header("CF-Connecting-IP"),userAgent:c.req.header("User-Agent")});
+    return success(c,{documentId,uploadedFiles:r2Files,extractedData,totalFiles:uploadedFilesList.length,confidence,engine:geminiModel,errors:allErrors.length>0?allErrors:undefined,message:extractedData?`Extraction réussie: ${(extractedData.guarantees as unknown[]).length} garanties extraites. Veuillez vérifier.`:"L'extraction n'a pas pu aboutir. Saisie manuelle requise."});
+  } catch (err) { console.error("Contract analysis error:",err); return errorResponse(c,"OCR_ERROR","Erreur lors de l'analyse du contrat",500); }
+});
 
-    if (!groupContract) {
-      return notFound(c, 'Contrat groupe non trouvé');
-    }
-
-    if (
-      user?.insurerId &&
-      ['INSURER_ADMIN', 'INSURER_AGENT'].includes(user.role) &&
-      groupContract.insurer_id !== user.insurerId
-    ) {
-      return notFound(c, 'Contrat groupe non trouvé');
-    }
-
-    if (groupContract.status !== 'active') {
-      return errorResponse(c, 'CONTRACT_NOT_ACTIVE', 'Le contrat groupe doit être actif pour être appliqué', 400);
-    }
-
-    // Get adherents based on contract type
-    let adherentList: { id: string; first_name: string; last_name: string }[];
-
-    if (groupContract.contract_type === 'individual' && groupContract.adherent_id) {
-      // Individual contract: single adherent
-      const adherent = await db
-        .prepare(
-          `SELECT id, first_name, last_name FROM adherents
-           WHERE id = ? AND is_active = 1 AND deleted_at IS NULL`
-        )
-        .bind(groupContract.adherent_id)
-        .first<{ id: string; first_name: string; last_name: string }>();
-
-      adherentList = adherent ? [adherent] : [];
-    } else {
-      // Group contract: all active adherents for the company
-      const adherents = await db
-        .prepare(
-          `SELECT id, first_name, last_name FROM adherents
-           WHERE company_id = ? AND is_active = 1 AND deleted_at IS NULL`
-        )
-        .bind(groupContract.company_id)
-        .all<{ id: string; first_name: string; last_name: string }>();
-
-      adherentList = adherents.results ?? [];
-    }
-
-    if (adherentList.length === 0) {
-      return errorResponse(c, 'NO_ADHERENTS', 'Aucun adhérent actif trouvé', 400);
-    }
-
-    // Fetch guarantees for building coverage JSON
-    const guarantees = await db
-      .prepare(
-        'SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1'
-      )
-      .bind(id)
-      .all();
-
-    const guaranteeList = guarantees.results ?? [];
-
-    // Build coverage JSON from group contract guarantees
-    const coverage: Record<string, unknown> = {};
-    for (const g of guaranteeList) {
-      const gt = g as Record<string, unknown>;
-      coverage[gt.care_type as string] = {
-        enabled: true,
-        reimbursementRate: gt.reimbursement_rate ? Number(gt.reimbursement_rate) * 100 : null,
-        annualLimit: gt.annual_limit,
-        perEventLimit: gt.per_event_limit,
-      };
-    }
-
-    // Create or update individual contracts for each adherent
-    let createdCount = 0;
-    let updatedCount = 0;
-    const now = new Date().toISOString();
-    const groupContractNumber = groupContract.contract_number as string;
-
-    // Use end_date from group contract, fallback to 1 year from effective_date
-    const endDate = groupContract.end_date
-      ?? groupContract.annual_renewal_date
-      ?? new Date(new Date(groupContract.effective_date as string).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-    for (const adherent of adherentList) {
-      // Check if adherent already has an active contract from this group
-      const existingContract = await db
-        .prepare(
-          `SELECT id, contract_number FROM contracts
-           WHERE adherent_id = ? AND insurer_id = ? AND status = 'active'
-           AND group_contract_id = ?`
-        )
-        .bind(adherent.id, groupContract.insurer_id, id)
-        .first<{ id: string; contract_number: string }>();
-
-      if (existingContract) {
-        // Update existing contract: sync contract_number, coverage, and dates
-        await db
-          .prepare(
-            `UPDATE contracts SET
-              contract_number = ?,
-              coverage_json = ?,
-              start_date = ?,
-              end_date = ?,
-              updated_at = ?
-             WHERE id = ?`
-          )
-          .bind(
-            groupContractNumber,
-            JSON.stringify(coverage),
-            groupContract.effective_date,
-            endDate,
-            now,
-            existingContract.id
-          )
-          .run();
-        updatedCount++;
-        continue;
-      }
-
-      const contractId = generateId();
-
-      await db
-        .prepare(
-          `INSERT INTO contracts (
-            id, contract_number, adherent_id, insurer_id,
-            plan_type, status, coverage_json,
-            start_date, end_date,
-            group_contract_id,
-            created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`
-        )
-        .bind(
-          contractId,
-          groupContractNumber,
-          adherent.id,
-          groupContract.insurer_id,
-          groupContract.contract_type === 'individual' ? 'individual' : 'corporate',
-          JSON.stringify(coverage),
-          groupContract.effective_date,
-          endDate,
-          id,
-          now,
-          now
-        )
-        .run();
-
-      createdCount++;
-    }
-
-    // Initialize plafonds_beneficiaire for each adherent from group contract baremes
-    // This ensures the 3-level ceiling system works during reimbursement calculation
-    let plafondsCreated = 0;
-    const currentYear = new Date().getFullYear();
-    const years = [currentYear, currentYear + 1]; // Current + next year
-
-    // Get all distinct family plafonds from contrat_baremes
-    const baremes = await db
-      .prepare(
-        `SELECT DISTINCT cb.famille_id, cb.plafond_famille_annuel
-         FROM contrat_baremes cb
-         JOIN contrat_periodes cp ON cb.periode_id = cp.id
-         WHERE cp.contract_id = ? AND cb.plafond_famille_annuel IS NOT NULL AND cb.famille_id IS NOT NULL`
-      )
-      .bind(id)
-      .all<{ famille_id: string; plafond_famille_annuel: number }>();
-
-    // Get global plafond from group_contracts
-    const globalLimit = groupContract.annual_global_limit as number | null;
-
-    for (const adherent of adherentList) {
-      for (const year of years) {
-        // Create family-level plafonds for each bareme famille
-        for (const b of (baremes.results ?? [])) {
-          for (const maladie of ['ordinaire', 'chronique'] as const) {
-            try {
-              await db
-                .prepare(
-                  `INSERT OR IGNORE INTO plafonds_beneficiaire
-                   (id, adherent_id, contract_id, annee, famille_acte_id, type_maladie, montant_plafond, montant_consomme, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), datetime('now'))`
-                )
-                .bind(
-                  generateId(),
-                  adherent.id,
-                  id, // group_contract_id — baremes are at this level
-                  year,
-                  b.famille_id,
-                  maladie,
-                  b.plafond_famille_annuel
-                )
-                .run();
-              plafondsCreated++;
-            } catch {
-              // Ignore duplicates
-            }
-          }
-        }
-
-        // Create global plafond (famille_acte_id IS NULL)
-        if (globalLimit) {
-          try {
-            await db
-              .prepare(
-                `INSERT OR IGNORE INTO plafonds_beneficiaire
-                 (id, adherent_id, contract_id, annee, famille_acte_id, type_maladie, montant_plafond, montant_consomme, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, NULL, 'ordinaire', ?, 0, datetime('now'), datetime('now'))`
-              )
-              .bind(generateId(), adherent.id, id, year, globalLimit)
-              .run();
-            plafondsCreated++;
-          } catch {
-            // Ignore duplicates
-          }
-        }
-      }
-    }
-
-    // Audit log
-    await logAudit(getDb(c), {
-      userId: user?.sub,
-      action: 'group_contract.apply_to_adherents',
-      entityType: 'group_contract',
-      entityId: id,
-      changes: {
-        companyId: groupContract.company_id,
-        totalAdherents: adherentList.length,
-        contractsCreated: createdCount,
-        contractsUpdated: updatedCount,
-        plafondsCreated,
-      },
-      ipAddress: c.req.header('CF-Connecting-IP'),
-      userAgent: c.req.header('User-Agent'),
-    });
-
-    const parts: string[] = [];
-    if (createdCount > 0) parts.push(`${createdCount} contrats créés`);
-    if (updatedCount > 0) parts.push(`${updatedCount} contrats mis à jour`);
-    if (plafondsCreated > 0) parts.push(`${plafondsCreated} plafonds initialisés`);
-
-    return success(c, {
-      groupContractId: id,
-      totalAdherents: adherentList.length,
-      contractsCreated: createdCount,
-      contractsUpdated: updatedCount,
-      plafondsCreated,
-      message: parts.join(', ') + '.',
-    });
+// ---------------------------------------------------------------------------
+// POST /:id/apply-to-adherents
+// ---------------------------------------------------------------------------
+groupContracts.post("/:id/apply-to-adherents", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT"), async (c) => {
+  const id=c.req.param("id"); const user=c.get("user"); const db=getDb(c);
+  const gc = await db.prepare("SELECT * FROM group_contracts WHERE id = ? AND deleted_at IS NULL").bind(id).first<Record<string,unknown>>();
+  if (!gc) return notFound(c,"Contrat groupe non trouvé");
+  if (user?.insurerId&&["INSURER_ADMIN","INSURER_AGENT"].includes(user.role)&&gc.insurer_id!==user.insurerId) return notFound(c,"Contrat groupe non trouvé");
+  if (gc.status!=="active") return errorResponse(c,"CONTRACT_NOT_ACTIVE","Le contrat groupe doit être actif",400);
+  let adherentList: {id:string;first_name:string;last_name:string}[];
+  if (gc.contract_type==="individual"&&gc.adherent_id) { const a=await db.prepare("SELECT id, first_name, last_name FROM adherents WHERE id = ? AND is_active = 1 AND deleted_at IS NULL").bind(gc.adherent_id).first<{id:string;first_name:string;last_name:string}>(); adherentList=a?[a]:[]; }
+  else { const as2=await db.prepare("SELECT id, first_name, last_name FROM adherents WHERE company_id = ? AND is_active = 1 AND deleted_at IS NULL").bind(gc.company_id).all<{id:string;first_name:string;last_name:string}>(); adherentList=as2.results??[]; }
+  if (adherentList.length===0) return errorResponse(c,"NO_ADHERENTS","Aucun adhérent actif trouvé",400);
+  const guar=await db.prepare("SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1").bind(id).all();
+  const coverage: Record<string,unknown>={}; for (const g of guar.results??[]) { const gt=g as Record<string,unknown>; coverage[gt.care_type as string]={enabled:true,reimbursementRate:gt.reimbursement_rate?Number(gt.reimbursement_rate)*100:null,annualLimit:gt.annual_limit,perEventLimit:gt.per_event_limit}; }
+  let createdCount=0; let updatedCount=0; const now=new Date().toISOString(); const gcn=gc.contract_number as string;
+  const endDate=gc.end_date??gc.annual_renewal_date??new Date(new Date(gc.effective_date as string).getTime()+365*24*60*60*1000).toISOString().split("T")[0];
+  for (const adh of adherentList) {
+    const ec=await db.prepare(`SELECT id, contract_number FROM contracts WHERE adherent_id = ? AND insurer_id = ? AND status = 'active' AND group_contract_id = ?`).bind(adh.id,gc.insurer_id,id).first<{id:string;contract_number:string}>();
+    if (ec) { await db.prepare(`UPDATE contracts SET contract_number=?,coverage_json=?,start_date=?,end_date=?,updated_at=? WHERE id=?`).bind(gcn,JSON.stringify(coverage),gc.effective_date,endDate,now,ec.id).run(); updatedCount++; continue; }
+    const cid=generateId(); await db.prepare(`INSERT INTO contracts (id,contract_number,adherent_id,insurer_id,plan_type,status,coverage_json,start_date,end_date,group_contract_id,created_at,updated_at) VALUES (?,?,?,?,?,'active',?,?,?,?,?,?)`).bind(cid,gcn,adh.id,gc.insurer_id,gc.contract_type==="individual"?"individual":"corporate",JSON.stringify(coverage),gc.effective_date,endDate,id,now,now).run(); createdCount++;
   }
-);
+  let plafondsCreated=0; const cy=new Date().getFullYear(); const years=[cy,cy+1];
+  const baremes=await db.prepare(`SELECT DISTINCT cb.famille_id, cb.plafond_famille_annuel FROM contrat_baremes cb JOIN contrat_periodes cp ON cb.periode_id = cp.id WHERE cp.contract_id = ? AND cb.plafond_famille_annuel IS NOT NULL AND cb.famille_id IS NOT NULL`).bind(id).all<{famille_id:string;plafond_famille_annuel:number}>();
+  const globalLimit=gc.annual_global_limit as number|null;
+  for (const adh of adherentList) { for (const y of years) { for (const b of baremes.results??[]) { for (const m of ["ordinaire","chronique"] as const) { try { await db.prepare(`INSERT OR IGNORE INTO plafonds_beneficiaire (id,adherent_id,contract_id,annee,famille_acte_id,type_maladie,montant_plafond,montant_consomme,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,datetime('now'),datetime('now'))`).bind(generateId(),adh.id,id,y,b.famille_id,m,b.plafond_famille_annuel).run(); plafondsCreated++; } catch{} } } if (globalLimit) { try { await db.prepare(`INSERT OR IGNORE INTO plafonds_beneficiaire (id,adherent_id,contract_id,annee,famille_acte_id,type_maladie,montant_plafond,montant_consomme,created_at,updated_at) VALUES (?,?,?,?,NULL,'ordinaire',?,0,datetime('now'),datetime('now'))`).bind(generateId(),adh.id,id,y,globalLimit).run(); plafondsCreated++; } catch{} } } }
+  await logAudit(getDb(c),{userId:user?.sub,action:"group_contract.apply_to_adherents",entityType:"group_contract",entityId:id,changes:{companyId:gc.company_id,totalAdherents:adherentList.length,contractsCreated:createdCount,contractsUpdated:updatedCount,plafondsCreated},ipAddress:c.req.header("CF-Connecting-IP"),userAgent:c.req.header("User-Agent")});
+  const parts: string[]=[]; if (createdCount>0) parts.push(`${createdCount} contrats créés`); if (updatedCount>0) parts.push(`${updatedCount} contrats mis à jour`); if (plafondsCreated>0) parts.push(`${plafondsCreated} plafonds initialisés`);
+  return success(c,{groupContractId:id,totalAdherents:adherentList.length,contractsCreated:createdCount,contractsUpdated:updatedCount,plafondsCreated,message:parts.join(", ")+"."});
+});
 
 // ---------------------------------------------------------------------------
-// DELETE /:id — Soft-delete a group contract
+// DELETE /:id
 // ---------------------------------------------------------------------------
-groupContracts.delete(
-  '/:id',
-  requireRole('ADMIN', 'INSURER_ADMIN'),
-  async (c) => {
-    const id = c.req.param('id');
-    const user = c.get('user');
-    const db = getDb(c);
-
-    const existing = await db
-      .prepare('SELECT id, contract_number, insurer_id, status FROM group_contracts WHERE id = ? AND deleted_at IS NULL')
-      .bind(id)
-      .first<{ id: string; contract_number: string; insurer_id: string; status: string }>();
-
-    if (!existing) {
-      return notFound(c, 'Contrat groupe non trouvé');
-    }
-
-    if (
-      user?.insurerId &&
-      user.role === 'INSURER_ADMIN' &&
-      existing.insurer_id !== user.insurerId
-    ) {
-      return notFound(c, 'Contrat groupe non trouvé');
-    }
-
-    // Soft-delete the contract
-    await db
-      .prepare("UPDATE group_contracts SET deleted_at = datetime('now'), status = 'cancelled', updated_at = datetime('now') WHERE id = ?")
-      .bind(id)
-      .run();
-
-    // Also soft-delete associated individual contracts
-    await db
-      .prepare("UPDATE contracts SET status = 'cancelled', updated_at = datetime('now') WHERE group_contract_id = ?")
-      .bind(id)
-      .run();
-
-    // Deactivate guarantees
-    await db
-      .prepare("UPDATE contract_guarantees SET is_active = 0, updated_at = datetime('now') WHERE group_contract_id = ?")
-      .bind(id)
-      .run();
-
-    await logAudit(getDb(c), {
-      userId: user?.sub,
-      action: 'group_contract.delete',
-      entityType: 'group_contract',
-      entityId: id,
-      changes: { contractNumber: existing.contract_number, previousStatus: existing.status },
-      ipAddress: c.req.header('CF-Connecting-IP'),
-      userAgent: c.req.header('User-Agent'),
-    });
-
-    return success(c, { message: 'Contrat supprimé avec succès' });
-  }
-);
+groupContracts.delete("/:id", requireRole("ADMIN","INSURER_ADMIN"), async (c) => {
+  const id=c.req.param("id"); const user=c.get("user"); const db=getDb(c);
+  const existing=await db.prepare("SELECT id, contract_number, insurer_id, status FROM group_contracts WHERE id = ? AND deleted_at IS NULL").bind(id).first<{id:string;contract_number:string;insurer_id:string;status:string}>();
+  if (!existing) return notFound(c,"Contrat groupe non trouvé");
+  if (user?.insurerId&&user.role==="INSURER_ADMIN"&&existing.insurer_id!==user.insurerId) return notFound(c,"Contrat groupe non trouvé");
+  await db.prepare("UPDATE group_contracts SET deleted_at=datetime('now'),status='cancelled',updated_at=datetime('now') WHERE id=?").bind(id).run();
+  await db.prepare("UPDATE contracts SET status='cancelled',updated_at=datetime('now') WHERE group_contract_id=?").bind(id).run();
+  await db.prepare("UPDATE contract_guarantees SET is_active=0,updated_at=datetime('now') WHERE group_contract_id=?").bind(id).run();
+  await logAudit(getDb(c),{userId:user?.sub,action:"group_contract.delete",entityType:"group_contract",entityId:id,changes:{contractNumber:existing.contract_number,previousStatus:existing.status},ipAddress:c.req.header("CF-Connecting-IP"),userAgent:c.req.header("User-Agent")});
+  return success(c,{message:"Contrat supprimé avec succès"});
+});
 
 export { groupContracts };

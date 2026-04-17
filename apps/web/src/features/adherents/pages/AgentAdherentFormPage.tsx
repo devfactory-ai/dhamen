@@ -152,6 +152,7 @@ export function AgentAdherentFormPage() {
   const [activeTab, setActiveTab] = useState('adherent');
   const [contractNumberValid, setContractNumberValid] = useState(true);
   const [checkingContract, setCheckingContract] = useState(false);
+  const [originalCompanyId, setOriginalCompanyId] = useState<string | null>(null);
 
   // --- Contract number check: verify it belongs to the adherent's company ---
   const contractCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -253,6 +254,7 @@ export function AgentAdherentFormPage() {
 
   // --- Load company's group contracts for the contract selector ---
   const [companyContracts, setCompanyContracts] = useState<Array<{ id: string; contractNumber: string; status: string }>>([]);
+  const [contractsLoaded, setContractsLoaded] = useState(false);
   const currentCompanyId = resolveCompanyId();
   const prevCompanyIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
@@ -265,8 +267,10 @@ export function AgentAdherentFormPage() {
 
     if (!currentCompanyId || currentCompanyId === '__INDIVIDUAL__') {
       setCompanyContracts([]);
+      setContractsLoaded(false);
       return;
     }
+    setContractsLoaded(false);
     let cancelled = false;
     (async () => {
       try {
@@ -282,11 +286,20 @@ export function AgentAdherentFormPage() {
           })));
         }
       } catch { /* ignore */ }
+      if (!cancelled) setContractsLoaded(true);
     })();
     return () => { cancelled = true; };
   }, [currentCompanyId]);
   const createMutation = useCreateAdherent();
   const updateMutation = useUpdateAdherent();
+
+  // No active contract check: show error when company has no active group contract (after fetch completes)
+  const noActiveContract = !!(
+    contractsLoaded &&
+    currentCompanyId &&
+    currentCompanyId !== '__INDIVIDUAL__' &&
+    companyContracts.length === 0
+  );
 
   // Fetch adherent data if editing
   const { data: adherentData } = useAdherent(id || '');
@@ -370,7 +383,10 @@ export function AgentAdherentFormPage() {
       setFormPopulated(true);
       // Set company id (used for contract check and company selector)
       const cid = (a.companyId as string) || (a.company_id as string) || '';
-      if (cid) setAdminCompanyId(cid);
+      if (cid) {
+        setAdminCompanyId(cid);
+        setOriginalCompanyId(cid);
+      }
     } else if (!isEdit && !formPopulated) {
       setForm({ ...emptyForm, matricule: nextMatricule || '0001' });
       if (nextMatricule) setFormPopulated(true);
@@ -588,22 +604,42 @@ export function AgentAdherentFormPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={isEdit ? 'Modifier l\'adhérent' : isIndividualMode ? 'Nouvel adhérent individuel' : 'Nouvel adhérent'}
+        title={
+          isEdit
+            ? "Modifier l'adhérent"
+            : isIndividualMode
+              ? "Nouvel adhérent individuel"
+              : "Nouvel adhérent"
+        }
         description={
           isEdit
             ? `Modification de ${form.firstName} ${form.lastName}`
             : isIndividualMode
-              ? 'Adhérent avec contrat individuel (sans entreprise)'
+              ? "Adhérent avec contrat individuel (sans entreprise)"
               : isHR
-                ? `Entreprise: ${user?.companyName || 'votre entreprise'}`
+                ? `Entreprise: ${user?.companyName || "votre entreprise"}`
                 : canChangeCompany
-                  ? 'Sélectionnez une entreprise pour créer un adhérent'
-                  : `Entreprise: ${selectedCompany?.name || '\u2014'}`
+                  ? "Sélectionnez une entreprise pour créer un adhérent"
+                  : `Entreprise: ${selectedCompany?.name || "\u2014"}`
         }
-        icon={isEdit ? <Pencil className="w-6 h-6" /> : isIndividualMode ? <User className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
+        icon={
+          isEdit ? (
+            <Pencil className="w-6 h-6" />
+          ) : isIndividualMode ? (
+            <User className="w-6 h-6" />
+          ) : (
+            <UserPlus className="w-6 h-6" />
+          )
+        }
         breadcrumb={[
-          { label: 'Adhérents', href: '/adherents/agent' },
-          { label: isEdit ? 'Modifier' : isIndividualMode ? 'Individuel' : 'Nouveau' },
+          { label: "Adhérents", href: "/adherents/agent" },
+          {
+            label: isEdit
+              ? "Modifier"
+              : isIndividualMode
+                ? "Individuel"
+                : "Nouveau",
+          },
         ]}
       />
 
@@ -612,63 +648,113 @@ export function AgentAdherentFormPage() {
           {/* Entreprise - select for roles with companies.list permission, read-only for others */}
           {!isIndividualMode && canChangeCompany && (
             <div className="mb-4">
-              <Label className="text-xs text-gray-500">Entreprise <span className="text-red-500">*</span></Label>
+              <Label className="text-xs text-gray-500">
+                Entreprise <span className="text-red-500">*</span>
+              </Label>
               <Select value={adminCompanyId} onValueChange={setAdminCompanyId}>
-                <SelectTrigger className="mt-1">
+                <SelectTrigger
+                  className={`mt-1 ${noActiveContract ? "border-red-500" : ""}`}
+                >
                   <SelectValue placeholder="Sélectionnez une entreprise" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(companiesList ?? []).map((c: { id: string; name: string }) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
+                  {(companiesList ?? []).map(
+                    (c: { id: string; name: string }) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ),
+                  )}
                 </SelectContent>
               </Select>
+              {noActiveContract && (
+                <p className="text-xs text-red-500 mt-1">
+                  Aucun contrat groupe actif pour cette entreprise. Veuillez
+                  d'abord créer un contrat groupe.
+                </p>
+              )}
             </div>
           )}
           {!isIndividualMode && !canChangeCompany && (
             <div className="mb-4">
               <Label className="text-xs text-gray-500">Entreprise</Label>
               <p className="text-sm font-medium">
-                {isHR ? (user?.companyName || 'votre entreprise') : (selectedCompany?.name || '\u2014')}
+                {isHR
+                  ? user?.companyName || "votre entreprise"
+                  : selectedCompany?.name || "\u2014"}
               </p>
+              {noActiveContract && (
+                <p className="text-xs text-red-500 mt-1">
+                  Aucun contrat groupe actif pour cette entreprise. Veuillez
+                  d&apos;abord créer un contrat groupe.
+                </p>
+              )}
             </div>
           )}
           {isIndividualMode && (
             <div className="mb-4 flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 p-3">
               <User className="h-4 w-4 text-blue-600" />
-              <span className="text-sm font-medium text-blue-900">Contrat individuel</span>
-              <span className="text-xs text-blue-600">Sans rattachement entreprise</span>
+              <span className="text-sm font-medium text-blue-900">
+                Contrat individuel
+              </span>
+              <span className="text-xs text-blue-600">
+                Sans rattachement entreprise
+              </span>
             </div>
           )}
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <Tabs
+            value={activeTab}
+            onValueChange={setActiveTab}
+            className="w-full"
+          >
             <TabsList className="w-full sm:w-auto">
-              <TabsTrigger value="adherent" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
+              <TabsTrigger
+                value="adherent"
+                className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm"
+              >
                 <User className="h-3.5 w-3.5 shrink-0 sm:hidden" />
                 Adhérent
-                {Object.keys(formErrors).some((k) => ['nationalId', 'lastName', 'firstName', 'dateOfBirth', 'contractNumber'].includes(k)) && (
+                {Object.keys(formErrors).some((k) =>
+                  [
+                    "nationalId",
+                    "lastName",
+                    "firstName",
+                    "dateOfBirth",
+                    "contractNumber",
+                  ].includes(k),
+                ) && (
                   <span className="ml-1 w-2 h-2 rounded-full bg-red-500 inline-block" />
                 )}
               </TabsTrigger>
-              <TabsTrigger value="renseignement" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
+              <TabsTrigger
+                value="renseignement"
+                className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm"
+              >
                 <span className="hidden sm:inline">Renseignement</span>
                 <span className="sm:hidden">Infos</span>
-                {Object.keys(formErrors).some((k) => ['email', 'phone'].includes(k)) && (
+                {Object.keys(formErrors).some((k) =>
+                  ["email", "phone"].includes(k),
+                ) && (
                   <span className="ml-1 w-2 h-2 rounded-full bg-red-500 inline-block" />
                 )}
               </TabsTrigger>
-              <TabsTrigger value="ayants-droit" className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm">
+              <TabsTrigger
+                value="ayants-droit"
+                className="gap-1.5 px-2 sm:px-3 text-xs sm:text-sm"
+              >
                 <Users className="w-3.5 h-3.5 shrink-0" />
                 <span className="hidden sm:inline">Ayants droit</span>
                 <span className="sm:hidden">A. droit</span>
-                {Object.keys(formErrors).some((k) => k.startsWith('ad_')) && (
+                {Object.keys(formErrors).some((k) => k.startsWith("ad_")) && (
                   <span className="ml-1 w-2 h-2 rounded-full bg-red-500 inline-block" />
                 )}
-                {!Object.keys(formErrors).some((k) => k.startsWith('ad_')) && ayantsDroit.length > 0 && (
-                  <span className="ml-1 bg-blue-100 text-blue-700 text-[10px] sm:text-xs font-medium px-1 sm:px-1.5 py-0.5 rounded-full">
-                    {ayantsDroit.length}
-                  </span>
-                )}
+                {!Object.keys(formErrors).some((k) => k.startsWith("ad_")) &&
+                  ayantsDroit.length > 0 && (
+                    <span className="ml-1 bg-blue-100 text-blue-700 text-[10px] sm:text-xs font-medium px-1 sm:px-1.5 py-0.5 rounded-full">
+                      {ayantsDroit.length}
+                    </span>
+                  )}
               </TabsTrigger>
             </TabsList>
 
@@ -678,12 +764,23 @@ export function AgentAdherentFormPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
                   <Label>Type de pièce</Label>
-                  <Select value={form.typePieceIdentite} onValueChange={(v) => setForm({ ...form, typePieceIdentite: v })}>
-                    <SelectTrigger><SelectValue placeholder="CIN" /></SelectTrigger>
+                  <Select
+                    value={form.typePieceIdentite}
+                    onValueChange={(v) =>
+                      setForm({ ...form, typePieceIdentite: v })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="CIN" />
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="CIN">Carte d'Identité Nationale</SelectItem>
+                      <SelectItem value="CIN">
+                        Carte d'Identité Nationale
+                      </SelectItem>
                       <SelectItem value="PASSEPORT">Passeport</SelectItem>
-                      <SelectItem value="CARTE_SEJOUR">Carte de sejour</SelectItem>
+                      <SelectItem value="CARTE_SEJOUR">
+                        Carte de sejour
+                      </SelectItem>
                       <SelectItem value="AUTRE">Autre</SelectItem>
                     </SelectContent>
                   </Select>
@@ -693,17 +790,46 @@ export function AgentAdherentFormPage() {
                   <Input
                     id="nationalId"
                     placeholder="12345678"
-                    maxLength={form.typePieceIdentite === 'CIN' ? 8 : 20}
-                    disabled={isEdit && !!adherentData && !!((adherentData as unknown as Record<string, unknown>).nationalId || (adherentData as unknown as Record<string, unknown>).national_id)}
+                    maxLength={form.typePieceIdentite === "CIN" ? 8 : 20}
+                    disabled={
+                      isEdit &&
+                      !!adherentData &&
+                      !!(
+                        (adherentData as unknown as Record<string, unknown>)
+                          .nationalId ||
+                        (adherentData as unknown as Record<string, unknown>)
+                          .national_id
+                      )
+                    }
                     value={form.nationalId}
-                    onChange={(e) => setForm({ ...form, nationalId: form.typePieceIdentite === 'CIN' ? e.target.value.replace(/\D/g, '') : e.target.value })}
-                    className={formErrors.nationalId ? 'border-red-500' : ''}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        nationalId:
+                          form.typePieceIdentite === "CIN"
+                            ? e.target.value.replace(/\D/g, "")
+                            : e.target.value,
+                      })
+                    }
+                    className={formErrors.nationalId ? "border-red-500" : ""}
                   />
-                  {formErrors.nationalId && <p className="text-xs text-red-500 mt-1">{formErrors.nationalId}</p>}
+                  {formErrors.nationalId && (
+                    <p className="text-xs text-red-500 mt-1">
+                      {formErrors.nationalId}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="dateEditionPiece">Date d'édition</Label>
-                  <Input id="dateEditionPiece" type="date" max={new Date().toISOString().split('T')[0]} value={form.dateEditionPiece} onChange={(e) => setForm({ ...form, dateEditionPiece: e.target.value })} />
+                  <Input
+                    id="dateEditionPiece"
+                    type="date"
+                    max={new Date().toISOString().split("T")[0]}
+                    value={form.dateEditionPiece}
+                    onChange={(e) =>
+                      setForm({ ...form, dateEditionPiece: e.target.value })
+                    }
+                  />
                 </div>
               </div>
 
@@ -711,13 +837,35 @@ export function AgentAdherentFormPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="lastName">Nom *</Label>
-                  <Input id="lastName" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} className={formErrors.lastName ? 'border-red-500' : ''} />
-                  {formErrors.lastName && <p className="text-xs text-red-500 mt-1">{formErrors.lastName}</p>}
+                  <Input
+                    id="lastName"
+                    value={form.lastName}
+                    onChange={(e) =>
+                      setForm({ ...form, lastName: e.target.value })
+                    }
+                    className={formErrors.lastName ? "border-red-500" : ""}
+                  />
+                  {formErrors.lastName && (
+                    <p className="text-xs text-red-500 mt-1">
+                      {formErrors.lastName}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="firstName">Prénom *</Label>
-                  <Input id="firstName" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} className={formErrors.firstName ? 'border-red-500' : ''} />
-                  {formErrors.firstName && <p className="text-xs text-red-500 mt-1">{formErrors.firstName}</p>}
+                  <Input
+                    id="firstName"
+                    value={form.firstName}
+                    onChange={(e) =>
+                      setForm({ ...form, firstName: e.target.value })
+                    }
+                    className={formErrors.firstName ? "border-red-500" : ""}
+                  />
+                  {formErrors.firstName && (
+                    <p className="text-xs text-red-500 mt-1">
+                      {formErrors.firstName}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -725,12 +873,32 @@ export function AgentAdherentFormPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="dateOfBirth">Date de naissance *</Label>
-                  <Input id="dateOfBirth" type="date" max={new Date().toISOString().split('T')[0]} value={form.dateOfBirth} onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })} className={formErrors.dateOfBirth ? 'border-red-500' : ''} />
-                  {formErrors.dateOfBirth && <p className="text-xs text-red-500 mt-1">{formErrors.dateOfBirth}</p>}
+                  <Input
+                    id="dateOfBirth"
+                    type="date"
+                    max={new Date().toISOString().split("T")[0]}
+                    value={form.dateOfBirth}
+                    onChange={(e) =>
+                      setForm({ ...form, dateOfBirth: e.target.value })
+                    }
+                    className={formErrors.dateOfBirth ? "border-red-500" : ""}
+                  />
+                  {formErrors.dateOfBirth && (
+                    <p className="text-xs text-red-500 mt-1">
+                      {formErrors.dateOfBirth}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="lieuNaissance">Lieu de naissance</Label>
-                  <Input id="lieuNaissance" value={form.lieuNaissance} onChange={(e) => setForm({ ...form, lieuNaissance: e.target.value })} placeholder="Ex: Tunis, Sfax, Sousse..." />
+                  <Input
+                    id="lieuNaissance"
+                    value={form.lieuNaissance}
+                    onChange={(e) =>
+                      setForm({ ...form, lieuNaissance: e.target.value })
+                    }
+                    placeholder="Ex: Tunis, Sfax, Sousse..."
+                  />
                 </div>
               </div>
 
@@ -738,10 +906,17 @@ export function AgentAdherentFormPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
                   <Label>Sexe</Label>
-                  <Select value={form.gender || 'none'} onValueChange={(v) => setForm({ ...form, gender: v === 'none' ? '' : v })}>
-                    <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
+                  <Select
+                    value={form.gender || "none"}
+                    onValueChange={(v) =>
+                      setForm({ ...form, gender: v === "none" ? "" : v })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="\u2014" />
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">{'\u2014'}</SelectItem>
+                      <SelectItem value="none">{"\u2014"}</SelectItem>
                       <SelectItem value="M">Masculin</SelectItem>
                       <SelectItem value="F">Feminin</SelectItem>
                     </SelectContent>
@@ -749,51 +924,102 @@ export function AgentAdherentFormPage() {
                 </div>
                 <div>
                   <Label>État civil</Label>
-                  <Select value={form.etatCivil || 'none'} onValueChange={(v) => setForm({ ...form, etatCivil: v === 'none' ? '' : v })}>
-                    <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
+                  <Select
+                    value={form.etatCivil || "none"}
+                    onValueChange={(v) =>
+                      setForm({ ...form, etatCivil: v === "none" ? "" : v })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="\u2014" />
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">{'\u2014'}</SelectItem>
-                      {ETAT_CIVIL_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                      <SelectItem value="none">{"\u2014"}</SelectItem>
+                      {ETAT_CIVIL_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label htmlFor="dateMarriage">Date mariage</Label>
-                  <Input id="dateMarriage" type="date" max={new Date().toISOString().split('T')[0]} value={form.dateMarriage} onChange={(e) => setForm({ ...form, dateMarriage: e.target.value })} />
+                  <Input
+                    id="dateMarriage"
+                    type="date"
+                    max={new Date().toISOString().split("T")[0]}
+                    value={form.dateMarriage}
+                    onChange={(e) =>
+                      setForm({ ...form, dateMarriage: e.target.value })
+                    }
+                  />
                 </div>
               </div>
 
               {/* Matricule / N° Contrat / Plafond */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
-                  <Label htmlFor="matricule">Matricule<InfoTooltip text="Identifiant unique de l'adherent dans le systeme d'assurance. Il est compose du code societe et d'un numero sequentiel. Ce matricule figure sur la carte d'adherent." /></Label>
-                  <Input id="matricule" placeholder="001" value={form.matricule} onChange={(e) => setForm({ ...form, matricule: e.target.value })} />
+                  <Label htmlFor="matricule">
+                    Matricule
+                    <InfoTooltip text="Identifiant unique de l'adherent dans le systeme d'assurance. Il est compose du code societe et d'un numero sequentiel. Ce matricule figure sur la carte d'adherent." />
+                  </Label>
+                  <Input
+                    id="matricule"
+                    placeholder="001"
+                    value={form.matricule}
+                    onChange={(e) =>
+                      setForm({ ...form, matricule: e.target.value })
+                    }
+                  />
                 </div>
                 <div>
-                  <Label htmlFor="contractNumber">N° Contrat</Label>
+                  <Label htmlFor="contractNumber">N° Contrat *</Label>
                   {companyContracts.length > 0 ? (
                     <>
                       <Select
-                        value={form.contractNumber || 'none'}
+                        value={form.contractNumber || "none"}
                         onValueChange={(v) => {
-                          const val = v === 'none' ? '' : v;
+                          const val = v === "none" ? "" : v;
                           setForm({ ...form, contractNumber: val });
                           setContractNumberValid(!!val);
                         }}
                       >
-                        <SelectTrigger className={form.contractNumber ? 'border-green-500' : ''}>
+                        <SelectTrigger
+                          className={
+                            form.contractNumber ? "border-green-500" : ""
+                          }
+                        >
                           <SelectValue placeholder="Sélectionner un contrat" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="none">— Aucun —</SelectItem>
                           {companyContracts.map((gc) => (
-                            <SelectItem key={gc.id} value={gc.contractNumber}>{gc.contractNumber}</SelectItem>
+                            <SelectItem key={gc.id} value={gc.contractNumber}>
+                              {gc.contractNumber}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                       {form.contractNumber && (
-                        <p className="text-xs text-green-600 mt-1">Contrat sélectionné</p>
+                        <p className="text-xs text-green-600 mt-1">
+                          Contrat sélectionné
+                        </p>
                       )}
+                    </>
+                  ) : noActiveContract ? (
+                    <>
+                      <Input
+                        id="contractNumber"
+                        disabled
+                        placeholder="Aucun contrat disponible"
+                        value=""
+                        className="border-red-500 bg-red-50"
+                      />
+                      <p className="text-xs text-red-500 mt-1">
+                        Aucun contrat groupe actif pour cette entreprise.
+                        Impossible d&apos;enregistrer un adhérent sans contrat.
+                      </p>
                     </>
                   ) : (
                     <>
@@ -805,21 +1031,53 @@ export function AgentAdherentFormPage() {
                           setForm({ ...form, contractNumber: e.target.value });
                           checkContractNumber(e.target.value);
                         }}
-                        className={form.contractNumber && !contractNumberValid ? 'border-red-500' : form.contractNumber && contractNumberValid ? 'border-green-500' : ''}
+                        className={
+                          form.contractNumber && !contractNumberValid
+                            ? "border-red-500"
+                            : form.contractNumber && contractNumberValid
+                              ? "border-green-500"
+                              : ""
+                        }
                       />
-                      {checkingContract && <p className="text-xs text-gray-400 mt-1">Vérification...</p>}
-                      {!checkingContract && form.contractNumber && !contractNumberValid && (
-                        <p className="text-xs text-red-500 mt-1">Ce numéro de contrat n'existe pas</p>
+                      {checkingContract && (
+                        <p className="text-xs text-gray-400 mt-1">
+                          Vérification...
+                        </p>
                       )}
-                      {!checkingContract && form.contractNumber && contractNumberValid && (
-                        <p className="text-xs text-green-600 mt-1">Contrat trouvé</p>
-                      )}
+                      {!checkingContract &&
+                        form.contractNumber &&
+                        !contractNumberValid && (
+                          <p className="text-xs text-red-500 mt-1">
+                            Ce numéro de contrat n&apos;existe pas
+                          </p>
+                        )}
+                      {!checkingContract &&
+                        form.contractNumber &&
+                        contractNumberValid && (
+                          <p className="text-xs text-green-600 mt-1">
+                            Contrat trouvé
+                          </p>
+                        )}
                     </>
+                  )}
+                  {formErrors.contractNumber && (
+                    <p className="text-xs text-red-500 mt-1">
+                      {formErrors.contractNumber}
+                    </p>
                   )}
                 </div>
                 <div>
                   <Label htmlFor="plafondGlobal">Plafond (DT)</Label>
-                  <Input id="plafondGlobal" type="number" min={0} placeholder="6000" value={form.plafondGlobal} onChange={(e) => setForm({ ...form, plafondGlobal: e.target.value })} />
+                  <Input
+                    id="plafondGlobal"
+                    type="number"
+                    min={0}
+                    placeholder="6000"
+                    value={form.plafondGlobal}
+                    onChange={(e) =>
+                      setForm({ ...form, plafondGlobal: e.target.value })
+                    }
+                  />
                 </div>
               </div>
 
@@ -827,19 +1085,47 @@ export function AgentAdherentFormPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
                   <Label htmlFor="dateDebutAdhesion">Debut adhésion</Label>
-                  <Input id="dateDebutAdhesion" type="date" max={new Date().toISOString().split('T')[0]} value={form.dateDebutAdhesion} onChange={(e) => setForm({ ...form, dateDebutAdhesion: e.target.value })} />
+                  <Input
+                    id="dateDebutAdhesion"
+                    type="date"
+                    max={new Date().toISOString().split("T")[0]}
+                    value={form.dateDebutAdhesion}
+                    onChange={(e) =>
+                      setForm({ ...form, dateDebutAdhesion: e.target.value })
+                    }
+                  />
                 </div>
                 <div>
                   <Label htmlFor="dateFinAdhesion">Fin adhésion</Label>
-                  <Input id="dateFinAdhesion" type="date" value={form.dateFinAdhesion} onChange={(e) => setForm({ ...form, dateFinAdhesion: e.target.value })} />
+                  <Input
+                    id="dateFinAdhesion"
+                    type="date"
+                    value={form.dateFinAdhesion}
+                    onChange={(e) =>
+                      setForm({ ...form, dateFinAdhesion: e.target.value })
+                    }
+                  />
                 </div>
                 <div>
                   <Label htmlFor="rang">Rang</Label>
-                  <Input id="rang" type="number" min={0} value={form.rang} onChange={(e) => setForm({ ...form, rang: e.target.value })} />
+                  <Input
+                    id="rang"
+                    type="number"
+                    min={0}
+                    value={form.rang}
+                    onChange={(e) => setForm({ ...form, rang: e.target.value })}
+                  />
                 </div>
                 <div className="flex items-end pb-1">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} className="rounded" />
+                    <input
+                      type="checkbox"
+                      checked={form.isActive}
+                      onChange={(e) =>
+                        setForm({ ...form, isActive: e.target.checked })
+                      }
+                      className="rounded"
+                    />
                     <span className="text-sm font-medium">Actif</span>
                   </label>
                 </div>
@@ -849,23 +1135,50 @@ export function AgentAdherentFormPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div className="flex items-end pb-1">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={form.contreVisiteObligatoire} onChange={(e) => setForm({ ...form, contreVisiteObligatoire: e.target.checked })} className="rounded" />
+                    <input
+                      type="checkbox"
+                      checked={form.contreVisiteObligatoire}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          contreVisiteObligatoire: e.target.checked,
+                        })
+                      }
+                      className="rounded"
+                    />
                     <span className="text-sm">Contre-visite obligatoire</span>
                   </label>
                 </div>
                 <div>
                   <Label>État de fiche</Label>
-                  <Select value={form.etatFiche} onValueChange={(v) => setForm({ ...form, etatFiche: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                  <Select
+                    value={form.etatFiche}
+                    onValueChange={(v) => setForm({ ...form, etatFiche: v })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="NON_TEMPORAIRE">Non temporaire</SelectItem>
+                      <SelectItem value="NON_TEMPORAIRE">
+                        Non temporaire
+                      </SelectItem>
                       <SelectItem value="TEMPORAIRE">Temporaire</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label htmlFor="credit">Credit (DT)</Label>
-                  <Input id="credit" type="number" min={0} step="0.001" placeholder="0" value={form.credit} onChange={(e) => setForm({ ...form, credit: e.target.value })} />
+                  <Input
+                    id="credit"
+                    type="number"
+                    min={0}
+                    step="0.001"
+                    placeholder="0"
+                    value={form.credit}
+                    onChange={(e) =>
+                      setForm({ ...form, credit: e.target.value })
+                    }
+                  />
                 </div>
               </div>
             </TabsContent>
@@ -876,44 +1189,101 @@ export function AgentAdherentFormPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
                   <Label htmlFor="rue">Rue</Label>
-                  <Input id="rue" value={form.rue} onChange={(e) => setForm({ ...form, rue: e.target.value })} />
+                  <Input
+                    id="rue"
+                    value={form.rue}
+                    onChange={(e) => setForm({ ...form, rue: e.target.value })}
+                  />
                 </div>
                 <div>
                   <Label>Gouvernorat</Label>
-                  <Select value={form.city || 'none'} onValueChange={(v) => setForm({ ...form, city: v === 'none' ? '' : v })}>
-                    <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                  <Select
+                    value={form.city || "none"}
+                    onValueChange={(v) =>
+                      setForm({ ...form, city: v === "none" ? "" : v })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sélectionner" />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Sélectionner</SelectItem>
-                      {GOUVERNORATS_TUNISIE.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                      {GOUVERNORATS_TUNISIE.map((g) => (
+                        <SelectItem key={g} value={g}>
+                          {g}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label htmlFor="postalCode">CP</Label>
-                  <Input id="postalCode" maxLength={4} value={form.postalCode} onChange={(e) => setForm({ ...form, postalCode: e.target.value })} />
+                  <Input
+                    id="postalCode"
+                    maxLength={4}
+                    value={form.postalCode}
+                    onChange={(e) =>
+                      setForm({ ...form, postalCode: e.target.value })
+                    }
+                  />
                 </div>
               </div>
               <div>
                 <Label htmlFor="address">Adresse complete</Label>
-                <Input id="address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+                <Input
+                  id="address"
+                  value={form.address}
+                  onChange={(e) =>
+                    setForm({ ...form, address: e.target.value })
+                  }
+                />
               </div>
 
               {/* Contact */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={formErrors.email ? 'border-red-500' : ''} />
-                  {formErrors.email && <p className="text-xs text-red-500 mt-1">{formErrors.email}</p>}
+                  <Input
+                    id="email"
+                    type="email"
+                    value={form.email}
+                    onChange={(e) =>
+                      setForm({ ...form, email: e.target.value })
+                    }
+                    className={formErrors.email ? "border-red-500" : ""}
+                  />
+                  {formErrors.email && (
+                    <p className="text-xs text-red-500 mt-1">
+                      {formErrors.email}
+                    </p>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <Label htmlFor="phone">Téléphone</Label>
-                    <Input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className={formErrors.phone ? 'border-red-500' : ''} />
-                    {formErrors.phone && <p className="text-xs text-red-500 mt-1">{formErrors.phone}</p>}
+                    <Input
+                      id="phone"
+                      value={form.phone}
+                      onChange={(e) =>
+                        setForm({ ...form, phone: e.target.value })
+                      }
+                      className={formErrors.phone ? "border-red-500" : ""}
+                    />
+                    {formErrors.phone && (
+                      <p className="text-xs text-red-500 mt-1">
+                        {formErrors.phone}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <Label htmlFor="mobile">Mobile</Label>
-                    <Input id="mobile" value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} />
+                    <Input
+                      id="mobile"
+                      value={form.mobile}
+                      onChange={(e) =>
+                        setForm({ ...form, mobile: e.target.value })
+                      }
+                    />
                   </div>
                 </div>
               </div>
@@ -922,22 +1292,43 @@ export function AgentAdherentFormPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="banque">Banque</Label>
-                  <Input id="banque" value={form.banque} onChange={(e) => setForm({ ...form, banque: e.target.value })} />
+                  <Input
+                    id="banque"
+                    value={form.banque}
+                    onChange={(e) =>
+                      setForm({ ...form, banque: e.target.value })
+                    }
+                  />
                 </div>
                 <div>
                   <Label htmlFor="rib">RIB</Label>
-                  <Input id="rib" placeholder="12345678901234567890" value={form.rib} onChange={(e) => setForm({ ...form, rib: e.target.value })} />
+                  <Input
+                    id="rib"
+                    placeholder="12345678901234567890"
+                    value={form.rib}
+                    onChange={(e) => setForm({ ...form, rib: e.target.value })}
+                  />
                 </div>
               </div>
 
               {/* Regime social / Fonction */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>CNSS / CNRPS<InfoTooltip text="Numero d'affiliation a la Caisse Nationale de Securite Sociale (CNSS) ou a la Caisse Nationale de Retraite et de Prevoyance Sociale (CNRPS). Utile pour les remboursements complementaires." /></Label>
-                  <Select value={form.regimeSocial || 'none'} onValueChange={(v) => setForm({ ...form, regimeSocial: v === 'none' ? '' : v })}>
-                    <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
+                  <Label>
+                    CNSS / CNRPS
+                    <InfoTooltip text="Numero d'affiliation a la Caisse Nationale de Securite Sociale (CNSS) ou a la Caisse Nationale de Retraite et de Prevoyance Sociale (CNRPS). Utile pour les remboursements complementaires." />
+                  </Label>
+                  <Select
+                    value={form.regimeSocial || "none"}
+                    onValueChange={(v) =>
+                      setForm({ ...form, regimeSocial: v === "none" ? "" : v })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="\u2014" />
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">{'\u2014'}</SelectItem>
+                      <SelectItem value="none">{"\u2014"}</SelectItem>
                       <SelectItem value="CNSS">CNSS</SelectItem>
                       <SelectItem value="CNRPS">CNRPS</SelectItem>
                     </SelectContent>
@@ -945,18 +1336,38 @@ export function AgentAdherentFormPage() {
                 </div>
                 <div>
                   <Label htmlFor="fonction">Fonction / Qualification</Label>
-                  <Input id="fonction" value={form.fonction} onChange={(e) => setForm({ ...form, fonction: e.target.value })} />
+                  <Input
+                    id="fonction"
+                    value={form.fonction}
+                    onChange={(e) =>
+                      setForm({ ...form, fonction: e.target.value })
+                    }
+                  />
                 </div>
               </div>
 
               {/* Handicap / Maladie chronique */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <label className="flex items-center gap-2 cursor-pointer pt-5">
-                  <input type="checkbox" checked={form.handicap} onChange={(e) => setForm({ ...form, handicap: e.target.checked })} className="rounded" />
+                  <input
+                    type="checkbox"
+                    checked={form.handicap}
+                    onChange={(e) =>
+                      setForm({ ...form, handicap: e.target.checked })
+                    }
+                    className="rounded"
+                  />
                   <span className="text-sm">Handicap</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer pt-5">
-                  <input type="checkbox" checked={form.maladiChronique} onChange={(e) => setForm({ ...form, maladiChronique: e.target.checked })} className="rounded" />
+                  <input
+                    type="checkbox"
+                    checked={form.maladiChronique}
+                    onChange={(e) =>
+                      setForm({ ...form, maladiChronique: e.target.checked })
+                    }
+                    className="rounded"
+                  />
                   <span className="text-sm">Maladie chronique</span>
                 </label>
                 <div />
@@ -964,163 +1375,232 @@ export function AgentAdherentFormPage() {
             </TabsContent>
 
             {/* === Onglet Ayants Droit === */}
-              <TabsContent value="ayants-droit" className="space-y-4 mt-4">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <p className="text-sm text-gray-500">
-                    Ajoutez les membres de la famille couverts par le contrat.
-                  </p>
-                  <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                    {!hasConjoint && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => addAyantDroit('C')}
-                        className="gap-1 flex-1 sm:flex-none"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        Conjoint
-                      </Button>
-                    )}
+            <TabsContent value="ayants-droit" className="space-y-4 mt-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <p className="text-sm text-gray-500">
+                  Ajoutez les membres de la famille couverts par le contrat.
+                </p>
+                <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                  {!hasConjoint && (
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => addAyantDroit('E')}
+                      onClick={() => addAyantDroit("C")}
                       className="gap-1 flex-1 sm:flex-none"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      Enfant
+                      Conjoint
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => { setImportType('E'); setShowImportDialog(true); }}
-                      className="gap-1 flex-1 sm:flex-none border-blue-200 text-blue-700 hover:bg-blue-50"
-                    >
-                      <Import className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Importer existant</span>
-                      <span className="sm:hidden">Importer</span>
-                    </Button>
-                  </div>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addAyantDroit("E")}
+                    className="gap-1 flex-1 sm:flex-none"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Enfant
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setImportType("E");
+                      setShowImportDialog(true);
+                    }}
+                    className="gap-1 flex-1 sm:flex-none border-blue-200 text-blue-700 hover:bg-blue-50"
+                  >
+                    <Import className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Importer existant</span>
+                    <span className="sm:hidden">Importer</span>
+                  </Button>
                 </div>
+              </div>
 
-                {ayantsDroit.length === 0 && (
-                  <div className="text-center py-8 text-gray-400 border-2 border-dashed rounded-lg">
-                    <Users className="w-10 h-10 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">Aucun ayant droit ajoute</p>
-                    <p className="text-xs mt-1">Cliquez sur "Conjoint" ou "Enfant" pour ajouter un membre</p>
-                  </div>
-                )}
+              {ayantsDroit.length === 0 && (
+                <div className="text-center py-8 text-gray-400 border-2 border-dashed rounded-lg">
+                  <Users className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">Aucun ayant droit ajoute</p>
+                  <p className="text-xs mt-1">
+                    Cliquez sur "Conjoint" ou "Enfant" pour ajouter un membre
+                  </p>
+                </div>
+              )}
 
-                {ayantsDroit.map((ad, index) => (
-                  <Card key={index} className={`border-l-4 ${ad.lienParente === 'C' ? 'border-l-purple-500' : 'border-l-emerald-500'}`}>
-                    <CardContent className="pt-4 pb-4 space-y-3">
-                      {/* Header */}
-                      <div className="flex items-center justify-between">
-                        <span className={`text-xs font-semibold px-2 py-1 rounded ${
-                          ad.lienParente === 'C'
-                            ? 'bg-purple-100 text-purple-700'
-                            : 'bg-emerald-100 text-emerald-700'
-                        }`}>
-                          {ad.lienParente === 'C' ? 'Conjoint' : `Enfant ${ayantsDroit.filter((x, i) => x.lienParente === 'E' && i <= index).length}`}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeAyantDroit(index)}
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
+              {ayantsDroit.map((ad, index) => (
+                <Card
+                  key={index}
+                  className={`border-l-4 ${ad.lienParente === "C" ? "border-l-purple-500" : "border-l-emerald-500"}`}
+                >
+                  <CardContent className="pt-4 pb-4 space-y-3">
+                    {/* Header */}
+                    <div className="flex items-center justify-between">
+                      <span
+                        className={`text-xs font-semibold px-2 py-1 rounded ${
+                          ad.lienParente === "C"
+                            ? "bg-purple-100 text-purple-700"
+                            : "bg-emerald-100 text-emerald-700"
+                        }`}
+                      >
+                        {ad.lienParente === "C"
+                          ? "Conjoint"
+                          : `Enfant ${ayantsDroit.filter((x, i) => x.lienParente === "E" && i <= index).length}`}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeAyantDroit(index)}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
 
-                      {/* Nom / Prenom */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <Label>Nom *</Label>
-                          <Input
-                            value={ad.lastName}
-                            onChange={(e) => updateAyantDroit(index, 'lastName', e.target.value)}
-                            className={formErrors[`ad_${index}_lastName`] ? 'border-red-500' : ''}
-                          />
-                          {formErrors[`ad_${index}_lastName`] && <p className="text-xs text-red-500 mt-1">{formErrors[`ad_${index}_lastName`]}</p>}
-                        </div>
-                        <div>
-                          <Label>Prénom *</Label>
-                          <Input
-                            value={ad.firstName}
-                            onChange={(e) => updateAyantDroit(index, 'firstName', e.target.value)}
-                            className={formErrors[`ad_${index}_firstName`] ? 'border-red-500' : ''}
-                          />
-                          {formErrors[`ad_${index}_firstName`] && <p className="text-xs text-red-500 mt-1">{formErrors[`ad_${index}_firstName`]}</p>}
-                        </div>
-                      </div>
-
-                      {/* Date naissance / Sexe / CIN (conjoint uniquement) */}
-                      <div className={`grid grid-cols-1 sm:grid-cols-2 ${ad.lienParente === 'C' ? 'lg:grid-cols-3' : ''} gap-3`}>
-                        <div>
-                          <Label>Date de naissance *</Label>
-                          <Input
-                            type="date"
-                            max={new Date().toISOString().split('T')[0]}
-                            value={ad.dateOfBirth}
-                            onChange={(e) => updateAyantDroit(index, 'dateOfBirth', e.target.value)}
-                            className={formErrors[`ad_${index}_dateOfBirth`] ? 'border-red-500' : ''}
-                          />
-                          {formErrors[`ad_${index}_dateOfBirth`] && <p className="text-xs text-red-500 mt-1">{formErrors[`ad_${index}_dateOfBirth`]}</p>}
-                        </div>
-                        <div>
-                          <Label>Sexe</Label>
-                          <Select value={ad.gender || 'none'} onValueChange={(v) => updateAyantDroit(index, 'gender', v === 'none' ? '' : v)}>
-                            <SelectTrigger><SelectValue placeholder="\u2014" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">{'\u2014'}</SelectItem>
-                              <SelectItem value="M">Masculin</SelectItem>
-                              <SelectItem value="F">Feminin</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        {ad.lienParente === 'C' && (
-                          <div>
-                            <Label>N° CIN</Label>
-                            <Input
-                              placeholder="12345678"
-                              maxLength={8}
-                              value={ad.nationalId}
-                              onChange={(e) => updateAyantDroit(index, 'nationalId', e.target.value.replace(/\D/g, ''))}
-                            />
-                          </div>
+                    {/* Nom / Prenom */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <Label>Nom *</Label>
+                        <Input
+                          value={ad.lastName}
+                          onChange={(e) =>
+                            updateAyantDroit(index, "lastName", e.target.value)
+                          }
+                          className={
+                            formErrors[`ad_${index}_lastName`]
+                              ? "border-red-500"
+                              : ""
+                          }
+                        />
+                        {formErrors[`ad_${index}_lastName`] && (
+                          <p className="text-xs text-red-500 mt-1">
+                            {formErrors[`ad_${index}_lastName`]}
+                          </p>
                         )}
                       </div>
+                      <div>
+                        <Label>Prénom *</Label>
+                        <Input
+                          value={ad.firstName}
+                          onChange={(e) =>
+                            updateAyantDroit(index, "firstName", e.target.value)
+                          }
+                          className={
+                            formErrors[`ad_${index}_firstName`]
+                              ? "border-red-500"
+                              : ""
+                          }
+                        />
+                        {formErrors[`ad_${index}_firstName`] && (
+                          <p className="text-xs text-red-500 mt-1">
+                            {formErrors[`ad_${index}_firstName`]}
+                          </p>
+                        )}
+                      </div>
+                    </div>
 
-                      {/* Conjoint: Telephone / Email */}
-                      {ad.lienParente === 'C' && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <Label>Téléphone</Label>
-                            <Input
-                              value={ad.phone}
-                              onChange={(e) => updateAyantDroit(index, 'phone', e.target.value)}
-                              placeholder="XX XXX XXX"
-                            />
-                          </div>
-                          <div>
-                            <Label>Email</Label>
-                            <Input
-                              type="email"
-                              value={ad.email}
-                              onChange={(e) => updateAyantDroit(index, 'email', e.target.value)}
-                            />
-                          </div>
+                    {/* Date naissance / Sexe / CIN (conjoint uniquement) */}
+                    <div
+                      className={`grid grid-cols-1 sm:grid-cols-2 ${ad.lienParente === "C" ? "lg:grid-cols-3" : ""} gap-3`}
+                    >
+                      <div>
+                        <Label>Date de naissance *</Label>
+                        <Input
+                          type="date"
+                          max={new Date().toISOString().split("T")[0]}
+                          value={ad.dateOfBirth}
+                          onChange={(e) =>
+                            updateAyantDroit(
+                              index,
+                              "dateOfBirth",
+                              e.target.value,
+                            )
+                          }
+                          className={
+                            formErrors[`ad_${index}_dateOfBirth`]
+                              ? "border-red-500"
+                              : ""
+                          }
+                        />
+                        {formErrors[`ad_${index}_dateOfBirth`] && (
+                          <p className="text-xs text-red-500 mt-1">
+                            {formErrors[`ad_${index}_dateOfBirth`]}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <Label>Sexe</Label>
+                        <Select
+                          value={ad.gender || "none"}
+                          onValueChange={(v) =>
+                            updateAyantDroit(
+                              index,
+                              "gender",
+                              v === "none" ? "" : v,
+                            )
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="\u2014" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">{"\u2014"}</SelectItem>
+                            <SelectItem value="M">Masculin</SelectItem>
+                            <SelectItem value="F">Feminin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {ad.lienParente === "C" && (
+                        <div>
+                          <Label>N° CIN</Label>
+                          <Input
+                            placeholder="12345678"
+                            maxLength={8}
+                            value={ad.nationalId}
+                            onChange={(e) =>
+                              updateAyantDroit(
+                                index,
+                                "nationalId",
+                                e.target.value.replace(/\D/g, ""),
+                              )
+                            }
+                          />
                         </div>
                       )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </TabsContent>
+                    </div>
+
+                    {/* Conjoint: Telephone / Email */}
+                    {ad.lienParente === "C" && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <Label>Téléphone</Label>
+                          <Input
+                            value={ad.phone}
+                            onChange={(e) =>
+                              updateAyantDroit(index, "phone", e.target.value)
+                            }
+                            placeholder="XX XXX XXX"
+                          />
+                        </div>
+                        <div>
+                          <Label>Email</Label>
+                          <Input
+                            type="email"
+                            value={ad.email}
+                            onChange={(e) =>
+                              updateAyantDroit(index, "email", e.target.value)
+                            }
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </TabsContent>
           </Tabs>
 
           {formError && (
@@ -1133,30 +1613,41 @@ export function AgentAdherentFormPage() {
 
       {/* Actions -- sticky bottom bar */}
       <div className="sticky bottom-0 z-10 border-t bg-white/95 backdrop-blur-sm py-4 -mx-6 px-6 flex flex-col sm:flex-row justify-end gap-2 sm:gap-3">
-        <Button
-          variant="outline"
-          onClick={() => navigate('/adherents/agent')}
-        >
+        <Button variant="outline" onClick={() => navigate("/adherents/agent")}>
           Annuler
         </Button>
         <Button
           onClick={handleSubmit}
-          disabled={isBusy || checkingContract || (!!form.contractNumber && !contractNumberValid)}
+          disabled={
+            isBusy ||
+            checkingContract ||
+            (!!form.contractNumber && !contractNumberValid) ||
+            (noActiveContract && !isEdit && !form.contractNumber)
+          }
           className="gap-2"
         >
           <Save className="w-4 h-4" />
           {isBusy
-            ? 'Enregistrement...'
+            ? "Enregistrement..."
             : isEdit
-              ? 'Mettre a jour'
+              ? "Mettre a jour"
               : ayantsDroit.length > 0
                 ? `Enregistrer (${1 + ayantsDroit.length} membres)`
-                : 'Enregistrer'}
+                : "Enregistrer"}
         </Button>
       </div>
 
       {/* Import existing adherent dialog */}
-      <AlertDialog open={showImportDialog} onOpenChange={(open) => { if (!open) { setShowImportDialog(false); setImportSearchQuery(''); setImportSearchResults([]); } }}>
+      <AlertDialog
+        open={showImportDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowImportDialog(false);
+            setImportSearchQuery("");
+            setImportSearchResults([]);
+          }
+        }}
+      >
         <AlertDialogContent className="max-w-lg">
           <AlertDialogHeader>
             <AlertDialogTitle>Importer un adhérent existant</AlertDialogTitle>
@@ -1168,16 +1659,16 @@ export function AgentAdherentFormPage() {
               {!hasConjoint && (
                 <button
                   type="button"
-                  onClick={() => setImportType('C')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${importType === 'C' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                  onClick={() => setImportType("C")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${importType === "C" ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
                 >
                   Conjoint
                 </button>
               )}
               <button
                 type="button"
-                onClick={() => setImportType('E')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${importType === 'E' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                onClick={() => setImportType("E")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${importType === "E" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
               >
                 Enfant
               </button>
@@ -1196,17 +1687,26 @@ export function AgentAdherentFormPage() {
                 className="pl-9"
                 autoFocus
               />
-              {importSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />}
+              {importSearching && (
+                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
+              )}
             </div>
 
             {/* Results */}
             <div className="max-h-64 overflow-y-auto border rounded-lg">
-              {importSearchResults.length === 0 && importSearchQuery.length >= 2 && !importSearching && (
-                <div className="py-6 text-center text-sm text-gray-400">Aucun adhérent trouvé</div>
-              )}
-              {importSearchResults.length === 0 && importSearchQuery.length < 2 && (
-                <div className="py-6 text-center text-sm text-gray-400">Saisissez au moins 2 caractères</div>
-              )}
+              {importSearchResults.length === 0 &&
+                importSearchQuery.length >= 2 &&
+                !importSearching && (
+                  <div className="py-6 text-center text-sm text-gray-400">
+                    Aucun adhérent trouvé
+                  </div>
+                )}
+              {importSearchResults.length === 0 &&
+                importSearchQuery.length < 2 && (
+                  <div className="py-6 text-center text-sm text-gray-400">
+                    Saisissez au moins 2 caractères
+                  </div>
+                )}
               {importSearchResults.map((adherent) => (
                 <button
                   key={adherent.id}
@@ -1220,7 +1720,8 @@ export function AgentAdherentFormPage() {
                     </p>
                     <p className="text-xs text-gray-500">
                       Mat. {adherent.matricule}
-                      {adherent.date_of_birth && ` · Né(e) le ${new Date(adherent.date_of_birth).toLocaleDateString('fr-TN')}`}
+                      {adherent.date_of_birth &&
+                        ` · Né(e) le ${new Date(adherent.date_of_birth).toLocaleDateString("fr-TN")}`}
                     </p>
                   </div>
                   <Import className="w-4 h-4 text-blue-500 shrink-0" />

@@ -1878,28 +1878,22 @@ bulletinsAgent.post('/estimate', async (c) => {
         .bind(adherent.id)
         .all<{ id: string; contract_number: string; plan_type: string; status: string; start_date: string; end_date: string }>();
 
-      // Fallback: legacy calculation with referentiel rates
-      const details = [];
-      let total = 0;
-      for (const acte of actes) {
-        const code = acte.code?.trim();
-        if (!code) { details.push({ code: null, amount: acte.amount, reimbursed: 0 }); continue; }
-        const ref = await findActeRefByCode(db, code);
-        const taux = (ref as { taux_remboursement?: number } | null)?.taux_remboursement || 0;
-        const reimbursed = Math.round(acte.amount * taux);
-        total += reimbursed;
-        details.push({ code, amount: acte.amount, taux, reimbursed });
-      }
+      // No active contract → reimbursement is 0 (cannot calculate without contract)
+      const details = actes.map((acte) => ({
+        code: acte.code?.trim() || null,
+        amount: acte.amount,
+        reimbursed: 0,
+      }));
 
       const hasContracts = allContracts && allContracts.length > 0;
       const warning = hasContracts
-        ? `Aucun contrat actif à la date du ${bulletin_date} — ${allContracts.length} contrat(s) existant(s)`
-        : 'Cet adhérent n\'a aucun contrat enregistré';
+        ? `Aucun contrat actif à la date du ${bulletin_date} — ${allContracts.length} contrat(s) existant(s). Remboursement impossible sans contrat actif.`
+        : 'Cet adhérent n\'a aucun contrat enregistré. Remboursement impossible.';
 
       return c.json({
         success: true,
         data: {
-          reimbursed_amount: total,
+          reimbursed_amount: 0,
           details,
           warning,
           no_active_contract: true,
@@ -2233,13 +2227,7 @@ bulletinsAgent.post('/create', async (c) => {
     let adherentAutoCreated = false;
 
     if (!adherentResult) {
-      // Auto-create adherent so bulletin submission is never blocked
-      const newAdherentId = generateId();
-      const firstName = adherentFirstName || '';
-      const lastName = adherentLastName || adherentFirstName || 'Inconnu';
-
-      // Use company_id from form (selected company), fallback to first company of insurer
-      // In individual mode, company_id should be NULL
+      // Check for active group contract BEFORE creating adherent
       const isIndividualMode = companyId === '__INDIVIDUAL__';
       let adherentCompanyId: string | null = isIndividualMode ? null : companyId;
       if (!adherentCompanyId && !isIndividualMode && user.insurerId) {
@@ -2249,6 +2237,47 @@ bulletinsAgent.post('/create', async (c) => {
           .first<{ id: string }>();
         adherentCompanyId = company?.id || null;
       }
+
+      // Find active group contract — required to auto-create adherent
+      let activeGroupContract: { id: string; insurer_id: string; effective_date: string; annual_renewal_date: string | null; annual_global_limit: number | null } | null = null;
+
+      if (adherentCompanyId) {
+        activeGroupContract = await db
+          .prepare(
+            `SELECT id, insurer_id, effective_date, annual_renewal_date, annual_global_limit
+             FROM group_contracts
+             WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL
+             ORDER BY created_at DESC LIMIT 1`
+          )
+          .bind(adherentCompanyId)
+          .first();
+      } else if (user.insurerId) {
+        activeGroupContract = await db
+          .prepare(
+            `SELECT id, insurer_id, effective_date, annual_renewal_date, annual_global_limit
+             FROM group_contracts
+             WHERE insurer_id = ? AND status = 'active' AND deleted_at IS NULL
+             ORDER BY created_at DESC LIMIT 1`
+          )
+          .bind(user.insurerId)
+          .first();
+      }
+
+      // Block auto-creation if no active group contract exists
+      if (!activeGroupContract) {
+        return c.json({
+          success: false,
+          error: {
+            code: 'NO_ACTIVE_CONTRACT',
+            message: `Adhérent "${adherentMatricule}" non trouvé et aucun contrat groupe actif pour créer automatiquement un contrat individuel. Veuillez d'abord créer un contrat groupe actif ou enregistrer l'adhérent manuellement avec un contrat.`,
+          },
+        }, 400);
+      }
+
+      // Auto-create adherent with active group contract
+      const newAdherentId = generateId();
+      const firstName = adherentFirstName || '';
+      const lastName = adherentLastName || adherentFirstName || 'Inconnu';
 
       try {
         await db
@@ -2286,83 +2315,34 @@ bulletinsAgent.post('/create', async (c) => {
       adherentId = newAdherentId;
       adherentAutoCreated = true;
 
-      // Auto-create individual contract linked to active group contract
+      // Auto-create individual contract linked to the active group contract
       try {
-        let activeGroupContract: { id: string; insurer_id: string; effective_date: string; annual_renewal_date: string | null; annual_global_limit: number | null } | null = null;
-
-        if (adherentCompanyId) {
-          // Group mode: find group contract by company
-          activeGroupContract = await db
-            .prepare(
-              `SELECT id, insurer_id, effective_date, annual_renewal_date, annual_global_limit
-               FROM group_contracts
-               WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL
-               ORDER BY created_at DESC LIMIT 1`
-            )
-            .bind(adherentCompanyId)
-            .first();
-        } else if (user.insurerId) {
-          // Individual mode: find any active group contract for this insurer
-          activeGroupContract = await db
-            .prepare(
-              `SELECT id, insurer_id, effective_date, annual_renewal_date, annual_global_limit
-               FROM group_contracts
-               WHERE insurer_id = ? AND status = 'active' AND deleted_at IS NULL
-               ORDER BY created_at DESC LIMIT 1`
-            )
-            .bind(user.insurerId)
-            .first();
+        const indContractId = generateId();
+        let indEndDate = activeGroupContract.annual_renewal_date;
+        if (!indEndDate) {
+          const d = new Date(activeGroupContract.effective_date);
+          d.setFullYear(d.getFullYear() + 1);
+          indEndDate = d.toISOString().split('T')[0]!;
         }
-
-        if (activeGroupContract) {
-          const indContractId = generateId();
-          let indEndDate = activeGroupContract.annual_renewal_date;
-          if (!indEndDate) {
-            const d = new Date(activeGroupContract.effective_date);
-            d.setFullYear(d.getFullYear() + 1);
-            indEndDate = d.toISOString().split('T')[0]!;
-          }
-          await db
-            .prepare(
-              `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, created_at, updated_at, group_contract_id)
-               VALUES (?, ?, ?, ?, 'individual', ?, ?, 0, ?, '{}', 'active', datetime('now'), datetime('now'), ?)`
-            )
-            .bind(
-              indContractId,
-              activeGroupContract.insurer_id,
-              newAdherentId,
-              `${adherentMatricule}-IND`,
-              activeGroupContract.effective_date,
-              indEndDate,
-              activeGroupContract.annual_global_limit ? activeGroupContract.annual_global_limit * 1000 : null,
-              activeGroupContract.id
-            )
-            .run();
-          console.log('[SAISIE] Auto-created individual contract for new adherent:', newAdherentId, '→ group:', activeGroupContract.id);
-          const plafondsCount = await initializePlafondsForAdherent(db, newAdherentId, activeGroupContract.id, activeGroupContract.annual_global_limit);
-          console.log('[SAISIE] Initialized', plafondsCount, 'plafonds for new adherent:', newAdherentId);
-        } else if (user.insurerId) {
-          // No group contract found — create a standalone contract with insurer_id
-          const indContractId = generateId();
-          const now = new Date();
-          const endDate = new Date(now);
-          endDate.setFullYear(endDate.getFullYear() + 1);
-          await db
-            .prepare(
-              `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, 'individual', ?, ?, 0, NULL, '{}', 'active', datetime('now'), datetime('now'))`
-            )
-            .bind(
-              indContractId,
-              user.insurerId,
-              newAdherentId,
-              `${adherentMatricule}-IND`,
-              now.toISOString().split('T')[0],
-              endDate.toISOString().split('T')[0]
-            )
-            .run();
-          console.log('[SAISIE] Auto-created standalone individual contract for new adherent:', newAdherentId);
-        }
+        await db
+          .prepare(
+            `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, created_at, updated_at, group_contract_id)
+             VALUES (?, ?, ?, ?, 'individual', ?, ?, 0, ?, '{}', 'active', datetime('now'), datetime('now'), ?)`
+          )
+          .bind(
+            indContractId,
+            activeGroupContract.insurer_id,
+            newAdherentId,
+            `${adherentMatricule}-IND`,
+            activeGroupContract.effective_date,
+            indEndDate,
+            activeGroupContract.annual_global_limit ? activeGroupContract.annual_global_limit * 1000 : null,
+            activeGroupContract.id
+          )
+          .run();
+        console.log('[SAISIE] Auto-created individual contract for new adherent:', newAdherentId, '→ group:', activeGroupContract.id);
+        const plafondsCount = await initializePlafondsForAdherent(db, newAdherentId, activeGroupContract.id, activeGroupContract.annual_global_limit);
+        console.log('[SAISIE] Initialized', plafondsCount, 'plafonds for new adherent:', newAdherentId);
       } catch (contractErr) {
         console.error('[SAISIE] Failed to auto-create contract:', contractErr instanceof Error ? contractErr.message : contractErr);
       }
@@ -2418,6 +2398,7 @@ bulletinsAgent.post('/create', async (c) => {
         .first<{ id: string }>();
 
       if (!existingContract) {
+        // Try to auto-create individual contract only if active group contract exists
         try {
           const adherentCompanyId = (companyId && companyId !== '__INDIVIDUAL__') ? companyId : (adherentResult as Record<string, unknown>).company_id as string | null;
           let activeGroupContract: { id: string; insurer_id: string; effective_date: string; annual_renewal_date: string | null; annual_global_limit: number | null } | null = null;
@@ -2433,7 +2414,6 @@ bulletinsAgent.post('/create', async (c) => {
               .bind(adherentCompanyId)
               .first();
           } else if (user.insurerId) {
-            // Individual mode: find any active group contract for this insurer
             activeGroupContract = await db
               .prepare(
                 `SELECT id, insurer_id, effective_date, annual_renewal_date, annual_global_limit
@@ -2472,28 +2452,8 @@ bulletinsAgent.post('/create', async (c) => {
             console.log('[SAISIE] Auto-created individual contract for existing adherent:', adherentId, '→ group:', activeGroupContract.id);
             const plafondsCount = await initializePlafondsForAdherent(db, adherentId, activeGroupContract.id, activeGroupContract.annual_global_limit);
             console.log('[SAISIE] Initialized', plafondsCount, 'plafonds for existing adherent:', adherentId);
-          } else if (user.insurerId) {
-            // No group contract found — create a standalone contract
-            const indContractId = generateId();
-            const now = new Date();
-            const endDate = new Date(now);
-            endDate.setFullYear(endDate.getFullYear() + 1);
-            await db
-              .prepare(
-                `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, 'individual', ?, ?, 0, NULL, '{}', 'active', datetime('now'), datetime('now'))`
-              )
-              .bind(
-                indContractId,
-                user.insurerId,
-                adherentId,
-                `${adherentMatricule}-IND`,
-                now.toISOString().split('T')[0],
-                endDate.toISOString().split('T')[0]
-              )
-              .run();
-            console.log('[SAISIE] Auto-created standalone individual contract for existing adherent:', adherentId);
           }
+          // No group contract → no auto-creation of standalone contract (remboursement sera 0)
         } catch (contractErr) {
           console.error('[SAISIE] Failed to auto-create contract for existing adherent:', contractErr instanceof Error ? contractErr.message : contractErr);
         }
@@ -2982,9 +2942,9 @@ bulletinsAgent.post('/create', async (c) => {
             .run();
         }
       } else {
-        // Legacy calculation fallback (no contract found)
+        // No contract found — reimbursement is 0
         if (!contractId) {
-          warnings.push('Aucun contrat actif trouvé pour cet adhérent. Le remboursement a été calculé avec les taux par défaut, sans barèmes contractuels ni plafonds. Veuillez créer et appliquer un contrat pour un calcul précis.');
+          warnings.push('Aucun contrat actif trouvé pour cet adhérent. Remboursement impossible sans contrat actif.');
         }
         const actesInput: ActeInput[] = [];
         for (let i = 0; i < actes.length; i++) {
@@ -2994,15 +2954,15 @@ bulletinsAgent.post('/create', async (c) => {
             code: acteRefInfo.code || '',
             label: acte.label,
             montantActe: acte.amount,
-            tauxRemboursement: acteRefInfo.ref?.taux_remboursement || 0,
+            tauxRemboursement: contractId ? (acteRefInfo.ref?.taux_remboursement || 0) : 0,
           });
         }
 
         // Get adherent plafond
         // If plafond_global is NULL (e.g. individual mode, no contract), treat as unlimited
         // plafond_global and plafond_consomme are in millimes, convert to dinars (÷1000)
-        let plafondRestant = Number.MAX_SAFE_INTEGER;
-        if (adherentId) {
+        let plafondRestant = contractId ? Number.MAX_SAFE_INTEGER : 0;
+        if (contractId && adherentId) {
           const adh = await db
             .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
             .bind(adherentId)
@@ -3012,7 +2972,7 @@ bulletinsAgent.post('/create', async (c) => {
           }
         }
 
-        // Calculate reimbursement (legacy)
+        // Calculate reimbursement (legacy — 0 when no contract)
         const calcul = calculateRemboursementBulletin(actesInput, plafondRestant);
         reimbursedAmount = calcul.totalRembourse;
 
@@ -3379,7 +3339,32 @@ bulletinsAgent.post('/import-lot', async (c) => {
           }
         }
       } else {
-        // Auto-create adherent so the import is never blocked
+        // Check for active group contract BEFORE creating adherent
+        const activeGroupContract = await db
+          .prepare(
+            `SELECT id, insurer_id, effective_date, annual_renewal_date, annual_global_limit
+             FROM group_contracts
+             WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL
+             ORDER BY created_at DESC LIMIT 1`
+          )
+          .bind(companyId)
+          .first<{ id: string; insurer_id: string; effective_date: string; annual_renewal_date: string | null; annual_global_limit: number | null }>();
+
+        if (!activeGroupContract) {
+          // Skip this bulletin — no active contract means we cannot register this adherent
+          skipped++;
+          results.push({
+            id: bulletinId,
+            bulletin_number: bulletinNumber,
+            adherent_matricule: bulletin.adherent_matricule,
+            status: 'skipped',
+            skipped: true,
+            reason: `Adhérent non trouvé et aucun contrat groupe actif pour créer automatiquement un contrat.`,
+          });
+          continue;
+        }
+
+        // Auto-create adherent with active group contract
         const newAdherentId = generateId();
         const firstName = bulletin.adherent_first_name || '';
         const lastName = bulletin.adherent_last_name || bulletin.adherent_first_name || 'Inconnu';
@@ -3399,7 +3384,6 @@ bulletinsAgent.post('/import-lot', async (c) => {
             )
             .run();
         } catch {
-          // Fallback: minimal INSERT for tenants missing dossier_complet column
           await db
             .prepare(`
               INSERT INTO adherents (id, matricule, first_name, last_name, national_id_encrypted, date_of_birth, company_id, is_active, created_at, updated_at)
@@ -3418,47 +3402,34 @@ bulletinsAgent.post('/import-lot', async (c) => {
         adherentId = newAdherentId;
         adherentAutoCreated = true;
 
-        // Auto-create individual contract linked to active group contract for this company
+        // Auto-create individual contract linked to the active group contract
         try {
-          const activeGroupContract = await db
-            .prepare(
-              `SELECT id, insurer_id, effective_date, annual_renewal_date, annual_global_limit
-               FROM group_contracts
-               WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL
-               ORDER BY created_at DESC LIMIT 1`
-            )
-            .bind(companyId)
-            .first<{ id: string; insurer_id: string; effective_date: string; annual_renewal_date: string | null; annual_global_limit: number | null }>();
-
-          if (activeGroupContract) {
-            const indContractId = generateId();
-            // Compute end_date: use annual_renewal_date, or default to effective_date + 1 year
-            let indEndDate = activeGroupContract.annual_renewal_date;
-            if (!indEndDate) {
-              const d = new Date(activeGroupContract.effective_date);
-              d.setFullYear(d.getFullYear() + 1);
-              indEndDate = d.toISOString().split('T')[0]!;
-            }
-            await db
-              .prepare(
-                `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, created_at, updated_at, group_contract_id)
-                 VALUES (?, ?, ?, ?, 'corporate', ?, ?, 0, ?, '{}', 'active', datetime('now'), datetime('now'), ?)`
-              )
-              .bind(
-                indContractId,
-                activeGroupContract.insurer_id,
-                newAdherentId,
-                `${bulletin.adherent_matricule}-IND`,
-                activeGroupContract.effective_date,
-                indEndDate,
-                activeGroupContract.annual_global_limit ? activeGroupContract.annual_global_limit * 1000 : null,
-                activeGroupContract.id
-              )
-              .run();
-            console.log('[IMPORT] Auto-created individual contract for new adherent:', newAdherentId, '→ group:', activeGroupContract.id);
-            const plafondsCount = await initializePlafondsForAdherent(db, newAdherentId, activeGroupContract.id, activeGroupContract.annual_global_limit);
-            console.log('[IMPORT] Initialized', plafondsCount, 'plafonds for new adherent:', newAdherentId);
+          const indContractId = generateId();
+          let indEndDate = activeGroupContract.annual_renewal_date;
+          if (!indEndDate) {
+            const d = new Date(activeGroupContract.effective_date);
+            d.setFullYear(d.getFullYear() + 1);
+            indEndDate = d.toISOString().split('T')[0]!;
           }
+          await db
+            .prepare(
+              `INSERT INTO contracts (id, insurer_id, adherent_id, contract_number, plan_type, start_date, end_date, carence_days, annual_limit, coverage_json, status, created_at, updated_at, group_contract_id)
+               VALUES (?, ?, ?, ?, 'corporate', ?, ?, 0, ?, '{}', 'active', datetime('now'), datetime('now'), ?)`
+            )
+            .bind(
+              indContractId,
+              activeGroupContract.insurer_id,
+              newAdherentId,
+              `${bulletin.adherent_matricule}-IND`,
+              activeGroupContract.effective_date,
+              indEndDate,
+              activeGroupContract.annual_global_limit ? activeGroupContract.annual_global_limit * 1000 : null,
+              activeGroupContract.id
+            )
+            .run();
+          console.log('[IMPORT] Auto-created individual contract for new adherent:', newAdherentId, '→ group:', activeGroupContract.id);
+          const plafondsCount = await initializePlafondsForAdherent(db, newAdherentId, activeGroupContract.id, activeGroupContract.annual_global_limit);
+          console.log('[IMPORT] Initialized', plafondsCount, 'plafonds for new adherent:', newAdherentId);
         } catch (contractErr) {
           console.error('[IMPORT] Failed to auto-create contract for adherent:', contractErr instanceof Error ? contractErr.message : contractErr);
         }

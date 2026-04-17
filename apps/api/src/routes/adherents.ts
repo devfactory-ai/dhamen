@@ -1279,6 +1279,27 @@ adherents.post(
     const db = getDb(c);
     const now = new Date().toISOString();
 
+    // Verify active group contract exists for this company (required for group mode)
+    if (data.companyId && data.companyId !== '__INDIVIDUAL__') {
+      const activeGc = await db
+        .prepare(
+          `SELECT id FROM group_contracts
+           WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL
+           LIMIT 1`
+        )
+        .bind(data.companyId)
+        .first<{ id: string }>();
+      if (!activeGc) {
+        return c.json({
+          success: false,
+          error: {
+            code: 'NO_ACTIVE_CONTRACT',
+            message: 'Aucun contrat groupe actif pour cette entreprise. Veuillez d\'abord créer un contrat groupe avant d\'ajouter des adhérents.',
+          },
+        }, 400);
+      }
+    }
+
     // Check matricule uniqueness within the company
     if (data.matricule && data.companyId) {
       const existing = await db
@@ -1526,8 +1547,29 @@ adherents.put(
       }
     }
 
-    // Check matricule uniqueness within the company on update
+    // Verify active group contract if changing company
     const targetCompanyId = data.companyId || existing.company_id;
+    if (data.companyId && data.companyId !== '__INDIVIDUAL__' && data.companyId !== existing.company_id) {
+      const activeGc = await db
+        .prepare(
+          `SELECT id FROM group_contracts
+           WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL
+           LIMIT 1`
+        )
+        .bind(data.companyId)
+        .first<{ id: string }>();
+      if (!activeGc) {
+        return c.json({
+          success: false,
+          error: {
+            code: 'NO_ACTIVE_CONTRACT',
+            message: 'Aucun contrat groupe actif pour cette entreprise. Impossible de transférer l\'adhérent.',
+          },
+        }, 400);
+      }
+    }
+
+    // Check matricule uniqueness within the company on update
     if (data.matricule && targetCompanyId) {
       const duplicate = await db
         .prepare('SELECT id FROM adherents WHERE company_id = ? AND matricule = ? AND id != ? AND deleted_at IS NULL')
@@ -1813,6 +1855,27 @@ adherents.post(
     }
 
     const { adherents: rows, skipDuplicates } = validated;
+
+    // Verify active group contract exists for this company before importing
+    if (companyId) {
+      const activeGc = await getDb(c)
+        .prepare(
+          `SELECT id FROM group_contracts
+           WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL
+           LIMIT 1`
+        )
+        .bind(companyId)
+        .first<{ id: string }>();
+      if (!activeGc) {
+        return c.json({
+          success: false,
+          error: {
+            code: 'NO_ACTIVE_CONTRACT',
+            message: 'Aucun contrat groupe actif pour cette entreprise. Veuillez d\'abord créer un contrat groupe avant d\'importer des adhérents.',
+          },
+        }, 400);
+      }
+    }
 
     console.log(`[adherent-import] Starting import: ${rows.length} rows, skipDuplicates=${skipDuplicates}, companyId=${companyId}`);
 
