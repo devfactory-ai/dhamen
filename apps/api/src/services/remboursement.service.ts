@@ -275,9 +275,21 @@ async function calculerViaContractGuarantees(
  *   6. Apply plafond per family/year
  *   7. Apply plafond global/year
  */
+/**
+ * Shared context cache for batch reimbursement calculation.
+ * Avoids repeating identical DB lookups across multiple actes in the same bulletin.
+ */
+export interface CalculBatchContext {
+  baremeContractId?: string;
+  periodeId?: string | null;
+  plafondGlobal?: { montant_plafond: number; montant_consomme: number } | null;
+  _resolved?: boolean;
+}
+
 export async function calculerRemboursement(
   db: D1Database,
-  input: CalculRemboursementInput
+  input: CalculRemboursementInput,
+  batchCtx?: CalculBatchContext
 ): Promise<CalculRemboursementResult> {
   const {
     adherentId,
@@ -290,42 +302,56 @@ export async function calculerRemboursement(
   } = input;
   const annee = Number(dateSoin.split('-')[0]);
 
-  // 1. Resolve group_contract_id from individual contract (for baremes/periodes lookup)
-  //    Individual contracts (table `contracts`) link to group_contracts via group_contract_id.
-  //    Baremes and periodes are stored at the group_contract level.
-  let baremeContractId = contractId;
-  const contractRow = await db
-    .prepare('SELECT group_contract_id FROM contracts WHERE id = ?')
-    .bind(contractId)
-    .first<{ group_contract_id: string | null }>();
-  if (contractRow?.group_contract_id) {
-    baremeContractId = contractRow.group_contract_id;
+  // 1. Resolve group_contract_id (cached in batchCtx if provided)
+  let baremeContractId: string;
+  if (batchCtx?._resolved && batchCtx.baremeContractId !== undefined) {
+    baremeContractId = batchCtx.baremeContractId;
+  } else {
+    baremeContractId = contractId;
+    const contractRow = await db
+      .prepare('SELECT group_contract_id FROM contracts WHERE id = ?')
+      .bind(contractId)
+      .first<{ group_contract_id: string | null }>();
+    if (contractRow?.group_contract_id) {
+      baremeContractId = contractRow.group_contract_id;
+    }
+    if (batchCtx) {
+      batchCtx.baremeContractId = baremeContractId;
+    }
   }
 
-  // Find the active period for this contract and date
-  // Try with baremeContractId (group_contract_id) first, fallback to contractId directly
-  let periode = await db
-    .prepare(
-      `SELECT cp.id FROM contrat_periodes cp
-       WHERE cp.contract_id = ? AND cp.is_active = 1
-         AND cp.date_debut <= ? AND cp.date_fin >= ?`
-    )
-    .bind(baremeContractId, dateSoin, dateSoin)
-    .first<{ id: string }>();
-
-  if (!periode && baremeContractId !== contractId) {
+  // 2. Find active period (cached in batchCtx if provided)
+  let periode: { id: string } | null;
+  if (batchCtx?._resolved && batchCtx.periodeId !== undefined) {
+    periode = batchCtx.periodeId ? { id: batchCtx.periodeId } : null;
+  } else {
     periode = await db
       .prepare(
         `SELECT cp.id FROM contrat_periodes cp
          WHERE cp.contract_id = ? AND cp.is_active = 1
            AND cp.date_debut <= ? AND cp.date_fin >= ?`
       )
-      .bind(contractId, dateSoin, dateSoin)
+      .bind(baremeContractId, dateSoin, dateSoin)
       .first<{ id: string }>();
+
+    if (!periode && baremeContractId !== contractId) {
+      periode = await db
+        .prepare(
+          `SELECT cp.id FROM contrat_periodes cp
+           WHERE cp.contract_id = ? AND cp.is_active = 1
+             AND cp.date_debut <= ? AND cp.date_fin >= ?`
+        )
+        .bind(contractId, dateSoin, dateSoin)
+        .first<{ id: string }>();
+    }
+    if (batchCtx) {
+      batchCtx.periodeId = periode?.id ?? null;
+      batchCtx._resolved = true;
+    }
   }
 
-  // 2. Get the acte info (to know famille_id and defaults)
-  const acte = await db
+  // 3. Get acte info + bareme in parallel
+  const actePromise = db
     .prepare(
       'SELECT id, code, famille_id, type_calcul, valeur_base, taux_remboursement, plafond_acte FROM actes_referentiel WHERE id = ?'
     )
@@ -340,36 +366,61 @@ export async function calculerRemboursement(
       plafond_acte: number | null;
     }>();
 
+  // Pre-fetch bareme by acte_ref_id if we have a period
+  const baremeByActePromise = periode
+    ? db
+        .prepare(
+          `SELECT type_calcul, valeur, plafond_acte, plafond_famille_annuel
+           FROM contrat_baremes WHERE periode_id = ? AND acte_ref_id = ?`
+        )
+        .bind(periode.id, acteRefId)
+        .first<{
+          type_calcul: string;
+          valeur: number;
+          plafond_acte: number | null;
+          plafond_famille_annuel: number | null;
+        }>()
+    : Promise.resolve(null);
+
+  // Pre-fetch medication family bareme if needed
+  const medBaremePromise = medicationFamilyId && periode
+    ? db
+        .prepare(
+          `SELECT taux_remboursement, plafond_acte, plafond_famille_annuel
+           FROM medication_family_baremes
+           WHERE contract_id = ? AND medication_family_id = ? AND is_active = 1
+             AND date_effet <= ? AND (date_fin_effet IS NULL OR date_fin_effet >= ?)
+           ORDER BY date_effet DESC LIMIT 1`
+        )
+        .bind(baremeContractId, medicationFamilyId, dateSoin, dateSoin)
+        .first<{
+          taux_remboursement: number;
+          plafond_acte: number | null;
+          plafond_famille_annuel: number | null;
+        }>()
+    : Promise.resolve(null);
+
+  const [acte, baremeByActe, medFamilyBaremeInitial] = await Promise.all([
+    actePromise,
+    baremeByActePromise,
+    medBaremePromise,
+  ]);
+
   if (!acte) {
     throw new Error('ACTE_NOT_FOUND: Acte referentiel non trouve');
   }
 
-  // -----------------------------------------------------------------------
   // FALLBACK: If no contrat_periodes/contrat_baremes, use contract_guarantees
-  // -----------------------------------------------------------------------
   if (!periode) {
     const guaranteeResult = await calculerViaContractGuarantees(
       db, baremeContractId, acte.famille_id, fraisEngages, adherentId, contractId, annee, typeMaladie, acte.code
     );
     if (guaranteeResult) return guaranteeResult;
-    // If no guarantee found either, throw
     throw new Error('BAREME_NOT_FOUND: Aucune periode active ni garantie trouvee pour ce contrat');
   }
 
-  // 3. Find bareme for this acte in this period (first by acte_ref_id, then by famille_id)
-  let bareme = await db
-    .prepare(
-      `SELECT type_calcul, valeur, plafond_acte, plafond_famille_annuel
-       FROM contrat_baremes WHERE periode_id = ? AND acte_ref_id = ?`
-    )
-    .bind(periode.id, acteRefId)
-    .first<{
-      type_calcul: string;
-      valeur: number;
-      plafond_acte: number | null;
-      plafond_famille_annuel: number | null;
-    }>();
-
+  // Resolve bareme: try by acte_ref_id first, then by famille_id
+  let bareme = baremeByActe;
   if (!bareme && acte.famille_id) {
     bareme = await db
       .prepare(
@@ -385,16 +436,9 @@ export async function calculerRemboursement(
       }>();
   }
 
-  // 3b. If this is a pharmacy act with a medication family, check for medication family bareme
-  //     This allows time-based rates per medication therapeutic family (ATB, CVS, etc.)
-  let medFamilyBareme: {
-    taux_remboursement: number;
-    plafond_acte: number | null;
-    plafond_famille_annuel: number | null;
-  } | null = null;
-
-  if (medicationFamilyId) {
-    // Try baremeContractId (group_contract) first, then individual contractId
+  // Resolve medication family bareme (fallback to individual contract if needed)
+  let medFamilyBareme = medFamilyBaremeInitial;
+  if (!medFamilyBareme && medicationFamilyId && baremeContractId !== contractId) {
     medFamilyBareme = await db
       .prepare(
         `SELECT taux_remboursement, plafond_acte, plafond_famille_annuel
@@ -403,28 +447,12 @@ export async function calculerRemboursement(
            AND date_effet <= ? AND (date_fin_effet IS NULL OR date_fin_effet >= ?)
          ORDER BY date_effet DESC LIMIT 1`
       )
-      .bind(baremeContractId, medicationFamilyId, dateSoin, dateSoin)
+      .bind(contractId, medicationFamilyId, dateSoin, dateSoin)
       .first<{
         taux_remboursement: number;
         plafond_acte: number | null;
         plafond_famille_annuel: number | null;
       }>();
-    if (!medFamilyBareme && baremeContractId !== contractId) {
-      medFamilyBareme = await db
-        .prepare(
-          `SELECT taux_remboursement, plafond_acte, plafond_famille_annuel
-           FROM medication_family_baremes
-           WHERE contract_id = ? AND medication_family_id = ? AND is_active = 1
-             AND date_effet <= ? AND (date_fin_effet IS NULL OR date_fin_effet >= ?)
-           ORDER BY date_effet DESC LIMIT 1`
-        )
-        .bind(contractId, medicationFamilyId, dateSoin, dateSoin)
-        .first<{
-          taux_remboursement: number;
-          plafond_acte: number | null;
-          plafond_famille_annuel: number | null;
-        }>();
-    }
   }
 
   // Resolution order: medication family bareme > contract bareme (acte/famille) > acte defaults
@@ -454,11 +482,9 @@ export async function calculerRemboursement(
   }
 
   // 6. Apply plafond famille/an
-  //    Plafonds are stored with either the individual contractId or the baremeContractId
   let apresPlafondFamille = apresPlafondActe;
   let plafondFamilleApplique = false;
   if (plafondFamilleAnnuel !== null && acte.famille_id) {
-    // Try individual contract first, then group contract
     let plafondRow = await db
       .prepare(
         `SELECT montant_plafond, montant_consomme FROM plafonds_beneficiaire
@@ -478,7 +504,6 @@ export async function calculerRemboursement(
     }
 
     if (plafondRow) {
-      // plafonds_beneficiaire stores amounts in millimes, calculation is in dinars (÷1000)
       const restant = Math.max(0, (plafondRow.montant_plafond - plafondRow.montant_consomme) / 1000);
       if (apresPlafondFamille > restant) {
         apresPlafondFamille = restant;
@@ -487,32 +512,40 @@ export async function calculerRemboursement(
     }
   }
 
-  // 7. Apply plafond global/an
+  // 7. Apply plafond global/an (cached in batchCtx if provided)
   let apresPlafondGlobal = apresPlafondFamille;
   let plafondGlobalApplique = false;
-  let plafondGlobal = await db
-    .prepare(
-      `SELECT montant_plafond, montant_consomme FROM plafonds_beneficiaire
-       WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id IS NULL AND type_maladie = 'ordinaire'`
-    )
-    .bind(adherentId, contractId, annee)
-    .first<{ montant_plafond: number; montant_consomme: number }>();
 
-  if (!plafondGlobal && baremeContractId !== contractId) {
-    plafondGlobal = await db
+  let plafondGlobalRow: { montant_plafond: number; montant_consomme: number } | null | undefined;
+  if (batchCtx && batchCtx.plafondGlobal !== undefined) {
+    plafondGlobalRow = batchCtx.plafondGlobal;
+  } else {
+    plafondGlobalRow = await db
       .prepare(
         `SELECT montant_plafond, montant_consomme FROM plafonds_beneficiaire
          WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id IS NULL AND type_maladie = 'ordinaire'`
       )
-      .bind(adherentId, baremeContractId, annee)
+      .bind(adherentId, contractId, annee)
       .first<{ montant_plafond: number; montant_consomme: number }>();
+
+    if (!plafondGlobalRow && baremeContractId !== contractId) {
+      plafondGlobalRow = await db
+        .prepare(
+          `SELECT montant_plafond, montant_consomme FROM plafonds_beneficiaire
+           WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id IS NULL AND type_maladie = 'ordinaire'`
+        )
+        .bind(adherentId, baremeContractId, annee)
+        .first<{ montant_plafond: number; montant_consomme: number }>();
+    }
+    if (batchCtx) {
+      batchCtx.plafondGlobal = plafondGlobalRow ?? null;
+    }
   }
 
-  if (plafondGlobal) {
-    // plafonds_beneficiaire stores amounts in millimes, calculation is in dinars (÷1000)
+  if (plafondGlobalRow) {
     const restantGlobal = Math.max(
       0,
-      (plafondGlobal.montant_plafond - plafondGlobal.montant_consomme) / 1000
+      (plafondGlobalRow.montant_plafond - plafondGlobalRow.montant_consomme) / 1000
     );
     if (apresPlafondGlobal > restantGlobal) {
       apresPlafondGlobal = restantGlobal;
@@ -551,16 +584,21 @@ export async function mettreAJourPlafonds(
   annee: number,
   familleActeId: string | null,
   montant: number,
-  typeMaladie: 'ordinaire' | 'chronique' = 'ordinaire'
+  typeMaladie: 'ordinaire' | 'chronique' = 'ordinaire',
+  cachedGroupContractId?: string
 ): Promise<void> {
-  // Resolve group_contract_id for plafond lookup (plafonds may be stored under group contract)
+  // Resolve group_contract_id for plafond lookup (use cache if provided)
   let plafondContractId = contractId;
-  const contractRow = await db
-    .prepare('SELECT group_contract_id FROM contracts WHERE id = ?')
-    .bind(contractId)
-    .first<{ group_contract_id: string | null }>();
-  if (contractRow?.group_contract_id) {
-    plafondContractId = contractRow.group_contract_id;
+  if (cachedGroupContractId !== undefined) {
+    plafondContractId = cachedGroupContractId;
+  } else {
+    const contractRow = await db
+      .prepare('SELECT group_contract_id FROM contracts WHERE id = ?')
+      .bind(contractId)
+      .first<{ group_contract_id: string | null }>();
+    if (contractRow?.group_contract_id) {
+      plafondContractId = contractRow.group_contract_id;
+    }
   }
 
   // Update famille plafond (try individual first, then group)

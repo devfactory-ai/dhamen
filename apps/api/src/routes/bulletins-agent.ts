@@ -19,6 +19,7 @@ import {
 import type {
   CalculRemboursementInput,
   CalculRemboursementResult,
+  CalculBatchContext,
 } from '../services/remboursement.service';
 import type { Bindings, Variables } from '../types';
 import { unzipSync } from 'fflate';
@@ -1943,6 +1944,7 @@ bulletinsAgent.post('/estimate', async (c) => {
     // Contract-aware calculation
     const details = [];
     let total = 0;
+    const estimateBatchCtx: CalculBatchContext = {};
     for (const acte of actes) {
       const code = acte.code?.trim();
       if (!code) { details.push({ code: null, amount: acte.amount, reimbursed: 0 }); continue; }
@@ -1957,7 +1959,7 @@ bulletinsAgent.post('/estimate', async (c) => {
           dateSoin: bulletin_date,
           typeMaladie: 'ordinaire',
         };
-        const result = await calculerRemboursement(db, calcInput);
+        const result = await calculerRemboursement(db, calcInput, estimateBatchCtx);
         total += result.montantRembourse;
         details.push({ code, amount: acte.amount, reimbursed: result.montantRembourse, type: result.typeCalcul, valeur: result.valeurBareme });
       } catch {
@@ -2787,6 +2789,8 @@ bulletinsAgent.post('/create', async (c) => {
       if (contractId && adherentId) {
         const baremeResults: CalculRemboursementResult[] = [];
         let totalRembourse = 0;
+        // Shared context cache — avoids repeating group_contract_id, periode, plafond_global lookups per acte
+        const batchCtx: CalculBatchContext = {};
 
         for (let i = 0; i < actes.length; i++) {
           const acte = actes[i]!;
@@ -2806,7 +2810,7 @@ bulletinsAgent.post('/create', async (c) => {
                   | 'chronique',
                 medicationFamilyId: medMatch?.medicationFamilyId ?? undefined,
               };
-              const result = await calculerRemboursement(db, calcInput);
+              const result = await calculerRemboursement(db, calcInput, batchCtx);
               baremeResults.push(result);
               totalRembourse += result.montantRembourse;
             } catch {
@@ -2953,12 +2957,15 @@ bulletinsAgent.post('/create', async (c) => {
         );
 
         // Sequential plafond updates (shared counter — cannot parallelize)
+        // Use cached group_contract_id from batchCtx to avoid redundant lookups
+        const cachedGroupId = batchCtx.baremeContractId || contractId;
         for (let i = 0; i < actes.length; i++) {
           const baremeResult = baremeResults[i]!;
           if (baremeResult.montantRembourse > 0 && familleIds[i] !== undefined) {
             await mettreAJourPlafonds(
               db, adherentId, contractId, annee,
-              familleIds[i]!, baremeResult.montantRembourse * 1000, typeMaladie
+              familleIds[i]!, baremeResult.montantRembourse * 1000, typeMaladie,
+              cachedGroupId
             );
           }
         }
@@ -4241,6 +4248,7 @@ bulletinsAgent.post('/:id/update', async (c) => {
       // Contract-aware calculation
       const baremeResults: CalculRemboursementResult[] = [];
       let totalRembourse = 0;
+      const updateBatchCtx: CalculBatchContext = {};
 
       for (let i = 0; i < actes.length; i++) {
         const acte = actes[i]!;
@@ -4257,7 +4265,7 @@ bulletinsAgent.post('/:id/update', async (c) => {
               typeMaladie: (careType === 'pharmacie_chronique' ? 'chronique' : 'ordinaire') as 'ordinaire' | 'chronique',
               medicationFamilyId: medMatch?.medicationFamilyId ?? undefined,
             };
-            const result = await calculerRemboursement(db, calcInput);
+            const result = await calculerRemboursement(db, calcInput, updateBatchCtx);
             baremeResults.push(result);
             totalRembourse += result.montantRembourse;
           } catch {

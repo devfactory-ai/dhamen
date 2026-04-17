@@ -1352,7 +1352,7 @@ export function BulletinsSaisiePage() {
           const isPharm = typeRaw.includes('PHARMAC');
           const isLab = typeRaw.includes('LABORAT') || typeRaw.includes('ANALYSE');
           const typeSoin = isPharm ? 'Pharmacie' : isLab ? 'Laboratoire' : 'Médecin';
-          const montantRaw = String(a.montant || a.total_ligne || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+          const montantRaw = String(a.montant || a.montant_total || a.total_ligne || '0').replace(/[^\d.,]/g, '').replace(',', '.');
           return {
             ...a,
             type_soin: typeSoin,
@@ -1434,7 +1434,7 @@ export function BulletinsSaisiePage() {
             for (const res of resultats) {
               const rawPrix = (res.montant || res.resultat || res.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
               mainSubItems.push({
-                label: res.designation || res.nom || res.libelle || '',
+                label: res.designation || res.nom || res.libelle || res.acte || '',
                 amount: parseFloat(rawPrix) || 0,
                 code: res.code_amm || '',
               });
@@ -1444,15 +1444,15 @@ export function BulletinsSaisiePage() {
             }
           }
 
-          // details_lignes at acte level (format actes_independants — pharmacy)
+          // details_lignes at acte level (format actes_independants — pharmacy/lab)
           const acteLevelDetails = acte.details_lignes as Array<Record<string, string>> | undefined;
           if (!resultats?.length && Array.isArray(acteLevelDetails) && acteLevelDetails.length > 0) {
             for (const ligne of acteLevelDetails) {
-              const rawPrix = (ligne.montant || ligne.prix_unitaire || '0').replace(/[^\d.,]/g, '').replace(',', '.');
+              const rawPrix = (ligne.montant || ligne.total_ligne || ligne.prix_unitaire || '0').replace(/[^\d.,]/g, '').replace(',', '.');
               mainSubItems.push({
-                label: ligne.designation || ligne.nom || '',
+                label: ligne.designation || ligne.nom || ligne.medicament || ligne.acte || '',
                 amount: parseFloat(rawPrix) || 0,
-                code: ligne.code_amm || '',
+                code: ligne.code_amm || ligne.code_acte || '',
               });
             }
           }
