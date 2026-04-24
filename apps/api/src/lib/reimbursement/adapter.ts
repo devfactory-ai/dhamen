@@ -828,7 +828,8 @@ export async function calculerRemboursementViaEngine(
 }
 
 // ---------------------------------------------------------------------------
-// Internal: contract_guarantees fallback path
+// Internal: contract_guarantees fallback path (proven calculation, no Engine A)
+// Uses direct DT-based math identical to the original service logic.
 // ---------------------------------------------------------------------------
 
 async function calculerViaGuaranteesPath(
@@ -863,7 +864,7 @@ async function calculerViaGuaranteesPath(
   }
 
   const placeholders = careTypes.map(() => '?').join(', ');
-  const guaranteeRow = await db
+  const guarantee = await db
     .prepare(
       `SELECT care_type, reimbursement_rate, is_fixed_amount, annual_limit, per_event_limit,
               daily_limit, max_days, letter_keys_json, sub_limits_json, bareme_tp_id
@@ -875,110 +876,215 @@ async function calculerViaGuaranteesPath(
     .bind(groupContractId, ...careTypes)
     .first<DbGuaranteeRow>();
 
-  if (!guaranteeRow) {
+  if (!guarantee) {
     throw new Error('BAREME_NOT_FOUND: Aucune periode active ni garantie trouvee pour ce contrat');
   }
 
-  const effectiveCareType = careTypeOverride ?? guaranteeRow.care_type;
+  // --- Direct calculation in DT (proven logic from original service) ---
+  const isFixed = guarantee.is_fixed_amount === 1;
+  let rate = guarantee.reimbursement_rate ?? 0;
 
-  // Convert DB row to Engine A Guarantee
-  const guarantee = dbRowToGuarantee(guaranteeRow, {
-    familleId: familleId ?? undefined,
-    typeMaladie,
-    acteCode: acte.code,
-    acteRate: acte.taux_remboursement,
-  });
+  // Normalize amounts: contract_guarantees stores in millimes → convert to DT
+  let perEventLimitDT = guarantee.per_event_limit != null ? guarantee.per_event_limit / 1000 : null;
+  const annualLimitDT = guarantee.annual_limit != null ? guarantee.annual_limit / 1000 : null;
+  let dailyLimitDT = guarantee.daily_limit != null ? guarantee.daily_limit / 1000 : null;
 
-  // Resolve letter key and coefficient for Acte construction
-  let letterKey: string | undefined;
-  let coefficient: number | undefined;
-  let subLimitKey: string | undefined;
+  // Parse sub_limits_json
+  let subLimits: Record<string, number> | null = null;
+  if (guarantee.sub_limits_json) {
+    try { subLimits = JSON.parse(guarantee.sub_limits_json) as Record<string, number>; } catch { /* ignore */ }
+  }
 
-  if (guarantee.letter_keys.length > 0 && acte.code) {
-    const acteUpper = acte.code.toUpperCase();
-    // Direct match
-    if (guarantee.letter_keys.some(lk => lk.key === acteUpper)) {
-      letterKey = acteUpper;
-      coefficient = nbrCle && nbrCle > 0 ? nbrCle : 1;
-    } else {
-      // Try auto-parsing: "B120" → letter "B", coefficient 120
-      const parsed = parseLetterKeyCode(acte.code);
-      if (parsed && guarantee.letter_keys.some(lk => lk.key === parsed.letter)) {
-        letterKey = parsed.letter;
-        coefficient = nbrCle ?? parsed.coefficient ?? undefined;
-      } else if (acte.lettre_cle && guarantee.letter_keys.some(lk => lk.key === acte.lettre_cle!.toUpperCase())) {
-        letterKey = acte.lettre_cle.toUpperCase();
-        coefficient = nbrCle ?? undefined;
+  // Hospitalisation hôpital vs clinique daily limit
+  if (subLimits && (familleId === 'fa-007' || familleId === 'fa-008')) {
+    const isHopital = familleId === 'fa-008';
+    const keyVariants = isHopital
+      ? ['hopital', 'hôpital', 'Plafond journalier en hôpital', 'Plafond journalier en hopital']
+      : ['clinique', 'Plafond journalier en clinique'];
+    for (const key of keyVariants) {
+      const val = subLimits[key] ?? Object.entries(subLimits).find(([k]) => k.toLowerCase().includes(isHopital ? 'hopital' : 'clinique') && k.toLowerCase().includes('journalier'))?.[1];
+      if (val != null) {
+        dailyLimitDT = val / 1000;
+        break;
       }
     }
   }
 
-  // Check for sub-limit key from acte code
-  const subKey = ACTE_CODE_TO_SUB_LIMIT_KEY[acte.code] ?? ACTE_CODE_TO_SUB_LIMIT_KEY[acte.code.toUpperCase()];
-  if (subKey) {
-    subLimitKey = subKey;
+  // Acte-code-based sub-limit override (optique, chirurgie)
+  if (subLimits && acte.code) {
+    const subKey = ACTE_CODE_TO_SUB_LIMIT_KEY[acte.code] ?? ACTE_CODE_TO_SUB_LIMIT_KEY[acte.code.toUpperCase()];
+    if (subKey && subLimits[subKey] != null) {
+      const subCapDT = subLimits[subKey]! / 1000;
+      if (subCapDT != null) perEventLimitDT = subCapDT;
+      const rateKey = `${subKey}_rate`;
+      if (subLimits[rateKey] != null) {
+        rate = subLimits[rateKey]!;
+      } else if (acte.taux_remboursement != null && acte.taux_remboursement > 0 && acte.taux_remboursement !== rate) {
+        rate = acte.taux_remboursement;
+      }
+    }
   }
 
-  // Build Engine A Acte
-  const engineActe: Acte = {
-    care_type: effectiveCareType,
-    letter_key: letterKey,
-    coefficient,
-    montant: toMillimes(fraisEngages),
-    jours: nombreJours,
-    date: acte.code, // Not used by engine for calculation
-    sub_limit_key: subLimitKey,
-    has_prescription: true, // Already validated upstream
-    beneficiaire: {
-      id: adherentId,
-      type: 'adherent',
-      age: 35, // Not relevant for this path
-    },
-  };
-  // Fix: date should be the actual date
-  engineActe.date = new Date().toISOString().split('T')[0]!;
-
-  // Determine typeCalcul for service result
   let typeCalcul: 'taux' | 'forfait';
-  let valeurBareme: number;
-  if (letterKey && coefficient && coefficient > 1) {
-    typeCalcul = 'forfait';
-    const lkEntry = guarantee.letter_keys.find(lk => lk.key === letterKey);
-    valeurBareme = lkEntry ? toDinars(lkEntry.value * coefficient) : 0;
-  } else if (guaranteeRow.is_fixed_amount === 1) {
-    typeCalcul = 'forfait';
-    valeurBareme = guaranteeRow.per_event_limit ? toDinars(guaranteeRow.per_event_limit) : 0;
-  } else {
+  let valeur: number;
+  let montantBrut: number;
+
+  // Resolve letter_keys
+  let letterKeyValue: number | null = null;
+  let resolvedCoeff: number | null = nbrCle ?? null;
+  let matchedViaLettreCle = false;
+
+  function letterKeyValueToDinars(v: number): number {
+    return v >= 50 ? v / 1000 : v;
+  }
+
+  if (guarantee.letter_keys_json && acte.code) {
+    try {
+      const rawLetterKeys = JSON.parse(guarantee.letter_keys_json) as Record<string, number>;
+      const letterKeys: Record<string, number> = {};
+      for (const [k, v] of Object.entries(rawLetterKeys)) {
+        letterKeys[k.toUpperCase()] = v;
+      }
+      const acteUpper = acte.code.toUpperCase();
+      if (letterKeys[acteUpper] !== undefined) {
+        letterKeyValue = letterKeyValueToDinars(letterKeys[acteUpper]!);
+      } else {
+        const parsed = parseLetterKeyCode(acte.code);
+        if (parsed && letterKeys[parsed.letter] !== undefined) {
+          letterKeyValue = letterKeyValueToDinars(letterKeys[parsed.letter]!);
+          if (!resolvedCoeff && parsed.coefficient) resolvedCoeff = parsed.coefficient;
+        } else if (acte.lettre_cle && letterKeys[acte.lettre_cle.toUpperCase()] !== undefined) {
+          letterKeyValue = letterKeyValueToDinars(letterKeys[acte.lettre_cle.toUpperCase()]!);
+          matchedViaLettreCle = true;
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (letterKeyValue !== null && (resolvedCoeff || !matchedViaLettreCle)) {
+    const effectiveBase = (resolvedCoeff && resolvedCoeff > 0)
+      ? resolvedCoeff * letterKeyValue
+      : letterKeyValue;
+    if (resolvedCoeff && resolvedCoeff > 0) {
+      typeCalcul = 'forfait';
+      valeur = effectiveBase;
+      montantBrut = Math.min(fraisEngages, effectiveBase);
+    } else if (rate > 0 && rate < 1) {
+      typeCalcul = 'taux';
+      valeur = rate;
+      montantBrut = Math.floor(Math.min(fraisEngages, effectiveBase) * rate * 1000) / 1000;
+    } else {
+      typeCalcul = rate === 1 ? 'taux' : 'forfait';
+      valeur = rate === 1 ? 1 : effectiveBase;
+      montantBrut = Math.min(fraisEngages, effectiveBase);
+    }
+  } else if (letterKeyValue !== null && matchedViaLettreCle && !resolvedCoeff) {
+    const effectiveRate = (acte.taux_remboursement != null && acte.taux_remboursement > 0 && acte.taux_remboursement < 1)
+      ? acte.taux_remboursement : (rate < 1 ? rate : 0.80);
     typeCalcul = 'taux';
-    valeurBareme = guaranteeRow.reimbursement_rate ?? 0;
+    valeur = effectiveRate;
+    montantBrut = Math.floor(fraisEngages * effectiveRate * 1000) / 1000;
+  } else if (isFixed && perEventLimitDT) {
+    typeCalcul = 'forfait';
+    valeur = perEventLimitDT;
+    montantBrut = Math.min(fraisEngages, perEventLimitDT);
+  } else if (rate > 0) {
+    typeCalcul = 'taux';
+    valeur = rate;
+    montantBrut = Math.floor(fraisEngages * rate * 1000) / 1000;
+  } else {
+    throw new Error('BAREME_NOT_FOUND: Aucune periode active ni garantie trouvee pour ce contrat');
   }
 
-  // Build AnnualContext
-  const { context, effectiveCategoryCeiling } = await buildAnnualContext(
-    db, adherentId, contractId, groupContractId, annee, effectiveCareType, typeMaladie, familleId, batchCtx
-  );
-
-  // Override guarantee annual_ceiling with DB plafond value (authoritative)
-  if (effectiveCategoryCeiling != null) {
-    guarantee.annual_ceiling = effectiveCategoryCeiling;
+  // Daily limit
+  let plafondJourApplique = false;
+  if (dailyLimitDT != null) {
+    if (nombreJours && nombreJours > 0) {
+      const maxDays = guarantee.max_days;
+      const joursEffectifs = (maxDays && maxDays > 0) ? Math.min(nombreJours, maxDays) : nombreJours;
+      const capJour = dailyLimitDT * joursEffectifs;
+      if (montantBrut > capJour) { montantBrut = capJour; plafondJourApplique = true; }
+    } else if (montantBrut > dailyLimitDT) {
+      montantBrut = dailyLimitDT;
+      plafondJourApplique = true;
+    }
   }
 
-  // Build Contract (individual global limit not set here — handled via plafonds_beneficiaire)
-  const engineContract: Contract = {
-    id: groupContractId,
-    annual_global_limit: null,
-    carence_days: 0,
-    effective_date: '2000-01-01',
-    guarantees: [guarantee],
-    covers_spouse: true,
-    covers_children: true,
-    children_max_age: null,
-  };
+  // Per-event plafond
+  let apresPlafondActe = montantBrut;
+  let plafondActeApplique = false;
+  if (perEventLimitDT && !isFixed && apresPlafondActe > perEventLimitDT) {
+    apresPlafondActe = perEventLimitDT;
+    plafondActeApplique = true;
+  }
 
-  // Calculate via Engine A
-  let result = calculateActe(engineActe, engineContract, context);
+  // Annual family plafond: resolve effective limit
+  let effectiveAnnualLimitDT = annualLimitDT;
+  if (subLimits) {
+    const subKeyVariants: Record<string, string[]> = {
+      ordinaire: ['ordinaire', 'maladies_ordinaires'],
+      chronique: ['chronique', 'maladies_chroniques'],
+    };
+    const candidates = subKeyVariants[typeMaladie] ?? [typeMaladie];
+    for (const key of candidates) {
+      if (subLimits[key] != null) {
+        const subVal = subLimits[key]! / 1000;
+        if (subVal != null) { effectiveAnnualLimitDT = subVal; break; }
+      }
+    }
+  }
 
-  // Apply individual global plafond from plafonds_beneficiaire
+  // Apply annual plafond
+  let apresPlafondFamille = apresPlafondActe;
+  let plafondFamilleApplique = false;
+  if (effectiveAnnualLimitDT) {
+    let plafondRow = await db
+      .prepare(
+        `SELECT montant_plafond, montant_consomme FROM plafonds_beneficiaire
+         WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id = ? AND type_maladie = ?`
+      )
+      .bind(adherentId, contractId, annee, familleId, typeMaladie)
+      .first<{ montant_plafond: number; montant_consomme: number }>();
+
+    if (!plafondRow) {
+      plafondRow = await db
+        .prepare(
+          `SELECT montant_plafond, montant_consomme FROM plafonds_beneficiaire
+           WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id = ? AND type_maladie = ?`
+        )
+        .bind(adherentId, groupContractId, annee, familleId, typeMaladie)
+        .first<{ montant_plafond: number; montant_consomme: number }>();
+    }
+
+    if (plafondRow) {
+      const restant = Math.max(0, (plafondRow.montant_plafond - plafondRow.montant_consomme) / 1000);
+      if (apresPlafondFamille > restant) { apresPlafondFamille = restant; plafondFamilleApplique = true; }
+    } else {
+      const familleCareTypes = FAMILLE_TO_CARE_TYPES[familleId] ?? [];
+      let consumedDT = 0;
+      if (familleCareTypes.length > 0) {
+        const ctPlaceholders = familleCareTypes.map(() => '?').join(', ');
+        const consumedRow = await db
+          .prepare(
+            `SELECT COALESCE(SUM(bs.reimbursed_amount), 0) as total_consumed
+             FROM bulletins_soins bs
+             WHERE bs.adherent_id = ? AND bs.status NOT IN ('rejected', 'cancelled')
+               AND strftime('%Y', bs.bulletin_date) = ?
+               AND bs.care_type IN (${ctPlaceholders})`
+          )
+          .bind(adherentId, String(annee), ...familleCareTypes)
+          .first<{ total_consumed: number }>();
+        consumedDT = (consumedRow?.total_consumed ?? 0) / 1000;
+      }
+      const restant = Math.max(0, effectiveAnnualLimitDT - consumedDT);
+      if (apresPlafondFamille > restant) { apresPlafondFamille = restant; plafondFamilleApplique = true; }
+    }
+  }
+
+  // Individual global plafond
+  let apresPlafondGlobal = apresPlafondFamille;
+  let plafondGlobalApplique = false;
+
   let plafondGlobalRow: { montant_plafond: number; montant_consomme: number } | null | undefined;
   if (batchCtx && batchCtx.plafondGlobal !== undefined) {
     plafondGlobalRow = batchCtx.plafondGlobal;
@@ -1006,35 +1112,44 @@ async function calculerViaGuaranteesPath(
   }
 
   if (plafondGlobalRow) {
-    const restantGlobal = Math.max(0, plafondGlobalRow.montant_plafond - plafondGlobalRow.montant_consomme);
-    if (result.montantRembourse > restantGlobal) {
-      result = {
-        ...result,
-        montantRembourse: restantGlobal,
-        plafondLimitant: 'annual_global',
-      };
-    }
+    const restantGlobal = Math.max(0, (plafondGlobalRow.montant_plafond - plafondGlobalRow.montant_consomme) / 1000);
+    if (apresPlafondGlobal > restantGlobal) { apresPlafondGlobal = restantGlobal; plafondGlobalApplique = true; }
   }
 
-  // Convert to service result
-  let serviceResult = engineResultToServiceResult(
-    result, typeCalcul, valeurBareme, guarantee,
-    { path: 'guarantees', familleId, groupContractId, guaranteeCareType: guaranteeRow.care_type }
-  );
-
-  // Apply family-wide contract plafond
+  // Family-wide contract plafond
   const apresPlafondContrat = await appliquerPlafondContratFamilleMillimes(
-    db, adherentId, groupContractId, annee, serviceResult.montantRembourse
+    db, adherentId, groupContractId, annee, apresPlafondGlobal
   );
-  if (apresPlafondContrat !== null && apresPlafondContrat < serviceResult.montantRembourse) {
-    serviceResult = {
-      ...serviceResult,
-      montantRembourse: apresPlafondContrat,
-      plafondGlobalApplique: true,
-    };
+  if (apresPlafondContrat !== null && apresPlafondContrat < apresPlafondGlobal) {
+    apresPlafondGlobal = apresPlafondContrat;
+    plafondGlobalApplique = true;
   }
 
-  return serviceResult;
+  return {
+    montantRembourse: Math.max(0, apresPlafondGlobal),
+    typeCalcul,
+    valeurBareme: valeur,
+    plafondActeApplique,
+    plafondJourApplique,
+    plafondFamilleApplique,
+    plafondGlobalApplique,
+    details: {
+      montantBrut,
+      apresPlafondJour: montantBrut,
+      apresPlafondActe,
+      apresPlafondFamille,
+      apresPlafondGlobal,
+      plafondActeValeur: perEventLimitDT,
+      plafondJourValeur: dailyLimitDT,
+    },
+    _debug: {
+      path: 'guarantees', effectiveAnnualLimitDT, familleId,
+      annualLimit: guarantee.annual_limit,
+      groupContractId,
+      careTypesQueried: careTypes,
+      guaranteeCareType: guarantee.care_type,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
