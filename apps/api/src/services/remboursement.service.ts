@@ -3,16 +3,13 @@ import type {
   RemboursementActeResult,
   RemboursementBulletinResult,
 } from '@dhamen/shared';
+import { calculerRemboursementViaEngine } from '../lib/reimbursement/adapter';
 
 /**
  * Reimbursement calculation service (REQ-009 / TASK-006)
  *
- * Supports contract baremes (taux/forfait per period) and 3-level plafonds:
- *   1. Plafond per act
- *   2. Plafond per family/year
- *   3. Plafond global/year
- *
- * Distinguishes between ordinary and chronic illness types for pharmacy plafonds.
+ * Production calculation is delegated to Engine A via the adapter layer.
+ * This service retains: types, mappings, plafond updates, and legacy functions.
  */
 
 // ---------------------------------------------------------------------------
@@ -107,9 +104,13 @@ const CARE_TYPE_TO_FAMILLE: Record<string, string> = {
   hospitalisation: 'fa-007', hospitalization: 'fa-007', hospital: 'fa-007',
   hospitalisation_hopital: 'fa-008',
   chirurgie: 'fa-010', surgery: 'fa-010',
+  chirurgie_fso: 'fa-010',
+  chirurgie_usage_unique: 'fa-010',
   dentaire: 'fa-011', dental: 'fa-011',
+  dentaire_prothese: 'fa-011',
   orthodontie: 'fa-011', orthodontics: 'fa-011',
   accouchement: 'fa-012', maternity: 'fa-012',
+  accouchement_gemellaire: 'fa-012',
   interruption_grossesse: 'fa-012',
   cures_thermales: 'fa-013', thermal_cure: 'fa-013',
   frais_funeraires: 'fa-014', funeral: 'fa-014',
@@ -205,29 +206,21 @@ const FAMILLE_TO_CARE_TYPES: Record<string, string[]> = {
   'fa-007': ['hospitalisation', 'hospitalization'],
   'fa-008': ['hospitalisation_hopital', 'hospitalisation', 'hospitalization'],
   'fa-009': ['actes_courants', 'medical_acts'],
-  'fa-010': ['chirurgie', 'surgery'],
-  'fa-011': ['dentaire', 'dental'],
-  'fa-012': ['accouchement', 'maternity'],
+  'fa-010': ['chirurgie', 'surgery', 'chirurgie_fso', 'chirurgie_usage_unique'],
+  'fa-011': ['dentaire', 'dental', 'dentaire_prothese', 'orthodontie', 'orthodontics'],
+  'fa-012': ['accouchement', 'maternity', 'accouchement_gemellaire', 'interruption_grossesse'],
   'fa-013': ['cures_thermales', 'thermal_cure'],
-  'fa-014': ['orthodontie', 'orthodontics'],
+  'fa-014': ['frais_funeraires', 'funeral'],
   'fa-015': ['circoncision', 'circumcision'],
   'fa-016': ['transport'],
   'fa-017': ['actes_courants', 'medical_acts'], // Radiologie → actes courants
-  'fa-019': ['frais_funeraires', 'funeral'],
 };
 
 /**
- * Fallback: Calculate reimbursement using contract_guarantees when no contrat_baremes exist.
- * Maps the acte's famille_id to a care_type and looks up the guarantee in contract_guarantees.
- *
- * Supports:
- * - Letter keys (C1, B, KC, Z, E) → forfait amounts
- * - Sub-limits by typeMaladie (pharmacie ordinaire/chronique)
- * - Sub-limits by acteCode (optique monture/verres, chirurgie salle/anesthésie)
- * - Daily limits by establishment type (hospitalisation hôpital/clinique)
- * - Per-event and annual plafonds with 3-level ceiling system
+ * @deprecated Legacy: calculerViaContractGuarantees has been replaced by the Engine A adapter.
+ * Kept as dead code reference during shadow-mode transition.
  */
-async function calculerViaContractGuarantees(
+async function _legacyCalculerViaContractGuarantees(
   db: D1Database,
   groupContractId: string,
   familleId: string | null,
@@ -237,11 +230,11 @@ async function calculerViaContractGuarantees(
   annee: number,
   typeMaladie: 'ordinaire' | 'chronique',
   acteCode?: string,
-  acteRate?: number, // Rate from actes_referentiel (used for sub-component overrides like PUU=90%)
-  nbrCle?: number, // Coefficient lettre-clé (ex: 120 pour B120)
-  nombreJours?: number, // Nombre de jours (hospitalisation, cures)
-  lettreCle?: string | null, // Lettre-clé de l'acte (B, K, KC, D, Z) pour fallback letter_keys lookup
-  careTypeOverride?: string, // Override care_type for guarantee lookup (e.g., chirurgie_refractive)
+  acteRate?: number,
+  nbrCle?: number,
+  nombreJours?: number,
+  lettreCle?: string | null,
+  careTypeOverride?: string,
 ): Promise<CalculRemboursementResult | null> {
   if (!familleId) return null;
 
@@ -599,21 +592,9 @@ async function calculerViaContractGuarantees(
 }
 
 // ---------------------------------------------------------------------------
-// New contract-bareme-aware reimbursement calculation
+// Main entry point — delegates to Engine A via adapter
 // ---------------------------------------------------------------------------
 
-/**
- * Calculate reimbursement for a single act using contract baremes and 3-level plafonds.
- *
- * Flow:
- *   1. Find active period for the contract at the date of care
- *   2. Look up acte in actes_referentiel (to get famille_id and defaults)
- *   3. Find bareme in contrat_baremes (by acte_ref_id, then by famille_id)
- *   4. Calculate base reimbursement (taux or forfait)
- *   5. Apply plafond per act
- *   6. Apply plafond per family/year
- *   7. Apply plafond global/year
- */
 /**
  * Shared context cache for batch reimbursement calculation.
  * Avoids repeating identical DB lookups across multiple actes in the same bulletin.
@@ -630,389 +611,7 @@ export async function calculerRemboursement(
   input: CalculRemboursementInput,
   batchCtx?: CalculBatchContext
 ): Promise<CalculRemboursementResult> {
-  const {
-    adherentId,
-    contractId,
-    acteRefId,
-    fraisEngages,
-    dateSoin,
-    typeMaladie = 'ordinaire',
-    medicationFamilyId,
-    nbrCle,
-    nombreJours,
-    careType,
-  } = input;
-  const annee = Number(dateSoin.split('-')[0]);
-
-  // 1. Resolve group_contract_id (cached in batchCtx if provided)
-  let baremeContractId: string;
-  if (batchCtx?._resolved && batchCtx.baremeContractId !== undefined) {
-    baremeContractId = batchCtx.baremeContractId;
-  } else {
-    baremeContractId = contractId;
-    const contractRow = await db
-      .prepare('SELECT group_contract_id FROM contracts WHERE id = ?')
-      .bind(contractId)
-      .first<{ group_contract_id: string | null }>();
-    if (contractRow?.group_contract_id) {
-      baremeContractId = contractRow.group_contract_id;
-    }
-    if (batchCtx) {
-      batchCtx.baremeContractId = baremeContractId;
-    }
-  }
-
-  // 2. Find active period (cached in batchCtx if provided)
-  let periode: { id: string } | null;
-  if (batchCtx?._resolved && batchCtx.periodeId !== undefined) {
-    periode = batchCtx.periodeId ? { id: batchCtx.periodeId } : null;
-  } else {
-    periode = await db
-      .prepare(
-        `SELECT cp.id FROM contrat_periodes cp
-         WHERE cp.contract_id = ? AND cp.is_active = 1
-           AND cp.date_debut <= ? AND cp.date_fin >= ?`
-      )
-      .bind(baremeContractId, dateSoin, dateSoin)
-      .first<{ id: string }>();
-
-    if (!periode && baremeContractId !== contractId) {
-      periode = await db
-        .prepare(
-          `SELECT cp.id FROM contrat_periodes cp
-           WHERE cp.contract_id = ? AND cp.is_active = 1
-             AND cp.date_debut <= ? AND cp.date_fin >= ?`
-        )
-        .bind(contractId, dateSoin, dateSoin)
-        .first<{ id: string }>();
-    }
-    if (batchCtx) {
-      batchCtx.periodeId = periode?.id ?? null;
-      batchCtx._resolved = true;
-    }
-  }
-
-  // 3. Get acte info + bareme in parallel
-  const actePromise = db
-    .prepare(
-      'SELECT id, code, famille_id, type_calcul, valeur_base, taux_remboursement, plafond_acte, lettre_cle FROM actes_referentiel WHERE id = ?'
-    )
-    .bind(acteRefId)
-    .first<{
-      id: string;
-      code: string;
-      famille_id: string | null;
-      type_calcul: string;
-      valeur_base: number | null;
-      taux_remboursement: number;
-      plafond_acte: number | null;
-      lettre_cle: string | null;
-    }>();
-
-  // Pre-fetch bareme by acte_ref_id if we have a period
-  const baremeByActePromise = periode
-    ? db
-        .prepare(
-          `SELECT type_calcul, valeur, plafond_acte, plafond_famille_annuel, plafond_jour, max_jours
-           FROM contrat_baremes WHERE periode_id = ? AND acte_ref_id = ?`
-        )
-        .bind(periode.id, acteRefId)
-        .first<{
-          type_calcul: string;
-          valeur: number;
-          plafond_acte: number | null;
-          plafond_famille_annuel: number | null;
-          plafond_jour: number | null;
-          max_jours: number | null;
-        }>()
-    : Promise.resolve(null);
-
-  // Pre-fetch medication family bareme if needed
-  const medBaremePromise = medicationFamilyId && periode
-    ? db
-        .prepare(
-          `SELECT taux_remboursement, plafond_acte, plafond_famille_annuel
-           FROM medication_family_baremes
-           WHERE contract_id = ? AND medication_family_id = ? AND is_active = 1
-             AND date_effet <= ? AND (date_fin_effet IS NULL OR date_fin_effet >= ?)
-           ORDER BY date_effet DESC LIMIT 1`
-        )
-        .bind(baremeContractId, medicationFamilyId, dateSoin, dateSoin)
-        .first<{
-          taux_remboursement: number;
-          plafond_acte: number | null;
-          plafond_famille_annuel: number | null;
-        }>()
-    : Promise.resolve(null);
-
-  const [acte, baremeByActe, medFamilyBaremeInitial] = await Promise.all([
-    actePromise,
-    baremeByActePromise,
-    medBaremePromise,
-  ]);
-
-  if (!acte) {
-    throw new Error('ACTE_NOT_FOUND: Acte referentiel non trouve');
-  }
-
-  // FALLBACK: If no contrat_periodes/contrat_baremes, use contract_guarantees
-  if (!periode) {
-    const guaranteeResult = await calculerViaContractGuarantees(
-      db, baremeContractId, acte.famille_id, fraisEngages, adherentId, contractId, annee, typeMaladie,
-      acte.code, acte.taux_remboursement, nbrCle, nombreJours, acte.lettre_cle, careType
-    );
-    if (guaranteeResult) return guaranteeResult;
-    throw new Error('BAREME_NOT_FOUND: Aucune periode active ni garantie trouvee pour ce contrat');
-  }
-
-  // Resolve bareme: try by acte_ref_id first, then by famille_id
-  let bareme = baremeByActe;
-  if (!bareme && acte.famille_id) {
-    bareme = await db
-      .prepare(
-        `SELECT type_calcul, valeur, plafond_acte, plafond_famille_annuel, plafond_jour, max_jours
-         FROM contrat_baremes WHERE periode_id = ? AND famille_id = ? AND acte_ref_id IS NULL`
-      )
-      .bind(periode.id, acte.famille_id)
-      .first<{
-        type_calcul: string;
-        valeur: number;
-        plafond_acte: number | null;
-        plafond_famille_annuel: number | null;
-        plafond_jour: number | null;
-        max_jours: number | null;
-      }>();
-  }
-
-  // Resolve medication family bareme (fallback to individual contract if needed)
-  let medFamilyBareme = medFamilyBaremeInitial;
-  if (!medFamilyBareme && medicationFamilyId && baremeContractId !== contractId) {
-    medFamilyBareme = await db
-      .prepare(
-        `SELECT taux_remboursement, plafond_acte, plafond_famille_annuel
-         FROM medication_family_baremes
-         WHERE contract_id = ? AND medication_family_id = ? AND is_active = 1
-           AND date_effet <= ? AND (date_fin_effet IS NULL OR date_fin_effet >= ?)
-         ORDER BY date_effet DESC LIMIT 1`
-      )
-      .bind(contractId, medicationFamilyId, dateSoin, dateSoin)
-      .first<{
-        taux_remboursement: number;
-        plafond_acte: number | null;
-        plafond_famille_annuel: number | null;
-      }>();
-  }
-
-  // Resolution order: medication family bareme > contract bareme (acte/famille) > acte defaults
-  const typeCalcul = medFamilyBareme
-    ? 'taux' as const
-    : (bareme?.type_calcul || acte.type_calcul) as 'taux' | 'forfait';
-  const valeur = medFamilyBareme
-    ? medFamilyBareme.taux_remboursement
-    : bareme?.valeur ?? (typeCalcul === 'forfait' ? acte.valeur_base : acte.taux_remboursement) ?? 0;
-  const plafondActe = medFamilyBareme?.plafond_acte ?? bareme?.plafond_acte ?? acte.plafond_acte;
-  const plafondFamilleAnnuel = medFamilyBareme?.plafond_famille_annuel ?? bareme?.plafond_famille_annuel ?? null;
-  const plafondJour = bareme?.plafond_jour ?? null; // millimes per day
-  const maxJours = bareme?.max_jours ?? null;
-
-  // 4. Calculate base reimbursement — ALL in millimes
-  // fraisEngages is in DT (from form), convert to millimes for consistent math
-  const fraisMill = Math.round(fraisEngages * 1000);
-
-  let montantBrutMill: number;
-  if (typeCalcul === 'forfait') {
-    // valeur is in millimes (from contrat_baremes)
-    if (nbrCle && nbrCle > 0) {
-      // Letter key: coefficient × unit value (e.g., AM5 → 5 × 1750 = 8750 mill)
-      montantBrutMill = Math.min(nbrCle * valeur, fraisMill);
-    } else if (nombreJours && nombreJours > 0) {
-      // Daily rate: days × per-day value (e.g., clinique 3j → 3 × 90000 = 270000 mill)
-      montantBrutMill = Math.min(nombreJours * valeur, fraisMill);
-    } else {
-      // Fixed amount / cap (e.g., funéraires → min(facture, 150000))
-      montantBrutMill = Math.min(fraisMill, valeur);
-    }
-  } else {
-    // Taux: percentage of invoice (e.g., consultation 85%, pharmacie 90%)
-    // valeur is a decimal rate (0.85, 0.90, etc.)
-    montantBrutMill = Math.floor(fraisMill * valeur);
-  }
-
-  // Convert back to DT (3 decimal precision = millimes)
-  const montantBrut = montantBrutMill / 1000;
-
-  // 4b. Apply plafond_jour (daily limit from contrat_baremes) — before plafond_acte
-  const plafondJourDT = plafondJour !== null ? plafondJour / 1000 : null;
-  let apresPlafondJour = montantBrut;
-  let plafondJourApplique = false;
-  if (plafondJourDT !== null) {
-    if (nombreJours && nombreJours > 0) {
-      const joursEffectifs = (maxJours && maxJours > 0) ? Math.min(nombreJours, maxJours) : nombreJours;
-      const capJour = plafondJourDT * joursEffectifs;
-      if (apresPlafondJour > capJour) {
-        apresPlafondJour = capJour;
-        plafondJourApplique = true;
-      }
-    } else if (apresPlafondJour > plafondJourDT) {
-      // No jours provided → cap at 1 day
-      apresPlafondJour = plafondJourDT;
-      plafondJourApplique = true;
-    }
-  }
-
-  // 5. Apply plafond acte (plafondActe is in millimes → convert to DT)
-  const plafondActeDT = plafondActe !== null ? plafondActe / 1000 : null;
-  let apresPlafondActe = apresPlafondJour;
-  let plafondActeApplique = false;
-  if (plafondActeDT !== null && apresPlafondActe > plafondActeDT) {
-    apresPlafondActe = plafondActeDT;
-    plafondActeApplique = true;
-  }
-
-  // 6. Apply plafond famille/an
-  // Resolve effective annual limit: prefer contrat_baremes, fallback to contract_guarantees
-  let effectiveFamilleLimit = plafondFamilleAnnuel; // from contrat_baremes (millimes)
-  if (effectiveFamilleLimit == null && acte.famille_id) {
-    // Fallback: check contract_guarantees for annual_limit
-    const famCareTypes = FAMILLE_TO_CARE_TYPES[acte.famille_id] ?? [];
-    if (famCareTypes.length > 0) {
-      const fPlaceholders = famCareTypes.map(() => '?').join(', ');
-      const cgLimit = await db
-        .prepare(
-          `SELECT annual_limit FROM contract_guarantees
-           WHERE group_contract_id = ? AND care_type IN (${fPlaceholders}) AND is_active = 1 AND annual_limit IS NOT NULL
-           LIMIT 1`
-        )
-        .bind(baremeContractId, ...famCareTypes)
-        .first<{ annual_limit: number }>();
-      if (cgLimit) {
-        effectiveFamilleLimit = cgLimit.annual_limit; // already in millimes
-      }
-    }
-  }
-
-  let apresPlafondFamille = apresPlafondActe;
-  let plafondFamilleApplique = false;
-  if (effectiveFamilleLimit !== null && effectiveFamilleLimit != null && acte.famille_id) {
-    const limitDT = effectiveFamilleLimit / 1000;
-    let plafondRow = await db
-      .prepare(
-        `SELECT montant_plafond, montant_consomme FROM plafonds_beneficiaire
-         WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id = ? AND type_maladie = ?`
-      )
-      .bind(adherentId, contractId, annee, acte.famille_id, typeMaladie)
-      .first<{ montant_plafond: number; montant_consomme: number }>();
-
-    if (!plafondRow && baremeContractId !== contractId) {
-      plafondRow = await db
-        .prepare(
-          `SELECT montant_plafond, montant_consomme FROM plafonds_beneficiaire
-           WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id = ? AND type_maladie = ?`
-        )
-        .bind(adherentId, baremeContractId, annee, acte.famille_id, typeMaladie)
-        .first<{ montant_plafond: number; montant_consomme: number }>();
-    }
-
-    if (plafondRow) {
-      const restant = Math.max(0, (plafondRow.montant_plafond - plafondRow.montant_consomme) / 1000);
-      if (apresPlafondFamille > restant) {
-        apresPlafondFamille = restant;
-        plafondFamilleApplique = true;
-      }
-    } else {
-      // No plafond row — compute consumed from bulletins
-      const famCareTypes = FAMILLE_TO_CARE_TYPES[acte.famille_id] ?? [];
-      if (famCareTypes.length > 0) {
-        const ctP = famCareTypes.map(() => '?').join(', ');
-        const consumedRow = await db
-          .prepare(
-            `SELECT COALESCE(SUM(bs.reimbursed_amount), 0) as total_consumed
-             FROM bulletins_soins bs
-             WHERE bs.adherent_id = ? AND bs.status NOT IN ('rejected', 'cancelled')
-               AND strftime('%Y', bs.bulletin_date) = ?
-               AND bs.care_type IN (${ctP})`
-          )
-          .bind(adherentId, String(annee), ...famCareTypes)
-          .first<{ total_consumed: number }>();
-        const consumedDT = (consumedRow?.total_consumed ?? 0) / 1000;
-        const restant = Math.max(0, limitDT - consumedDT);
-        if (apresPlafondFamille > restant) {
-          apresPlafondFamille = restant;
-          plafondFamilleApplique = true;
-        }
-      }
-    }
-  }
-
-  // 7. Apply individual global plafond (per member, cached in batchCtx)
-  let apresPlafondGlobal = apresPlafondFamille;
-  let plafondGlobalApplique = false;
-
-  let plafondGlobalRow: { montant_plafond: number; montant_consomme: number } | null | undefined;
-  if (batchCtx && batchCtx.plafondGlobal !== undefined) {
-    plafondGlobalRow = batchCtx.plafondGlobal;
-  } else {
-    plafondGlobalRow = await db
-      .prepare(
-        `SELECT montant_plafond, montant_consomme FROM plafonds_beneficiaire
-         WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id IS NULL AND type_maladie = 'ordinaire'`
-      )
-      .bind(adherentId, contractId, annee)
-      .first<{ montant_plafond: number; montant_consomme: number }>();
-
-    if (!plafondGlobalRow && baremeContractId !== contractId) {
-      plafondGlobalRow = await db
-        .prepare(
-          `SELECT montant_plafond, montant_consomme FROM plafonds_beneficiaire
-           WHERE adherent_id = ? AND contract_id = ? AND annee = ? AND famille_acte_id IS NULL AND type_maladie = 'ordinaire'`
-        )
-        .bind(adherentId, baremeContractId, annee)
-        .first<{ montant_plafond: number; montant_consomme: number }>();
-    }
-    if (batchCtx) {
-      batchCtx.plafondGlobal = plafondGlobalRow ?? null;
-    }
-  }
-
-  if (plafondGlobalRow) {
-    const restantGlobal = Math.max(
-      0,
-      (plafondGlobalRow.montant_plafond - plafondGlobalRow.montant_consomme) / 1000
-    );
-    if (apresPlafondGlobal > restantGlobal) {
-      apresPlafondGlobal = restantGlobal;
-      plafondGlobalApplique = true;
-    }
-  }
-
-  // 8. Apply family-wide contract plafond (sum of all family members vs contract limit)
-  const apresPlafondContrat = await appliquerPlafondContratFamille(
-    db, adherentId, baremeContractId, annee, apresPlafondGlobal
-  );
-  if (apresPlafondContrat !== null && apresPlafondContrat < apresPlafondGlobal) {
-    apresPlafondGlobal = apresPlafondContrat;
-    plafondGlobalApplique = true;
-  }
-
-  return {
-    montantRembourse: Math.max(0, apresPlafondGlobal),
-    typeCalcul,
-    valeurBareme: valeur,
-    plafondActeApplique,
-    plafondJourApplique,
-    plafondFamilleApplique,
-    plafondGlobalApplique,
-    details: {
-      montantBrut,
-      apresPlafondJour,
-      apresPlafondActe,
-      apresPlafondFamille,
-      apresPlafondGlobal,
-      plafondActeValeur: plafondActeDT,
-      plafondJourValeur: plafondJourDT,
-    },
-    _debug: { path: 'baremes', periodeId: periode?.id, baremeFound: !!bareme, familleId: acte.famille_id, effectiveFamilleLimit, plafondFamilleAnnuel },
-  };
+  return calculerRemboursementViaEngine(db, input, batchCtx);
 }
 
 // ---------------------------------------------------------------------------

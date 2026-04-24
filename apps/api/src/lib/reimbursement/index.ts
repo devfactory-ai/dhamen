@@ -1,6 +1,7 @@
 export { calculateActe, calculateBulletin } from './engine';
 export { toMillimes, toDinars } from './units';
 export { checkEligibility } from './eligibility';
+export { calculerRemboursementViaEngine } from './adapter';
 export type {
   Acte,
   ActeResult,
