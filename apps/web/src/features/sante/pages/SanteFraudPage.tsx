@@ -421,11 +421,11 @@ export function SanteFraudPage() {
                         <div>
                           <p className="text-sm text-muted-foreground">Praticiens impliqués:</p>
                           <div className="flex flex-wrap gap-1 mt-1">
-                            {pattern.praticiens.slice(0, 3).map((p, i) => (
+                            {pattern.praticiens?.slice(0, 3).map((p, i) => (
                               <Badge key={i} variant="outline" className="text-xs">{p}</Badge>
                             ))}
-                            {pattern.praticiens.length > 3 && (
-                              <Badge variant="outline" className="text-xs">+{pattern.praticiens.length - 3}</Badge>
+                            {(pattern.praticiens?.length ?? 0) > 3 && (
+                              <Badge variant="outline" className="text-xs">+{pattern.praticiens!.length - 3}</Badge>
                             )}
                           </div>
                         </div>
@@ -434,11 +434,11 @@ export function SanteFraudPage() {
                         <div>
                           <p className="text-sm text-muted-foreground">Adhérents concernés:</p>
                           <div className="flex flex-wrap gap-1 mt-1">
-                            {pattern.adherents.slice(0, 3).map((a, i) => (
+                            {pattern.adherents?.slice(0, 3).map((a, i) => (
                               <Badge key={i} variant="outline" className="text-xs">{a}</Badge>
                             ))}
-                            {pattern.adherents.length > 3 && (
-                              <Badge variant="outline" className="text-xs">+{pattern.adherents.length - 3}</Badge>
+                            {(pattern.adherents?.length ?? 0) > 3 && (
+                              <Badge variant="outline" className="text-xs">+{pattern.adherents!.length - 3}</Badge>
                             )}
                           </div>
                         </div>

@@ -59,6 +59,7 @@ import {
   adminStats,
   praticien,
   contact,
+  baremesTP,
 } from './routes';
 import type { Bindings, Variables } from './types';
 import { bulletinQueueHandler } from './queue/bulletin-validation.queue';
@@ -229,6 +230,9 @@ api.route('/praticien', praticien);
 
 // Contact form (landing page - no auth required)
 api.route('/contact', contact);
+
+// Barèmes TP (Tableau de Prestations)
+api.route('/baremes-tp', baremesTP);
 
 // Root redirect
 app.get('/', (c) => {

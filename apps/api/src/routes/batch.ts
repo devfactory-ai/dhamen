@@ -6,6 +6,8 @@
 import { Hono } from 'hono';
 import type { Bindings, Variables } from '../types';
 import { authMiddleware, requireAuth, requireRole } from '../middleware/auth';
+import { logAudit } from '../middleware/audit-trail';
+import { getDb } from '../lib/db';
 import { BatchService, type BatchJobType } from '../services/batch.service';
 
 const batch = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -41,6 +43,17 @@ batch.post(
     const batchService = new BatchService(c.env);
 
     const job = await batchService.createJob(body.type, body.params, user.id);
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'batch.create',
+      entityType: 'batch',
+      entityId: job.id,
+      changes: { type: body.type, params: body.params },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,
@@ -123,6 +136,18 @@ batch.post(
     try {
       const job = await batchService.processJob(id);
 
+      // Audit log
+      const user = c.get('user');
+      logAudit(getDb(c), {
+        userId: user.id,
+        action: 'batch.start',
+        entityType: 'batch',
+        entityId: id,
+        changes: { status: 'started' },
+        ipAddress: c.req.header('CF-Connecting-IP'),
+        userAgent: c.req.header('User-Agent'),
+      });
+
       return c.json({
         success: true,
         data: job,
@@ -152,6 +177,7 @@ batch.post(
   async (c) => {
     const id = c.req.param('id');
 
+    const user = c.get('user');
     const batchService = new BatchService(c.env);
     const cancelled = await batchService.cancelJob(id);
 
@@ -164,6 +190,17 @@ batch.post(
         400
       );
     }
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'batch.cancel',
+      entityType: 'batch',
+      entityId: id,
+      changes: { cancelled: true },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,
@@ -211,6 +248,17 @@ batch.post(
     // Start processing immediately
     const completedJob = await batchService.processJob(job.id);
 
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'batch.claims_approve',
+      entityType: 'batch',
+      entityId: completedJob.id,
+      changes: { claimIds: body.claimIds, comment: body.comment },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json({
       success: true,
       data: completedJob,
@@ -257,6 +305,17 @@ batch.post(
     );
 
     const completedJob = await batchService.processJob(job.id);
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'batch.claims_reject',
+      entityType: 'batch',
+      entityId: completedJob.id,
+      changes: { claimIds: body.claimIds, reason: body.reason, comment: body.comment },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,
@@ -308,6 +367,17 @@ batch.post(
 
     const completedJob = await batchService.processJob(job.id);
 
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'batch.bordereau_generate',
+      entityType: 'batch',
+      entityId: completedJob.id,
+      changes: { insurerId: body.insurerId, providerId: body.providerId, startDate: body.startDate, endDate: body.endDate, type: body.type || 'all' },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json({
       success: true,
       data: completedJob,
@@ -350,6 +420,17 @@ batch.post(
     );
 
     const completedJob = await batchService.processJob(job.id);
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'batch.bordereau_validate',
+      entityType: 'batch',
+      entityId: completedJob.id,
+      changes: { bordereauIds: body.bordereauIds },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,
@@ -398,6 +479,17 @@ batch.post(
     );
 
     const completedJob = await batchService.processJob(job.id);
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'batch.reconciliation',
+      entityType: 'batch',
+      entityId: completedJob.id,
+      changes: { insurerId: body.insurerId, startDate: body.startDate, endDate: body.endDate, autoMatch: body.autoMatch ?? true },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,
@@ -450,6 +542,17 @@ batch.post(
     );
 
     const completedJob = await batchService.processJob(job.id);
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'batch.adherents_import',
+      entityType: 'batch',
+      entityId: completedJob.id,
+      changes: { contractId: body.contractId, count: body.data.length },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,

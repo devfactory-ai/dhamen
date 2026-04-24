@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../middleware/auth';
+import { logAudit } from '../middleware/audit-trail';
 import { success, error } from '../lib/response';
 import { AIReconciliationService } from '../services/ai-reconciliation.service';
 import type { Bindings, Variables } from '../types';
@@ -104,6 +105,16 @@ aiReconciliation.post(
       dryRun: body.dryRun,
     });
 
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'ai_reconciliation.auto_reconcile',
+      entityType: 'reconciliation',
+      entityId: user.insurerId || 'all',
+      changes: { minConfidence: body.minConfidence, dryRun: body.dryRun, ...result },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return success(c, {
       message: body.dryRun
         ? 'Simulation de rapprochement automatique'
@@ -181,6 +192,16 @@ aiReconciliation.post(
       UPDATE bordereaux SET status = 'paid', updated_at = ? WHERE id = ?
     `).bind(now, bordereauId).run();
 
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'ai_reconciliation.manual_reconcile',
+      entityType: 'reconciliation',
+      entityId: id,
+      changes: { paymentId, bordereauId, notes },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return success(c, {
       message: 'Rapprochement effectué',
       reconciliationId: id,
@@ -197,6 +218,7 @@ aiReconciliation.delete(
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const reconciliationId = c.req.param('id');
+    const user = c.get('user');
     const now = new Date().toISOString();
 
     // Get reconciliation details
@@ -217,6 +239,16 @@ aiReconciliation.delete(
     await getDb(c).prepare(`
       UPDATE bordereaux SET status = 'pending_payment', updated_at = ? WHERE id = ?
     `).bind(now, reconciliation.bordereau_id).run();
+
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'ai_reconciliation.undo',
+      entityType: 'reconciliation',
+      entityId: reconciliationId,
+      changes: { bordereauId: reconciliation.bordereau_id, revertedStatus: 'pending_payment' },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return success(c, { message: 'Rapprochement annulé' });
   }
@@ -333,6 +365,16 @@ aiReconciliation.post(
       action,
       now
     ).run();
+
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'anomaly.acknowledge',
+      entityType: 'anomaly',
+      entityId: anomalyId,
+      changes: { resolution, action },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return success(c, {
       message: 'Anomalie traitée',

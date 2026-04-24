@@ -27,7 +27,7 @@ export function SanteBordereauDetailsPage() {
     return new Intl.NumberFormat('fr-TN', {
       style: 'currency',
       currency: 'TND',
-    }).format(amount / 1000);
+    }).format(amount);
   };
 
   const formatDate = (dateString: string | null) => {
@@ -46,6 +46,7 @@ export function SanteBordereauDetailsPage() {
       envoye: 'paye',
       paye: null,
       annule: null,
+      archive: null,
     };
     return transitions[statut];
   };
@@ -57,6 +58,7 @@ export function SanteBordereauDetailsPage() {
       envoye: 'Marquer payé',
       paye: '',
       annule: '',
+      archive: '',
     };
     return labels[statut];
   };
@@ -167,7 +169,7 @@ export function SanteBordereauDetailsPage() {
               </div>
               <div>
                 <p className="text-2xl font-bold">{bordereau.nombreDemandes}</p>
-                <p className="text-sm text-muted-foreground">Demandes</p>
+                <p className="text-sm text-muted-foreground">Bulletins</p>
               </div>
             </div>
           </CardContent>
@@ -260,25 +262,25 @@ export function SanteBordereauDetailsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Lignes ({bordereau.lignes?.length ?? 0})</CardTitle>
-          <CardDescription>Détail des demandes incluses dans ce bordereau</CardDescription>
+          <CardDescription>Détail des bulletins inclus dans ce bordereau</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="max-h-96 overflow-y-auto rounded-lg border">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-muted">
                 <tr>
-                  <th className="p-3 text-left">Demande</th>
+                  <th className="p-3 text-left">N° Bulletin</th>
                   <th className="p-3 text-left">Adhérent</th>
-                  <th className="p-3 text-left">Type</th>
+                  <th className="p-3 text-left">Type de soin</th>
                   <th className="p-3 text-left">Date</th>
-                  <th className="p-3 text-right">Montant demandé</th>
+                  <th className="p-3 text-right">Montant total</th>
                   <th className="p-3 text-right">Remboursé</th>
                 </tr>
               </thead>
               <tbody>
                 {bordereau.lignes?.map((ligne) => (
                   <tr key={ligne.id} className="border-t hover:bg-muted/50">
-                    <td className="p-3 font-medium">{ligne.numeroDemande}</td>
+                    <td className="p-3 font-medium">{ligne.numeroBulletin}</td>
                     <td className="p-3">{ligne.adherentNom}</td>
                     <td className="p-3">{ligne.typeSoin}</td>
                     <td className="p-3">{formatDate(ligne.dateSoin)}</td>

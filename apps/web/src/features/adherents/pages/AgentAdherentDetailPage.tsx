@@ -93,10 +93,11 @@ interface AdherentDetail {
 
 // --- Helpers ---
 
-// Pour les montants en millimes (plafonds du contrat)
+// Pour les montants en millimes (plafonds du contrat) → affichage "7 000,000 DT", 0 → "0"
 function formatAmount(amount: number | null): string {
   if (amount == null) return '—';
-  return new Intl.NumberFormat('fr-TN', { maximumFractionDigits: 0 }).format(amount / 1000) + ' DT';
+  if (!amount) return '0';
+  return new Intl.NumberFormat('fr-TN', { minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(amount / 1000) + ' DT';
 }
 
 // Pour les montants en dinars (bulletins de soins)

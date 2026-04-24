@@ -105,6 +105,7 @@ interface AyantDroitFormState {
   gender: string;
   phone: string;
   email: string;
+  plafondGlobal: string;
 }
 
 const emptyForm: AdherentFormState = {
@@ -129,6 +130,7 @@ const emptyAyantDroit: AyantDroitFormState = {
   gender: '',
   phone: '',
   email: '',
+  plafondGlobal: '',
 };
 
 export function AgentAdherentFormPage() {
@@ -242,6 +244,7 @@ export function AgentAdherentFormPage() {
       gender: adherent.gender || '',
       phone: adherent.phone || '',
       email: adherent.email || '',
+      plafondGlobal: '',
     };
     setAyantsDroit([...ayantsDroit, newAd]);
     setShowImportDialog(false);
@@ -322,6 +325,7 @@ export function AgentAdherentFormPage() {
         gender: familleData.conjoint.gender || '',
         email: familleData.conjoint.email || '',
         phone: familleData.conjoint.phone || '',
+        plafondGlobal: familleData.conjoint.plafondGlobal ? String(familleData.conjoint.plafondGlobal / 1000) : '',
       });
     }
     for (const enfant of familleData.enfants) {
@@ -336,6 +340,7 @@ export function AgentAdherentFormPage() {
         gender: enfant.gender || '',
         email: enfant.email || '',
         phone: enfant.phone || '',
+        plafondGlobal: enfant.plafondGlobal ? String(enfant.plafondGlobal / 1000) : '',
       });
     }
     setAyantsDroit(loaded);
@@ -473,6 +478,7 @@ export function AgentAdherentFormPage() {
           gender: ad.gender || undefined,
           phone: ad.phone || undefined,
           email: ad.email || undefined,
+          plafondGlobal: ad.plafondGlobal ? Number(ad.plafondGlobal) * 1000 : undefined,
         }));
 
       // Resolve companyId for update (roles with companies.list can change it)
@@ -540,6 +546,7 @@ export function AgentAdherentFormPage() {
           gender: ad.gender || undefined,
           phone: ad.phone || undefined,
           email: ad.email || undefined,
+          plafondGlobal: ad.plafondGlobal ? Number(ad.plafondGlobal) * 1000 : undefined,
         }));
 
       const payload: CreateAdherentData = {
@@ -1597,6 +1604,26 @@ export function AgentAdherentFormPage() {
                         </div>
                       </div>
                     )}
+
+                    {/* Plafond individuel */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <Label>Plafond global (DT)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          placeholder="Ex: 6000"
+                          value={ad.plafondGlobal}
+                          onChange={(e) =>
+                            updateAyantDroit(index, "plafondGlobal", e.target.value)
+                          }
+                        />
+                        <p className="text-xs text-gray-400 mt-1">
+                          Plafond annuel individuel pour cet ayant droit
+                        </p>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               ))}

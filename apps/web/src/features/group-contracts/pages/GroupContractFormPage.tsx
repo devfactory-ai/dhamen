@@ -595,7 +595,7 @@ const handlePdfUpload = useCallback(
       if (extracted.annualRenewalDate)
         setValue("expiry_date", extracted.annualRenewalDate);
       if (extracted.annualGlobalLimit != null)
-        setValue("global_ceiling", extracted.annualGlobalLimit * 1000);
+        setValue("global_ceiling", extracted.annualGlobalLimit / 1000);
       if (extracted.planCategory) setValue("category", extracted.planCategory);
 
       // Beneficiaries
@@ -875,7 +875,7 @@ const handlePdfUpload = useCallback(
         intermediaryCode: data.intermediary_code || undefined,
         effectiveDate: data.effective_date,
         annualRenewalDate: data.expiry_date || undefined,
-        annualGlobalLimit: data.global_ceiling ?? undefined,
+        annualGlobalLimit: data.global_ceiling ? data.global_ceiling * 1000 : undefined,
         carenceDays: data.carence_days ?? 0,
         planCategory: data.category || 'standard',
         status: data.status || 'draft',

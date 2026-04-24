@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/ui/data-table';
 import {
@@ -89,9 +88,38 @@ interface Medication {
   conditionnement_primaire: string | null;
   spec_conditionnement: string | null;
   tableau_amm: string | null;
+  requires_prior_approval: number;
   created_at: string;
   updated_at: string;
 }
+
+interface CnamRow {
+  codePct: string;
+  nomCommercial: string;
+  prixPublic: number | null;
+  tarifReference: number | null;
+  categorie: string;
+  dci: string;
+  ap: string;
+}
+
+const CNAM_COL_MAP: Record<string, keyof CnamRow> = {
+  'code_pct': 'codePct',
+  'code': 'codePct',
+  'nom_commercial': 'nomCommercial',
+  'nom commercial': 'nomCommercial',
+  'marque': 'nomCommercial',
+  'prix_public': 'prixPublic',
+  'prix public': 'prixPublic',
+  'tarif_reference': 'tarifReference',
+  'tarif reference': 'tarifReference',
+  'tarif_ref': 'tarifReference',
+  'categorie': 'categorie',
+  'cat': 'categorie',
+  'dci': 'dci',
+  'ap': 'ap',
+  'accord prealable': 'ap',
+};
 
 interface AmmRow {
   nom: string;
@@ -213,19 +241,22 @@ export function MedicationsPage() {
   const { toast } = useToastStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [search, setSearch] = useState('');
-  const [familyFilter, setFamilyFilter] = useState('');
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importType, setImportType] = useState<'csv' | 'amm' | 'cnam'>('cnam');
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importNotes, setImportNotes] = useState('');
-  const [gpbFilter, setGpbFilter] = useState('');
   const [veicFilter, setVeicFilter] = useState('');
-  const [ammClasseFilter, setAmmClasseFilter] = useState('');
-  const [showAmmImportDialog, setShowAmmImportDialog] = useState(false);
+  const [apFilter, setApFilter] = useState('');
   const [ammFile, setAmmFile] = useState<File | null>(null);
   const [ammParsedRows, setAmmParsedRows] = useState<AmmRow[]>([]);
   const [ammParseError, setAmmParseError] = useState('');
   const [ammImportNotes, setAmmImportNotes] = useState('');
   const ammFileInputRef = useRef<HTMLInputElement>(null);
+  const [cnamFile, setCnamFile] = useState<File | null>(null);
+  const [cnamParsedRows, setCnamParsedRows] = useState<CnamRow[]>([]);
+  const [cnamParseError, setCnamParseError] = useState('');
+  const [cnamImportNotes, setCnamImportNotes] = useState('');
+  const cnamFileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState('medications');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -238,30 +269,18 @@ export function MedicationsPage() {
 
   // Fetch medications
   const { data: medicationsData, isLoading: loadingMeds } = useQuery({
-    queryKey: ['medications', search, familyFilter, gpbFilter, veicFilter, ammClasseFilter, medsPage],
+    queryKey: ['medications', search, veicFilter, apFilter, medsPage],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.append('page', String(medsPage));
       params.append('limit', '20');
       if (search) params.append('search', search);
-      if (familyFilter) params.append('familyId', familyFilter);
-      if (gpbFilter) params.append('gpb', gpbFilter);
       if (veicFilter) params.append('veic', veicFilter);
-      if (ammClasseFilter) params.append('ammClasse', ammClasseFilter);
+      if (apFilter) params.append('ap', apFilter);
       const url = `/medications?${params.toString()}`;
       const response = await apiClient.get<Medication[]>(url) as unknown as { success: boolean; data: Medication[]; meta: { page: number; limit: number; total: number; totalPages: number }; error?: { message: string } };
       if (!response.success) throw new Error(response.error?.message);
       return { data: response.data, meta: response.meta };
-    },
-  });
-
-  // Fetch families
-  const { data: familiesData } = useQuery({
-    queryKey: ['medication-families'],
-    queryFn: async () => {
-      const response = await apiClient.get<{ families: MedicationFamily[] }>('/medications/families');
-      if (!response.success) throw new Error(response.error?.message);
-      return response.data?.families || [];
     },
   });
 
@@ -434,7 +453,7 @@ export function MedicationsPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['medications'] });
       queryClient.invalidateQueries({ queryKey: ['medication-imports'] });
-      setShowAmmImportDialog(false);
+      setShowImportDialog(false);
       setAmmFile(null);
       setAmmParsedRows([]);
       setAmmImportNotes('');
@@ -445,6 +464,117 @@ export function MedicationsPage() {
     },
     onError: (error: Error) => {
       setAmmImportProgress({ current: 0, total: 0, isRunning: false });
+      toast({ variant: 'destructive', title: error.message });
+    },
+  });
+
+  // Parse CNAM Excel file client-side
+  const parseCnamFile = useCallback(async (file: File) => {
+    setCnamParseError('');
+    setCnamParsedRows([]);
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) { setCnamParseError('Fichier Excel vide'); return; }
+      const sheet = workbook.Sheets[sheetName];
+      if (!sheet) { setCnamParseError('Feuille introuvable'); return; }
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+      if (rawRows.length === 0) { setCnamParseError('Aucune ligne trouvée'); return; }
+
+      const firstRow = rawRows[0]!;
+      const headerMap: Record<string, keyof CnamRow> = {};
+      for (const key of Object.keys(firstRow)) {
+        const normalized = key.trim().toLowerCase()
+          .replace(/[éè]/g, 'e')
+          .replace(/[ûù]/g, 'u')
+          .replace(/[ô]/g, 'o');
+        const mapped = CNAM_COL_MAP[normalized];
+        if (mapped) headerMap[key] = mapped;
+      }
+
+      const mappedValues = Object.values(headerMap);
+      if (!mappedValues.includes('codePct') || !mappedValues.includes('nomCommercial')) {
+        setCnamParseError(`Colonnes requises manquantes (CODE_PCT, NOM_COMMERCIAL). Trouvées: ${Object.keys(firstRow).join(', ')}`);
+        return;
+      }
+
+      const parsed: CnamRow[] = [];
+      for (const raw of rawRows) {
+        const codePct = String(raw[Object.keys(headerMap).find(k => headerMap[k] === 'codePct')!] || '').trim();
+        const nomCommercial = String(raw[Object.keys(headerMap).find(k => headerMap[k] === 'nomCommercial')!] || '').trim();
+        if (!codePct || !nomCommercial) continue;
+
+        const prixKey = Object.keys(headerMap).find(k => headerMap[k] === 'prixPublic');
+        const tarifKey = Object.keys(headerMap).find(k => headerMap[k] === 'tarifReference');
+        const catKey = Object.keys(headerMap).find(k => headerMap[k] === 'categorie');
+        const dciKey = Object.keys(headerMap).find(k => headerMap[k] === 'dci');
+        const apKey = Object.keys(headerMap).find(k => headerMap[k] === 'ap');
+
+        const prixRaw = prixKey ? Number(raw[prixKey]) : null;
+        const tarifRaw = tarifKey ? Number(raw[tarifKey]) : null;
+
+        parsed.push({
+          codePct,
+          nomCommercial,
+          prixPublic: prixRaw && !isNaN(prixRaw) ? prixRaw : null,
+          tarifReference: tarifRaw && !isNaN(tarifRaw) ? tarifRaw : null,
+          categorie: catKey ? String(raw[catKey] || '').trim() : '',
+          dci: dciKey ? String(raw[dciKey] || '').trim() : '',
+          ap: apKey ? String(raw[apKey] || '').trim() : '',
+        });
+      }
+
+      setCnamParsedRows(parsed);
+    } catch (err) {
+      setCnamParseError(err instanceof Error ? err.message : 'Erreur lecture fichier');
+    }
+  }, []);
+
+  // CNAM import mutation
+  const [cnamImportProgress, setCnamImportProgress] = useState({ current: 0, total: 0, isRunning: false });
+
+  const importCnamMutation = useMutation({
+    mutationFn: async (rows: CnamRow[]) => {
+      const CHUNK_SIZE = 500;
+      const totalChunks = Math.ceil(rows.length / CHUNK_SIZE);
+      const totals = { imported: 0, updated: 0, skipped: 0, errors: [] as unknown[] };
+
+      setCnamImportProgress({ current: 0, total: rows.length, isRunning: true });
+
+      for (let i = 0; i < totalChunks; i++) {
+        const chunk = rows.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        const response = await apiClient.post<{ imported: number; updated: number; skipped: number; errors: unknown[] }>('/medications/import-cnam', {
+          fileName: cnamFile?.name || 'liste_cnam.xls',
+          rows: chunk,
+          notes: i === 0 ? cnamImportNotes : `(chunk ${i + 1}/${totalChunks})`,
+        });
+        if (!response.success) throw new Error(response.error?.message);
+        const data = response.data!;
+        totals.imported += data.imported;
+        totals.updated += data.updated;
+        totals.skipped += data.skipped || 0;
+        totals.errors.push(...(data.errors || []));
+        setCnamImportProgress({ current: (i + 1) * CHUNK_SIZE, total: rows.length, isRunning: true });
+      }
+
+      setCnamImportProgress({ current: 0, total: 0, isRunning: false });
+      return totals;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['medications'] });
+      queryClient.invalidateQueries({ queryKey: ['medication-imports'] });
+      setShowImportDialog(false);
+      setCnamFile(null);
+      setCnamParsedRows([]);
+      setCnamImportNotes('');
+      toast({
+        variant: 'success',
+        title: `Import CNAM terminé: ${data.imported} nouveaux, ${data.updated} mis à jour, ${data.errors?.length || 0} erreurs`,
+      });
+    },
+    onError: (error: Error) => {
+      setCnamImportProgress({ current: 0, total: 0, isRunning: false });
       toast({ variant: 'destructive', title: error.message });
     },
   });
@@ -640,12 +770,6 @@ export function MedicationsPage() {
     },
   ];
 
-  const gpbLabel: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' }> = {
-    G: { label: 'Générique', variant: 'secondary' },
-    P: { label: 'Princeps', variant: 'default' },
-    B: { label: 'Biosimilaire', variant: 'outline' },
-  };
-
   const veicLabel: Record<string, { label: string; color: string }> = {
     V: { label: 'Vital', color: 'text-red-600 bg-red-50 border-red-200' },
     E: { label: 'Essentiel', color: 'text-orange-600 bg-orange-50 border-orange-200' },
@@ -656,15 +780,6 @@ export function MedicationsPage() {
   const formatPrice = (price: number | null) => {
     if (!price) return '-';
     return `${(price / 1000).toFixed(3)} TND`;
-  };
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    try {
-      return new Date(dateStr).toLocaleDateString('fr-TN', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    } catch {
-      return dateStr;
-    }
   };
 
   const currentPageIds = (medicationsData?.data || []).map((m) => m.id);
@@ -690,72 +805,45 @@ export function MedicationsPage() {
       ),
     },
     {
-      key: 'code',
-      header: 'Code_amm',
+      key: 'code_pct',
+      header: 'Code PCT',
       render: (row: Medication) => (
         <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-          {row.code_amm || row.code_pct || '-'}
+          {row.code_pct || '-'}
         </code>
       ),
     },
     {
       key: 'brand_name',
-      header: 'Médicament',
+      header: 'Nom commercial',
       render: (row: Medication) => (
-        <div>
-          <p className="font-medium">{row.brand_name}</p>
-          <p className="text-xs text-muted-foreground">{row.dci}</p>
-        </div>
+        <p className="font-medium max-w-[250px] truncate" title={row.brand_name}>{row.brand_name}</p>
       ),
     },
     {
-      key: 'dosage',
-      header: 'Dosage / Forme',
+      key: 'dci',
+      header: 'DCI',
       render: (row: Medication) => (
-        <div className="text-sm">
-          <p>{row.dosage || '-'}</p>
-          <p className="text-xs text-muted-foreground">{row.form || '-'}</p>
-        </div>
+        <p className="text-sm max-w-[200px] truncate" title={row.dci}>{row.dci || '-'}</p>
       ),
     },
     {
-      key: 'classe',
-      header: 'Classe_amm',
-      render: (row: Medication) => {
-        const label = row.family_name || row.amm_classe;
-        if (!label) return <span className="text-muted-foreground">-</span>;
-        return (
-          <div className="max-w-[180px]">
-            <p className="truncate text-sm" title={label}>{label}</p>
-            {row.amm_sous_classe && (
-              <p className="truncate text-xs text-muted-foreground" title={row.amm_sous_classe}>{row.amm_sous_classe}</p>
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      key: 'laboratory',
-      header: 'Laboratoire',
+      key: 'price_public',
+      header: 'Prix public',
       render: (row: Medication) => (
-        <span className="text-sm">{row.laboratory || '-'}</span>
+        <span className="text-sm font-medium">{formatPrice(row.price_public)}</span>
       ),
     },
     {
-      key: 'gpb',
-      header: 'G/P/B',
-      render: (row: Medication) => {
-        const info = row.gpb ? gpbLabel[row.gpb] : null;
-        return info ? (
-          <Badge variant={info.variant}>{info.label}</Badge>
-        ) : (
-          <span className="text-muted-foreground">-</span>
-        );
-      },
+      key: 'price_reference',
+      header: 'Tarif réf.',
+      render: (row: Medication) => (
+        <span className="text-sm text-muted-foreground">{formatPrice(row.price_reference)}</span>
+      ),
     },
     {
       key: 'veic',
-      header: 'VEIC',
+      header: 'Catégorie',
       render: (row: Medication) => {
         const info = row.veic ? veicLabel[row.veic] : null;
         return info ? (
@@ -768,24 +856,14 @@ export function MedicationsPage() {
       },
     },
     {
-      key: 'price_public',
-      header: 'Prix Public',
+      key: 'ap',
+      header: 'AP',
       render: (row: Medication) => (
-        <span className="text-sm font-medium">{formatPrice(row.price_public)}</span>
-      ),
-    },
-    {
-      key: 'created_at',
-      header: 'Créé le',
-      render: (row: Medication) => (
-        <span className="text-xs text-muted-foreground">{formatDate(row.created_at)}</span>
-      ),
-    },
-    {
-      key: 'updated_at',
-      header: 'MAJ',
-      render: (row: Medication) => (
-        <span className="text-xs text-muted-foreground">{formatDate(row.updated_at)}</span>
+        row.requires_prior_approval ? (
+          <Badge variant="destructive" className="text-[10px]">AP</Badge>
+        ) : (
+          <span className="text-muted-foreground text-xs">-</span>
+        )
       ),
     },
     {
@@ -885,7 +963,7 @@ export function MedicationsPage() {
             Gestion des Médicaments
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Base de données des médicaments - Sources: PCT & AMM (DPM Tunisie)
+            Base de données des médicaments - Sources: PCT, AMM & CNAM
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -900,10 +978,10 @@ export function MedicationsPage() {
           </Button>
           <Button
             className="gap-2 bg-slate-900 hover:bg-[#19355d]"
-            onClick={() => setShowAmmImportDialog(true)}
+            onClick={() => setShowImportDialog(true)}
           >
-            <ShieldCheck className="w-4 h-4" />
-            Importer AMM
+            <Upload className="w-4 h-4" />
+            Importer
           </Button>
         </div>
       </div>
@@ -962,42 +1040,6 @@ export function MedicationsPage() {
               {/* Filters */}
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <Select
-                  value={familyFilter || "all"}
-                  onValueChange={(v) => {
-                    setFamilyFilter(v === "all" ? "" : v);
-                    setMedsPage(1);
-                  }}
-                >
-                  <SelectTrigger className="h-10 w-full sm:w-auto sm:min-w-[160px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
-                    <SelectValue placeholder="Toutes familles" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Toutes familles</SelectItem>
-                    {familiesData?.map((f) => (
-                      <SelectItem key={f.id} value={f.id}>
-                        {f.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={gpbFilter || "all"}
-                  onValueChange={(v) => {
-                    setGpbFilter(v === "all" ? "" : v);
-                    setMedsPage(1);
-                  }}
-                >
-                  <SelectTrigger className="h-10 w-[calc(50%-4px)] sm:w-auto sm:min-w-[130px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
-                    <SelectValue placeholder="G/P/B" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Tous G/P/B</SelectItem>
-                    <SelectItem value="G">Générique</SelectItem>
-                    <SelectItem value="P">Princeps</SelectItem>
-                    <SelectItem value="B">Biosimilaire</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select
                   value={veicFilter || "all"}
                   onValueChange={(v) => {
                     setVeicFilter(v === "all" ? "" : v);
@@ -1005,25 +1047,32 @@ export function MedicationsPage() {
                   }}
                 >
                   <SelectTrigger className="h-10 w-[calc(50%-4px)] sm:w-auto sm:min-w-[140px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
-                    <SelectValue placeholder="VEIC" />
+                    <SelectValue placeholder="Catégorie" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Tous VEIC</SelectItem>
+                    <SelectItem value="all">Toutes catégories</SelectItem>
                     <SelectItem value="V">Vital</SelectItem>
                     <SelectItem value="E">Essentiel</SelectItem>
                     <SelectItem value="I">Intermédiaire</SelectItem>
                     <SelectItem value="C">Confort</SelectItem>
                   </SelectContent>
                 </Select>
-                <Input
-                  placeholder="Classe AMM..."
-                  className="h-10 w-full sm:w-auto sm:min-w-[150px] sm:max-w-[180px] rounded-xl bg-[#f3f4f5] border-0 text-sm"
-                  value={ammClasseFilter}
-                  onChange={(e) => {
-                    setAmmClasseFilter(e.target.value);
+                <Select
+                  value={apFilter || "all"}
+                  onValueChange={(v) => {
+                    setApFilter(v === "all" ? "" : v);
                     setMedsPage(1);
                   }}
-                />
+                >
+                  <SelectTrigger className="h-10 w-[calc(50%-4px)] sm:w-auto sm:min-w-[120px] rounded-xl bg-[#f3f4f5] border-0 text-sm">
+                    <SelectValue placeholder="Accord P." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous AP</SelectItem>
+                    <SelectItem value="true">Avec AP</SelectItem>
+                    <SelectItem value="false">Sans AP</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="flex items-center gap-4 rounded-xl bg-gradient-to-br from-slate-700 to-slate-900 px-6 py-4 md:py-0 text-white shadow-sm shrink-0">
@@ -1132,76 +1181,331 @@ export function MedicationsPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Import Dialog */}
-      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
-        <DialogContent className="w-full max-w-lg">
+      {/* Unified Import Dialog */}
+      <Dialog
+        open={showImportDialog}
+        onOpenChange={(open) => {
+          setShowImportDialog(open);
+          if (!open) {
+            setImportFile(null);
+            setImportNotes('');
+            setAmmFile(null);
+            setAmmParsedRows([]);
+            setAmmParseError('');
+            setAmmImportNotes('');
+            setCnamFile(null);
+            setCnamParsedRows([]);
+            setCnamParseError('');
+            setCnamImportNotes('');
+          }
+        }}
+      >
+        <DialogContent className="w-full max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Importer des médicaments</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5" />
+              Importer des médicaments
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {/* Format selector */}
             <div className="space-y-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                className="hidden"
-                onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-              />
-              {importFile ? (
-                <FilePreview
-                  file={importFile}
-                  onRemove={() => setImportFile(null)}
+              <Label>Type d'import</Label>
+              <Select value={importType} onValueChange={(v) => setImportType(v as 'csv' | 'amm' | 'cnam')}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cnam">
+                    Liste CNAM - Régime de Base (V/E/I)
+                  </SelectItem>
+                  <SelectItem value="amm">
+                    Liste AMM - DPM Tunisie
+                  </SelectItem>
+                  <SelectItem value="csv">
+                    CSV - Pharmacie Centrale (PCT)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* === CSV Import === */}
+            {importType === 'csv' && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
                 />
-              ) : (
-                <div
-                  className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 cursor-pointer hover:border-primary/50 transition-colors"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="h-12 w-12 text-muted-foreground" />
-                  <p className="mt-2">Glissez un fichier CSV ou</p>
-                  <Button variant="link" type="button">
-                    Parcourir
-                  </Button>
+                {importFile ? (
+                  <FilePreview file={importFile} onRemove={() => setImportFile(null)} />
+                ) : (
+                  <div
+                    className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 cursor-pointer hover:border-primary/50 transition-colors"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Upload className="h-10 w-10 text-muted-foreground" />
+                    <p className="mt-2 text-sm">Fichier CSV (séparateur: point-virgule)</p>
+                    <Button variant="link" type="button">Parcourir</Button>
+                  </div>
+                )}
+                <div className="rounded-lg bg-muted p-3 text-sm">
+                  <p className="font-medium mb-1">Colonnes attendues:</p>
+                  <code className="text-xs">
+                    code_pct;dci;marque;dosage;forme;conditionnement;famille;laboratoire;prix_public;generique;remboursable
+                  </code>
                 </div>
-              )}
-            </div>
+                <div>
+                  <Label>Notes (optionnel)</Label>
+                  <Textarea
+                    placeholder="Ex: Mise à jour trimestrielle PCT Q1 2026"
+                    value={importNotes}
+                    onChange={(e) => setImportNotes(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
 
-            <div className="rounded-lg bg-muted p-4 text-sm">
-              <p className="font-medium mb-2">
-                Format CSV attendu (separateur: point-virgule):
-              </p>
-              <code className="text-xs">
-                code_pct;dci;marque;dosage;forme;conditionnement;famille;laboratoire;prix_public;generique;remboursable
-              </code>
-            </div>
+            {/* === AMM Import === */}
+            {importType === 'amm' && (
+              <>
+                <input
+                  ref={ammFileInputRef}
+                  type="file"
+                  accept=".xls,.xlsx"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) { setAmmFile(file); parseAmmFile(file); }
+                  }}
+                />
+                {ammFile ? (
+                  <div className="space-y-3">
+                    <FilePreview
+                      file={ammFile}
+                      onRemove={() => { setAmmFile(null); setAmmParsedRows([]); setAmmParseError(''); }}
+                    />
+                    {ammParseError && (
+                      <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                        <AlertCircle className="mr-1 inline h-4 w-4" />{ammParseError}
+                      </div>
+                    )}
+                    {ammParsedRows.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-4 text-sm">
+                          <Badge variant="success">{ammParsedRows.length} médicaments détectés</Badge>
+                          <span className="text-muted-foreground">
+                            Classes: {new Set(ammParsedRows.map((r) => r.classe).filter(Boolean)).size}
+                            {' | '}DCI: {new Set(ammParsedRows.map((r) => r.dci).filter(Boolean)).size}
+                          </span>
+                        </div>
+                        <div className="max-h-48 overflow-auto rounded border">
+                          <table className="w-full text-xs">
+                            <thead className="bg-muted">
+                              <tr>
+                                <th className="p-1.5 text-left">AMM</th>
+                                <th className="p-1.5 text-left">Nom</th>
+                                <th className="p-1.5 text-left">DCI</th>
+                                <th className="p-1.5 text-left">Classe</th>
+                                <th className="p-1.5 text-left">G/P/B</th>
+                                <th className="p-1.5 text-left">VEIC</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ammParsedRows.slice(0, 5).map((row, i) => (
+                                <tr key={i} className="border-t">
+                                  <td className="p-1.5 font-mono">{row.amm}</td>
+                                  <td className="p-1.5 max-w-32 truncate">{row.nom}</td>
+                                  <td className="p-1.5 max-w-24 truncate">{row.dci}</td>
+                                  <td className="p-1.5 max-w-24 truncate">{row.classe}</td>
+                                  <td className="p-1.5">{row.gpb}</td>
+                                  <td className="p-1.5">{row.veic}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {ammParsedRows.length > 5 && (
+                            <p className="border-t p-1.5 text-center text-xs text-muted-foreground">
+                              ... et {ammParsedRows.length - 5} autres
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 cursor-pointer hover:border-primary/50 transition-colors"
+                    onClick={() => ammFileInputRef.current?.click()}
+                  >
+                    <ShieldCheck className="h-10 w-10 text-muted-foreground" />
+                    <p className="mt-2 text-sm">Fichier AMM (Excel .xls / .xlsx)</p>
+                    <Button variant="link" type="button">Parcourir</Button>
+                  </div>
+                )}
+                <div className="rounded-lg bg-muted p-3 text-sm">
+                  <p className="font-medium mb-1">Colonnes attendues:</p>
+                  <p className="text-xs text-muted-foreground">
+                    Nom, Dosage, Forme, Présentation, DCI, Classe, Sous Classe,
+                    Laboratoire, AMM, Date AMM, G/P/B, VEIC, Indications...
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Upsert par code AMM.
+                  </p>
+                </div>
+                <div>
+                  <Label>Notes (optionnel)</Label>
+                  <Textarea
+                    placeholder="Ex: Mise à jour liste AMM Mars 2026"
+                    value={ammImportNotes}
+                    onChange={(e) => setAmmImportNotes(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
 
-            <div>
-              <Label>Notes (optionnel)</Label>
-              <Textarea
-                placeholder="Ex: Mise à jour trimestrielle PCT Q1 2024"
-                value={importNotes}
-                onChange={(e) => setImportNotes(e.target.value)}
-              />
-            </div>
+            {/* === CNAM Import === */}
+            {importType === 'cnam' && (
+              <>
+                <input
+                  ref={cnamFileInputRef}
+                  type="file"
+                  accept=".xls,.xlsx"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) { setCnamFile(file); parseCnamFile(file); }
+                  }}
+                />
+                {cnamFile ? (
+                  <div className="space-y-3">
+                    <FilePreview
+                      file={cnamFile}
+                      onRemove={() => { setCnamFile(null); setCnamParsedRows([]); setCnamParseError(''); }}
+                    />
+                    {cnamParseError && (
+                      <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                        <AlertCircle className="mr-1 inline h-4 w-4" />{cnamParseError}
+                      </div>
+                    )}
+                    {cnamParsedRows.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-4 text-sm">
+                          <Badge variant="success">{cnamParsedRows.length} médicaments détectés</Badge>
+                          <span className="text-muted-foreground">
+                            V: {cnamParsedRows.filter(r => r.categorie === 'V').length}
+                            {' | '}E: {cnamParsedRows.filter(r => r.categorie === 'E').length}
+                            {' | '}I: {cnamParsedRows.filter(r => r.categorie === 'I').length}
+                            {' | '}AP: {cnamParsedRows.filter(r => ['O', 'o', 'oui', 'OUI'].includes(r.ap)).length}
+                          </span>
+                        </div>
+                        <div className="max-h-48 overflow-auto rounded border">
+                          <table className="w-full text-xs">
+                            <thead className="bg-muted">
+                              <tr>
+                                <th className="p-1.5 text-left">Code PCT</th>
+                                <th className="p-1.5 text-left">Nom commercial</th>
+                                <th className="p-1.5 text-left">DCI</th>
+                                <th className="p-1.5 text-right">Prix public</th>
+                                <th className="p-1.5 text-right">Tarif réf.</th>
+                                <th className="p-1.5 text-center">Cat.</th>
+                                <th className="p-1.5 text-center">AP</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {cnamParsedRows.slice(0, 5).map((row, i) => (
+                                <tr key={i} className="border-t">
+                                  <td className="p-1.5 font-mono">{row.codePct}</td>
+                                  <td className="p-1.5 max-w-32 truncate">{row.nomCommercial}</td>
+                                  <td className="p-1.5 max-w-24 truncate">{row.dci}</td>
+                                  <td className="p-1.5 text-right">{row.prixPublic?.toFixed(3)}</td>
+                                  <td className="p-1.5 text-right">{row.tarifReference?.toFixed(3)}</td>
+                                  <td className="p-1.5 text-center">
+                                    <Badge variant={row.categorie === 'V' ? 'destructive' : row.categorie === 'E' ? 'secondary' : 'outline'}>
+                                      {row.categorie}
+                                    </Badge>
+                                  </td>
+                                  <td className="p-1.5 text-center">{row.ap}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {cnamParsedRows.length > 5 && (
+                            <p className="border-t p-1.5 text-center text-xs text-muted-foreground">
+                              ... et {cnamParsedRows.length - 5} autres
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 cursor-pointer hover:border-primary/50 transition-colors"
+                    onClick={() => cnamFileInputRef.current?.click()}
+                  >
+                    <FileSpreadsheet className="h-10 w-10 text-muted-foreground" />
+                    <p className="mt-2 text-sm">Liste CNAM Régime de Base (Excel .xls / .xlsx)</p>
+                    <Button variant="link" type="button">Parcourir</Button>
+                  </div>
+                )}
+                <div className="rounded-lg bg-muted p-3 text-sm">
+                  <p className="font-medium mb-1">Colonnes attendues:</p>
+                  <p className="text-xs text-muted-foreground">
+                    CODE_PCT, NOM_COMMERCIAL, PRIX_PUBLIC, TARIF_REFERENCE, CATEGORIE (V/E/I), DCI, AP (O/N)
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Upsert par code PCT.
+                  </p>
+                </div>
+                <div>
+                  <Label>Notes (optionnel)</Label>
+                  <Textarea
+                    placeholder="Ex: Mise à jour liste CNAM Régime de Base Juillet 2025"
+                    value={cnamImportNotes}
+                    onChange={(e) => setCnamImportNotes(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowImportDialog(false)}
-            >
+            <Button variant="outline" onClick={() => setShowImportDialog(false)}>
               Annuler
             </Button>
-            <Button
-              onClick={() => importFile && importMutation.mutate(importFile)}
-              disabled={!importFile || importMutation.isPending}
-            >
-              {importMutation.isPending ? "Import en cours..." : "Importer"}
-            </Button>
+            {importType === 'csv' && (
+              <Button
+                onClick={() => importFile && importMutation.mutate(importFile)}
+                disabled={!importFile || importMutation.isPending}
+              >
+                {importMutation.isPending ? 'Import en cours...' : 'Importer'}
+              </Button>
+            )}
+            {importType === 'amm' && (
+              <Button
+                onClick={() => importAmmMutation.mutate(ammParsedRows)}
+                disabled={ammParsedRows.length === 0 || importAmmMutation.isPending}
+              >
+                {importAmmMutation.isPending
+                  ? `Import en cours... ${Math.min(ammImportProgress.current, ammImportProgress.total)}/${ammImportProgress.total}`
+                  : `Importer ${ammParsedRows.length} médicaments`}
+              </Button>
+            )}
+            {importType === 'cnam' && (
+              <Button
+                onClick={() => importCnamMutation.mutate(cnamParsedRows)}
+                disabled={cnamParsedRows.length === 0 || importCnamMutation.isPending}
+              >
+                {importCnamMutation.isPending
+                  ? `Import en cours... ${Math.min(cnamImportProgress.current, cnamImportProgress.total)}/${cnamImportProgress.total}`
+                  : `Importer ${cnamParsedRows.length} médicaments`}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Bareme Dialog */}
 
       {/* Bareme History Dialog */}
       <Dialog
@@ -1275,180 +1579,6 @@ export function MedicationsPage() {
         </DialogContent>
       </Dialog>
 
-
-      {/* AMM Import Dialog */}
-      <Dialog
-        open={showAmmImportDialog}
-        onOpenChange={(open) => {
-          setShowAmmImportDialog(open);
-          if (!open) {
-            setAmmFile(null);
-            setAmmParsedRows([]);
-            setAmmParseError("");
-            setAmmImportNotes("");
-          }
-        }}
-      >
-        <DialogContent className="w-full max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5" />
-              Importer la liste AMM (DPM Tunisie)
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <input
-              ref={ammFileInputRef}
-              type="file"
-              accept=".xls,.xlsx"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  setAmmFile(file);
-                  parseAmmFile(file);
-                }
-              }}
-            />
-
-            {ammFile ? (
-              <div className="space-y-3">
-                <FilePreview
-                  file={ammFile}
-                  onRemove={() => {
-                    setAmmFile(null);
-                    setAmmParsedRows([]);
-                    setAmmParseError("");
-                  }}
-                />
-                {ammParseError && (
-                  <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                    <AlertCircle className="mr-1 inline h-4 w-4" />
-                    {ammParseError}
-                  </div>
-                )}
-                {ammParsedRows.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-4 text-sm">
-                      <Badge variant="success">
-                        {ammParsedRows.length} médicaments détectés
-                      </Badge>
-                      <span className="text-muted-foreground">
-                        Classes:{" "}
-                        {
-                          new Set(
-                            ammParsedRows.map((r) => r.classe).filter(Boolean),
-                          ).size
-                        }{" "}
-                        | DCI:{" "}
-                        {
-                          new Set(
-                            ammParsedRows.map((r) => r.dci).filter(Boolean),
-                          ).size
-                        }
-                      </span>
-                    </div>
-                    {/* Preview first 5 rows */}
-                    <div className="max-h-48 overflow-auto rounded border">
-                      <table className="w-full text-xs">
-                        <thead className="bg-muted">
-                          <tr>
-                            <th className="p-1.5 text-left">AMM</th>
-                            <th className="p-1.5 text-left">Nom</th>
-                            <th className="p-1.5 text-left">DCI</th>
-                            <th className="p-1.5 text-left">Classe</th>
-                            <th className="p-1.5 text-left">G/P/B</th>
-                            <th className="p-1.5 text-left">VEIC</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ammParsedRows.slice(0, 5).map((row, i) => (
-                            <tr key={i} className="border-t">
-                              <td className="p-1.5 font-mono">{row.amm}</td>
-                              <td className="p-1.5 max-w-32 truncate">
-                                {row.nom}
-                              </td>
-                              <td className="p-1.5 max-w-24 truncate">
-                                {row.dci}
-                              </td>
-                              <td className="p-1.5 max-w-24 truncate">
-                                {row.classe}
-                              </td>
-                              <td className="p-1.5">{row.gpb}</td>
-                              <td className="p-1.5">{row.veic}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {ammParsedRows.length > 5 && (
-                        <p className="border-t p-1.5 text-center text-xs text-muted-foreground">
-                          ... et {ammParsedRows.length - 5} autres
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div
-                className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 cursor-pointer hover:border-primary/50 transition-colors"
-                onClick={() => ammFileInputRef.current?.click()}
-              >
-                <ShieldCheck className="h-12 w-12 text-muted-foreground" />
-                <p className="mt-2 font-medium">
-                  Fichier AMM (Excel .xls / .xlsx)
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  liste_amm.xls de la DPM Tunisie
-                </p>
-                <Button variant="link" type="button">
-                  Parcourir
-                </Button>
-              </div>
-            )}
-
-            <div className="rounded-lg bg-muted p-3 text-sm">
-              <p className="font-medium mb-1">Colonnes attendues:</p>
-              <p className="text-xs text-muted-foreground">
-                Nom, Dosage, Forme, Présentation, DCI, Classe, Sous Classe,
-                Laboratoire, AMM, Date AMM, G/P/B, VEIC, Indications...
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Les médicaments existants seront mis à jour par code AMM. Les
-                nouveaux seront créés.
-              </p>
-            </div>
-
-            <div>
-              <Label>Notes (optionnel)</Label>
-              <Textarea
-                placeholder="Ex: Mise à jour liste AMM Mars 2026"
-                value={ammImportNotes}
-                onChange={(e) => setAmmImportNotes(e.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowAmmImportDialog(false)}
-            >
-              Annuler
-            </Button>
-            <Button
-              onClick={() => importAmmMutation.mutate(ammParsedRows)}
-              disabled={
-                ammParsedRows.length === 0 || importAmmMutation.isPending
-              }
-            >
-              {importAmmMutation.isPending
-                ? `Import en cours... ${Math.min(ammImportProgress.current, ammImportProgress.total)}/${ammImportProgress.total}`
-                : `Importer ${ammParsedRows.length} médicaments`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Delete confirmation dialog */}
       <Dialog open={showDeleteDialog} onOpenChange={(open) => { if (!open) { setShowDeleteDialog(false); setDeleteTargetId(null); } }}>
         <DialogContent className="w-full max-w-md">
@@ -1480,7 +1610,7 @@ export function MedicationsPage() {
       tips={[
         { icon: <Search className="h-4 w-4 text-blue-500" />, title: "Recherche", desc: "Recherchez par DCI, nom commercial, code PCT ou code AMM." },
         { icon: <Pill className="h-4 w-4 text-green-500" />, title: "Barèmes", desc: "Gérez les taux de remboursement associés à chaque médicament." },
-        { icon: <Upload className="h-4 w-4 text-purple-500" />, title: "Import AMM", desc: "Importez la liste AMM officielle depuis un fichier Excel DPM." },
+        { icon: <Upload className="h-4 w-4 text-purple-500" />, title: "Importer", desc: "Importez depuis CSV (PCT), Excel AMM (DPM) ou CNAM (Régime de Base V/E/I)." },
         { icon: <Filter className="h-4 w-4 text-orange-500" />, title: "Filtres", desc: "Filtrez par statut, classe thérapeutique ou type générique/princeps." },
       ]}
     />

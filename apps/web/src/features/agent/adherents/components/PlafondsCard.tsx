@@ -1,7 +1,7 @@
 import type { PlafondAvecFamille } from '@/features/agent/hooks/use-adherent-plafonds';
 
 interface PlafondsCardProps {
-  global: PlafondAvecFamille | null;
+  global: (PlafondAvecFamille & { isSharedFamily?: boolean }) | null;
   parFamille: PlafondAvecFamille[];
   totalConsomme: number;
   totalPlafond: number;
@@ -9,9 +9,14 @@ interface PlafondsCardProps {
 
 /**
  * Formats millimes to Tunisian Dinars (1 DT = 1000 millimes).
+ * Ex: 7000000 → "7 000,000 DT", 0 → "0"
  */
 function formatMontant(millimes: number): string {
-  return `${(millimes / 1000).toFixed(3)} DT`;
+  if (!millimes) return '0';
+  return new Intl.NumberFormat('fr-TN', {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  }).format(millimes / 1000) + ' DT';
 }
 
 /**
@@ -55,7 +60,9 @@ export function PlafondsCard({
       {global && (
         <div className="p-3 rounded-md bg-gray-50 space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="font-medium">Plafond global</span>
+            <span className="font-medium">
+              {global.isSharedFamily ? 'Plafond familial partage' : 'Plafond global'}
+            </span>
             <span
               className={
                 global.pourcentageConsomme >= 80
@@ -99,6 +106,12 @@ export function PlafondsCard({
                 </span>
               </div>
               <ProgressBar percentage={p.pourcentageConsomme} />
+              {(p.perEventLimit || p.dailyLimit) && (
+                <div className="flex gap-3 text-xs text-gray-400 mt-0.5">
+                  {p.perEventLimit && <span>Max/acte: {formatMontant(p.perEventLimit)}</span>}
+                  {p.dailyLimit && <span>Max/jour: {formatMontant(p.dailyLimit)}</span>}
+                </div>
+              )}
             </div>
           ))}
         </div>

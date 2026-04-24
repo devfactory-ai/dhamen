@@ -6,6 +6,8 @@
 import { Hono } from 'hono';
 import type { Bindings, Variables } from '../types';
 import { authMiddleware, requireAuth, requireRole } from '../middleware/auth';
+import { logAudit } from '../middleware/audit-trail';
+import { getDb } from '../lib/db';
 import {
   DocumentService,
   type DocumentCategory,
@@ -69,6 +71,17 @@ documents.post('/upload', async (c) => {
       uploadedBy: user.id,
       tags: tags ? JSON.parse(tags) : undefined,
       expiresIn: expiresIn ? parseInt(expiresIn, 10) : undefined,
+    });
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'document.upload',
+      entityType: 'document',
+      entityId: result.id || entityId,
+      changes: { fileName: file.name, category, entityType, entityId },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
     });
 
     return c.json({
@@ -275,6 +288,17 @@ documents.put('/:id', async (c) => {
       tags: tags ? JSON.parse(tags) : undefined,
     });
 
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'document.update',
+      entityType: 'document',
+      entityId: id,
+      changes: { fileName: file.name, category },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json({
       success: true,
       data: result,
@@ -313,6 +337,17 @@ documents.delete('/:id', async (c) => {
       404
     );
   }
+
+  // Audit log
+  logAudit(getDb(c), {
+    userId: user.id,
+    action: 'document.delete',
+    entityType: 'document',
+    entityId: id,
+    changes: { deleted: true },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
 
   return c.json({
     success: true,
@@ -355,6 +390,17 @@ documents.post('/:id/copy', async (c) => {
       body.targetEntityId,
       user.id
     );
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'document.copy',
+      entityType: 'document',
+      entityId: id,
+      changes: { targetEntityType: body.targetEntityType, targetEntityId: body.targetEntityId },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,
@@ -408,6 +454,17 @@ documents.post('/:id/move', async (c) => {
     body.targetEntityId,
     user.id
   );
+
+  // Audit log
+  logAudit(getDb(c), {
+    userId: user.id,
+    action: 'document.move',
+    entityType: 'document',
+    entityId: id,
+    changes: { targetEntityType: body.targetEntityType, targetEntityId: body.targetEntityId, moved: success },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
 
   return c.json({
     success: true,
@@ -463,8 +520,20 @@ documents.post(
   '/cleanup',
   requireRole('ADMIN'),
   async (c) => {
+    const user = c.get('user');
     const documentService = new DocumentService(c.env);
     const result = await documentService.cleanupExpired();
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'document.cleanup',
+      entityType: 'document',
+      entityId: 'expired',
+      changes: result,
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,
@@ -482,6 +551,7 @@ documents.delete(
   requireRole('ADMIN'),
   async (c) => {
     const id = c.req.param('id');
+    const user = c.get('user');
 
     const documentService = new DocumentService(c.env);
     const success = await documentService.permanentDelete(id);
@@ -495,6 +565,17 @@ documents.delete(
         404
       );
     }
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'document.permanent_delete',
+      entityType: 'document',
+      entityId: id,
+      changes: { permanent: true },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,

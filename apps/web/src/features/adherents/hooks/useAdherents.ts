@@ -33,6 +33,7 @@ export interface AyantDroitData {
   gender?: string;
   phone?: string;
   email?: string;
+  plafondGlobal?: number; // Plafond individuel en millimes
 }
 
 export interface CreateAdherentData {

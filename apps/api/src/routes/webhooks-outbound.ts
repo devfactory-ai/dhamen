@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Bindings, Variables } from '../types';
 import { authMiddleware, requireAuth, requireRole } from '../middleware/auth';
+import { logAudit } from '../middleware/audit-trail';
 import { WebhookOutboundService, type WebhookEvent } from '../services/webhook-outbound.service';
 
 const webhooksOutbound = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -111,6 +112,16 @@ webhooksOutbound.post(
       events: validation.data.events as WebhookEvent[],
     });
 
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'webhook_endpoint.create',
+      entityType: 'webhook_endpoint',
+      entityId: endpoint.id,
+      changes: { name: validation.data.name, url: validation.data.url, events: validation.data.events },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json({
       success: true,
       data: endpoint,
@@ -158,6 +169,7 @@ webhooksOutbound.put(
   async (c) => {
     const id = c.req.param('id');
     const body = await c.req.json();
+    const user = c.get('user');
 
     const webhookService = new WebhookOutboundService(c.env);
 
@@ -176,6 +188,16 @@ webhooksOutbound.put(
       );
     }
 
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'webhook_endpoint.update',
+      entityType: 'webhook_endpoint',
+      entityId: id,
+      changes: body,
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json({
       success: true,
       data: updated,
@@ -192,6 +214,7 @@ webhooksOutbound.delete(
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
+    const user = c.get('user');
 
     const webhookService = new WebhookOutboundService(c.env);
     const deleted = await webhookService.deleteEndpoint(id);
@@ -205,6 +228,16 @@ webhooksOutbound.delete(
         404
       );
     }
+
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'webhook_endpoint.delete',
+      entityType: 'webhook_endpoint',
+      entityId: id,
+      changes: { deleted: true },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,
@@ -222,9 +255,20 @@ webhooksOutbound.post(
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
+    const user = c.get('user');
 
     const webhookService = new WebhookOutboundService(c.env);
     const result = await webhookService.testEndpoint(id);
+
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'webhook_endpoint.test',
+      entityType: 'webhook_endpoint',
+      entityId: id,
+      changes: { testSuccess: result.success },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: result.success,
@@ -308,13 +352,24 @@ webhooksOutbound.post(
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   async (c) => {
     const id = c.req.param('id');
+    const user = c.get('user');
 
     const webhookService = new WebhookOutboundService(c.env);
-    const success = await webhookService.processDelivery(id);
+    const retrySuccess = await webhookService.processDelivery(id);
+
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'webhook_delivery.retry',
+      entityType: 'webhook_delivery',
+      entityId: id,
+      changes: { retried: retrySuccess },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,
-      data: { retried: success },
+      data: { retried: retrySuccess },
     });
   }
 );
@@ -369,6 +424,17 @@ webhooksOutbound.post(
     const deliveryIds = await webhookService.trigger(body.event, body.data, {
       insurerId: body.insurerId,
       providerId: body.providerId,
+    });
+
+    const user = c.get('user');
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'webhook.trigger',
+      entityType: 'webhook',
+      entityId: body.event,
+      changes: { event: body.event, deliveryCount: deliveryIds.length, insurerId: body.insurerId, providerId: body.providerId },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
     });
 
     return c.json({

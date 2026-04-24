@@ -17,6 +17,7 @@ import {
   listCardsQuerySchema,
 } from '@dhamen/shared/schemas/virtual-card';
 import { success, error, paginated, created, notFound, conflict, badRequest } from '../lib/response';
+import { logAudit } from '../middleware/audit-trail';
 import type { Bindings, Variables } from '../types';
 
 const virtualCards = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -41,6 +42,16 @@ virtualCards.post('/generate', async (c) => {
       input.deviceFingerprint,
       user.id
     );
+
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'virtual_card.generate',
+      entityType: 'virtual_card',
+      entityId: card.id,
+      changes: { adherentId: input.adherentId, validityMonths: input.validityMonths },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return created(c, { card });
   } catch (err) {
@@ -82,6 +93,16 @@ virtualCards.post('/verify', async (c) => {
     if (!result.valid) {
       return error(c, result.reason || 'VERIFICATION_FAILED', 'Vérification échouée', 400);
     }
+
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'virtual_card.verify',
+      entityType: 'virtual_card',
+      entityId: result.verificationId || 'unknown',
+      changes: { cardNumber: input.cardNumber, valid: result.valid },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return success(c, {
       valid: true,
@@ -154,6 +175,16 @@ virtualCards.post('/:id/suspend', async (c) => {
     const service = new VirtualCardService(c.env);
     await service.suspendCard(cardId, reason, user.id);
 
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'virtual_card.suspend',
+      entityType: 'virtual_card',
+      entityId: cardId,
+      changes: { reason },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return success(c, { message: 'Carte suspendue' });
   } catch (err) {
     throw err;
@@ -173,6 +204,16 @@ virtualCards.post('/:id/reactivate', async (c) => {
 
     const service = new VirtualCardService(c.env);
     await service.reactivateCard(cardId, reason, user.id);
+
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'virtual_card.reactivate',
+      entityType: 'virtual_card',
+      entityId: cardId,
+      changes: { reason },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return success(c, { message: 'Carte réactivée' });
   } catch (err) {
@@ -205,6 +246,16 @@ virtualCards.post('/:id/revoke', async (c) => {
     const service = new VirtualCardService(c.env);
     await service.revokeCard(cardId, reason, user.id);
 
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'virtual_card.revoke',
+      entityType: 'virtual_card',
+      entityId: cardId,
+      changes: { reason },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return success(c, { message: 'Carte révoquée' });
   } catch (err) {
     throw err;
@@ -224,6 +275,16 @@ virtualCards.post('/:id/renew', async (c) => {
 
     const service = new VirtualCardService(c.env);
     const newCard = await service.renewCard(cardId, validityMonths, user.id);
+
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'virtual_card.renew',
+      entityType: 'virtual_card',
+      entityId: newCard.id,
+      changes: { previousCardId: cardId, validityMonths },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return created(c, { card: newCard });
   } catch (err) {

@@ -65,7 +65,17 @@ import {
   Printer,
   Filter,
   Archive,
+  Scissors,
+  Smile,
+  Truck,
+  Waves,
+  Bone,
+  ClipboardList,
+  Baby,
+  Heart,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { getCareTypeConfig } from '@dhamen/shared';
 
 
 // Types for bulletin workflow
@@ -244,12 +254,20 @@ function getStatusConfig(status: string) {
   return statusConfig[status as BulletinStatus] || defaultStatusConfig;
 }
 
-const careTypeConfig: Record<string, { label: string; icon: typeof Stethoscope }> = {
-  consultation: { label: 'Consultation', icon: Stethoscope },
-  pharmacy: { label: 'Pharmacie', icon: Pill },
-  lab: { label: 'Analyses', icon: FlaskConical },
-  hospital: { label: 'Hospitalisation', icon: Building2 },
+const ICON_MAP: Record<string, LucideIcon> = {
+  Stethoscope, Pill, FlaskConical, Building2, Eye, Baby, Heart,
+  ClipboardList, Scissors, Smile, Truck, Waves, Bone,
 };
+
+function careTypeDisplay(value: string | null | undefined) {
+  const cfg = getCareTypeConfig(value);
+  return {
+    label: cfg.label,
+    icon: ICON_MAP[cfg.icon] || Stethoscope,
+    bgColor: cfg.bgColor,
+    textColor: cfg.textColor,
+  };
+}
 
 // Workflow valid transitions
 const validTransitions: Record<BulletinStatus, BulletinStatus[]> = {
@@ -565,7 +583,7 @@ export function BulletinsValidationPage() {
       key: 'care_type',
       header: 'Type',
       render: (row: BulletinSoins) => {
-        const config = careTypeConfig[row.care_type] || careTypeConfig.consultation;
+        const config = careTypeDisplay(row.care_type);
         const Icon = config?.icon;
         return (
           <div className="flex items-center gap-2 min-w-[100px]">
@@ -1154,9 +1172,7 @@ export function BulletinsValidationPage() {
                       </p>
                       <div className="flex items-center gap-2">
                         {(() => {
-                          const config =
-                            careTypeConfig[selectedBulletin.care_type] ||
-                            careTypeConfig.consultation;
+                          const config = careTypeDisplay(selectedBulletin.care_type);
                           const Icon = config?.icon!;
                           return (
                             <>

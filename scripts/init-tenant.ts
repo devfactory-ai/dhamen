@@ -200,7 +200,7 @@ function seedReferenceData(dbName: string, remote: boolean, tenantConfig: Tenant
   // Verify familles_actes exist (should be created by migrations)
   const familles = [
     { code: 'FA0001', label: 'Consultations et Visites', ordre: 1 },
-    { code: 'FA0002', label: 'Actes médicaux courants', ordre: 2 },
+    // FA0002 merged into FA0009 (migration 0147)
     { code: 'FA0003', label: 'Frais pharmaceutiques', ordre: 3 },
     { code: 'FA0004', label: 'Analyses', ordre: 4 },
     { code: 'FA0005', label: 'Orthopédie et prothèses non dentaires', ordre: 5 },

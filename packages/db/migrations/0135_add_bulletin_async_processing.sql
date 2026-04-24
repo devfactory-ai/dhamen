@@ -5,11 +5,12 @@
 -- ============================================
 
 -- New columns on bulletins_soins for async validation
-ALTER TABLE bulletins_soins ADD COLUMN validation_status TEXT DEFAULT NULL;
-ALTER TABLE bulletins_soins ADD COLUMN validation_errors TEXT DEFAULT NULL;
-ALTER TABLE bulletins_soins ADD COLUMN validation_attempts INTEGER DEFAULT 0;
-ALTER TABLE bulletins_soins ADD COLUMN ocr_job_id TEXT DEFAULT NULL;
-ALTER TABLE bulletins_soins ADD COLUMN source TEXT DEFAULT 'manual';
+-- Columns may already exist from a prior partial migration run, commented out to be idempotent
+-- ALTER TABLE bulletins_soins ADD COLUMN validation_status TEXT DEFAULT NULL;
+-- ALTER TABLE bulletins_soins ADD COLUMN validation_errors TEXT DEFAULT NULL;
+-- ALTER TABLE bulletins_soins ADD COLUMN validation_attempts INTEGER DEFAULT 0;
+-- ALTER TABLE bulletins_soins ADD COLUMN ocr_job_id TEXT DEFAULT NULL;
+-- ALTER TABLE bulletins_soins ADD COLUMN source TEXT DEFAULT 'manual';
 
 -- Index for fast lookup of pending corrections
 CREATE INDEX IF NOT EXISTS idx_bulletins_soins_validation_status ON bulletins_soins(validation_status);

@@ -16,6 +16,7 @@ interface FamilleMembre {
   rangPres: number;
   codeSituationFam: string | null;
   parentAdherentId: string | null;
+  plafondGlobal: number | null;
 }
 
 interface FamilleComplete {

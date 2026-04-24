@@ -1,6 +1,7 @@
+import { useState, useRef } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, FileText, Building2, Shield, Users, Pencil, Check, Trash2 } from 'lucide-react';
+import { ChevronRight, FileText, Building2, Shield, Users, Pencil, Check, Trash2, Upload, Loader2 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { apiClient } from '@/lib/api-client';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { useToast } from '@/stores/toast';
@@ -29,6 +38,7 @@ interface Guarantee {
   annual_ceiling: number | null;
   per_act_ceiling: number | null;
   per_day_ceiling: number | null;
+  max_days: number | null;
   letter_keys: Record<string, number> | null;
   sub_limits: Record<string, number> | null;
   conditions: string | null;
@@ -60,6 +70,7 @@ interface GroupContract {
 }
 
 const CARE_TYPE_LABELS: Record<string, string> = {
+  // English keys (legacy)
   consultation: 'Soins medicaux (Consultations et Visites)',
   pharmacy: 'Frais pharmaceutiques',
   laboratory: 'Analyses et travaux de laboratoire',
@@ -78,6 +89,22 @@ const CARE_TYPE_LABELS: Record<string, string> = {
   sanatorium: 'Sanatorium / Preventorium',
   thermal_cure: 'Cures thermales',
   funeral: 'Frais funeraires',
+  // French keys (from TP extraction)
+  pharmacie: 'Frais pharmaceutiques',
+  laboratoire: 'Analyses et travaux de laboratoire',
+  optique: 'Optique',
+  chirurgie_refractive: 'Chirurgie refractive (laser)',
+  actes_courants: 'Actes medicaux courants',
+  chirurgie: 'Frais chirurgicaux',
+  orthopedie: 'Orthopedie / Protheses',
+  hospitalisation: 'Hospitalisation',
+  accouchement: 'Accouchement',
+  interruption_grossesse: 'Interruption involontaire de grossesse',
+  dentaire: 'Soins et protheses dentaires',
+  orthodontie: 'Soins orthodontiques',
+  circoncision: 'Circoncision',
+  cures_thermales: 'Cures thermales',
+  frais_funeraires: 'Frais funeraires',
 };
 
 const STATUS_LABELS: Record<string, { label: string; variant: 'success' | 'secondary' | 'destructive' | 'default' }> = {
@@ -146,6 +173,60 @@ export function GroupContractDetailPage() {
     },
   });
 
+  // TP Upload state
+  const [tpDialogOpen, setTpDialogOpen] = useState(false);
+  const [tpFile, setTpFile] = useState<File | null>(null);
+  const [tpResult, setTpResult] = useState<{ id: string; name: string; guaranteesExtracted: number; annualGlobalLimit: number | null } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadTpMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('name', `TP - ${contract?.company_name || 'Contrat'} ${new Date().getFullYear()}`);
+      formData.append('year', String(new Date().getFullYear()));
+      if (contract?.insurer_id) formData.append('insurerId', contract.insurer_id);
+
+      const response = await apiClient.upload<{
+        id: string; name: string; guaranteesExtracted: number; annualGlobalLimit: number | null;
+        guarantees: Array<Record<string, unknown>>;
+        message: string;
+      }>('/baremes-tp/upload-pdf', formData);
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      if (data) {
+        setTpResult({ id: data.id, name: data.name, guaranteesExtracted: data.guaranteesExtracted, annualGlobalLimit: data.annualGlobalLimit ?? null });
+        toast({ title: 'TP extrait avec succès', description: data.message, variant: 'success' });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Erreur extraction TP', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const applyTpMutation = useMutation({
+    mutationFn: async (tpId: string) => {
+      const response = await apiClient.post(`/baremes-tp/${tpId}/apply-to-contract`, {
+        groupContractId: id,
+        annualGlobalLimit: tpResult?.annualGlobalLimit ?? undefined,
+      });
+      if (!response.success) throw new Error(response.error?.message);
+      return response.data;
+    },
+    onSuccess: () => {
+      toast({ title: 'Barème TP appliqué', description: 'Les garanties du contrat ont été mises à jour.', variant: 'success' });
+      setTpDialogOpen(false);
+      setTpFile(null);
+      setTpResult(null);
+      queryClient.invalidateQueries({ queryKey: ['group-contract', id] });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Erreur', description: err.message, variant: 'destructive' });
+    },
+  });
+
   if (isLoading) {
     return <div className="flex items-center justify-center p-8">Chargement...</div>;
   }
@@ -172,6 +253,14 @@ export function GroupContractDetailPage() {
           description={contract.company_name}
         />
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => { setTpDialogOpen(true); setTpFile(null); setTpResult(null); }}
+          >
+            <Upload className="mr-2 h-4 w-4" />
+            Importer un barème TP
+          </Button>
+
           {contract.status === 'active' && (
           <Button
             variant="outline"
@@ -319,10 +408,22 @@ export function GroupContractDetailPage() {
       {/* Guarantees Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            Tableau des garanties
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Tableau des garanties
+            </CardTitle>
+            {guarantees.length === 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { setTpDialogOpen(true); setTpFile(null); setTpResult(null); }}
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Importer depuis un TP
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {guarantees.length === 0 ? (
@@ -339,7 +440,9 @@ export function GroupContractDetailPage() {
                     <th className="px-3 py-3 text-center font-medium">Taux</th>
                     <th className="px-3 py-3 text-right font-medium">Plafond annuel</th>
                     <th className="px-3 py-3 text-right font-medium">Plafond/acte</th>
+                    <th className="px-3 py-3 text-right font-medium">Plafond/jour</th>
                     <th className="px-3 py-3 text-left font-medium">Clés lettres</th>
+                    <th className="px-3 py-3 text-left font-medium">Sous-limites</th>
                     <th className="px-3 py-3 text-left font-medium">Conditions</th>
                   </tr>
                 </thead>
@@ -361,7 +464,7 @@ export function GroupContractDetailPage() {
                         </td>
                         <td className="px-3 py-3 text-center">
                           {g.rate != null ? (
-                            <Badge variant="secondary">{g.rate}%</Badge>
+                            <Badge variant="secondary">{Math.round(Number(g.rate) * 100)}%</Badge>
                           ) : (
                             '-'
                           )}
@@ -372,15 +475,32 @@ export function GroupContractDetailPage() {
                         <td className="px-3 py-3 text-right font-mono">
                           {formatAmount(g.per_act_ceiling)}
                         </td>
+                        <td className="px-3 py-3 text-right font-mono">
+                          {g.per_day_ceiling != null ? formatAmount(g.per_day_ceiling) : '-'}
+                          {g.per_day_ceiling != null && g.max_days != null && (
+                            <span className="text-xs text-muted-foreground block">max {g.max_days}j</span>
+                          )}
+                        </td>
                         <td className="px-3 py-3">
                           <div className="flex flex-wrap gap-1">
                             {g.letter_keys &&
                               Object.entries(g.letter_keys).map(([key, value]) => (
                                 <Badge key={key} variant="outline" className="text-xs font-mono">
-                                  {key}={value}
+                                  {key}={(value / 1000).toFixed(3)} DT
                                 </Badge>
                               ))}
                             {(!g.letter_keys || Object.keys(g.letter_keys).length === 0) && '-'}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {g.sub_limits &&
+                              Object.entries(g.sub_limits).map(([key, value]) => (
+                                <Badge key={key} variant="outline" className="text-xs">
+                                  {key.replace(/_/g, ' ')}: {formatAmount(value as number)}
+                                </Badge>
+                              ))}
+                            {(!g.sub_limits || Object.keys(g.sub_limits).length === 0) && '-'}
                           </div>
                         </td>
                         <td className="px-3 py-3">
@@ -411,6 +531,122 @@ export function GroupContractDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* TP Upload Dialog */}
+      <Dialog open={tpDialogOpen} onOpenChange={setTpDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Importer un barème — Tableau de Prestations (TP)</DialogTitle>
+            <DialogDescription>
+              Importez le fichier du barème TP (PDF, Word ou image). Les garanties seront extraites automatiquement par IA et appliquées à ce contrat.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* File upload zone */}
+            {!tpResult && (
+              <div
+                className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 p-8 cursor-pointer hover:border-primary/50 transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const f = e.dataTransfer.files[0];
+                  if (f) setTpFile(f);
+                }}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setTpFile(f);
+                  }}
+                />
+                <Upload className="h-10 w-10 text-muted-foreground mb-3" />
+                {tpFile ? (
+                  <div className="text-center">
+                    <p className="font-medium text-sm">{tpFile.name}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {(tpFile.size / 1024).toFixed(0)} Ko
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-center">
+                    <p className="text-sm font-medium">Cliquez ou glissez le fichier TP ici</p>
+                    <p className="text-xs text-muted-foreground mt-1">PDF, Word ou image (max 10 Mo)</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Extraction result */}
+            {tpResult && (
+              <div className="rounded-lg bg-green-50 border border-green-200 p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Check className="h-5 w-5 text-green-600" />
+                  <p className="font-medium text-green-800">Extraction réussie</p>
+                </div>
+                <p className="text-sm text-green-700">
+                  <strong>{tpResult.guaranteesExtracted}</strong> garanties extraites du barème <strong>"{tpResult.name}"</strong>.
+                </p>
+                <p className="text-xs text-green-600 mt-2">
+                  Cliquez "Appliquer au contrat" pour remplacer les garanties actuelles.
+                </p>
+              </div>
+            )}
+
+            {/* Loading state */}
+            {uploadTpMutation.isPending && (
+              <div className="flex items-center justify-center gap-3 py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">Extraction IA en cours... (peut prendre 10-30s)</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            {!tpResult ? (
+              <Button
+                onClick={() => tpFile && uploadTpMutation.mutate(tpFile)}
+                disabled={!tpFile || uploadTpMutation.isPending}
+              >
+                {uploadTpMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Extraction...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="mr-2 h-4 w-4" />
+                    Extraire les garanties
+                  </>
+                )}
+              </Button>
+            ) : (
+              <Button
+                onClick={() => tpResult && applyTpMutation.mutate(tpResult.id)}
+                disabled={applyTpMutation.isPending}
+              >
+                {applyTpMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Application...
+                  </>
+                ) : (
+                  <>
+                    <Check className="mr-2 h-4 w-4" />
+                    Appliquer au contrat
+                  </>
+                )}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

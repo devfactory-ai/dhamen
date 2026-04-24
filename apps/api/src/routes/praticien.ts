@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Bindings, Variables } from '../types';
 import { authMiddleware, requireRole } from '../middleware/auth';
+import { logAudit } from '../middleware/audit-trail';
 
 const praticien = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -152,6 +153,16 @@ praticien.put('/profil', requireRole(...PROVIDER_ROLES), async (c) => {
       SELECT id, name, type, license_no, speciality, mf_number, address, city, phone, email, is_active, created_at
       FROM providers WHERE id = ?
     `).bind(user.providerId).first();
+
+    logAudit(c.env.DB, {
+      userId: user.id,
+      action: 'provider.update_profile',
+      entityType: 'provider',
+      entityId: user.providerId,
+      changes: body,
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({ success: true, data: updated });
   } catch (err) {

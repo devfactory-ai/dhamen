@@ -12,6 +12,7 @@ import { RoleGuard, PermissionGuard } from '@/components/guards/RoleGuard';
 import { SkipLinks } from '@/components/ui/skip-links';
 import { AnnouncerProvider } from '@/components/ui/screen-reader';
 import { PWAPrompts } from '@/components/ui/pwa-prompts';
+import { OcrJobTracker } from '@/components/ocr-job-tracker';
 
 // Lazy load feature pages for better initial bundle size
 const UsersPage = lazy(() => import('@/features/users/pages/UsersPage').then(m => ({ default: m.UsersPage })));
@@ -35,6 +36,7 @@ const ClaimsManagePage = lazy(() => import('@/features/claims/pages/ClaimsManage
 const ClaimProcessPage = lazy(() => import('@/features/claims/pages/ClaimProcessPage').then(m => ({ default: m.default })));
 const EligibilityPage = lazy(() => import('@/features/eligibility/pages/EligibilityPage').then(m => ({ default: m.EligibilityPage })));
 const BordereauxPage = lazy(() => import('@/features/bordereaux/pages/BordereauxPage').then(m => ({ default: m.BordereauxPage })));
+const BordereauCreatePage = lazy(() => import('@/features/bordereaux/pages/BordereauCreatePage').then(m => ({ default: m.default })));
 const BordereauDetailsPage = lazy(() => import('@/features/bordereaux/pages/BordereauDetailsPage').then(m => ({ default: m.default })));
 const ReconciliationPage = lazy(() => import('@/features/reconciliation/pages/ReconciliationPage').then(m => ({ default: m.ReconciliationPage })));
 const ReconciliationDetailsPage = lazy(() => import('@/features/reconciliation/pages/ReconciliationDetailsPage').then(m => ({ default: m.default })));
@@ -335,6 +337,7 @@ function App() {
                     <Route path="/claims/:id" element={<PermissionGuard resource="claims" action="read"><ClaimDetailsPage /></PermissionGuard>} />
                     <Route path="/eligibility" element={<PermissionGuard resource="adherents" action="read"><EligibilityPage /></PermissionGuard>} />
                     <Route path="/bordereaux" element={<BordereauxPage />} />
+                    <Route path="/bordereaux/nouveau" element={<BordereauCreatePage />} />
                     <Route path="/bordereaux/:id" element={<BordereauDetailsPage />} />
                     <Route path="/cards/verify" element={<CardVerificationPage />} />
                     {/* Praticien routes — single set of routes, content adapts to role */}
@@ -401,6 +404,7 @@ function App() {
         <Toaster />
         <SonnerToaster position="top-right" richColors />
         <PWAPrompts />
+        <OcrJobTracker />
       </AnnouncerProvider>
     </ErrorBoundary>
   );

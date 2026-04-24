@@ -338,6 +338,218 @@ medications.post(
 );
 
 /**
+ * POST /import-cnam
+ * Import medications from CNAM "Régime de Base" Excel data (parsed client-side)
+ * Columns: CODE_PCT, NOM_COMMERCIAL, PRIX_PUBLIC, TARIF_REFERENCE, CATEGORIE (V/E/I), DCI, AP (O/N)
+ */
+const cnamRowSchema = z.object({
+  codePct: z.string().min(1),
+  nomCommercial: z.string().min(1),
+  prixPublic: z.number().nullable().optional(),
+  tarifReference: z.number().nullable().optional(),
+  categorie: z.string().optional().default(''),
+  dci: z.string().default(''),
+  ap: z.string().optional().default(''),
+});
+
+const importCnamSchema = z.object({
+  fileName: z.string().min(1),
+  rows: z.array(cnamRowSchema).min(1),
+  notes: z.string().optional(),
+});
+
+medications.post(
+  '/import-cnam',
+  requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
+  zValidator('json', importCnamSchema),
+  async (c) => {
+    const user = c.get('user');
+    const data = c.req.valid('json');
+    const db = getDb(c);
+    const now = new Date().toISOString();
+
+    // Create import batch
+    const batchId = generateId();
+    await db.prepare(
+      `INSERT INTO medication_import_batches
+       (id, file_name, file_size, source, status, imported_by, started_at, notes, created_at)
+       VALUES (?, ?, ?, 'CNAM', 'processing', ?, ?, ?, ?)`
+    )
+      .bind(batchId, data.fileName, 0, user?.sub, now, data.notes || '', now)
+      .run();
+
+    const results = {
+      imported: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [] as { row: number; error: string }[],
+    };
+
+    // Normalize VEIC value from CATEGORIE
+    const normalizeVeic = (val: string): string | null => {
+      const v = val.trim().toUpperCase();
+      if (v === 'V') return 'V';
+      if (v === 'E') return 'E';
+      if (v === 'I') return 'I';
+      if (v === 'C') return 'C';
+      return null;
+    };
+
+    // Load existing code_pct values
+    const existingCodesResult = await db.prepare(
+      'SELECT code_pct FROM medications WHERE code_pct IS NOT NULL AND deleted_at IS NULL'
+    ).all();
+    const existingCodes = new Set(
+      existingCodesResult.results.map((r) => String(r.code_pct))
+    );
+
+    // Process in batches of 200
+    const BATCH_SIZE = 200;
+    for (let i = 0; i < data.rows.length; i += BATCH_SIZE) {
+      const chunk = data.rows.slice(i, i + BATCH_SIZE);
+      const statements: D1PreparedStatement[] = [];
+
+      for (let j = 0; j < chunk.length; j++) {
+        const row = chunk[j]!;
+        const rowIndex = i + j + 1;
+        try {
+          const codePct = String(row.codePct).trim();
+          if (!codePct) {
+            results.errors.push({ row: rowIndex, error: 'Code PCT manquant' });
+            results.skipped++;
+            continue;
+          }
+
+          const veic = normalizeVeic(row.categorie);
+          const requiresApproval = ['o', 'oui', 'yes', '1'].includes((row.ap || '').trim().toLowerCase());
+          const prixPublic = row.prixPublic != null ? Math.round(row.prixPublic * 1000) : null;
+          const tarifRef = row.tarifReference != null ? Math.round(row.tarifReference * 1000) : null;
+          const isUpdate = existingCodes.has(codePct);
+
+          if (isUpdate) {
+            // Update existing medication: set prices, veic, DCI, AP
+            statements.push(
+              db.prepare(
+                `UPDATE medications SET
+                   brand_name = COALESCE(?, brand_name),
+                   dci = COALESCE(?, dci),
+                   price_public = COALESCE(?, price_public),
+                   price_reference = COALESCE(?, price_reference),
+                   veic = COALESCE(?, veic),
+                   requires_prior_approval = ?,
+                   is_reimbursable = 1,
+                   import_batch_id = ?,
+                   updated_at = ?
+                 WHERE code_pct = ? AND deleted_at IS NULL`
+              )
+                .bind(
+                  row.nomCommercial || null,
+                  row.dci || null,
+                  prixPublic,
+                  tarifRef,
+                  veic,
+                  requiresApproval ? 1 : 0,
+                  batchId,
+                  now,
+                  codePct
+                )
+            );
+            results.updated++;
+          } else {
+            // Insert new medication
+            statements.push(
+              db.prepare(
+                `INSERT INTO medications
+                 (id, code_pct, brand_name, dci, price_public, price_reference,
+                  veic, requires_prior_approval, is_reimbursable, reimbursement_rate,
+                  requires_prescription, is_controlled, is_generic, is_active,
+                  import_batch_id, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0.7, 1, 0, 0, 1, ?, ?, ?)`
+              )
+                .bind(
+                  generateId(),
+                  codePct,
+                  row.nomCommercial,
+                  row.dci || '',
+                  prixPublic,
+                  tarifRef,
+                  veic,
+                  requiresApproval ? 1 : 0,
+                  batchId,
+                  now,
+                  now
+                )
+            );
+            existingCodes.add(codePct);
+            results.imported++;
+          }
+        } catch (err) {
+          results.errors.push({
+            row: rowIndex,
+            error: err instanceof Error ? err.message : 'Erreur inconnue',
+          });
+          results.skipped++;
+        }
+      }
+
+      if (statements.length > 0) {
+        await db.batch(statements);
+      }
+    }
+
+    // Update batch status
+    await db.prepare(
+      `UPDATE medication_import_batches SET
+       status = 'completed',
+       total_rows = ?,
+       imported_count = ?,
+       updated_count = ?,
+       skipped_count = ?,
+       error_count = ?,
+       errors_json = ?,
+       completed_at = ?
+       WHERE id = ?`
+    )
+      .bind(
+        data.rows.length,
+        results.imported,
+        results.updated,
+        results.skipped,
+        results.errors.length,
+        JSON.stringify(results.errors.slice(0, 100)),
+        new Date().toISOString(),
+        batchId
+      )
+      .run();
+
+    // Audit log
+    await logAudit(getDb(c), {
+      userId: user?.sub,
+      action: 'medications.import_cnam',
+      entityType: 'medication_batch',
+      entityId: batchId,
+      changes: {
+        fileName: data.fileName,
+        imported: results.imported,
+        updated: results.updated,
+        errors: results.errors.length,
+      },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
+    return success(c, {
+      batchId,
+      totalRows: data.rows.length,
+      imported: results.imported,
+      updated: results.updated,
+      skipped: results.skipped,
+      errors: results.errors.slice(0, 10),
+    });
+  }
+);
+
+/**
  * POST /import-amm
  * Import medications from AMM Excel data (parsed client-side)
  * Accessible to ADMIN, INSURER_ADMIN, INSURER_AGENT
@@ -634,6 +846,7 @@ medications.get(
     const gpb = c.req.query('gpb');
     const veic = c.req.query('veic');
     const ammClasse = c.req.query('ammClasse');
+    const ap = c.req.query('ap');
     const offset = (page - 1) * limit;
 
     let query = `
@@ -669,6 +882,11 @@ medications.get(
       params.push(veic);
     }
 
+    if (ap) {
+      query += ' AND m.requires_prior_approval = ?';
+      params.push(ap === 'true' ? 1 : 0);
+    }
+
     if (ammClasse) {
       query += ' AND m.amm_classe = ?';
       params.push(ammClasse);
@@ -702,6 +920,10 @@ medications.get(
     if (veic) {
       countQuery += ' AND veic = ?';
       countParams.push(veic);
+    }
+    if (ap) {
+      countQuery += ' AND requires_prior_approval = ?';
+      countParams.push(ap === 'true' ? 1 : 0);
     }
     if (ammClasse) {
       countQuery += ' AND amm_classe = ?';

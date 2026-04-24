@@ -123,3 +123,6 @@ export { praticien } from './praticien';
 
 // Contact form (landing page)
 export { contact } from './contact';
+
+// Barèmes TP (Tableau de Prestations)
+export { baremesTP } from './baremes-tp';

@@ -6,6 +6,7 @@ import { getDb } from '../lib/db';
 import { extractBulletinData } from '../agents/ocr/ocr.agent';
 import { PushNotificationService } from '../services/push-notification.service';
 import { RealtimeNotificationsService } from '../services/realtime-notifications.service';
+import { logAudit } from '../middleware/audit-trail';
 
 const bulletinsSoins = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -315,6 +316,16 @@ bulletinsSoins.post('/me', async (c) => {
     now,
     now
   ).run();
+
+  logAudit(db, {
+    userId: user.id || user.sub,
+    action: 'bulletin.create',
+    entityType: 'bulletins_soins',
+    entityId: id,
+    changes: { bulletin_number: bulletinNumber, care_type: body.care_type || 'consultation', total_amount: body.total_amount },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
 
   return c.json({
     success: true,
@@ -772,6 +783,16 @@ bulletinsSoins.post('/submit', async (c) => {
     now
   ).run();
 
+  logAudit(db, {
+    userId: user.id || user.sub,
+    action: 'bulletin.submit',
+    entityType: 'bulletins_soins',
+    entityId: id,
+    changes: { bulletin_number: bulletinNumber, care_type: careType, total_amount: totalAmount, uploaded_files: uploadedFiles.length },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
   return c.json({
     success: true,
     data: {
@@ -853,6 +874,16 @@ bulletinsSoins.post('/me/:id/upload-scan', async (c) => {
     SET scan_url = ?, scan_filename = ?, updated_at = datetime('now')
     WHERE id = ?
   `).bind(scanUrl, file.name, bulletinId).run();
+
+  logAudit(db, {
+    userId: user.id || user.sub,
+    action: 'bulletin.upload_scan',
+    entityType: 'bulletins_soins',
+    entityId: bulletinId,
+    changes: { scan_filename: file.name },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
 
   return c.json({
     success: true,
@@ -1988,6 +2019,16 @@ bulletinsSoins.post('/payments/:id/mark-pending', async (c) => {
     WHERE id = ?
   `).bind(now, bulletinId).run();
 
+  logAudit(db, {
+    userId: user.id || user.sub,
+    action: 'bulletin.mark_pending',
+    entityType: 'bulletins_soins',
+    entityId: bulletinId,
+    changes: { previous_status: 'approved', new_status: 'pending_payment' },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
   return c.json({
     success: true,
     data: {
@@ -2857,6 +2898,16 @@ bulletinsSoins.delete('/admin/:id', async (c) => {
     await db.prepare('DELETE FROM actes_bulletin WHERE bulletin_id = ?').bind(id).run();
     await db.prepare('DELETE FROM bulletins_soins WHERE id = ?').bind(id).run();
 
+    logAudit(db, {
+      userId: user.id || user.sub,
+      action: 'bulletin.delete',
+      entityType: 'bulletins_soins',
+      entityId: id,
+      changes: { bulletin_number: bulletin.bulletin_number },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json({ success: true, data: { id, deleted: true } });
   } catch (err) {
     return c.json({
@@ -2898,6 +2949,16 @@ bulletinsSoins.post('/admin/bulk-delete', async (c) => {
       .prepare(`DELETE FROM bulletins_soins WHERE id IN (${placeholders})`)
       .bind(...ids)
       .run();
+
+    logAudit(db, {
+      userId: user.id || user.sub,
+      action: 'bulletin.bulk_delete',
+      entityType: 'bulletins_soins',
+      entityId: ids.join(','),
+      changes: { count: result.meta?.changes ?? ids.length, ids },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({ success: true, data: { deleted: result.meta?.changes ?? ids.length } });
   } catch (err) {

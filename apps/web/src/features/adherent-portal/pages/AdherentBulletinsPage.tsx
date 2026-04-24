@@ -28,6 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FilePreviewList } from '@/components/ui/file-preview';
 import { apiClient, API_BASE_URL } from '@/lib/api-client';
 import { toast } from 'sonner';
+import type { LucideIcon } from 'lucide-react';
 import {
   FileText,
   Upload,
@@ -57,7 +58,16 @@ import {
   User,
   ShieldCheck,
   ListChecks,
+  Scissors,
+  Smile,
+  Truck,
+  Waves,
+  Bone,
+  ClipboardList,
+  Baby,
+  Heart,
 } from 'lucide-react';
+import { getCareTypeConfig, ALL_CARE_TYPES } from '@dhamen/shared';
 import { FloatingHelp } from '@/components/ui/floating-help';
 
 // Types for bulletin workflow
@@ -200,12 +210,20 @@ const statusConfig: Record<BulletinStatus, {
   },
 };
 
-const careTypeConfig = {
-  consultation: { label: 'Consultation', icon: Stethoscope },
-  pharmacy: { label: 'Pharmacie', icon: Pill },
-  lab: { label: 'Analyses', icon: FlaskConical },
-  hospital: { label: 'Hospitalisation', icon: Building2 },
+const ICON_MAP: Record<string, LucideIcon> = {
+  Stethoscope, Pill, FlaskConical, Building2, Eye, Baby, Heart,
+  ClipboardList, Scissors, Smile, Truck, Waves, Bone,
 };
+
+function careTypeDisplay(value: string | null | undefined) {
+  const cfg = getCareTypeConfig(value);
+  return {
+    label: cfg.label,
+    icon: ICON_MAP[cfg.icon] || Stethoscope,
+    bgColor: cfg.bgColor,
+    textColor: cfg.textColor,
+  };
+}
 
 // Blank bulletin templates for download
 const BULLETIN_TEMPLATES = [
@@ -258,7 +276,13 @@ interface AdherentProfile {
 
 // Form schema for bulletin submission
 const bulletinFormSchema = z.object({
-  care_type: z.enum(['consultation', 'pharmacy', 'lab', 'hospital']),
+  care_type: z.enum([
+    'consultation', 'pharmacie', 'laboratoire', 'optique', 'chirurgie_refractive',
+    'actes_courants', 'transport', 'chirurgie', 'orthopedie', 'hospitalisation',
+    'accouchement', 'interruption_grossesse', 'dentaire', 'orthodontie',
+    'circoncision', 'sanatorium', 'cures_thermales', 'frais_funeraires',
+    'pharmacy', 'lab', 'hospital',
+  ]),
   bulletin_date: z.string().min(1, 'Date requise'),
   provider_name: z.string().min(2, 'Nom du praticien requis'),
   provider_specialty: z.string().optional(),
@@ -634,7 +658,7 @@ export function AdhérentBulletinsPage() {
       key: 'care_type',
       header: 'Type de soin',
       cell: (row: BulletinSoins) => {
-        const config = careTypeConfig[row.care_type as keyof typeof careTypeConfig] || careTypeConfig.consultation;
+        const config = careTypeDisplay(row.care_type);
         const Icon = config.icon;
         return (
           <div className="flex items-center gap-2">
@@ -857,10 +881,18 @@ export function AdhérentBulletinsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Tous les types</SelectItem>
-                      <SelectItem value="consultation">Consultation</SelectItem>
-                      <SelectItem value="pharmacy">Pharmacie</SelectItem>
-                      <SelectItem value="lab">Analyses</SelectItem>
-                      <SelectItem value="hospital">Hospitalisation</SelectItem>
+                      {ALL_CARE_TYPES.map((ct) => {
+                        const cfg = careTypeDisplay(ct);
+                        const Icon = cfg.icon;
+                        return (
+                          <SelectItem key={ct} value={ct}>
+                            <div className="flex items-center gap-2">
+                              <Icon className="h-4 w-4" />
+                              {cfg.label}
+                            </div>
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
@@ -947,36 +979,24 @@ export function AdhérentBulletinsPage() {
                         <Label>Type de soin *</Label>
                         <Select
                           value={selectedCareType}
-                          onValueChange={(v) => setValue('care_type', v as 'consultation' | 'pharmacy' | 'lab' | 'hospital')}
+                          onValueChange={(v) => setValue('care_type', v as BulletinFormData['care_type'])}
                         >
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="consultation">
-                              <div className="flex items-center gap-2">
-                                <Stethoscope className="h-4 w-4" />
-                                Consultation
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="pharmacy">
-                              <div className="flex items-center gap-2">
-                                <Pill className="h-4 w-4" />
-                                Pharmacie
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="lab">
-                              <div className="flex items-center gap-2">
-                                <FlaskConical className="h-4 w-4" />
-                                Analyses
-                              </div>
-                            </SelectItem>
-                            <SelectItem value="hospital">
-                              <div className="flex items-center gap-2">
-                                <Building2 className="h-4 w-4" />
-                                Hospitalisation
-                              </div>
-                            </SelectItem>
+                            {ALL_CARE_TYPES.map((ct) => {
+                              const cfg = careTypeDisplay(ct);
+                              const Icon = cfg.icon;
+                              return (
+                                <SelectItem key={ct} value={ct}>
+                                  <div className="flex items-center gap-2">
+                                    <Icon className="h-4 w-4" />
+                                    {cfg.label}
+                                  </div>
+                                </SelectItem>
+                              );
+                            })}
                           </SelectContent>
                         </Select>
                       </div>
@@ -1218,7 +1238,7 @@ export function AdhérentBulletinsPage() {
                 <div>
                   <p className="text-sm text-muted-foreground">Type de soin</p>
                   <p className="font-medium">
-                    {careTypeConfig[selectedBulletin.care_type as keyof typeof careTypeConfig]?.label || selectedBulletin.care_type}
+                    {careTypeDisplay(selectedBulletin.care_type).label}
                   </p>
                 </div>
                 <div>

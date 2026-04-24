@@ -4,6 +4,7 @@
 
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth';
+import { logAudit } from '../middleware/audit-trail';
 import type { Bindings, Variables } from '../types';
 import { generateId } from '../lib/ulid';
 
@@ -152,6 +153,16 @@ bulletinsArchive.post('/import-csv', async (c) => {
       }
     }
 
+    logAudit(db, {
+      userId: user.id,
+      action: 'bulletin_archive.import_csv',
+      entityType: 'bulletin_batch',
+      entityId: batchId,
+      changes: { batchName, year, companyId, imported, total: lines.length - 1, errorCount: errors.length },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json({
       success: true,
       data: {
@@ -260,6 +271,16 @@ bulletinsArchive.post('/upload-scans', async (c) => {
         results.push({ filename: file.name, status: 'error' });
       }
     }
+
+    logAudit(db, {
+      userId: user.id,
+      action: 'bulletin_archive.upload_scans',
+      entityType: 'bulletin_scan',
+      entityId: batchId || 'no-batch',
+      changes: { uploaded, matched, total: files.length },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,

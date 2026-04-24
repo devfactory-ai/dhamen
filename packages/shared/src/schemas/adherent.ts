@@ -22,6 +22,7 @@ export const ayantDroitSchema = z.object({
   // etatCivil déduit automatiquement: conjoint='marie', enfant='celibataire'
   phone: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')),
+  plafondGlobal: z.number().min(0).optional(), // Plafond individuel en millimes
 });
 
 export type AyantDroitInput = z.infer<typeof ayantDroitSchema>;

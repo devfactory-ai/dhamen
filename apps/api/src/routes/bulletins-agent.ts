@@ -1,4 +1,5 @@
-import { findActeRefByCode, listActesGroupesParFamille, listActesReferentiel } from '@dhamen/db';
+import { findActeRefByCode, findActeRefByCodeWithCoefficient, listActesGroupesParFamille, listActesReferentiel } from '@dhamen/db';
+// findActeRefByCode kept for acte_ref_id-based lookups in batch resolution
 /**
  * Bulletins Agent Routes
  * Routes for insurance agents to create, manage batches, and export bulletins
@@ -35,7 +36,7 @@ bulletinsAgent.use('*', authMiddleware());
 // ---------------------------------------------------------------------------
 const CARE_TYPE_TO_FAMILLE: Record<string, string> = {
   consultation_visite: 'fa-001',
-  actes_courants: 'fa-002',
+  actes_courants: 'fa-009',
   pharmacie: 'fa-003',
   laboratoire: 'fa-004',
   orthopedie: 'fa-005',
@@ -52,6 +53,29 @@ const CARE_TYPE_TO_FAMILLE: Record<string, string> = {
   chirurgie_refractive: 'fa-006', // linked to optique family
   sanatorium: 'fa-013',
   interruption_grossesse: 'fa-012',
+};
+
+// Default acte codes for care_types when no code is provided or code is not found (e.g., medication code_amm)
+const CARE_TYPE_DEFAULT_CODE: Record<string, string> = {
+  pharmacie: 'PH1', pharmacy: 'PH1',
+  laboratoire: 'AN', laboratory: 'AN', lab: 'AN',
+  optique: 'OPT', optical: 'OPT',
+  chirurgie: 'KC', surgery: 'KC',
+  dentaire: 'SD', dental: 'SD',
+  actes_courants: 'AM', medical_acts: 'AM',
+  hospitalisation: 'CL', hospitalization: 'CL', hospital: 'CL',
+  hospitalisation_hopital: 'HP',
+  accouchement: 'ACC', maternity: 'ACC',
+  orthodontie: 'ODF', orthodontics: 'ODF',
+  orthopedie: 'ORP', orthopedics: 'ORP',
+  circoncision: 'CIR', circumcision: 'CIR',
+  transport: 'TR',
+  frais_funeraires: 'FF', funeral: 'FF',
+  cures_thermales: 'CT', thermal_cure: 'CT',
+  chirurgie_refractive: 'AM', refractive_surgery: 'AM',
+  interruption_grossesse: 'IG',
+  sanatorium: 'HP',
+  consultation: 'C1',
 };
 
 /**
@@ -78,7 +102,7 @@ async function initializePlafondsForAdherent(
     .all<{ care_type: string; annual_limit: number }>();
 
   for (const year of years) {
-    // Per-famille plafonds from guarantees
+    // Per-famille plafonds from guarantees (individual per member)
     for (const g of (guarantees ?? [])) {
       const familleId = CARE_TYPE_TO_FAMILLE[g.care_type];
       if (!familleId) continue;
@@ -99,7 +123,7 @@ async function initializePlafondsForAdherent(
       }
     }
 
-    // Global plafond
+    // Global plafond — individual per member (principal AND ayants droit each get their own)
     if (globalLimit) {
       const globalMillimes = globalLimit * 1000;
       try {
@@ -153,6 +177,163 @@ function mapNatureActeToCode(natureActe: string): { code: string; label: string 
 }
 
 // ---------------------------------------------------------------------------
+// File hash duplicate check (pre-OCR, saves Gemini tokens)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /bulletins-soins/agent/check-file-hash?hash=<sha256> - Check if a file was already analysed
+ * Hash is computed client-side in the browser (no file upload needed = fast).
+ * Should be called BEFORE sending to OCR to avoid wasting tokens.
+ */
+bulletinsAgent.get('/check-file-hash', async (c) => {
+  const fileHash = c.req.query('hash')?.trim();
+  if (!fileHash || fileHash.length !== 64) {
+    return c.json({ success: true, data: { isDuplicate: false } });
+  }
+
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const existing = await db
+    .prepare(
+      `SELECT id, bulletin_number, status, bulletin_date, adherent_first_name, adherent_last_name,
+              care_type, total_amount, reimbursed_amount, created_at
+       FROM bulletins_soins
+       WHERE file_hash = ? AND status NOT IN ('deleted')
+       ORDER BY created_at DESC LIMIT 1`
+    )
+    .bind(fileHash)
+    .first<{
+      id: string; bulletin_number: string; status: string; bulletin_date: string;
+      adherent_first_name: string; adherent_last_name: string;
+      care_type: string; total_amount: number | null; reimbursed_amount: number | null;
+      created_at: string;
+    }>();
+
+  if (existing) {
+    return c.json({
+      success: true,
+      data: {
+        isDuplicate: true,
+        bulletin: {
+          id: existing.id,
+          bulletinNumber: existing.bulletin_number,
+          status: existing.status,
+          date: existing.bulletin_date,
+          adherent: `${existing.adherent_first_name || ''} ${existing.adherent_last_name || ''}`.trim(),
+          careType: existing.care_type,
+          totalAmount: existing.total_amount,
+          reimbursedAmount: existing.reimbursed_amount,
+          createdAt: existing.created_at,
+        },
+      },
+    });
+  }
+
+  return c.json({ success: true, data: { isDuplicate: false } });
+});
+
+/**
+ * POST /bulletins-soins/agent/check-file-duplicate - Server-side duplicate check with file upload
+ * Computes SHA-256 hash from uploaded files (same algorithm as /analyse-bulletin and /create).
+ * Call this BEFORE /analyse-bulletin to avoid wasting OCR/Gemini tokens.
+ */
+bulletinsAgent.post('/check-file-duplicate', async (c) => {
+  const user = c.get('user') as { id: string; role: string; insurerId?: string };
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+  }
+
+  try {
+    const body = await c.req.parseBody({ all: true });
+    const files = body['files'];
+    const fileList: File[] = [];
+    if (Array.isArray(files)) {
+      for (const f of files) { if (f instanceof File) fileList.push(f); }
+    } else if (files instanceof File) {
+      fileList.push(files);
+    }
+
+    if (fileList.length === 0) {
+      return c.json({ success: true, data: { files: [] } });
+    }
+
+    // Hash each file individually (keep order = file index)
+    const fileHashes: { index: number; name: string; hash: string }[] = [];
+    for (let i = 0; i < fileList.length; i++) {
+      const buf = await fileList[i]!.arrayBuffer();
+      const h = await crypto.subtle.digest('SHA-256', buf);
+      const hex = Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
+      fileHashes.push({ index: i, name: fileList[i]!.name, hash: hex });
+    }
+
+    // Also compute combined hash (for multi-file bulletins stored with old algorithm)
+    const sortedHashes = [...fileHashes.map(f => f.hash)].sort();
+    const combined = new TextEncoder().encode(sortedHashes.join(''));
+    const finalHash = await crypto.subtle.digest('SHA-256', combined);
+    const combinedHash = Array.from(new Uint8Array(finalHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    // All unique hashes to check: individual + combined
+    const allHashes = new Set([...fileHashes.map(f => f.hash), combinedHash]);
+
+    console.log(`[check-file-duplicate] files=${fileList.length}, hashes=[${[...allHashes].map(h => h.slice(0, 12)).join(',')}]`);
+
+    const db = c.get('tenantDb') ?? c.env.DB;
+    const placeholders = [...allHashes].map(() => '?').join(',');
+    const results = await db
+      .prepare(
+        `SELECT id, bulletin_number, status, bulletin_date, adherent_first_name, adherent_last_name,
+                care_type, total_amount, reimbursed_amount, file_hash, created_at
+         FROM bulletins_soins
+         WHERE file_hash IN (${placeholders}) AND status NOT IN ('deleted')
+         ORDER BY created_at DESC`
+      )
+      .bind(...allHashes)
+      .all<{
+        id: string; bulletin_number: string; status: string; bulletin_date: string;
+        adherent_first_name: string; adherent_last_name: string;
+        care_type: string; total_amount: number | null; reimbursed_amount: number | null;
+        file_hash: string; created_at: string;
+      }>();
+
+    const found = results.results || [];
+    const matchedHashes = new Set(found.map(b => b.file_hash));
+
+    // Build per-file response: which files are duplicates, which are clean
+    const filesResponse = fileHashes.map(f => {
+      const match = found.find(b => b.file_hash === f.hash);
+      // Also check if combined hash matched (old algorithm: single file stored as combined)
+      const combinedMatch = !match && matchedHashes.has(combinedHash) && fileList.length === 1
+        ? found.find(b => b.file_hash === combinedHash) : null;
+      const dup = match || combinedMatch;
+      return {
+        index: f.index,
+        name: f.name,
+        hash: f.hash,
+        isDuplicate: !!dup,
+        bulletin: dup ? {
+          id: dup.id,
+          bulletinNumber: dup.bulletin_number,
+          status: dup.status,
+          date: dup.bulletin_date,
+          adherent: `${dup.adherent_first_name || ''} ${dup.adherent_last_name || ''}`.trim(),
+          careType: dup.care_type,
+          totalAmount: dup.total_amount,
+          reimbursedAmount: dup.reimbursed_amount,
+          createdAt: dup.created_at,
+        } : null,
+      };
+    });
+
+    const hasDuplicates = filesResponse.some(f => f.isDuplicate);
+    console.log(`[check-file-duplicate] ${filesResponse.filter(f => f.isDuplicate).length}/${fileList.length} duplicates`);
+
+    return c.json({ success: true, data: { isDuplicate: hasDuplicates, files: filesResponse } });
+  } catch (error) {
+    console.error('[check-file-duplicate] Error:', error);
+    return c.json({ success: true, data: { isDuplicate: false } });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // OCR proxy endpoint (REQ-010 / TASK-001)
 // ---------------------------------------------------------------------------
 
@@ -173,14 +354,81 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
   try {
     const body = await c.req.parseBody({ all: true });
     const files = body['files'];
+    const forceReanalyse = c.req.query('force') === 'true';
 
-    const proxyForm = new FormData();
+    // --- File hash deduplication: check BEFORE calling OCR to save tokens ---
+    const fileList: File[] = [];
     if (Array.isArray(files)) {
-      for (const file of files) {
-        if (file instanceof File) proxyForm.append('files', file);
-      }
+      for (const f of files) { if (f instanceof File) fileList.push(f); }
     } else if (files instanceof File) {
-      proxyForm.append('files', files);
+      fileList.push(files);
+    }
+
+    // Compute SHA-256 hash — single file = direct hash, multiple = hash each, sort, combine
+    let fileHash: string | null = null;
+    if (fileList.length === 1) {
+      const buf = await fileList[0]!.arrayBuffer();
+      const h = await crypto.subtle.digest('SHA-256', buf);
+      fileHash = Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
+    } else if (fileList.length > 1) {
+      const perFileHashes: string[] = [];
+      for (const f of fileList) {
+        const buf = await f.arrayBuffer();
+        const h = await crypto.subtle.digest('SHA-256', buf);
+        perFileHashes.push(Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join(''));
+      }
+      perFileHashes.sort();
+      const combined = new TextEncoder().encode(perFileHashes.join(''));
+      const finalHash = await crypto.subtle.digest('SHA-256', combined);
+      fileHash = Array.from(new Uint8Array(finalHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Check if this exact file was already analysed
+    const db = c.get('tenantDb') ?? c.env.DB;
+    if (fileHash && !forceReanalyse) {
+      const existing = await db
+        .prepare(
+          `SELECT id, bulletin_number, status, bulletin_date, adherent_first_name, adherent_last_name,
+                  care_type, total_amount, reimbursed_amount, created_at
+           FROM bulletins_soins
+           WHERE file_hash = ? AND status NOT IN ('deleted')
+           ORDER BY created_at DESC LIMIT 1`
+        )
+        .bind(fileHash)
+        .first<{
+          id: string; bulletin_number: string; status: string; bulletin_date: string;
+          adherent_first_name: string; adherent_last_name: string;
+          care_type: string; total_amount: number | null; reimbursed_amount: number | null;
+          created_at: string;
+        }>();
+
+      if (existing) {
+        console.log(`[analyse-bulletin] Duplicate file detected (hash=${fileHash.slice(0, 12)}…), bulletin=${existing.id}`);
+        return c.json({
+          success: true,
+          data: {
+            _file_already_analysed: {
+              message: `Ce document a déjà été analysé et enregistré comme bulletin N° ${existing.bulletin_number}.`,
+              bulletinId: existing.id,
+              bulletinNumber: existing.bulletin_number,
+              status: existing.status,
+              date: existing.bulletin_date,
+              adherent: `${existing.adherent_first_name || ''} ${existing.adherent_last_name || ''}`.trim(),
+              careType: existing.care_type,
+              totalAmount: existing.total_amount,
+              reimbursedAmount: existing.reimbursed_amount,
+              createdAt: existing.created_at,
+              fileHash,
+            },
+          },
+        });
+      }
+    }
+
+    // Build proxy form for OCR service
+    const proxyForm = new FormData();
+    for (const file of fileList) {
+      proxyForm.append('files', file);
     }
 
     let ocrRes: Response;
@@ -220,8 +468,6 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
     const parsed = JSON.parse(cleaned);
 
     // Enrich volet_medical with matched acte codes (TASK-003)
-    const db = c.get('tenantDb') ?? c.env.DB;
-
     if (parsed && Array.isArray(parsed.volet_medical)) {
       for (const acte of parsed.volet_medical) {
         const match = mapNatureActeToCode(acte.nature_acte || '');
@@ -361,6 +607,11 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
           existing_reimbursed: existing.reimbursed_amount,
         };
       }
+    }
+
+    // Attach file hash to response so frontend can store it when creating the bulletin
+    if (fileHash) {
+      parsed._file_hash = fileHash;
     }
 
     return c.json({ success: true, data: parsed });
@@ -987,6 +1238,22 @@ bulletinsAgent.post('/analyse-bulk', async (c) => {
       return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Aucun fichier fourni' } }, 400);
     }
 
+    // Parse optional folder grouping metadata: { "groupName": ["file1.jpg", "file2.jpg"], ... }
+    // Allows folder imports to use the same queue-based processing as ZIP imports
+    const fileGroupMapping = new Map<string, string>();
+    const groupingRaw = formData.get('grouping') as string | null;
+    if (groupingRaw) {
+      try {
+        const grouping = JSON.parse(groupingRaw) as Record<string, string[]>;
+        for (const [groupName, fileNames] of Object.entries(grouping)) {
+          for (const fn of fileNames) {
+            fileGroupMapping.set(fn, groupName);
+          }
+        }
+        console.log(`[analyse-bulk] Folder grouping: ${Object.keys(grouping).length} group(s) from metadata`);
+      } catch { console.warn('[analyse-bulk] Invalid grouping JSON, ignoring'); }
+    }
+
     console.log(`[analyse-bulk] ${files.length} file(s), first: ${files[0]?.name} (${files[0]?.size} bytes)`);
 
     const ocrJobId = generateId();
@@ -1068,17 +1335,18 @@ bulletinsAgent.post('/analyse-bulk', async (c) => {
           bulletinGroups.get(groupKey)!.files.push({ name: fileName, data: entryData, type });
         }
       } else {
-        const groupKey = '__direct_files';
+        // Non-ZIP files: group by 'grouping' metadata if provided, else single group
+        const data = new Uint8Array(await file.arrayBuffer());
+        const groupKey = fileGroupMapping.get(file.name) || '__direct_files';
         if (!bulletinGroups.has(groupKey)) {
           bulletinGroups.set(groupKey, { bulletinId: generateId(), files: [] });
         }
-        const data = new Uint8Array(await file.arrayBuffer());
         bulletinGroups.get(groupKey)!.files.push({ name: file.name, data, type: file.type });
       }
     }
 
     if (bulletinGroups.size === 0) {
-      return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Aucun fichier exploitable trouvé dans le(s) ZIP' } }, 400);
+      return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Aucun fichier exploitable trouvé' } }, 400);
     }
 
     console.log(`[analyse-bulk] ${bulletinGroups.size} bulletin group(s) detected`);
@@ -1336,6 +1604,16 @@ bulletinsAgent.post('/ocr-jobs/:id/retry', async (c) => {
       await db.prepare(`UPDATE bulletin_ocr_jobs SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?`).bind(ts, ts, jobId).run();
     })()
   );
+
+  logAudit(db, {
+    userId: user.id,
+    action: 'ocr_job.retry',
+    entityType: 'ocr_job',
+    entityId: jobId,
+    changes: { totalBulletins: bulletinGroups.size, bulletinIds },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
 
   return c.json({
     success: true,
@@ -1596,6 +1874,16 @@ bulletinsAgent.delete('/:id', async (c) => {
       db.prepare('DELETE FROM actes_bulletin WHERE bulletin_id = ?').bind(bulletinId),
       db.prepare('DELETE FROM bulletins_soins WHERE id = ?').bind(bulletinId),
     ]);
+
+    logAudit(db, {
+      userId: user.id,
+      action: 'bulletin.delete',
+      entityType: 'bulletin',
+      entityId: bulletinId,
+      changes: { previous_status: bulletin.status },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({ success: true, data: { id: bulletinId } });
   } catch (error) {
@@ -1946,26 +2234,59 @@ bulletinsAgent.post('/estimate', async (c) => {
     let total = 0;
     const estimateBatchCtx: CalculBatchContext = {};
     for (const acte of actes) {
-      const code = acte.code?.trim();
+      let code = acte.code?.trim();
+      // For care_types with known default codes, prefer the default code for bareme lookup
+      // This avoids medication codes (code_amm) being fuzzy-matched to wrong actes
+      const defaultCode = acte.care_type ? CARE_TYPE_DEFAULT_CODE[acte.care_type] : undefined;
+      if (!code && defaultCode) {
+        // Only use default code when user didn't provide one
+        code = defaultCode;
+      }
       if (!code) { details.push({ code: null, amount: acte.amount, reimbursed: 0 }); continue; }
-      const ref = await findActeRefByCode(db, code);
-      if (!ref) { details.push({ code, amount: acte.amount, reimbursed: 0 }); continue; }
+      let refResult = await findActeRefByCodeWithCoefficient(db, code);
+      // Fallback: if code is not found in actes_referentiel (e.g., medication code_amm "303765"),
+      // use the default code for this care_type (e.g., PH1 for pharmacie)
+      if (!refResult && defaultCode && code !== defaultCode) {
+        refResult = await findActeRefByCodeWithCoefficient(db, defaultCode);
+      }
+      if (!refResult) { details.push({ code, amount: acte.amount, reimbursed: 0 }); continue; }
+      const ref = refResult.acte;
       try {
         const calcInput: CalculRemboursementInput = {
           adherentId: adherent.id,
           contractId: contract.id,
-          acteRefId: (ref as { id: string }).id,
+          acteRefId: ref.id,
           fraisEngages: acte.amount,
           dateSoin: bulletin_date,
           typeMaladie: 'ordinaire',
+          nbrCle: refResult.parsedCoefficient ?? (acte as Record<string, unknown>).nbr_cle as number | undefined,
+          nombreJours: (acte as Record<string, unknown>).nombre_jours as number | undefined,
+          careType: acte.care_type || undefined,
         };
         const result = await calculerRemboursement(db, calcInput, estimateBatchCtx);
         total += result.montantRembourse;
-        details.push({ code, amount: acte.amount, reimbursed: result.montantRembourse, type: result.typeCalcul, valeur: result.valeurBareme });
+        details.push({
+          code, amount: acte.amount, reimbursed: result.montantRembourse,
+          type: result.typeCalcul, valeur: result.valeurBareme,
+          plafonds: {
+            acte: { applied: result.plafondActeApplique, valeur: result.details.plafondActeValeur },
+            jour: { applied: result.plafondJourApplique, valeur: result.details.plafondJourValeur },
+            famille: { applied: result.plafondFamilleApplique },
+            global: { applied: result.plafondGlobalApplique },
+          },
+          breakdown: {
+            brut: result.details.montantBrut,
+            apresJour: result.details.apresPlafondJour,
+            apresActe: result.details.apresPlafondActe,
+            apresFamille: result.details.apresPlafondFamille,
+            apresGlobal: result.details.apresPlafondGlobal,
+          },
+          _debug: result._debug,
+        });
       } catch {
         // Fallback to referentiel rate
         const taux = (ref as { taux_remboursement?: number }).taux_remboursement || 0;
-        const reimbursed = Math.round(acte.amount * taux);
+        const reimbursed = Math.floor(acte.amount * taux * 1000) / 1000;
         total += reimbursed;
         details.push({ code, amount: acte.amount, taux, reimbursed });
       }
@@ -2039,6 +2360,7 @@ bulletinsAgent.post('/create', async (c) => {
   const batchId = (formData['batch_id'] as string) || null;
   const companyId = (formData['company_id'] as string) || null;
   const userBulletinNumber = (formData['bulletin_number'] as string) || null;
+  const frontendFileHash = (formData['file_hash'] as string) || null;
 
   // Parse actes array (JSON string from form)
   const actesRaw = formData['actes'] as string;
@@ -2152,23 +2474,80 @@ bulletinsAgent.post('/create', async (c) => {
     }
   }
 
-  // Handle file upload (scan)
+  // Handle file upload (scan) + compute server-side file hash
   let scanUrl: string | null = null;
   const storage = c.env.STORAGE;
+  const scanBuffers: ArrayBuffer[] = [];
 
-  // Find scan files in formData
-  for (const key of Object.keys(formData)) {
-    if (key.startsWith('scan_') && formData[key] instanceof File) {
-      const file = formData[key] as File;
-      if (file.size > 0) {
-        const fileName = `bulletins/${bulletinId}/${key}_${file.name}`;
-        const arrayBuffer = await file.arrayBuffer();
-        await storage.put(fileName, arrayBuffer, {
-          httpMetadata: { contentType: file.type },
-        });
-        scanUrl = `https://dhamen-files.${c.env.ENVIRONMENT === 'production' ? '' : 'dev.'}r2.cloudflarestorage.com/${fileName}`;
-        break; // Just use the first scan for now
+  // Collect all scan files and upload them in parallel
+  const scanKeys = Object.keys(formData).filter(k => k.startsWith('scan_') && formData[k] instanceof File).sort();
+  const uploadPromises = scanKeys.map(async (key) => {
+    const file = formData[key] as File;
+    if (file.size > 0) {
+      const arrayBuffer = await file.arrayBuffer();
+      const fileName = `bulletins/${bulletinId}/${key}_${file.name}`;
+      await storage.put(fileName, arrayBuffer, {
+        httpMetadata: { contentType: file.type },
+      });
+      return { arrayBuffer, fileName };
+    }
+    return null;
+  });
+  const uploadResults = await Promise.all(uploadPromises);
+  for (const result of uploadResults) {
+    if (result) {
+      scanBuffers.push(result.arrayBuffer);
+      if (!scanUrl) {
+        scanUrl = `https://dhamen-files.${c.env.ENVIRONMENT === 'production' ? '' : 'dev.'}r2.cloudflarestorage.com/${result.fileName}`;
       }
+    }
+  }
+
+  // Compute file hash server-side from scan files
+  // Single file → direct SHA-256 of the file (so individual checks match)
+  // Multiple files → hash each, sort, combine, re-hash
+  let fileHash: string | null = frontendFileHash;
+  if (scanBuffers.length === 1) {
+    const h = await crypto.subtle.digest('SHA-256', scanBuffers[0]!);
+    fileHash = Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
+  } else if (scanBuffers.length > 1) {
+    const perFileHashes: string[] = [];
+    for (const buf of scanBuffers) {
+      const h = await crypto.subtle.digest('SHA-256', buf);
+      perFileHashes.push(Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join(''));
+    }
+    perFileHashes.sort();
+    const combined = new TextEncoder().encode(perFileHashes.join(''));
+    const finalHash = await crypto.subtle.digest('SHA-256', combined);
+    fileHash = Array.from(new Uint8Array(finalHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // Server-side duplicate detection using file hash
+  if (fileHash) {
+    const existingByHash = await db
+      .prepare(
+        `SELECT id, bulletin_number, status, total_amount, adherent_first_name, adherent_last_name
+         FROM bulletins_soins
+         WHERE file_hash = ? AND status NOT IN ('deleted')
+         ORDER BY created_at DESC LIMIT 1`
+      )
+      .bind(fileHash)
+      .first<{ id: string; bulletin_number: string; status: string; total_amount: number | null; adherent_first_name: string; adherent_last_name: string }>();
+
+    if (existingByHash) {
+      return c.json({
+        success: false,
+        error: {
+          code: 'DUPLICATE_FILE',
+          message: `Ce fichier a déjà été enregistré comme bulletin N° ${existingByHash.bulletin_number} (${existingByHash.adherent_first_name || ''} ${existingByHash.adherent_last_name || ''}).`,
+          existingBulletin: {
+            id: existingByHash.id,
+            bulletinNumber: existingByHash.bulletin_number,
+            status: existingByHash.status,
+            totalAmount: existingByHash.total_amount,
+          },
+        },
+      }, 409);
     }
   }
 
@@ -2561,43 +2940,38 @@ bulletinsAgent.post('/create', async (c) => {
       })
     );
 
-    // Phase 2: Sequential auto-registration only for providers not found
-    for (let i = 0; i < actes.length; i++) {
-      const mfData = actesMfData[i]!;
-      const lookupResult = lookupResults[i]!;
+    // Phase 2: Parallel auto-registration for providers not found
+    // First pass: identify which need registration and check license_no in parallel
+    const registrationChecks = await Promise.all(
+      actesMfData.map(async (mfData, i) => {
+        const lookupResult = lookupResults[i]!;
+        if (mfData.skip) return { action: 'skip' as const, id: null };
+        if (lookupResult.found) return { action: 'found' as const, id: lookupResult.id };
 
-      if (mfData.skip) {
-        providerIds.push(null);
-        continue;
-      }
-
-      if (lookupResult.found) {
-        providerIds.push(lookupResult.id);
-        continue;
-      }
-
-      // Provider not found — auto-register
-      const acte = mfData.acte;
-      const acteCareType = (acte.care_type || careType || 'consultation') as string;
-      const provType = acteCareType === 'pharmacy' ? 'pharmacist' : acteCareType === 'lab' ? 'lab' : acteCareType === 'hospital' ? 'clinic' : 'doctor';
-      const effectiveName = mfData.nomPraticien.length >= 2 ? mfData.nomPraticien : `Praticien MF ${mfData.normalizedMf}`;
-
-      try {
-        const newProviderId = generateId();
         const licenseNo = `MF-${mfData.normalizedMf}`;
-
-        // Check if license_no already exists (UNIQUE constraint)
         const existingByLicense = await db
           .prepare('SELECT id, name FROM providers WHERE license_no = ? AND deleted_at IS NULL LIMIT 1')
           .bind(licenseNo)
           .first<{ id: string; name: string }>();
+        if (existingByLicense) return { action: 'found' as const, id: existingByLicense.id };
+        return { action: 'register' as const, id: null, licenseNo };
+      })
+    );
 
-        if (existingByLicense) {
-          providerIds.push(existingByLicense.id);
-          continue;
-        }
+    // Second pass: register all missing providers in parallel
+    const registrationResults = await Promise.allSettled(
+      registrationChecks.map(async (check, i) => {
+        if (check.action !== 'register') return check.id;
 
-        // Insert into providers table
+        const mfData = actesMfData[i]!;
+        const acte = mfData.acte;
+        const acteCareType = (acte.care_type || careType || 'consultation') as string;
+        const provType = acteCareType === 'pharmacy' ? 'pharmacist' : acteCareType === 'lab' ? 'lab' : acteCareType === 'hospital' ? 'clinic' : 'doctor';
+        const effectiveName = mfData.nomPraticien.length >= 2 ? mfData.nomPraticien : `Praticien MF ${mfData.normalizedMf}`;
+
+        const newProviderId = generateId();
+        const licenseNo = check.licenseNo!;
+
         await db
           .prepare(
             `INSERT INTO providers (id, type, name, license_no, mf_number, mf_verified, is_active, address, city, created_at, updated_at)
@@ -2606,7 +2980,7 @@ bulletinsAgent.post('/create', async (c) => {
           .bind(newProviderId, provType, effectiveName, licenseNo, mfData.rawMf)
           .run();
 
-        // Fire secondary inserts in parallel (sante_praticiens, MF verification, audit)
+        // Fire secondary inserts in parallel (non-blocking)
         const santePraticienId = generateId();
         const santeType = acteCareType === 'pharmacy' ? 'pharmacien'
           : acteCareType === 'lab' ? 'laborantin'
@@ -2619,20 +2993,14 @@ bulletinsAgent.post('/create', async (c) => {
         const verificationId = generateId();
 
         await Promise.allSettled([
-          db
-            .prepare(
-              `INSERT INTO sante_praticiens (id, provider_id, nom, specialite, type_praticien, est_conventionne, is_active, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'), datetime('now'))`
-            )
-            .bind(santePraticienId, newProviderId, effectiveName, santeSpecialite, santeType)
-            .run(),
-          db
-            .prepare(
-              `INSERT INTO practitioner_mf_verifications (id, provider_id, mf_number, verification_status, created_at, updated_at)
-               VALUES (?, ?, ?, 'pending', datetime('now'), datetime('now'))`
-            )
-            .bind(verificationId, newProviderId, mfData.rawMf)
-            .run(),
+          db.prepare(
+            `INSERT INTO sante_praticiens (id, provider_id, nom, specialite, type_praticien, est_conventionne, is_active, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'), datetime('now'))`
+          ).bind(santePraticienId, newProviderId, effectiveName, santeSpecialite, santeType).run(),
+          db.prepare(
+            `INSERT INTO practitioner_mf_verifications (id, provider_id, mf_number, verification_status, created_at, updated_at)
+             VALUES (?, ?, ?, 'pending', datetime('now'), datetime('now'))`
+          ).bind(verificationId, newProviderId, mfData.rawMf).run(),
           logAudit(db, {
             userId: user.id,
             action: 'provider.auto_register',
@@ -2645,15 +3013,26 @@ bulletinsAgent.post('/create', async (c) => {
         ]);
 
         console.log('[PROVIDER-LOOKUP] Auto-registered provider:', newProviderId, effectiveName, mfData.normalizedMf);
-        providerIds.push(newProviderId);
         newlyRegisteredProviders.push({ id: newProviderId, name: effectiveName, mfNumber: mfData.normalizedMf });
-      } catch (providerError) {
-        const errMsg = providerError instanceof Error ? providerError.message : String(providerError);
-        console.error('[PROVIDER-LOOKUP] Auto-register failed:', errMsg, providerError);
-        newlyRegisteredProviders.push({ id: 'ERROR', name: errMsg, mfNumber: mfData.normalizedMf });
+        return newProviderId;
+      })
+    );
+
+    // Collect provider IDs from results
+    for (let i = 0; i < registrationChecks.length; i++) {
+      const check = registrationChecks[i]!;
+      if (check.action === 'skip') { providerIds.push(null); continue; }
+      if (check.action === 'found') { providerIds.push(check.id); continue; }
+      const result = registrationResults[i]!;
+      if (result.status === 'fulfilled') {
+        providerIds.push(result.value);
+      } else {
+        const errMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        console.error('[PROVIDER-LOOKUP] Auto-register failed:', errMsg);
+        newlyRegisteredProviders.push({ id: 'ERROR', name: errMsg, mfNumber: actesMfData[i]!.normalizedMf });
         const retryProvider = await db
           .prepare('SELECT id, name FROM providers WHERE mf_number = ? AND deleted_at IS NULL LIMIT 1')
-          .bind(mfData.normalizedMf)
+          .bind(actesMfData[i]!.normalizedMf)
           .first<{ id: string; name: string }>();
         providerIds.push(retryProvider?.id || null);
       }
@@ -2678,8 +3057,8 @@ bulletinsAgent.post('/create', async (c) => {
         beneficiary_id, beneficiary_name, beneficiary_relationship,
         provider_id, provider_name, provider_specialty, care_type, care_description,
         total_amount, scan_url, batch_id, company_id, status, created_by,
-        submission_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
+        file_hash, submission_date, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
     `)
       .bind(
         bulletinId,
@@ -2704,7 +3083,8 @@ bulletinsAgent.post('/create', async (c) => {
         batchId,
         companyId,
         status,
-        user.id
+        user.id,
+        fileHash
       )
       .run();
 
@@ -2748,10 +3128,20 @@ bulletinsAgent.post('/create', async (c) => {
             }
             const code = acte.code?.trim();
             if (code) {
-              const ref = await findActeRefByCode(db, code);
-              return { ref: ref as { id: string; taux_remboursement: number } | null, code };
+              let refResult = await findActeRefByCodeWithCoefficient(db, code);
+              // Fallback: if code not found (e.g., medication code_amm), use default code for care_type
+              if (!refResult) {
+                const defaultCode = (acte.care_type || careType) ? CARE_TYPE_DEFAULT_CODE[acte.care_type || careType] : undefined;
+                if (defaultCode && code !== defaultCode) {
+                  refResult = await findActeRefByCodeWithCoefficient(db, defaultCode);
+                }
+              }
+              if (refResult) {
+                return { ref: refResult.acte as { id: string; taux_remboursement: number }, code, parsedCoefficient: refResult.parsedCoefficient };
+              }
+              return { ref: null, code, parsedCoefficient: null };
             }
-            return { ref: null, code: '' };
+            return { ref: null, code: '', parsedCoefficient: null };
           })
         ),
         // Parallel medication lookups — skip if medication_id provided
@@ -2809,32 +3199,28 @@ bulletinsAgent.post('/create', async (c) => {
                   | 'ordinaire'
                   | 'chronique',
                 medicationFamilyId: medMatch?.medicationFamilyId ?? undefined,
+                nbrCle: (acteRefInfo as { parsedCoefficient?: number | null }).parsedCoefficient ?? (acte as Record<string, unknown>).nbr_cle as number | undefined,
+                nombreJours: (acte as Record<string, unknown>).nombre_jours as number | undefined,
+                careType: (acte as Record<string, unknown>).care_type as string | undefined || careType || undefined,
               };
               const result = await calculerRemboursement(db, calcInput, batchCtx);
               baremeResults.push(result);
               totalRembourse += result.montantRembourse;
             } catch {
               // If bareme not found, use legacy calculation for this acte
+              const fallbackAmt = Math.floor(acte.amount * (acteRefInfo.ref.taux_remboursement || 0) * 1000) / 1000;
               baremeResults.push({
-                montantRembourse: Math.round(
-                  acte.amount * (acteRefInfo.ref.taux_remboursement || 0)
-                ),
+                montantRembourse: fallbackAmt,
                 typeCalcul: 'taux',
                 valeurBareme: acteRefInfo.ref.taux_remboursement || 0,
                 plafondActeApplique: false,
                 plafondFamilleApplique: false,
                 plafondGlobalApplique: false,
                 details: {
-                  montantBrut: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)),
-                  apresPlafondActe: Math.round(
-                    acte.amount * (acteRefInfo.ref.taux_remboursement || 0)
-                  ),
-                  apresPlafondFamille: Math.round(
-                    acte.amount * (acteRefInfo.ref.taux_remboursement || 0)
-                  ),
-                  apresPlafondGlobal: Math.round(
-                    acte.amount * (acteRefInfo.ref.taux_remboursement || 0)
-                  ),
+                  montantBrut: fallbackAmt,
+                  apresPlafondActe: fallbackAmt,
+                  apresPlafondFamille: fallbackAmt,
+                  apresPlafondGlobal: fallbackAmt,
                 },
               });
               totalRembourse += baremeResults[baremeResults.length - 1]!.montantRembourse;
@@ -3080,6 +3466,16 @@ bulletinsAgent.post('/create', async (c) => {
       }
     }
 
+    logAudit(db, {
+      userId: user.id,
+      action: 'bulletin.create',
+      entityType: 'bulletin',
+      entityId: bulletinId,
+      changes: { bulletinNumber, adherentMatricule, actesCount: actes.length, totalAmount, reimbursedAmount, status, companyId, batchId, adherentAutoCreated },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json(
       {
         success: true,
@@ -3178,6 +3574,16 @@ bulletinsAgent.post('/batches', async (c) => {
     `)
       .bind(batchId, name, isIndividualMode ? null : companyId, user.id)
       .run();
+
+    logAudit(db, {
+      userId: user.id,
+      action: 'batch.create',
+      entityType: 'batch',
+      entityId: batchId,
+      changes: { name, companyId },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json(
       {
@@ -3534,6 +3940,16 @@ bulletinsAgent.post('/import-lot', async (c) => {
       });
       totalImported++;
     }
+
+    logAudit(db, {
+      userId: user.id,
+      action: 'bulletin.import',
+      entityType: 'batch',
+      entityId: batchId,
+      changes: { batchName, companyId, totalImported, skipped, totalBulletins: bulletins.length },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json(
       {
@@ -3893,6 +4309,16 @@ bulletinsAgent.post('/:id/reject', async (c) => {
       .bind(notes, now, user.id, now, bulletinId)
       .run();
 
+    logAudit(db, {
+      userId: user.id,
+      action: 'bulletin.reject',
+      entityType: 'bulletin',
+      entityId: bulletinId,
+      changes: { previous_status: bulletin.status, notes },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json({
       success: true,
       data: { id: bulletinId, status: 'rejected', notes },
@@ -4219,10 +4645,20 @@ bulletinsAgent.post('/:id/update', async (c) => {
         actes.map(async (acte) => {
           const code = acte.code?.trim();
           if (code) {
-            const ref = await findActeRefByCode(db, code);
-            return { ref: ref as { id: string; taux_remboursement: number } | null, code };
+            let refResult = await findActeRefByCodeWithCoefficient(db, code);
+            // Fallback: if code not found (e.g., medication code_amm), use default code for care_type
+            if (!refResult) {
+              const defaultCode = (acte.care_type || careType) ? CARE_TYPE_DEFAULT_CODE[acte.care_type || careType] : undefined;
+              if (defaultCode && code !== defaultCode) {
+                refResult = await findActeRefByCodeWithCoefficient(db, defaultCode);
+              }
+            }
+            if (refResult) {
+              return { ref: refResult.acte as { id: string; taux_remboursement: number }, code, parsedCoefficient: refResult.parsedCoefficient };
+            }
+            return { ref: null, code, parsedCoefficient: null };
           }
-          return { ref: null, code: '' };
+          return { ref: null, code: '', parsedCoefficient: null };
         })
       ),
       Promise.all(
@@ -4264,16 +4700,20 @@ bulletinsAgent.post('/:id/update', async (c) => {
               dateSoin: bulletinDate,
               typeMaladie: (careType === 'pharmacie_chronique' ? 'chronique' : 'ordinaire') as 'ordinaire' | 'chronique',
               medicationFamilyId: medMatch?.medicationFamilyId ?? undefined,
+              nbrCle: (acteRefInfo as { parsedCoefficient?: number | null }).parsedCoefficient ?? (acte as Record<string, unknown>).nbr_cle as number | undefined,
+              nombreJours: (acte as Record<string, unknown>).nombre_jours as number | undefined,
+              careType: (acte as Record<string, unknown>).care_type as string | undefined || careType || undefined,
             };
             const result = await calculerRemboursement(db, calcInput, updateBatchCtx);
             baremeResults.push(result);
             totalRembourse += result.montantRembourse;
           } catch {
+            const fbAmt = Math.floor(acte.amount * (acteRefInfo.ref.taux_remboursement || 0) * 1000) / 1000;
             baremeResults.push({
-              montantRembourse: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)),
+              montantRembourse: fbAmt,
               typeCalcul: 'taux', valeurBareme: acteRefInfo.ref.taux_remboursement || 0,
               plafondActeApplique: false, plafondFamilleApplique: false, plafondGlobalApplique: false,
-              details: { montantBrut: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)), apresPlafondActe: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)), apresPlafondFamille: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)), apresPlafondGlobal: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)) },
+              details: { montantBrut: fbAmt, apresPlafondActe: fbAmt, apresPlafondFamille: fbAmt, apresPlafondGlobal: fbAmt },
             });
             totalRembourse += baremeResults[baremeResults.length - 1]!.montantRembourse;
           }
