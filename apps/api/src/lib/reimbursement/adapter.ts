@@ -391,7 +391,11 @@ export async function buildAnnualContext(
   typeMaladie: 'ordinaire' | 'chronique',
   familleId: string | null,
   batchCtx?: CalculBatchContext,
-): Promise<{ context: AnnualContext; annualGlobalLimit: number | null }> {
+): Promise<{
+  context: AnnualContext;
+  annualGlobalLimit: number | null;
+  effectiveCategoryCeiling: number | null;
+}> {
   // 1. Get annual global limit from group_contracts (DT → millimes)
   let annualGlobalLimit: number | null = null;
   const contract = await db
@@ -404,7 +408,10 @@ export async function buildAnnualContext(
   }
 
   // 2. Get category plafond consumption
+  // CRITICAL: use montant_plafond from plafonds_beneficiaire as the effective ceiling,
+  // NOT guarantee.annual_limit — they may differ (e.g., sub-limit overrides at init time).
   let categoryConsumed = 0;
+  let effectiveCategoryCeiling: number | null = null;
   if (familleId) {
     let plafondRow = await db
       .prepare(
@@ -426,6 +433,7 @@ export async function buildAnnualContext(
 
     if (plafondRow) {
       categoryConsumed = plafondRow.montant_consomme; // already millimes
+      effectiveCategoryCeiling = plafondRow.montant_plafond; // authoritative ceiling from DB
     } else {
       // No plafond row — compute from bulletins
       const famCareTypes = FAMILLE_TO_CARE_TYPES[familleId] ?? [];
@@ -491,7 +499,7 @@ export async function buildAnnualContext(
     },
   };
 
-  return { context, annualGlobalLimit };
+  return { context, annualGlobalLimit, effectiveCategoryCeiling };
 }
 
 /**
@@ -758,9 +766,14 @@ export async function calculerRemboursementViaEngine(
   );
 
   // 7. Build AnnualContext
-  const { context, annualGlobalLimit } = await buildAnnualContext(
+  const { context, annualGlobalLimit, effectiveCategoryCeiling } = await buildAnnualContext(
     db, adherentId, contractId, baremeContractId, annee, careType, typeMaladie, familleId, batchCtx
   );
+
+  // Override guarantee annual_ceiling with DB plafond value (authoritative)
+  if (effectiveCategoryCeiling != null) {
+    guarantee.annual_ceiling = effectiveCategoryCeiling;
+  }
 
   // 8. Build Contract
   const engineContract: Contract = {
@@ -941,9 +954,14 @@ async function calculerViaGuaranteesPath(
   }
 
   // Build AnnualContext
-  const { context } = await buildAnnualContext(
+  const { context, effectiveCategoryCeiling } = await buildAnnualContext(
     db, adherentId, contractId, groupContractId, annee, effectiveCareType, typeMaladie, familleId, batchCtx
   );
+
+  // Override guarantee annual_ceiling with DB plafond value (authoritative)
+  if (effectiveCategoryCeiling != null) {
+    guarantee.annual_ceiling = effectiveCategoryCeiling;
+  }
 
   // Build Contract (individual global limit not set here — handled via plafonds_beneficiaire)
   const engineContract: Contract = {
