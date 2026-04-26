@@ -21,3 +21,4 @@ export * from './acte';
 export * from './contrat-periode';
 export * from './bulletin-soins';
 export * from './plafond';
+export * from './sub-limits';

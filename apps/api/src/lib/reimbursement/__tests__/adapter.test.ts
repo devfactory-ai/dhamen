@@ -5,8 +5,65 @@ import {
   dbRowToGuarantee,
   baremeRowToGuarantee,
   engineResultToServiceResult,
+  findSubLimitValue,
 } from '../adapter';
 import type { ActeResult, Guarantee } from '../types';
+
+// ---------------------------------------------------------------------------
+// findSubLimitValue — case-insensitive, variant-tolerant sub-limit lookup
+// ---------------------------------------------------------------------------
+
+describe('findSubLimitValue', () => {
+  it('matches exact lowercase key', () => {
+    expect(findSubLimitValue({ monture: 300000 }, 'MONTURE')).toBe(300_000);
+  });
+
+  it('matches case-insensitive key', () => {
+    expect(findSubLimitValue({ Monture: 300000 }, 'MONTURE')).toBe(300_000);
+  });
+
+  it('matches "Verres (Normaux)" variant for VERRES', () => {
+    expect(findSubLimitValue({ 'Verres (Normaux)': 200 }, 'VERRES')).toBe(200_000);
+  });
+
+  it('matches "Verres" for VERRES', () => {
+    expect(findSubLimitValue({ Verres: 250000 }, 'VERRES')).toBe(250_000);
+  });
+
+  it('normalizes DT values (< 1000) to millimes', () => {
+    expect(findSubLimitValue({ Monture: 300 }, 'MONTURE')).toBe(300_000);
+    expect(findSubLimitValue({ Lentilles: 200 }, 'LENTILLES')).toBe(200_000);
+  });
+
+  it('keeps millimes values (>= 1000) as-is', () => {
+    expect(findSubLimitValue({ Monture: 300000 }, 'MONTURE')).toBe(300_000);
+  });
+
+  it('returns null for unknown acte code', () => {
+    expect(findSubLimitValue({ Monture: 300000 }, 'UNKNOWN')).toBeNull();
+  });
+
+  it('returns null when key not found in sub_limits', () => {
+    expect(findSubLimitValue({ Monture: 300000 }, 'VERRES')).toBeNull();
+  });
+
+  it('extracts plafond_acte from rich SubLimitEntry', () => {
+    expect(findSubLimitValue({ Monture: { plafond_acte: 300000, taux: 1.0 } }, 'MONTURE')).toBe(300_000);
+  });
+
+  it('handles mixed format (some number, some object)', () => {
+    const subLimits = {
+      Monture: 300000,
+      Verres: { plafond_acte: 250000, taux: 0.9 },
+    };
+    expect(findSubLimitValue(subLimits, 'MONTURE')).toBe(300_000);
+    expect(findSubLimitValue(subLimits, 'VERRES')).toBe(250_000);
+  });
+
+  it('returns null for rich entry without plafond_acte', () => {
+    expect(findSubLimitValue({ Monture: { taux: 0.9 } }, 'MONTURE')).toBeNull();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // letterKeyValueToMillimes
@@ -116,47 +173,162 @@ describe('dbRowToGuarantee', () => {
     ]);
   });
 
-  it('resolves hospitalisation clinique daily limit from sub_limits', () => {
+  it('resolves hospitalisation clinique daily limit from sub_limits (acte CL)', () => {
     const row = {
       ...baseRow,
       care_type: 'hospitalisation',
       daily_limit: 50_000,
       sub_limits_json: '{"clinique": 90000, "hopital": 10000}',
     };
-    const g = dbRowToGuarantee(row, { familleId: 'fa-007' });
+    const g = dbRowToGuarantee(row, { familleId: 'fa-007', acteCode: 'CL' });
     expect(g.per_day_ceiling).toBe(90_000);
   });
 
-  it('resolves hospitalisation hopital daily limit from sub_limits', () => {
+  it('resolves hospitalisation hopital daily limit from sub_limits (acte HP)', () => {
     const row = {
       ...baseRow,
-      care_type: 'hospitalisation_hopital',
+      care_type: 'hospitalisation',
       daily_limit: 50_000,
       sub_limits_json: '{"clinique": 90000, "hopital": 10000}',
     };
-    const g = dbRowToGuarantee(row, { familleId: 'fa-008' });
+    const g = dbRowToGuarantee(row, { familleId: 'fa-007', acteCode: 'HP' });
     expect(g.per_day_ceiling).toBe(10_000);
   });
 
-  it('resolves Gemini-format sub_limits keys for hospitalisation', () => {
+  it('resolves hospitalisation with Clinique (par jour) format sub_limits', () => {
     const row = {
       ...baseRow,
       care_type: 'hospitalisation',
       daily_limit: 50_000,
-      sub_limits_json: '{"Plafond journalier en clinique": 90000, "Plafond journalier en hôpital": 10000}',
+      sub_limits_json: '{"Clinique (par jour)": 90000, "Hôpital (par jour)": 10000}',
+    };
+    const g = dbRowToGuarantee(row, { familleId: 'fa-007', acteCode: 'CL' });
+    expect(g.per_day_ceiling).toBe(90_000);
+  });
+
+  it('defaults to clinique when no acte code provided', () => {
+    const row = {
+      ...baseRow,
+      care_type: 'hospitalisation',
+      daily_limit: 50_000,
+      sub_limits_json: '{"clinique": 90000, "hopital": 10000}',
     };
     const g = dbRowToGuarantee(row, { familleId: 'fa-007' });
     expect(g.per_day_ceiling).toBe(90_000);
   });
 
-  it('overrides per_act_ceiling from acte code sub-limit', () => {
+  it('falls back to careType for hospitalisation_hopital (backward compat)', () => {
+    const row = {
+      ...baseRow,
+      care_type: 'hospitalisation',
+      daily_limit: 50_000,
+      sub_limits_json: '{"clinique": 90000, "hopital": 10000}',
+    };
+    const g = dbRowToGuarantee(row, { familleId: 'fa-007', careType: 'hospitalisation_hopital' });
+    expect(g.per_day_ceiling).toBe(10_000);
+  });
+
+  it('resolves SANA to sanatorium sub-limit with rich entry', () => {
+    const row = {
+      ...baseRow,
+      care_type: 'hospitalisation',
+      daily_limit: 50_000,
+      sub_limits_json: JSON.stringify({
+        Clinique: { plafond_jour: 120000, taux: 1.0 },
+        Hopital: { plafond_jour: 45000, taux: 1.0 },
+        Sanatorium: { plafond_jour: 30000, max_jours: 21, taux: 1.0 },
+      }),
+    };
+    const g = dbRowToGuarantee(row, { familleId: 'fa-007', acteCode: 'SANA' });
+    expect(g.per_day_ceiling).toBe(30_000);
+    expect(g.max_days).toBe(21);
+    expect(g.rate).toBe(100);
+  });
+
+  it('resolves CL with rich entry format', () => {
+    const row = {
+      ...baseRow,
+      care_type: 'hospitalisation',
+      daily_limit: 50_000,
+      sub_limits_json: JSON.stringify({
+        Clinique: { plafond_jour: 120000, taux: 1.0 },
+        Hopital: { plafond_jour: 45000, taux: 1.0 },
+      }),
+    };
+    const g = dbRowToGuarantee(row, { familleId: 'fa-007', acteCode: 'CL' });
+    expect(g.per_day_ceiling).toBe(120_000);
+  });
+
+  it('resolves chirurgie sub-limit with rich entry', () => {
+    const row = {
+      ...baseRow,
+      care_type: 'chirurgie',
+      sub_limits_json: JSON.stringify({
+        SO: { plafond_acte: 300000, taux: 1.0 },
+      }),
+    };
+    const g = dbRowToGuarantee(row, { acteCode: 'SO' });
+    expect(g.per_act_ceiling).toBe(300_000);
+    expect(g.rate).toBe(100);
+  });
+
+  it('resolves pharmacie sub-limit with rich entry (ordinaire)', () => {
+    const row = {
+      ...baseRow,
+      annual_limit: 1_200_000,
+      sub_limits_json: JSON.stringify({
+        ordinaire: { plafond_annuel: 800000, taux: 0.9 },
+        chronique: { plafond_annuel: 1200000, taux: 0.9 },
+      }),
+    };
+    const g = dbRowToGuarantee(row, { typeMaladie: 'ordinaire' });
+    expect(g.annual_ceiling).toBe(800_000);
+    expect(g.rate).toBe(90);
+  });
+
+  it('hosp rich entry: taux is never overridden, parent rate preserved', () => {
+    const row = {
+      ...baseRow,
+      care_type: 'hospitalisation',
+      reimbursement_rate: 1,
+      daily_limit: null,
+      sub_limits_json: JSON.stringify({
+        Clinique: { taux: 0.8, plafond_jour: 90000 },
+        'Hôpital': { plafond_jour: 10000 },
+      }),
+    };
+    // Hospitalisation = forfait journalier, rate parent toujours utilisé
+    const gCL = dbRowToGuarantee(row, { familleId: 'fa-007', acteCode: 'CL' });
+    expect(gCL.per_day_ceiling).toBe(90_000);
+    expect(gCL.rate).toBe(100); // parent rate, NOT sub-limit taux
+    const gHP = dbRowToGuarantee(row, { familleId: 'fa-007', acteCode: 'HP' });
+    expect(gHP.per_day_ceiling).toBe(10_000);
+    expect(gHP.rate).toBe(100);
+  });
+
+  it('overrides per_act_ceiling from acte code sub-limit (exact key)', () => {
     const row = {
       ...baseRow,
       care_type: 'optique',
-      sub_limits_json: '{"monture": 300000, "verres_normaux": 250000}',
+      sub_limits_json: '{"Monture": 300000, "Verres": 250000}',
     };
     const g = dbRowToGuarantee(row, { acteCode: 'MONTURE' });
     expect(g.per_act_ceiling).toBe(300_000);
+  });
+
+  it('overrides per_act_ceiling from acte code sub-limit (case-insensitive, DT value)', () => {
+    const row = {
+      ...baseRow,
+      care_type: 'optique',
+      sub_limits_json: '{"Monture": 300, "Verres (Normaux)": 200, "Lentilles": 150}',
+    };
+    // DT values (< 1000) are normalized to millimes
+    const g1 = dbRowToGuarantee(row, { acteCode: 'MONTURE' });
+    expect(g1.per_act_ceiling).toBe(300_000);
+    const g2 = dbRowToGuarantee(row, { acteCode: 'VERRES' });
+    expect(g2.per_act_ceiling).toBe(200_000);
+    const g3 = dbRowToGuarantee(row, { acteCode: 'LENTILLES' });
+    expect(g3.per_act_ceiling).toBe(150_000);
   });
 
   it('resolves pharmacy sub-limit by typeMaladie ordinaire', () => {
@@ -203,6 +375,17 @@ describe('baremeRowToGuarantee', () => {
     );
     expect(g.letter_keys).toEqual([{ key: 'B', value: 270 }]);
     expect(g.rate).toBeNull();
+  });
+
+  it('forfait with lettre_cle but without nbrCle falls back to rate=100 (no letter-key guessing)', () => {
+    const g = baremeRowToGuarantee(
+      { type_calcul: 'forfait', valeur: 270, plafond_acte: null, plafond_famille_annuel: null, plafond_jour: null, max_jours: null },
+      'laboratoire',
+      { acteLettreCle: 'B' },
+    );
+    // Without nbrCle, should NOT create letter_keys — falls to rate=100 (apply fraisEngages directly)
+    expect(g.letter_keys).toEqual([]);
+    expect(g.rate).toBe(100);
   });
 
   it('converts forfait bareme without lettre_cle to rate=100 (fixed amount)', () => {
@@ -490,7 +673,7 @@ describe('BH 2025 scenarios via adapter converters', () => {
       daily_limit: null,
       max_days: null,
       letter_keys_json: null,
-      sub_limits_json: '{"monture": 300000, "verres_normaux": 250000}',
+      sub_limits_json: '{"Monture": 300000, "Verres": 250000}',
       bareme_tp_id: null,
     };
 

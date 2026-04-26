@@ -32,7 +32,7 @@ export interface ActesGroupeParFamille {
  * Known letter-key prefixes sorted longest-first for correct parsing.
  * Used to parse composite codes like "B40", "KC50", "Z30".
  */
-const KNOWN_LETTER_KEYS = ['AMM', 'AMO', 'AMY', 'AM', 'CS', 'KC', 'PC', 'B', 'C', 'D', 'E', 'K', 'Z'];
+const KNOWN_LETTER_KEYS = ['AMM', 'AMO', 'AMY', 'AM', 'CS', 'DC', 'DP', 'KC', 'PC', 'B', 'C', 'D', 'E', 'K', 'Z'];
 
 /**
  * Parse a composite acte code into letter-key + numeric coefficient.
@@ -175,8 +175,8 @@ export async function listActesGroupesParFamille(db: D1Database): Promise<ActesG
     actesByFamille.get(fid)!.push(acte);
   }
 
-  // 4. Build result: every famille, with its actes (possibly empty)
-  const result: ActesGroupeParFamille[] = familles.results.map((fa) => ({
+  // 4. Build result: only familles that have at least one acte (skip empty like merged FA0002)
+  const result: ActesGroupeParFamille[] = familles.results.filter((fa) => actesByFamille.has(fa.id)).map((fa) => ({
     famille: { id: fa.id, code: fa.code, label: fa.label, ordre: fa.ordre },
     actes: (actesByFamille.get(fa.id) || []).map((row) => ({
       id: row.id,
@@ -193,20 +193,6 @@ export async function listActesGroupesParFamille(db: D1Database): Promise<ActesG
     })),
   }));
 
-  // 5. Actes without famille (orphans)
-  const orphans = actesByFamille.get('__sans_famille__');
-  if (orphans && orphans.length > 0) {
-    result.push({
-      famille: { id: '__sans_famille__', code: 'AUTRE', label: 'Autres actes', ordre: 999 },
-      actes: orphans.map((row) => ({
-        id: row.id, code: row.code, label: row.label,
-        taux_remboursement: row.taux_remboursement, plafond_acte: row.plafond_acte,
-        is_active: row.is_active, famille_id: row.famille_id,
-        type_calcul: row.type_calcul, valeur_base: row.valeur_base,
-        code_assureur: row.code_assureur, lettre_cle: row.lettre_cle,
-      })),
-    });
-  }
 
   return result;
 }

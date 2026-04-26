@@ -305,6 +305,18 @@ const acteFormSchema = z.object({
   nombre_jours: z.number().int().positive().optional().or(z.literal(0)).transform(v => v || undefined),
   montant_jour: z.number().positive().optional().or(z.literal(0)).transform(v => v || undefined),
   sub_items: z.array(subItemSchema).optional(),
+}).superRefine((data, ctx) => {
+  const cfg = getCareTypeConfig(data.care_type);
+  if (cfg.showCotation && data.sub_items?.length) {
+    const hasCotation = data.sub_items.some(si => si.cotation && si.cotation.trim().length > 0);
+    if (!hasCotation) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'La cotation est requise (ex: 30 ou AMO30, B420, KC50)',
+        path: ['sub_items', 0, 'cotation'],
+      });
+    }
+  }
 });
 
 const bulletinFormSchema = z.object({
@@ -340,7 +352,8 @@ const NATURE_ACTE_MAPPINGS: { keywords: string[]; code: string; label: string }[
   { keywords: ['radio', 'radiograph', 'radiologie'], code: 'R', label: 'Radiologie' },
   { keywords: ['echograph', 'echo'], code: 'E', label: 'Échographie' },
   { keywords: ['scanner', 'irm', 'imagerie'], code: 'TS', label: 'Traitements spéciaux (scanner/IRM)' },
-  { keywords: ['dentaire', 'dent', 'dentist'], code: 'SD', label: 'Soins et prothèses dentaires' },
+  { keywords: ['dentaire', 'dent', 'dentist', 'soin dentaire'], code: 'DC', label: 'Soins Dentaires' },
+  { keywords: ['prothese dentaire', 'prothèse dentaire', 'couronne', 'bridge', 'implant'], code: 'DP', label: 'Prothèses Dentaires' },
   { keywords: ['kine', 'physiother', 'reeducation'], code: 'PC', label: 'Pratiques courantes' },
   { keywords: ['clinique', 'hospitalisation'], code: 'CL', label: 'Hospitalisation clinique' },
   { keywords: ['hopital'], code: 'HP', label: 'Hospitalisation hôpital' },
@@ -691,11 +704,39 @@ export function BulletinsSaisiePage() {
   // Estimate reimbursement in real-time
   const watchedMatricule = watch("adherent_matricule");
   const watchedBulletinDate = watch("bulletin_date");
-  const estimateKey = JSON.stringify((watchedActes || []).map(a => ({ code: a.code, amount: Number(a.amount) || 0, care_type: a.care_type })));
+  const estimateKey = JSON.stringify((watchedActes || []).map(a => ({ code: a.code, amount: Number(a.amount) || 0, care_type: a.care_type, nombre_jours: (a as Record<string, unknown>).nombre_jours, subs: ((a as Record<string, unknown>).sub_items as Array<{ cotation?: string; amount?: number }> | undefined)?.map(s => s.cotation || s.amount) })));
   const { data: estimateData } = useQuery({
     queryKey: ['estimate-reimbursement', watchedMatricule, watchedBulletinDate, estimateKey, selectedCompany?.id],
     queryFn: async () => {
-      const actes = (watchedActes || []).filter(a => (a.code || a.label) && Number(a.amount) > 0).map(a => ({ code: a.code || 'PH1', amount: Number(a.amount), care_type: a.care_type }));
+      const actes = (watchedActes || []).filter(a => (a.code || a.label) && Number(a.amount) > 0).map(a => {
+            // Extract coefficient from sub-item cotations (e.g., "B420" → 420, "KC50" → 50)
+            // Also supports bare numbers (e.g., "30") when acte code is already a letter key (AMO, B, KC...)
+            const subs = (a as Record<string, unknown>).sub_items as Array<{ cotation?: string }> | undefined;
+            let nbr_cle: number | undefined;
+            let cotationCode: string | undefined;
+            if (subs?.length) {
+              let totalCoeff = 0;
+              for (const si of subs) {
+                const cot = si.cotation?.trim();
+                if (!cot) continue;
+                // Full cotation: "AMO30", "B420", "KC50"
+                const match = cot.match(/^([A-Za-z]+)(\d+)$/);
+                if (match) {
+                  totalCoeff += parseInt(match[2]!, 10);
+                  if (!cotationCode) cotationCode = cot;
+                } else if (/^\d+$/.test(cot)) {
+                  // Bare number: "30" — combine with parent acte code (e.g., AMO + 30 → AMO30)
+                  totalCoeff += parseInt(cot, 10);
+                  if (!cotationCode && a.code) cotationCode = `${a.code}${cot}`;
+                }
+              }
+              if (totalCoeff > 0) nbr_cle = totalCoeff;
+            }
+            // Send cotation code (e.g., "B420") as code when available, for letter-key parsing
+            const code = cotationCode || a.code || 'PH1';
+            const nombre_jours = (a as Record<string, unknown>).nombre_jours as number | undefined;
+            return { code, amount: Number(a.amount), care_type: a.care_type, nbr_cle, nombre_jours: nombre_jours && nombre_jours > 0 ? nombre_jours : undefined };
+          });
       if (!actes.length) return null;
       const res = await apiClient.post<{
         reimbursed_amount: number | null;
@@ -2297,7 +2338,8 @@ export function BulletinsSaisiePage() {
         if (combined.includes("chirurg") && (combined.includes("refract") || combined.includes("lasik"))) return "chirurgie_refractive";
         if (combined.includes("chirurg") || combined.includes("operation") || combined.includes("bloc")) return "chirurgie";
         if (combined.includes("labo") || combined.includes("analyse") || combined.includes("biolog")) return "laboratoire";
-        if (combined.includes("radio") || combined.includes("echograph") || combined.includes("scanner") || combined.includes("irm") || combined.includes("kine") || combined.includes("physiother")) return "actes_courants";
+        if (combined.includes("radio") || combined.includes("echograph") || combined.includes("scanner") || combined.includes("irm") || combined.includes("physiother")) return "actes_specialistes";
+        if (combined.includes("kine")) return "actes_courants";
         if (combined.includes("accouchement") || combined.includes("maternite")) return "accouchement";
         if (combined.includes("hosp") || combined.includes("clinique")) return "hospitalisation";
         if (combined.includes("circoncision")) return "circoncision";
@@ -2306,7 +2348,7 @@ export function BulletinsSaisiePage() {
         if (combined.includes("cure") || combined.includes("thermal")) return "cures_thermales";
         if (combined.includes("sanatorium")) return "sanatorium";
         if (combined.includes("funeraire") || combined.includes("deces")) return "frais_funeraires";
-        if (combined.includes("interruption") || combined.includes("ivg")) return "interruption_grossesse";
+        if (combined.includes("interruption") || combined.includes("ivg")) return "accouchement";
         return "consultation";
       };
 
@@ -2645,7 +2687,8 @@ export function BulletinsSaisiePage() {
       if (combined.includes("chirurg") && (combined.includes("refract") || combined.includes("lasik"))) return "chirurgie_refractive";
       if (combined.includes("chirurg") || combined.includes("operation") || combined.includes("bloc")) return "chirurgie";
       if (combined.includes("labo") || combined.includes("analyse") || combined.includes("biolog")) return "laboratoire";
-      if (combined.includes("radio") || combined.includes("echograph") || combined.includes("scanner") || combined.includes("irm") || combined.includes("kine") || combined.includes("physiother")) return "actes_courants";
+      if (combined.includes("radio") || combined.includes("echograph") || combined.includes("scanner") || combined.includes("irm") || combined.includes("physiother")) return "actes_specialistes";
+        if (combined.includes("kine")) return "actes_courants";
       if (combined.includes("accouchement") || combined.includes("maternite")) return "accouchement";
       if (combined.includes("hosp") || combined.includes("clinique")) return "hospitalisation";
       if (combined.includes("circoncision")) return "circoncision";
@@ -2654,7 +2697,7 @@ export function BulletinsSaisiePage() {
       if (combined.includes("cure") || combined.includes("thermal")) return "cures_thermales";
       if (combined.includes("sanatorium")) return "sanatorium";
       if (combined.includes("funeraire") || combined.includes("deces")) return "frais_funeraires";
-      if (combined.includes("interruption") || combined.includes("ivg")) return "interruption_grossesse";
+      if (combined.includes("interruption") || combined.includes("ivg")) return "accouchement";
       return "consultation";
     };
 
@@ -3297,7 +3340,7 @@ export function BulletinsSaisiePage() {
                             }
                           }}
                         >
-                          <SelectTrigger className="w-full sm:w-[220px] rounded-xl">
+                          <SelectTrigger className="w-full sm:w-[220px] rounded-md h-9">
                             <SelectValue placeholder="Choisir un lot ouvert" />
                           </SelectTrigger>
                           <SelectContent>
@@ -4528,7 +4571,7 @@ export function BulletinsSaisiePage() {
                                       setFeedbackComment(e.target.value)
                                     }
                                     rows={2}
-                                    className="text-sm rounded-xl"
+                                    className="text-sm rounded-md h-9"
                                   />
 
                                   {/* Actions */}
@@ -4686,7 +4729,7 @@ export function BulletinsSaisiePage() {
                                   <Input
                                     {...register("bulletin_number")}
                                     placeholder="Ex: BS-2026-001"
-                                    className="rounded-xl pr-24"
+                                    className="rounded-md pr-24 h-9"
                                   />
                                   {watchedBulletinNumber &&
                                   bulletinNumberFromOcr ? (
@@ -4710,7 +4753,7 @@ export function BulletinsSaisiePage() {
                                   type="date"
                                   {...register("bulletin_date")}
                                   max={new Date().toISOString().split("T")[0]}
-                                  className="rounded-xl"
+                                  className="rounded-md h-9"
                                 />
                                 {errors.bulletin_date && (
                                   <p className="text-sm text-destructive">
@@ -4746,7 +4789,7 @@ export function BulletinsSaisiePage() {
                                   <Input
                                     value={adherentSearch}
                                     placeholder="Rechercher par nom ou matricule..."
-                                    className="pl-9 rounded-xl"
+                                    className="pl-9 rounded-md h-9"
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       setAdherentSearch(val);
@@ -5138,7 +5181,7 @@ export function BulletinsSaisiePage() {
                                           <Input
                                             {...register("adherent_last_name")}
                                             placeholder="Nom"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                           />
                                         </div>
                                         <div className="space-y-1">
@@ -5148,7 +5191,7 @@ export function BulletinsSaisiePage() {
                                           <Input
                                             {...register("adherent_first_name")}
                                             placeholder="Prénom"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                           />
                                         </div>
                                         <div className="space-y-1">
@@ -5165,7 +5208,7 @@ export function BulletinsSaisiePage() {
                                                 .toISOString()
                                                 .split("T")[0]
                                             }
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                           />
                                         </div>
                                         <div className="space-y-1">
@@ -5178,7 +5221,7 @@ export function BulletinsSaisiePage() {
                                               {...register(
                                                 "adherent_contract_number",
                                               )}
-                                              className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                              className="w-full rounded-md border border-gray-200 bg-white px-3 h-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                             >
                                               <option value="">
                                                 Sélectionner un contrat
@@ -5198,7 +5241,7 @@ export function BulletinsSaisiePage() {
                                                 "adherent_contract_number",
                                               )}
                                               placeholder="N° Contrat"
-                                              className="rounded-xl text-sm"
+                                              className="rounded-md text-sm h-9"
                                             />
                                           )}
                                         </div>
@@ -5210,7 +5253,7 @@ export function BulletinsSaisiePage() {
                                             type="email"
                                             {...register("adherent_email")}
                                             placeholder="email@exemple.com"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                           />
                                         </div>
                                       </div>
@@ -5304,7 +5347,7 @@ export function BulletinsSaisiePage() {
                                           </Label>
                                           <Input
                                             placeholder="Prénom"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                             value={ayantDroitForm.firstName}
                                             onChange={(e) =>
                                               setAyantDroitForm((p) => ({
@@ -5320,7 +5363,7 @@ export function BulletinsSaisiePage() {
                                           </Label>
                                           <Input
                                             placeholder="Nom"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                             value={ayantDroitForm.lastName}
                                             onChange={(e) =>
                                               setAyantDroitForm((p) => ({
@@ -5336,7 +5379,7 @@ export function BulletinsSaisiePage() {
                                           </Label>
                                           <Input
                                             type="date"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                             max={
                                               new Date()
                                                 .toISOString()
@@ -5358,7 +5401,7 @@ export function BulletinsSaisiePage() {
                                           <Input
                                             type="email"
                                             placeholder="email@exemple.com"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                             value={ayantDroitForm.email}
                                             onChange={(e) =>
                                               setAyantDroitForm((p) => ({
@@ -5404,7 +5447,7 @@ export function BulletinsSaisiePage() {
                                           </Label>
                                           <Input
                                             placeholder="Nom et prénom"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                             value={watchedBenefName || ""}
                                             onChange={(e) =>
                                               setValue(
@@ -5420,7 +5463,7 @@ export function BulletinsSaisiePage() {
                                           </Label>
                                           <Input
                                             type="date"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                             {...register(
                                               "beneficiary_date_of_birth",
                                             )}
@@ -5433,7 +5476,7 @@ export function BulletinsSaisiePage() {
                                           <Input
                                             type="email"
                                             placeholder="email@exemple.com"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                             {...register("beneficiary_email")}
                                           />
                                         </div>
@@ -5530,7 +5573,7 @@ export function BulletinsSaisiePage() {
                                           </Label>
                                           <Input
                                             placeholder="Prénom"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                             value={ayantDroitForm.firstName}
                                             onChange={(e) =>
                                               setAyantDroitForm((p) => ({
@@ -5546,7 +5589,7 @@ export function BulletinsSaisiePage() {
                                           </Label>
                                           <Input
                                             placeholder="Nom"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                             value={ayantDroitForm.lastName}
                                             onChange={(e) =>
                                               setAyantDroitForm((p) => ({
@@ -5562,7 +5605,7 @@ export function BulletinsSaisiePage() {
                                           </Label>
                                           <Input
                                             type="date"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                             max={
                                               new Date()
                                                 .toISOString()
@@ -5613,7 +5656,7 @@ export function BulletinsSaisiePage() {
                                           </Label>
                                           <Input
                                             placeholder="Nom et prénom"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                             value={watchedBenefName || ""}
                                             onChange={(e) =>
                                               setValue(
@@ -5629,7 +5672,7 @@ export function BulletinsSaisiePage() {
                                           </Label>
                                           <Input
                                             type="date"
-                                            className="rounded-xl text-sm"
+                                            className="rounded-md text-sm h-9"
                                             {...register(
                                               "beneficiary_date_of_birth",
                                             )}
@@ -5648,7 +5691,7 @@ export function BulletinsSaisiePage() {
                         <div className="rounded-2xl border border-gray-200 bg-white p-6">
                           <div className="flex items-center justify-between mb-5">
                             <div className="flex items-center gap-3">
-                              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-white">
+                              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
                                 04
                               </span>
                               <h2 className="text-lg font-semibold text-gray-900">
@@ -5685,7 +5728,7 @@ export function BulletinsSaisiePage() {
                                   }));
                                 }
                               }}
-                              className="text-sm font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                              className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 bg-[#e9effd] p-3"
                             >
                               <Plus className="h-4 w-4" />
                               Ajouter un acte
@@ -5710,9 +5753,10 @@ export function BulletinsSaisiePage() {
                               return (
                                 <div key={field.id} className="py-4 space-y-3">
                                   {/* Famille d'actes per acte */}
-                                  <div className="flex items-center gap-2 w-full">
+                                  <div className="flex items-end gap-2 w-full">
+                                    <div className="flex flex-col gap-1 flex-1 min-w-0">
                                     <span className="text-xs font-semibold text-gray-400 uppercase">
-                                      Famille Actes
+                                      Famille d'Actes
                                     </span>
                                     <Select
                                       value={
@@ -5721,22 +5765,32 @@ export function BulletinsSaisiePage() {
                                       disabled={
                                         isSubmitting || isRegisteringAdherent
                                       }
-                                      onValueChange={(familleCode) => {
+                                      onValueChange={(val) => {
+                                        // Handle care_types without famille (CT:xxx prefix)
+                                        const isCareTypeOnly = val.startsWith('CT:');
+                                        const familleCode = isCareTypeOnly ? '' : val;
+                                        const newCareType = isCareTypeOnly
+                                          ? val.slice(3)
+                                          : (FAMILLE_CODE_TO_CARE_TYPE[familleCode] || "consultation");
+
                                         setActeFamilleCodes((prev) => ({
                                           ...prev,
-                                          [index]: familleCode,
+                                          [index]: val,
                                         }));
-                                        // Update care_type based on selected famille
-                                        const newCareType =
-                                          FAMILLE_CODE_TO_CARE_TYPE[
-                                            familleCode
-                                          ] || "consultation";
                                         setValue(
                                           `actes.${index}.care_type`,
                                           newCareType,
                                         );
-                                        // For pharmacy, pre-fill code PH1; otherwise clear for acte selector
-                                        if (
+                                        // Reset sub_items + amount when switching
+                                        setValue(`actes.${index}.sub_items`, []);
+                                        setValue(`actes.${index}.amount`, 0);
+
+                                        if (isCareTypeOnly) {
+                                          // Care type sans famille: saisie directe (mode simple)
+                                          const config = getCareTypeConfig(newCareType);
+                                          setValue(`actes.${index}.code`, newCareType.toUpperCase());
+                                          setValue(`actes.${index}.label`, config.label);
+                                        } else if (
                                           getCareTypeConfig(newCareType)
                                             .useMedicationAutocomplete
                                         ) {
@@ -5745,22 +5799,18 @@ export function BulletinsSaisiePage() {
                                             "PH1",
                                           );
                                           setValue(`actes.${index}.label`, getCareTypeConfig(newCareType).label || "Pharmacie");
-                                          // Auto-add 1 empty sub-item so user starts adding medications
-                                          const existingSubs = (getValues(`actes.${index}.sub_items`) || []) as Array<unknown>;
-                                          if (existingSubs.length === 0) {
-                                            setValue(`actes.${index}.sub_items`, [{ label: "", cotation: "", amount: 0, code: "" }]);
-                                          }
+                                          setValue(`actes.${index}.sub_items`, [{ label: "", cotation: "", amount: 0, code: "" }]);
                                         } else {
                                           setValue(`actes.${index}.code`, "");
                                           setValue(`actes.${index}.label`, "");
                                         }
                                       }}
                                     >
-                                      <SelectTrigger className="w-auto max-w-xs h-8 rounded-lg text-xs">
+                                      <SelectTrigger className="w-full h-9 rounded-md text-xs">
                                         <SelectValue placeholder="Famille d'actes" />
                                       </SelectTrigger>
                                       <SelectContent className="max-h-72">
-                                        {(actesGroupes || []).map((groupe) => {
+                                        {(actesGroupes || []).filter((g) => g.actes.length > 0).map((groupe) => {
                                           const FIcon =
                                             FAMILLE_ICON[groupe.famille.code] ||
                                             ClipboardList;
@@ -5772,15 +5822,27 @@ export function BulletinsSaisiePage() {
                                               <span className="flex items-center gap-1.5">
                                                 <FIcon className="h-3.5 w-3.5 shrink-0" />
                                                 {groupe.famille.label}
-                                                <span className="font-mono text-[10px] text-gray-400">
+                                                {/* <span className="font-mono text-[10px] text-gray-400">
                                                   ({groupe.famille.code})
-                                                </span>
+                                                </span> */}
                                               </span>
                                             </SelectItem>
                                           );
                                         })}
+                                        {/* Care types sans famille d'actes (saisie directe) */}
+                                        {ALL_CARE_TYPES
+                                          .filter((ct) => CARE_TYPE_CONFIG[ct].familleCodes.length === 0)
+                                          .map((ct) => (
+                                            <SelectItem key={`ct-${ct}`} value={`CT:${ct}`}>
+                                              <span className="flex items-center gap-1.5">
+                                                <ClipboardList className="h-3.5 w-3.5 shrink-0" />
+                                                {CARE_TYPE_CONFIG[ct].label}
+                                              </span>
+                                            </SelectItem>
+                                          ))}
                                       </SelectContent>
                                     </Select>
+                                    </div>
                                     {actesFields.length > 1 && (
                                       <button
                                         type="button"
@@ -5818,7 +5880,7 @@ export function BulletinsSaisiePage() {
                                             getCareTypeConfig(acteCareType)
                                               .providerPlaceholder
                                           }
-                                          className="rounded-xl text-sm"
+                                          className="rounded-md text-sm h-9"
                                         />
                                         {errors.actes?.[index]
                                           ?.nom_prof_sant && (
@@ -6033,8 +6095,10 @@ export function BulletinsSaisiePage() {
                                     {/* Acte description / selector */}
                                     <div className="sm:col-span-6 space-y-2">
                                       {/* For non-pharmacy: show ActeSelector; pharmacy uses sub-items only */}
+                                      {/* Hide ActeSelector for care types without familleCodes (direct entry) */}
                                       {!getCareTypeConfig(acteCareType)
-                                          .useMedicationAutocomplete && (
+                                          .useMedicationAutocomplete &&
+                                        getCareTypeConfig(acteCareType).familleCodes.length > 0 && (
                                           <div>
                                             <Label className="text-sm text-gray-700">
                                               Acte médical *
@@ -6059,14 +6123,23 @@ export function BulletinsSaisiePage() {
                                                   `actes.${index}.label`,
                                                   acte.label,
                                                 );
-                                                // Sync care_type from selected famille
+                                                // Sync care_type from selected acte code
                                                 const fc =
                                                   acteFamilleCodes[index];
                                                 if (fc) {
-                                                  const ct =
+                                                  let ct =
                                                     FAMILLE_CODE_TO_CARE_TYPE[
                                                       fc
                                                     ] || "consultation";
+                                                  // Hospitalisation: distinguish clinique vs hôpital by acte code
+                                                  if (fc === 'FA0007') {
+                                                    const upper = code.toUpperCase();
+                                                    if (upper === 'HP' || upper === 'SANA') {
+                                                      ct = 'hospitalisation_hopital';
+                                                    } else {
+                                                      ct = 'hospitalisation';
+                                                    }
+                                                  }
                                                   setValue(
                                                     `actes.${index}.care_type`,
                                                     ct,
@@ -6104,7 +6177,7 @@ export function BulletinsSaisiePage() {
                                               .descriptionPlaceholder
                                           }
                                           rows={2}
-                                          className="rounded-xl text-sm resize-none"
+                                          className="rounded-md text-sm resize-none"
                                         />
                                       </div>
                                     </div>
@@ -6128,7 +6201,7 @@ export function BulletinsSaisiePage() {
                                           placeholder="0.000"
                                           readOnly={getCareTypeConfig(acteCareType).mode === "sejour" && !!(currentActe?.montant_jour && currentActe?.nombre_jours)}
                                           className={cn(
-                                            "rounded-xl text-right",
+                                            "rounded-md text-right h-9",
                                             getCareTypeConfig(acteCareType).mode === "sejour" && currentActe?.montant_jour && currentActe?.nombre_jours && "bg-gray-50 font-semibold"
                                           )}
                                         />
@@ -6162,7 +6235,7 @@ export function BulletinsSaisiePage() {
                                                 },
                                               )}
                                               placeholder="0.000"
-                                              className="rounded-xl text-right text-sm h-8"
+                                              className="rounded-md text-right text-sm h-9"
                                             />
                                           </div>
                                           <div>
@@ -6187,7 +6260,7 @@ export function BulletinsSaisiePage() {
                                                 },
                                               )}
                                               placeholder="—"
-                                              className="rounded-xl text-right text-sm h-8"
+                                              className="rounded-md text-right text-sm h-9"
                                             />
                                           </div>
                                         </div>
@@ -6202,15 +6275,22 @@ export function BulletinsSaisiePage() {
                                           string
                                         > = {
                                           consultation: "FA0001",
+                                          consultation_visite: "FA0001",
                                           pharmacie: "FA0003",
                                           laboratoire: "FA0004",
                                           hospitalisation: "FA0007",
-                                          hospitalisation_hopital: "FA0008",
+                                          hospitalisation_hopital: "FA0007",
                                           optique: "FA0006",
                                           dentaire: "FA0011",
-                                          actes_courants: "FA0002",
+                                          dentaire_prothese: "FA0011",
+                                          actes_courants: "FA0009",
+                                          actes_specialistes: "FA0017",
                                           chirurgie: "FA0010",
+                                          chirurgie_fso: "FA0010",
+                                          chirurgie_usage_unique: "FA0010",
                                           accouchement: "FA0012",
+                                          accouchement_gemellaire: "FA0012",
+                                          interruption_grossesse: "FA0012",
                                           orthopedie: "FA0005",
                                           cures_thermales: "FA0013",
                                           orthodontie: "FA0011",
@@ -6219,7 +6299,6 @@ export function BulletinsSaisiePage() {
                                           frais_funeraires: "FA0014",
                                           chirurgie_refractive: "FA0009",
                                           sanatorium: "FA0007",
-                                          interruption_grossesse: "FA0012",
                                         };
                                         const familleCode =
                                           careToFamille[acteCareType];
@@ -6353,7 +6432,7 @@ export function BulletinsSaisiePage() {
                                                     <MedicationAutocomplete
                                                       value={subItem.label}
                                                       placeholder="Rechercher un médicament..."
-                                                      className="[&_input]:h-8 [&_input]:text-sm"
+                                                      className="[&_input]:h-9 [&_input]:text-sm [&_input]:rounded-md"
                                                       onSelect={(med) => {
                                                         const priceDT =
                                                           med.price_public
@@ -6426,7 +6505,7 @@ export function BulletinsSaisiePage() {
                                                         );
                                                       }}
                                                       placeholder="Nom de l'analyse"
-                                                      className="rounded-lg text-sm h-8"
+                                                      className="rounded-md text-sm h-9"
                                                     />
                                                   )}
                                                 </div>
@@ -6452,8 +6531,8 @@ export function BulletinsSaisiePage() {
                                                           updated,
                                                         );
                                                       }}
-                                                      placeholder="B40, KC50..."
-                                                      className="rounded-lg text-sm h-8"
+                                                      placeholder="30 ou AMO30 *"
+                                                      className={`rounded-md text-sm h-9 ${!subItem.cotation?.trim() ? 'border-amber-400' : ''}`}
                                                     />
                                                   </div>
                                                 )}
@@ -6495,7 +6574,7 @@ export function BulletinsSaisiePage() {
                                                       );
                                                     }}
                                                     placeholder="0.000"
-                                                    className="rounded-lg text-sm text-right h-8"
+                                                    className="rounded-md text-sm text-right h-9"
                                                   />
                                                 </div>
                                                 <span className="text-xs text-gray-400 w-7">
@@ -6990,7 +7069,7 @@ export function BulletinsSaisiePage() {
                     placeholder="Rechercher un dossier..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9 w-full sm:w-64 rounded-xl border-gray-200 bg-gray-50 focus:bg-white"
+                    className="pl-9 w-full sm:w-64 rounded-md h-9 border-gray-200 bg-gray-50 focus:bg-white"
                   />
                 </div>
                 {selectedBulletins.length > 0 && (
@@ -7316,7 +7395,7 @@ export function BulletinsSaisiePage() {
                   setBatchSearch(e.target.value);
                   setBatchPage(1);
                 }}
-                className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-md border border-gray-200 bg-white h-9 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
             <FilterDropdown

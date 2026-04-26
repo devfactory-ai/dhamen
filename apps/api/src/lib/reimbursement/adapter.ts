@@ -19,6 +19,7 @@ import type {
   Contract,
   Guarantee,
 } from './types';
+import type { SubLimitEntry, SubLimitsMap } from '@dhamen/shared';
 import { calculateActe } from './engine';
 import { toMillimes, toDinars } from './units';
 // Types inlined to avoid circular dependency with remboursement.service.ts
@@ -75,6 +76,7 @@ interface D1Database {
 interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement;
   first<T = unknown>(): Promise<T | null>;
+  all<T = unknown>(): Promise<D1Result<T>>;
   run(): Promise<D1Result>;
 }
 
@@ -137,38 +139,298 @@ function parseLetterKeyCode(code: string): { letter: string; coefficient: number
 }
 
 // ---------------------------------------------------------------------------
+// SubLimitEntry normalization (backward compat for number values)
+// ---------------------------------------------------------------------------
+
+function normalizeSubLimitEntry(value: number | SubLimitEntry, context: 'jour' | 'acte' | 'annuel'): SubLimitEntry {
+  if (typeof value === 'number') {
+    if (context === 'jour') return { plafond_jour: value };
+    if (context === 'annuel') return { plafond_annuel: value };
+    return { plafond_acte: value };
+  }
+  return value;
+}
+
+// ---------------------------------------------------------------------------
 // Acte code → sub_limits_json key mapping
 // ---------------------------------------------------------------------------
 
-const ACTE_CODE_TO_SUB_LIMIT_KEY: Record<string, string> = {
-  MONTURE: 'monture',
-  VERRES: 'verres_normaux',
-  DOUBLES_FOYERS: 'doubles_foyers',
-  LENTILLES: 'lentilles',
-  SO: 'salle_operation',
-  ANE: 'anesthesie',
-  PUU: 'medicaments_usage_unique',
+// Maps acte code → candidate keys to search in sub_limits_json (case-insensitive)
+// Multiple candidates per acte handle variant naming across contracts
+const ACTE_CODE_TO_SUB_LIMIT_CANDIDATES: Record<string, string[]> = {
+  MONTURE: ['monture'],
+  VERRES: ['verres', 'verres_normaux', 'verres (normaux)'],
+  DOUBLES_FOYERS: ['doubles_foyers', 'verres (doubles foyers)', 'doubles foyers'],
+  LENTILLES: ['lentilles'],
+  LASER: ['laser', 'traitement par laser', 'chirurgie_refractive'],
+  SO: ['salle_operation', 'salle_op', 'so', 'fso', 'plafond fso', 'fso (max par acte)', 'frais de la salle'],
+  ANE: ['anesthesie', 'ane', 'anesthésie'],
+  PUU: ['medicaments_usage_unique', 'puu', 'materiel_usage_unique', 'usage unique', 'plafond usage unique', 'usage unique (max par acte)', 'médicaments et produit'],
 };
 
-// Reverse mapping: famille_actes → contract_guarantees care_type
-const FAMILLE_TO_CARE_TYPES: Record<string, string[]> = {
+/**
+ * Find the sub-limit value for an acte code in a parsed sub_limits_json object.
+ * Search order:
+ *   1. Direct match by acte code (case-insensitive) — e.g. "ACC", "IG", "MONTURE"
+ *   2. Legacy alias candidates from ACTE_CODE_TO_SUB_LIMIT_CANDIDATES
+ * Supports both legacy number values and rich SubLimitEntry objects.
+ * Values may be in DT or millimes — normalizes to millimes.
+ */
+export function findSubLimitValue(
+  subLimits: SubLimitsMap,
+  acteCode: string,
+): number | null {
+  // Build a lowercase map of the sub_limits keys
+  const lowerMap: Record<string, number | SubLimitEntry> = {};
+  for (const [k, v] of Object.entries(subLimits)) {
+    lowerMap[k.toLowerCase()] = v;
+  }
+
+  function extractValue(raw: number | SubLimitEntry): number | null {
+    if (typeof raw === 'number') {
+      return raw < 1000 ? raw * 1000 : raw;
+    }
+    const val = raw.plafond_acte ?? raw.plafond_jour ?? raw.plafond_annuel;
+    if (val != null) return val < 1000 ? val * 1000 : val;
+    return null;
+  }
+
+  // 1. Direct match by acte code
+  const direct = lowerMap[acteCode.toLowerCase()];
+  if (direct != null) return extractValue(direct);
+
+  // 2. Legacy alias candidates (exact key match)
+  const candidates = ACTE_CODE_TO_SUB_LIMIT_CANDIDATES[acteCode] ??
+    ACTE_CODE_TO_SUB_LIMIT_CANDIDATES[acteCode.toUpperCase()];
+  if (candidates) {
+    for (const candidate of candidates) {
+      const raw = lowerMap[candidate.toLowerCase()];
+      if (raw != null) return extractValue(raw);
+    }
+  }
+
+  // 3. Partial match: check if any sub_limits key contains a candidate or vice versa
+  const allKeys = Object.keys(lowerMap);
+  if (candidates) {
+    for (const candidate of candidates) {
+      const cl = candidate.toLowerCase();
+      for (const key of allKeys) {
+        if (key.includes(cl) || cl.includes(key)) {
+          return extractValue(lowerMap[key]!);
+        }
+      }
+    }
+  }
+  // Also try acte code as partial match
+  const codeLower = acteCode.toLowerCase();
+  for (const key of allKeys) {
+    if (key.includes(codeLower) || codeLower.includes(key)) {
+      return extractValue(lowerMap[key]!);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Find sub-limit rate override in sub_limits_json.
+ * Search order: direct acte code match, then legacy alias candidates.
+ * Supports rich SubLimitEntry (taux field) and legacy "_rate" suffix keys.
+ */
+function findSubLimitRate(
+  subLimits: SubLimitsMap,
+  acteCode: string,
+): number | null {
+  const lowerMap: Record<string, number | SubLimitEntry> = {};
+  for (const [k, v] of Object.entries(subLimits)) {
+    lowerMap[k.toLowerCase()] = v;
+  }
+
+  function tryExtract(key: string): number | null {
+    const raw = lowerMap[key.toLowerCase()];
+    if (raw != null && typeof raw === 'object' && raw.taux != null) return raw.taux;
+    const rateVal = lowerMap[`${key.toLowerCase()}_rate`];
+    if (rateVal != null && typeof rateVal === 'number') return rateVal;
+    return null;
+  }
+
+  // 1. Direct match by acte code
+  const direct = tryExtract(acteCode);
+  if (direct != null) return direct;
+
+  // 2. Legacy alias candidates (exact key match)
+  const candidates = ACTE_CODE_TO_SUB_LIMIT_CANDIDATES[acteCode] ??
+    ACTE_CODE_TO_SUB_LIMIT_CANDIDATES[acteCode.toUpperCase()];
+  if (candidates) {
+    for (const candidate of candidates) {
+      const val = tryExtract(candidate);
+      if (val != null) return val;
+    }
+  }
+
+  // 3. Partial match: check if any sub_limits key contains a candidate or vice versa
+  function tryExtractPartial(searchTerms: string[]): number | null {
+    const allKeys = Object.keys(lowerMap);
+    for (const term of searchTerms) {
+      const tl = term.toLowerCase();
+      for (const key of allKeys) {
+        if (key.includes(tl) || tl.includes(key)) {
+          const raw = lowerMap[key];
+          if (raw != null && typeof raw === 'object' && raw.taux != null) return raw.taux;
+        }
+      }
+    }
+    return null;
+  }
+  if (candidates) {
+    const partial = tryExtractPartial(candidates);
+    if (partial != null) return partial;
+  }
+  const partialCode = tryExtractPartial([acteCode]);
+  if (partialCode != null) return partialCode;
+
+  return null;
+}
+
+// Fallback mapping used only if familles_actes.care_type column doesn't exist yet
+const FAMILLE_TO_CARE_TYPES_FALLBACK: Record<string, string[]> = {
   'fa-001': ['consultation_visite', 'consultation'],
   'fa-003': ['pharmacie', 'pharmacy'],
   'fa-004': ['laboratoire', 'laboratory'],
   'fa-005': ['orthopedie', 'orthopedics'],
   'fa-006': ['optique', 'optical'],
-  'fa-007': ['hospitalisation', 'hospitalization'],
-  'fa-008': ['hospitalisation_hopital', 'hospitalisation', 'hospitalization'],
+  'fa-007': ['hospitalisation', 'hospitalisation_hopital', 'hospitalization', 'sanatorium'],
   'fa-009': ['actes_courants', 'medical_acts'],
   'fa-010': ['chirurgie', 'surgery', 'chirurgie_fso', 'chirurgie_usage_unique'],
-  'fa-011': ['dentaire', 'dental', 'dentaire_prothese', 'orthodontie', 'orthodontics'],
+  'fa-011': ['dentaire', 'dental', 'dentaire_prothese'],
   'fa-012': ['accouchement', 'maternity', 'accouchement_gemellaire', 'interruption_grossesse'],
   'fa-013': ['cures_thermales', 'thermal_cure'],
-  'fa-014': ['frais_funeraires', 'funeral'],
+  'fa-014': ['orthodontie', 'orthodontics'],
   'fa-015': ['circoncision', 'circumcision'],
   'fa-016': ['transport'],
-  'fa-017': ['actes_courants', 'medical_acts'],
+  'fa-017': ['actes_specialistes', 'actes_courants', 'medical_acts'],
+  'fa-019': ['frais_funeraires', 'funeral'],
 };
+
+/**
+ * Resolve care_types for a famille_id.
+ * Collects ALL candidates (DB care_type + fallback aliases),
+ * then filters to only those that exist in the contract (if known).
+ * This handles mismatches like 'consultation' vs 'consultation_visite'.
+ */
+async function getCareTypesForFamille(db: D1Database, familleId: string, groupContractId?: string): Promise<string[]> {
+  const candidates = new Set<string>();
+
+  // 1. DB care_type (authoritative)
+  try {
+    const row = await db
+      .prepare('SELECT care_type FROM familles_actes WHERE id = ?')
+      .bind(familleId)
+      .first<{ care_type: string | null }>();
+    if (row?.care_type) candidates.add(row.care_type);
+  } catch { /* column may not exist yet */ }
+
+  // 2. Fallback aliases (covers all known variants)
+  const fallback = FAMILLE_TO_CARE_TYPES_FALLBACK[familleId];
+  if (fallback) for (const ct of fallback) candidates.add(ct);
+
+  if (candidates.size === 0) return [];
+
+  // 3. If contract known, filter to care_types that actually exist in it
+  if (groupContractId) {
+    const all = [...candidates];
+    const placeholders = all.map(() => '?').join(', ');
+    const rows = await db
+      .prepare(
+        `SELECT DISTINCT care_type FROM contract_guarantees
+         WHERE group_contract_id = ? AND care_type IN (${placeholders}) AND is_active = 1`
+      )
+      .bind(groupContractId, ...all)
+      .all<{ care_type: string }>();
+    if (rows.results && rows.results.length > 0) {
+      return rows.results.map((r: { care_type: string }) => r.care_type);
+    }
+  }
+
+  return [...candidates];
+}
+
+/**
+ * Broad guarantee search: when the specific care_type-based lookup fails,
+ * search ALL active guarantees for the group contract and match by:
+ *   1. Famille label keywords (e.g., 'chirurgie' in label → care_type 'chirurgie')
+ *   2. Acte code in letter_keys_json (e.g., 'KC' key → chirurgie guarantee)
+ *   3. Acte code in sub_limits_json (e.g., 'FCH' key → chirurgie guarantee)
+ * This is a safety net to handle mismatches between famille→care_type mapping.
+ */
+async function findGuaranteeBroad(
+  db: D1Database,
+  groupContractId: string,
+  familleId: string | null,
+  acteCode: string,
+  lettreCle: string | null,
+): Promise<DbGuaranteeRow | null> {
+  // Get all active guarantees for this contract
+  const { results: allGuarantees } = await db
+    .prepare(
+      `SELECT care_type, reimbursement_rate, is_fixed_amount, annual_limit, per_event_limit,
+              daily_limit, max_days, letter_keys_json, sub_limits_json, bareme_tp_id
+       FROM contract_guarantees
+       WHERE group_contract_id = ? AND is_active = 1`
+    )
+    .bind(groupContractId)
+    .all<DbGuaranteeRow>();
+
+  if (!allGuarantees || allGuarantees.length === 0) return null;
+
+  const acteUpper = acteCode.toUpperCase();
+  const lettreUpper = lettreCle?.toUpperCase();
+
+  // Strategy 1: Check if any guarantee has this acte code or lettre_cle in its letter_keys_json
+  for (const g of allGuarantees) {
+    if (!g.letter_keys_json) continue;
+    try {
+      const keys = JSON.parse(g.letter_keys_json) as Record<string, unknown>;
+      const upperKeys = Object.keys(keys).map(k => k.toUpperCase());
+      if (upperKeys.includes(acteUpper) || (lettreUpper && upperKeys.includes(lettreUpper))) {
+        return g;
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Strategy 2: Check if any guarantee has this acte code in its sub_limits_json
+  for (const g of allGuarantees) {
+    if (!g.sub_limits_json) continue;
+    try {
+      const subs = JSON.parse(g.sub_limits_json) as Record<string, unknown>;
+      const upperKeys = Object.keys(subs).map(k => k.toUpperCase());
+      if (upperKeys.includes(acteUpper)) {
+        return g;
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Strategy 3: Match by famille label keywords in care_type
+  if (familleId) {
+    try {
+      const fam = await db
+        .prepare('SELECT label FROM familles_actes WHERE id = ?')
+        .bind(familleId)
+        .first<{ label: string }>();
+      if (fam?.label) {
+        const famWords = fam.label.toLowerCase().split(/[\s\/,()-]+/).filter(w => w.length > 3);
+        for (const g of allGuarantees) {
+          const ct = g.care_type.toLowerCase().replace(/_/g, ' ');
+          if (famWords.some(w => ct.includes(w))) {
+            return g;
+          }
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  return null;
+}
 
 // Known letter keys for parseLetterKeyCode
 const KNOWN_LETTER_KEYS = ['AMM', 'AMO', 'AMY', 'AM', 'CS', 'KC', 'PC', 'B', 'C', 'D', 'E', 'K', 'Z'];
@@ -197,6 +459,26 @@ export function normalizeRate(dbRate: number | null): number | null {
 }
 
 // ---------------------------------------------------------------------------
+// Hospitalisation sub-limit keyword resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the sub_limits keyword for hospitalisation daily limit.
+ * Uses acte code as primary signal (CL=clinique, HP=hôpital),
+ * falls back to careType for backward compat.
+ */
+function resolveHospKeyword(acteCode?: string, careType?: string): string {
+  const code = acteCode?.toUpperCase();
+  if (code === 'SANA') return 'sanatorium';
+  if (code === 'HP') return 'hopital';
+  if (code === 'CL') return 'clinique';
+  // Fallback: careType-based (backward compat)
+  if (careType === 'sanatorium') return 'sanatorium';
+  if (careType === 'hospitalisation_hopital') return 'hopital';
+  return 'clinique';
+}
+
+// ---------------------------------------------------------------------------
 // DB → Engine type converters
 // ---------------------------------------------------------------------------
 
@@ -207,6 +489,7 @@ export function dbRowToGuarantee(
   row: DbGuaranteeRow,
   opts?: {
     familleId?: string;
+    careType?: string;
     typeMaladie?: 'ordinaire' | 'chronique';
     acteCode?: string;
     acteRate?: number;
@@ -226,48 +509,50 @@ export function dbRowToGuarantee(
     } catch { /* ignore */ }
   }
 
-  // Parse sub_limits_json → { key, value }[] in millimes
+  // Parse sub_limits_json → SubLimitsMap (supports rich entries)
   let subLimits: { key: string; value: number }[] = [];
-  let subLimitsRaw: Record<string, number> | null = null;
+  let subLimitsRaw: SubLimitsMap | null = null;
   if (row.sub_limits_json) {
     try {
-      subLimitsRaw = JSON.parse(row.sub_limits_json) as Record<string, number>;
+      subLimitsRaw = JSON.parse(row.sub_limits_json) as SubLimitsMap;
     } catch { /* ignore */ }
   }
 
   // Resolve per_act_ceiling: base from per_event_limit, possibly overridden by sub-limits
   let perActCeiling = row.per_event_limit; // already millimes
+  let effectiveRate = rate;
 
-  // Resolve daily_limit with hospitalisation hôpital/clinique variants
+  // Resolve daily_limit with hospitalisation hôpital/clinique/sanatorium variants
   let dailyLimit = row.daily_limit; // millimes
-  if (subLimitsRaw && (opts?.familleId === 'fa-007' || opts?.familleId === 'fa-008')) {
-    const isHopital = opts?.familleId === 'fa-008';
-    const keyVariants = isHopital
-      ? ['hopital', 'hôpital', 'Plafond journalier en hôpital', 'Plafond journalier en hopital']
-      : ['clinique', 'Plafond journalier en clinique'];
-    for (const key of keyVariants) {
-      const val = subLimitsRaw[key] ??
-        Object.entries(subLimitsRaw).find(
-          ([k]) => k.toLowerCase().includes(isHopital ? 'hopital' : 'clinique') && k.toLowerCase().includes('journalier')
-        )?.[1];
-      if (val != null) {
-        dailyLimit = val; // already millimes in sub_limits
-        break;
+  let maxDays = row.max_days;
+  if (subLimitsRaw && opts?.familleId === 'fa-007') {
+    const keyword = resolveHospKeyword(opts?.acteCode, opts?.careType);
+    const match = Object.entries(subLimitsRaw).find(
+      ([k]) => k.toLowerCase().replace(/ô/g, 'o').includes(keyword)
+    );
+    if (match != null) {
+      const raw = match[1];
+      if (typeof raw === 'number') {
+        dailyLimit = raw < 1000 ? raw * 1000 : raw;
+      } else if (typeof raw === 'object' && raw !== null) {
+        const entry = raw as SubLimitEntry;
+        if (entry.plafond_jour != null) {
+          dailyLimit = entry.plafond_jour < 1000 ? entry.plafond_jour * 1000 : entry.plafond_jour;
+        }
+        if (entry.max_jours != null) maxDays = entry.max_jours;
+        // Hospitalisation = forfait journalier → rate parent suffit, pas d'override depuis sous-acte
       }
     }
   }
 
   // Acte-code-based sub-limit overrides (optique, chirurgie components)
-  let effectiveRate = rate;
   if (subLimitsRaw && opts?.acteCode) {
-    const subKey = ACTE_CODE_TO_SUB_LIMIT_KEY[opts.acteCode] ??
-      ACTE_CODE_TO_SUB_LIMIT_KEY[opts.acteCode.toUpperCase()];
-    if (subKey && subLimitsRaw[subKey] != null) {
-      perActCeiling = subLimitsRaw[subKey]!; // millimes
-      // Check for rate override in sub-limits
-      const rateKey = `${subKey}_rate`;
-      if (subLimitsRaw[rateKey] != null) {
-        effectiveRate = normalizeRate(subLimitsRaw[rateKey]!);
+    const subVal = findSubLimitValue(subLimitsRaw, opts.acteCode);
+    if (subVal != null) {
+      perActCeiling = subVal; // millimes (normalized)
+      const subRate = findSubLimitRate(subLimitsRaw, opts.acteCode);
+      if (subRate != null) {
+        effectiveRate = normalizeRate(subRate);
       } else if (opts.acteRate != null && opts.acteRate > 0 && normalizeRate(opts.acteRate) !== rate) {
         effectiveRate = normalizeRate(opts.acteRate);
       }
@@ -276,14 +561,13 @@ export function dbRowToGuarantee(
 
   // Build sub_limits array for Engine A (non-hospitalisation sub-limits)
   if (subLimitsRaw) {
-    // Collect sub-limits that are relevant (not rate overrides, not hospitalisation variants)
     const skipKeys = new Set([
-      'hopital', 'hôpital', 'clinique',
+      'hopital', 'hôpital', 'clinique', 'sanatorium',
       'ordinaire', 'chronique', 'maladies_ordinaires', 'maladies_chroniques',
     ]);
     subLimits = Object.entries(subLimitsRaw)
       .filter(([k]) => !k.endsWith('_rate') && !skipKeys.has(k.toLowerCase()) && !k.toLowerCase().includes('journalier'))
-      .map(([k, v]) => ({ key: k, value: v })); // already millimes
+      .map(([k, v]) => ({ key: k, value: typeof v === 'number' ? v : (v.plafond_acte ?? v.plafond_jour ?? v.plafond_annuel ?? 0) }));
   }
 
   // Resolve annual_limit: check sub-limits by typeMaladie first
@@ -295,8 +579,15 @@ export function dbRowToGuarantee(
     };
     const candidates = subKeyVariants[opts.typeMaladie] ?? [opts.typeMaladie];
     for (const key of candidates) {
-      if (subLimitsRaw[key] != null) {
-        annualCeiling = subLimitsRaw[key]!; // millimes
+      const raw = subLimitsRaw[key];
+      if (raw != null) {
+        if (typeof raw === 'number') {
+          annualCeiling = raw;
+        } else if (typeof raw === 'object' && raw !== null) {
+          const entry = raw as SubLimitEntry;
+          if (entry.plafond_annuel != null) annualCeiling = entry.plafond_annuel;
+          if (entry.taux != null) effectiveRate = normalizeRate(entry.taux);
+        }
         break;
       }
     }
@@ -308,7 +599,7 @@ export function dbRowToGuarantee(
     annual_ceiling: annualCeiling,
     per_act_ceiling: perActCeiling,
     per_day_ceiling: dailyLimit,
-    max_days: row.max_days,
+    max_days: maxDays,
     letter_keys: letterKeys,
     sub_limits: subLimits,
     requires_prescription: false, // Not checked in adapter path (already validated upstream)
@@ -344,7 +635,7 @@ export function baremeRowToGuarantee(
   } else {
     // forfait: valeur is a unit value in millimes
     // If nbrCle or lettreCle is present, treat as letter_key
-    if (opts?.acteLettreCle || opts?.nbrCle) {
+    if (opts?.nbrCle && opts.nbrCle > 0) {
       const key = opts?.acteLettreCle?.toUpperCase() ?? 'UNIT';
       letterKeys.push({ key, value: bareme.valeur }); // already millimes
     } else if (bareme.plafond_jour != null) {
@@ -436,7 +727,7 @@ export async function buildAnnualContext(
       effectiveCategoryCeiling = plafondRow.montant_plafond; // authoritative ceiling from DB
     } else {
       // No plafond row — compute from bulletins
-      const famCareTypes = FAMILLE_TO_CARE_TYPES[familleId] ?? [];
+      const famCareTypes = await getCareTypesForFamille(db, familleId, groupContractId);
       if (famCareTypes.length > 0) {
         const ctP = famCareTypes.map(() => '?').join(', ');
         const consumedRow = await db
@@ -587,6 +878,33 @@ export async function calculerRemboursementViaEngine(
       .first<{ group_contract_id: string | null }>();
     if (contractRow?.group_contract_id) {
       baremeContractId = contractRow.group_contract_id;
+    } else {
+      // Fallback: if contract has no group_contract_id, try to find a group contract
+      // that has guarantees by looking at the adherent's other contracts
+      const gcFallback = await db
+        .prepare(
+          `SELECT DISTINCT c2.group_contract_id FROM contracts c1
+           JOIN adherents a ON a.contract_id = c1.id OR a.id = c1.adherent_id
+           JOIN contracts c2 ON c2.adherent_id = a.id AND c2.group_contract_id IS NOT NULL
+           WHERE c1.id = ? AND c2.status = 'active'
+           LIMIT 1`
+        )
+        .bind(contractId)
+        .first<{ group_contract_id: string }>();
+      if (gcFallback?.group_contract_id) {
+        baremeContractId = gcFallback.group_contract_id;
+      } else {
+        // Last resort: find ANY group_contract that has active guarantees
+        const anyGc = await db
+          .prepare(
+            `SELECT DISTINCT group_contract_id FROM contract_guarantees
+             WHERE is_active = 1 LIMIT 1`
+          )
+          .first<{ group_contract_id: string }>();
+        if (anyGc?.group_contract_id) {
+          baremeContractId = anyGc.group_contract_id;
+        }
+      }
     }
     if (batchCtx) {
       batchCtx.baremeContractId = baremeContractId;
@@ -646,12 +964,12 @@ export async function calculerRemboursementViaEngine(
 
   const familleId = acte.famille_id;
 
-  // 4. Determine care_type for guarantee lookup
+  // 4. Determine care_type for guarantee lookup (DB-driven)
   let careType: string;
   if (careTypeOverride) {
     careType = careTypeOverride;
   } else if (familleId) {
-    const careTypes = FAMILLE_TO_CARE_TYPES[familleId];
+    const careTypes = await getCareTypesForFamille(db, familleId, baremeContractId);
     careType = careTypes?.[0] ?? familleId;
   } else {
     careType = acte.code;
@@ -733,6 +1051,64 @@ export async function calculerRemboursementViaEngine(
       nbrCle,
       medFamilyRate,
     });
+
+    // Per-acte sub-limit from contract (e.g., optique: monture 300, verres 250)
+    // Loaded from contract_guarantees.sub_limits_json — contract is authoritative
+    const subLimitCandidates = ACTE_CODE_TO_SUB_LIMIT_CANDIDATES[acte.code] ??
+      ACTE_CODE_TO_SUB_LIMIT_CANDIDATES[acte.code.toUpperCase()];
+    if (subLimitCandidates) {
+      const famCareTypes = familleId ? await getCareTypesForFamille(db, familleId, baremeContractId) : [];
+      const careTypesForLookup = famCareTypes && famCareTypes.length > 0
+        ? famCareTypes
+        : (careTypeOverride ? [careTypeOverride] : [careType]);
+      const ctPlaceholders = careTypesForLookup.map(() => '?').join(', ');
+      // When multiple care_types, pick the guarantee whose sub_limits mention this acte code
+      let cgRow: { sub_limits_json: string | null } | null = null;
+      if (careTypesForLookup.length > 1 && acte.code) {
+        const allCg = await db
+          .prepare(
+            `SELECT sub_limits_json FROM contract_guarantees
+             WHERE group_contract_id = ? AND care_type IN (${ctPlaceholders}) AND is_active = 1
+             ORDER BY CASE WHEN care_type = 'hospitalisation' THEN 0 ELSE 1 END, guarantee_number ASC`
+          )
+          .bind(baremeContractId, ...careTypesForLookup)
+          .all<{ sub_limits_json: string | null }>();
+        const cgRows = allCg.results || [];
+        const codeUp = acte.code.toUpperCase();
+        for (const r of cgRows) {
+          if (r.sub_limits_json) {
+            try {
+              const keys = Object.keys(JSON.parse(r.sub_limits_json) as Record<string, unknown>);
+              if (keys.some(k => k.toUpperCase() === codeUp)) { cgRow = r; break; }
+            } catch { /* skip */ }
+          }
+        }
+        if (!cgRow && cgRows.length > 0) cgRow = cgRows[0]!;
+      } else {
+        cgRow = await db
+          .prepare(
+            `SELECT sub_limits_json FROM contract_guarantees
+             WHERE group_contract_id = ? AND care_type IN (${ctPlaceholders}) AND is_active = 1
+             ORDER BY CASE WHEN care_type = 'hospitalisation' THEN 0 ELSE 1 END, created_at DESC LIMIT 1`
+          )
+          .bind(baremeContractId, ...careTypesForLookup)
+          .first<{ sub_limits_json: string | null }>();
+      }
+
+      if (cgRow?.sub_limits_json) {
+        try {
+          const subLimits = JSON.parse(cgRow.sub_limits_json) as SubLimitsMap;
+          const subVal = findSubLimitValue(subLimits, acte.code);
+          if (subVal != null) {
+            guarantee.per_act_ceiling = subVal; // millimes (normalized)
+          }
+          const subRate = findSubLimitRate(subLimits, acte.code);
+          if (subRate != null) {
+            guarantee.rate = normalizeRate(subRate);
+          }
+        } catch { /* ignore */ }
+      }
+    }
 
     // Override plafonds from medication family if applicable
     if (medFamilyPlafondActe != null) {
@@ -832,6 +1208,10 @@ export async function calculerRemboursementViaEngine(
 // Uses direct DT-based math identical to the original service logic.
 // ---------------------------------------------------------------------------
 
+function safeParseJson(s: string): Record<string, unknown> {
+  try { return JSON.parse(s) as Record<string, unknown>; } catch { return {}; }
+}
+
 async function calculerViaGuaranteesPath(
   db: D1Database,
   groupContractId: string,
@@ -852,32 +1232,84 @@ async function calculerViaGuaranteesPath(
   careTypeOverride?: string,
   batchCtx?: CalculBatchContext,
 ): Promise<CalculRemboursementResult> {
-  if (!familleId) {
-    throw new Error('BAREME_NOT_FOUND: Aucune periode active ni garantie trouvee pour ce contrat');
+  // Always use famille-based care types for guarantee lookup (the contract may store
+  // a single "hospitalisation" guarantee covering both clinique and hôpital).
+  // careTypeOverride is kept for sub_limits resolution (clinique vs hôpital daily limit).
+  const familleCareTypes = familleId ? await getCareTypesForFamille(db, familleId, groupContractId) : null;
+  const careTypes = familleCareTypes && familleCareTypes.length > 0
+    ? familleCareTypes
+    : careTypeOverride ? [careTypeOverride] : null;
+  let guarantee: DbGuaranteeRow | null = null;
+
+  if (careTypes && careTypes.length > 0) {
+    const placeholders = careTypes.map(() => '?').join(', ');
+
+    if (careTypes.length === 1) {
+      // Single care_type — simple LIMIT 1
+      guarantee = await db
+        .prepare(
+          `SELECT care_type, reimbursement_rate, is_fixed_amount, annual_limit, per_event_limit,
+                  daily_limit, max_days, letter_keys_json, sub_limits_json, bareme_tp_id
+           FROM contract_guarantees
+           WHERE group_contract_id = ? AND care_type IN (${placeholders}) AND is_active = 1
+           ORDER BY CASE WHEN care_type = 'hospitalisation' THEN 0 ELSE 1 END, created_at DESC
+           LIMIT 1`
+        )
+        .bind(groupContractId, ...careTypes)
+        .first<DbGuaranteeRow>();
+    } else {
+      // Multiple care_types (e.g. fa-017 → actes_specialistes + actes_courants):
+      // pick the guarantee that mentions this acte code in sub_limits or letter_keys
+      const allRows = await db
+        .prepare(
+          `SELECT care_type, reimbursement_rate, is_fixed_amount, annual_limit, per_event_limit,
+                  daily_limit, max_days, letter_keys_json, sub_limits_json, bareme_tp_id
+           FROM contract_guarantees
+           WHERE group_contract_id = ? AND care_type IN (${placeholders}) AND is_active = 1
+           ORDER BY CASE WHEN care_type = 'hospitalisation' THEN 0 ELSE 1 END, guarantee_number ASC`
+        )
+        .bind(groupContractId, ...careTypes)
+        .all<DbGuaranteeRow>();
+      const rows = allRows.results || [];
+      if (rows.length <= 1) {
+        guarantee = rows[0] ?? null;
+      } else if (acte.code) {
+        // Pick the guarantee that has this acte code in its sub_limits or letter_keys
+        const codeUpper = acte.code.toUpperCase();
+        const lkUpper = acte.lettre_cle?.toUpperCase() || null;
+        for (const row of rows) {
+          try {
+            if (row.sub_limits_json) {
+              const keys = Object.keys(JSON.parse(row.sub_limits_json) as Record<string, unknown>);
+              if (keys.some(k => k.toUpperCase() === codeUpper || (lkUpper && k.toUpperCase() === lkUpper))) {
+                guarantee = row; break;
+              }
+            }
+            if (row.letter_keys_json) {
+              const keys = Object.keys(JSON.parse(row.letter_keys_json) as Record<string, unknown>);
+              if (keys.some(k => k.toUpperCase() === codeUpper || (lkUpper && k.toUpperCase() === lkUpper))) {
+                guarantee = row; break;
+              }
+            }
+          } catch { /* skip malformed JSON */ }
+        }
+        if (!guarantee) guarantee = rows[0]!;
+      } else {
+        guarantee = rows[0]!;
+      }
+    }
   }
 
-  const careTypes = careTypeOverride
-    ? [careTypeOverride]
-    : FAMILLE_TO_CARE_TYPES[familleId];
-  if (!careTypes || careTypes.length === 0) {
-    throw new Error('BAREME_NOT_FOUND: Aucune periode active ni garantie trouvee pour ce contrat');
+  // Broad fallback: if specific care_type lookup failed, search by acte code / lettre_cle / famille label
+  if (!guarantee) {
+    guarantee = await findGuaranteeBroad(db, groupContractId, familleId, acte.code, acte.lettre_cle);
   }
-
-  const placeholders = careTypes.map(() => '?').join(', ');
-  const guarantee = await db
-    .prepare(
-      `SELECT care_type, reimbursement_rate, is_fixed_amount, annual_limit, per_event_limit,
-              daily_limit, max_days, letter_keys_json, sub_limits_json, bareme_tp_id
-       FROM contract_guarantees
-       WHERE group_contract_id = ? AND care_type IN (${placeholders}) AND is_active = 1
-       ORDER BY created_at DESC
-       LIMIT 1`
-    )
-    .bind(groupContractId, ...careTypes)
-    .first<DbGuaranteeRow>();
 
   if (!guarantee) {
-    throw new Error('BAREME_NOT_FOUND: Aucune periode active ni garantie trouvee pour ce contrat');
+    throw new Error(
+      `BAREME_NOT_FOUND: Aucune garantie trouvee pour contrat=${groupContractId}, ` +
+      `famille=${familleId}, acte=${acte.code}, careTypes=[${careTypes?.join(',')}]`
+    );
   }
 
   // --- Direct calculation in DT (proven logic from original service) ---
@@ -889,39 +1321,46 @@ async function calculerViaGuaranteesPath(
   const annualLimitDT = guarantee.annual_limit != null ? guarantee.annual_limit / 1000 : null;
   let dailyLimitDT = guarantee.daily_limit != null ? guarantee.daily_limit / 1000 : null;
 
-  // Parse sub_limits_json
-  let subLimits: Record<string, number> | null = null;
+  // Parse sub_limits_json (supports rich SubLimitEntry)
+  let subLimits: SubLimitsMap | null = null;
+  let maxDaysDT = guarantee.max_days;
   if (guarantee.sub_limits_json) {
-    try { subLimits = JSON.parse(guarantee.sub_limits_json) as Record<string, number>; } catch { /* ignore */ }
+    try { subLimits = JSON.parse(guarantee.sub_limits_json) as SubLimitsMap; } catch { /* ignore */ }
   }
 
-  // Hospitalisation hôpital vs clinique daily limit
-  if (subLimits && (familleId === 'fa-007' || familleId === 'fa-008')) {
-    const isHopital = familleId === 'fa-008';
-    const keyVariants = isHopital
-      ? ['hopital', 'hôpital', 'Plafond journalier en hôpital', 'Plafond journalier en hopital']
-      : ['clinique', 'Plafond journalier en clinique'];
-    for (const key of keyVariants) {
-      const val = subLimits[key] ?? Object.entries(subLimits).find(([k]) => k.toLowerCase().includes(isHopital ? 'hopital' : 'clinique') && k.toLowerCase().includes('journalier'))?.[1];
-      if (val != null) {
-        dailyLimitDT = val / 1000;
-        break;
+  // Hospitalisation hôpital/clinique/sanatorium daily limit
+  if (subLimits && familleId === 'fa-007') {
+    const keyword = resolveHospKeyword(acte.code, careTypeOverride || guarantee.care_type);
+    const match = Object.entries(subLimits).find(
+      ([k]) => k.toLowerCase().replace(/ô/g, 'o').includes(keyword)
+    );
+    if (match != null) {
+      const raw = match[1];
+      if (typeof raw === 'number') {
+        dailyLimitDT = raw < 1000 ? raw : raw / 1000;
+      } else if (typeof raw === 'object' && raw !== null) {
+        const entry = raw as SubLimitEntry;
+        if (entry.plafond_jour != null) {
+          dailyLimitDT = entry.plafond_jour < 1000 ? entry.plafond_jour : entry.plafond_jour / 1000;
+        }
+        if (entry.max_jours != null) maxDaysDT = entry.max_jours;
+        // Hospitalisation = forfait journalier → rate parent suffit, pas d'override depuis sous-acte
       }
     }
   }
 
-  // Acte-code-based sub-limit override (optique, chirurgie)
+  // Acte-code-based sub-limit override (optique, chirurgie, actes courants per-key rate)
   if (subLimits && acte.code) {
-    const subKey = ACTE_CODE_TO_SUB_LIMIT_KEY[acte.code] ?? ACTE_CODE_TO_SUB_LIMIT_KEY[acte.code.toUpperCase()];
-    if (subKey && subLimits[subKey] != null) {
-      const subCapDT = subLimits[subKey]! / 1000;
-      if (subCapDT != null) perEventLimitDT = subCapDT;
-      const rateKey = `${subKey}_rate`;
-      if (subLimits[rateKey] != null) {
-        rate = subLimits[rateKey]!;
-      } else if (acte.taux_remboursement != null && acte.taux_remboursement > 0 && acte.taux_remboursement !== rate) {
-        rate = acte.taux_remboursement;
-      }
+    const subVal = findSubLimitValue(subLimits, acte.code);
+    if (subVal != null) {
+      perEventLimitDT = subVal / 1000;
+    }
+    // Rate override from sub_limits (independent of plafond — allows taux-only entries like PHY: 90%)
+    const subRate = findSubLimitRate(subLimits, acte.code);
+    if (subRate != null) {
+      rate = subRate;
+    } else if (subVal != null && acte.taux_remboursement != null && acte.taux_remboursement > 0 && acte.taux_remboursement !== rate) {
+      rate = acte.taux_remboursement;
     }
   }
 
@@ -966,9 +1405,18 @@ async function calculerViaGuaranteesPath(
       ? resolvedCoeff * letterKeyValue
       : letterKeyValue;
     if (resolvedCoeff && resolvedCoeff > 0) {
-      typeCalcul = 'forfait';
-      valeur = effectiveBase;
-      montantBrut = Math.min(fraisEngages, effectiveBase);
+      const capped = Math.min(fraisEngages, effectiveBase);
+      if (rate > 0 && rate < 1) {
+        // Apply guarantee rate to the capped amount (e.g., 90% × min(facture, coeff × key_value))
+        typeCalcul = 'taux';
+        valeur = rate;
+        montantBrut = Math.floor(capped * rate * 1000) / 1000;
+      } else {
+        // 100% capped (e.g., K: 100% with max = coeff × 1.5 DT)
+        typeCalcul = 'forfait';
+        valeur = effectiveBase;
+        montantBrut = capped;
+      }
     } else if (rate > 0 && rate < 1) {
       typeCalcul = 'taux';
       valeur = rate;
@@ -979,8 +1427,11 @@ async function calculerViaGuaranteesPath(
       montantBrut = Math.min(fraisEngages, effectiveBase);
     }
   } else if (letterKeyValue !== null && matchedViaLettreCle && !resolvedCoeff) {
-    const effectiveRate = (acte.taux_remboursement != null && acte.taux_remboursement > 0 && acte.taux_remboursement < 1)
-      ? acte.taux_remboursement : (rate < 1 ? rate : 0.80);
+    // Matched via lettre_cle without coefficient — apply rate × frais engagés
+    // Priority: contract sub_limit rate > contract guarantee rate > acte referentiel rate > fallback 80%
+    const effectiveRate = (rate > 0 && rate <= 1) ? rate
+      : (acte.taux_remboursement != null && acte.taux_remboursement > 0 && acte.taux_remboursement <= 1)
+        ? acte.taux_remboursement : 0.80;
     typeCalcul = 'taux';
     valeur = effectiveRate;
     montantBrut = Math.floor(fraisEngages * effectiveRate * 1000) / 1000;
@@ -993,15 +1444,20 @@ async function calculerViaGuaranteesPath(
     valeur = rate;
     montantBrut = Math.floor(fraisEngages * rate * 1000) / 1000;
   } else {
-    throw new Error('BAREME_NOT_FOUND: Aucune periode active ni garantie trouvee pour ce contrat');
+    // Last resort: use acte referentiel taux instead of throwing
+    const fallbackRate = (acte.taux_remboursement != null && acte.taux_remboursement > 0)
+      ? acte.taux_remboursement
+      : 0.80;
+    typeCalcul = 'taux';
+    valeur = fallbackRate;
+    montantBrut = Math.floor(fraisEngages * fallbackRate * 1000) / 1000;
   }
 
   // Daily limit
   let plafondJourApplique = false;
   if (dailyLimitDT != null) {
     if (nombreJours && nombreJours > 0) {
-      const maxDays = guarantee.max_days;
-      const joursEffectifs = (maxDays && maxDays > 0) ? Math.min(nombreJours, maxDays) : nombreJours;
+      const joursEffectifs = (maxDaysDT && maxDaysDT > 0) ? Math.min(nombreJours, maxDaysDT) : nombreJours;
       const capJour = dailyLimitDT * joursEffectifs;
       if (montantBrut > capJour) { montantBrut = capJour; plafondJourApplique = true; }
     } else if (montantBrut > dailyLimitDT) {
@@ -1027,9 +1483,16 @@ async function calculerViaGuaranteesPath(
     };
     const candidates = subKeyVariants[typeMaladie] ?? [typeMaladie];
     for (const key of candidates) {
-      if (subLimits[key] != null) {
-        const subVal = subLimits[key]! / 1000;
-        if (subVal != null) { effectiveAnnualLimitDT = subVal; break; }
+      const raw = subLimits[key];
+      if (raw != null) {
+        if (typeof raw === 'number') {
+          effectiveAnnualLimitDT = raw / 1000;
+        } else if (typeof raw === 'object' && raw !== null) {
+          const entry = raw as SubLimitEntry;
+          if (entry.plafond_annuel != null) effectiveAnnualLimitDT = entry.plafond_annuel / 1000;
+          if (entry.taux != null) rate = entry.taux;
+        }
+        break;
       }
     }
   }
@@ -1060,7 +1523,7 @@ async function calculerViaGuaranteesPath(
       const restant = Math.max(0, (plafondRow.montant_plafond - plafondRow.montant_consomme) / 1000);
       if (apresPlafondFamille > restant) { apresPlafondFamille = restant; plafondFamilleApplique = true; }
     } else {
-      const familleCareTypes = FAMILLE_TO_CARE_TYPES[familleId] ?? [];
+      const familleCareTypes = familleId ? await getCareTypesForFamille(db, familleId, groupContractId) : [];
       let consumedDT = 0;
       if (familleCareTypes.length > 0) {
         const ctPlaceholders = familleCareTypes.map(() => '?').join(', ');
@@ -1145,6 +1608,12 @@ async function calculerViaGuaranteesPath(
     _debug: {
       path: 'guarantees', effectiveAnnualLimitDT, familleId,
       annualLimit: guarantee.annual_limit,
+      dailyLimit: guarantee.daily_limit,
+      dailyLimitResolved: dailyLimitDT,
+      maxDays: guarantee.max_days,
+      maxDaysResolved: maxDaysDT,
+      nombreJours,
+      rate,
       groupContractId,
       careTypesQueried: careTypes,
       guaranteeCareType: guarantee.care_type,
@@ -1170,15 +1639,17 @@ function buildEngineActe(
   let coefficient: number | undefined;
 
   // Determine letter_key and coefficient for Engine A
-  if (guarantee && guarantee.letter_keys.length > 0) {
+  // Only use letter-key path when nbrCle (cotation) is provided — without it,
+  // Engine A would default coefficient=1 which is wrong for analyses/chirurgie.
+  if (guarantee && guarantee.letter_keys.length > 0 && nbrCle && nbrCle > 0) {
     if (acte.lettre_cle) {
       const upper = acte.lettre_cle.toUpperCase();
       if (guarantee.letter_keys.some(lk => lk.key === upper)) {
         letterKey = upper;
-        coefficient = nbrCle ?? 1;
+        coefficient = nbrCle;
       }
     }
-    if (!letterKey && nbrCle) {
+    if (!letterKey) {
       // Try to find the key from the acte code
       const parsed = parseLetterKeyCode(acte.code);
       if (parsed && guarantee.letter_keys.some(lk => lk.key === parsed.letter)) {

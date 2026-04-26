@@ -58,17 +58,16 @@ const CARE_TYPES = [
   { value: 'laboratoire',             label: '3 - Analyses & Laboratoire' },
   { value: 'optique',                 label: '4 - Optique' },
   { value: 'chirurgie_refractive',    label: '5 - Chirurgie Réfractive (Laser)' },
-  { value: 'actes_courants',          label: '6 - Actes Médicaux Courants & Radiologie' },
+  { value: 'actes_courants',          label: '6a - Actes Médicaux Courants' },
+  { value: 'actes_specialistes',      label: '6b - Actes Spécialistes & Pratique Médicale Courante' },
   { value: 'transport',               label: '7 - Transport du Malade' },
   { value: 'chirurgie',               label: '8 - Frais Chirurgicaux' },
   { value: 'orthopedie',              label: '9 - Orthopédie & Prothèses (non dentaires)' },
   { value: 'hospitalisation',         label: '10 - Hospitalisation' },
-  { value: 'accouchement',            label: '11 - Accouchement' },
-  { value: 'interruption_grossesse',  label: '12 - Interruption Involontaire de Grossesse' },
+  { value: 'accouchement',            label: '11 - Maternité (Accouchement & Grossesse)' },
   { value: 'dentaire',                label: '13 - Soins & Prothèses Dentaires' },
   { value: 'orthodontie',             label: '14 - Soins Orthodontiques (< 20 ans)' },
   { value: 'circoncision',            label: '15 - Circoncision' },
-  { value: 'sanatorium',              label: '16 - Sanatorium / Préventorium' },
   { value: 'cures_thermales',         label: '17 - Cures Thermales' },
   { value: 'frais_funeraires',        label: '18 - Frais Funéraires (Décès)' },
 ] as const;
@@ -81,91 +80,144 @@ const COVERED_RISKS_OPTIONS = [
   'Invalidité',
   'Hospitalisation',
 ];
-// Ajouter ces constantes après CARE_TYPES
-const DEFAULT_LETTER_KEYS: Record<string, { key: string; value: number }[]> = {
+// Sub-items par défaut par care_type (lettres clés + sous-plafonds unifiés)
+type SubItemFormRow = {
+  key: string;
+  mode: 'cle' | 'taux';
+  lettre_value?: number | null;
+  taux?: number | null;
+  plafond?: number | null;
+  max_jours?: number | null;
+};
+const DEFAULT_SUB_ITEMS: Record<string, SubItemFormRow[]> = {
   consultation_visite: [
-    { key: 'C1', value: 45000 },   // Consultation généraliste
-    { key: 'C2', value: 55000 },   // Consultation spécialiste
-    { key: 'C3', value: 55000 },   // Consultation professeur
-    { key: 'V1', value: 50000 },   // Visite généraliste
-    { key: 'V2', value: 55000 },   // Visite spécialiste
-    { key: 'V3', value: 55000 },   // Visite professeur
+    { key: 'C1', mode: 'cle', lettre_value: 45000 },
+    { key: 'C2', mode: 'cle', lettre_value: 55000 },
+    { key: 'C3', mode: 'cle', lettre_value: 55000 },
+    { key: 'V1', mode: 'cle', lettre_value: 50000 },
+    { key: 'V2', mode: 'cle', lettre_value: 55000 },
+    { key: 'V3', mode: 'cle', lettre_value: 55000 },
   ],
   laboratoire: [
-    { key: 'B', value: 320 },
-    { key: 'P', value: 320 },      // Anatomie/Cytologie
+    { key: 'B', mode: 'cle', lettre_value: 320 },
+    { key: 'P', mode: 'cle', lettre_value: 320 },
   ],
   actes_courants: [
-    { key: 'Z',   value: 2000 },   // Radio diagnostique /unité
-    { key: 'E',   value: 7000 },   // Échographie /unité
-    { key: 'PC',  value: 1500 },   // Pratiques courantes
-    { key: 'AMM', value: 10000 },  // Injection insuline
+    { key: 'PC',  mode: 'cle', lettre_value: 1500 },
+    { key: 'AM',  mode: 'cle', lettre_value: 1750 },
+    { key: 'AMM', mode: 'cle', lettre_value: 1750 },
+    { key: 'AMO', mode: 'cle', lettre_value: 1750 },
+    { key: 'AMY', mode: 'cle', lettre_value: 1750 },
+  ],
+  actes_specialistes: [
+    { key: 'Z',   mode: 'cle', lettre_value: 2000 },
+    { key: 'E',   mode: 'cle', lettre_value: 7000 },
+    { key: 'K',   mode: 'cle', lettre_value: 1500 },
   ],
   chirurgie: [
-    { key: 'KC', value: 10000 },
+    { key: 'KC', mode: 'cle', lettre_value: 10000 },
+  ],
+  hospitalisation: [
+    { key: 'Clinique', mode: 'taux', taux: 100, plafond: 0, max_jours: null },
+    { key: 'Hopital', mode: 'taux', taux: 100, plafond: 0, max_jours: null },
+    { key: 'Sanatorium', mode: 'taux', taux: 100, plafond: 0, max_jours: 21 },
+  ],
+  optique: [
+    { key: 'Monture', mode: 'taux', taux: 100, plafond: 0 },
+    { key: 'Verres', mode: 'taux', taux: 100, plafond: 0 },
+    { key: 'Doubles foyers', mode: 'taux', taux: 100, plafond: 0 },
+    { key: 'Lentilles', mode: 'taux', taux: 100, plafond: 0 },
+  ],
+  chirurgie_refractive: [
+    { key: 'Chirurgie refractive', mode: 'taux', taux: 100, plafond: 0 },
+  ],
+  pharmacie: [
+    { key: 'Ordinaire', mode: 'taux', taux: 90, plafond: 0 },
+    { key: 'Chronique', mode: 'taux', taux: 90, plafond: 0 },
+  ],
+  accouchement: [
+    { key: 'ACC', mode: 'taux', taux: 100, plafond: 0 },
+    { key: 'ACC_GEM', mode: 'taux', taux: 100, plafond: 0 },
+    { key: 'IG', mode: 'taux', taux: 100, plafond: 0 },
+  ],
+  dentaire: [
+    { key: 'DC', mode: 'cle', lettre_value: 3000, plafond: 600000 },
+    { key: 'DP', mode: 'cle', lettre_value: 4000, plafond: 700000 },
   ],
 };
 
 const DEFAULT_CEILINGS: Record<string, {
   rate?: number;
-  annual_ceiling?: number;
-  per_act_ceiling?: number;
-  per_day_ceiling?: number;
+  max_days?: number;
   conditions?: string;
   requires_prescription?: boolean;
   requires_cnam_complement?: boolean;
 }> = {
   consultation_visite:    { rate: 100 },
-  pharmacie:              { rate: 90,  annual_ceiling: 1000000, requires_prescription: true },
+  pharmacie:              { rate: 90,  requires_prescription: true },
   laboratoire:            { rate: 100, requires_prescription: true },
-  optique:                { rate: 100, annual_ceiling: 300000 },   // monture
-  chirurgie_refractive:   { rate: 100, annual_ceiling: 350000 },
-  actes_courants:         { rate: 100 },
-  transport:              { rate: 100, annual_ceiling: 100000,  requires_prescription: true },
-  chirurgie:              { rate: 80,  per_act_ceiling: 300000,  requires_cnam_complement: true },
-  orthopedie:             { rate: 100, annual_ceiling: 600000,  requires_prescription: true },
-  hospitalisation:        { rate: 100, per_day_ceiling: 120000, requires_cnam_complement: true },
-  accouchement:           { rate: 100, per_act_ceiling: 200000 },
-  interruption_grossesse: { rate: 100, per_act_ceiling: 100000, requires_prescription: true },
-  dentaire:               { rate: 80,  annual_ceiling: 1200000 },
-  orthodontie:            { rate: 80,  annual_ceiling: 600000,
+  optique:                { rate: 100 },
+  chirurgie_refractive:   { rate: 100 },
+  actes_courants:         { rate: 90 },
+  actes_specialistes:     { rate: 90 },
+  transport:              { rate: 100, requires_prescription: true },
+  chirurgie:              { rate: 80,  requires_cnam_complement: true },
+  orthopedie:             { rate: 100, requires_prescription: true },
+  hospitalisation:        { rate: 100, requires_cnam_complement: true },
+  accouchement:           { rate: 100 },
+  dentaire:               { rate: 80 },
+  orthodontie:            { rate: 80,
                             conditions: 'Pour les enfants de moins de 20 ans' },
-  circoncision:           { rate: 100, per_act_ceiling: 200000 },
-  sanatorium:             { rate: 100, per_day_ceiling: 30000,
+  circoncision:           { rate: 100 },
+  sanatorium:             { rate: 100, max_days: 21,
                             conditions: 'Maximum 21 jours. Après prise en charge CNAM',
                             requires_cnam_complement: true },
-  cures_thermales:        { rate: 100, per_day_ceiling: 30000,
+  cures_thermales:        { rate: 100, max_days: 21,
                             conditions: 'Maximum 21 jours. Prescrit par spécialiste. Après CNAM',
                             requires_prescription: true, requires_cnam_complement: true },
-  frais_funeraires:       { rate: 100, per_act_ceiling: 200000 },
+  frais_funeraires:       { rate: 100 },
 };
+
+/** Plafond label selon care_type — utilisé dans l'UI pour le header de colonne */
+function plafondLabel(careType: string): string {
+  if (careType === 'hospitalisation') return 'Plafond/jour (mill.)';
+  if (careType === 'pharmacie') return 'Plafond annuel (mill.)';
+  return 'Plafond/acte (mill.)';
+}
 
 // ---- Schemas ----
 
-const letterKeySchema = z.object({
+const subItemSchema = z.object({
   key: z.string().min(1),
-  value: z.number().min(0),
+  mode: z.enum(['cle', 'taux']),
+  lettre_value: z.preprocess(v => (typeof v === 'number' && Number.isNaN(v) ? null : v), z.number().min(0).nullable().optional()),
+  taux: z.preprocess(v => (typeof v === 'number' && Number.isNaN(v) ? null : v), z.number().min(0).max(100).nullable().optional()),
+  plafond: z.preprocess(v => (typeof v === 'number' && Number.isNaN(v) ? null : v), z.number().min(0).nullable().optional()),
+  max_jours: z.preprocess(v => (typeof v === 'number' && Number.isNaN(v) ? null : v), z.number().int().min(1).nullable().optional()),
 });
 
-const subLimitSchema = z.object({
-  key: z.string().min(1),
-  value: z.number().min(0),
-});
+const nanToNull = z.preprocess(
+  (v) => (typeof v === 'number' && Number.isNaN(v) ? null : v),
+  z.number().min(0).nullable().optional(),
+);
 
 const guaranteeSchema = z.object({
   care_type: z.string().min(1, 'Type de soin requis'),
   label: z.string().optional(),
-  rate: z.number().min(0).max(100).nullable().optional(),
-  annual_ceiling: z.number().min(0).nullable().optional(),
-  per_act_ceiling: z.number().min(0).nullable().optional(),
-  per_day_ceiling: z.number().min(0).nullable().optional(),
-  letter_keys: z.array(letterKeySchema).optional(),
-  sub_limits: z.array(subLimitSchema).optional(),
+  rate: nanToNull,
+  annual_ceiling: nanToNull,
+  per_act_ceiling: nanToNull,
+  per_day_ceiling: nanToNull,
+  max_days: z.preprocess(
+    (v) => (typeof v === 'number' && Number.isNaN(v) ? null : v),
+    z.number().int().min(1).nullable().optional(),
+  ),
+  sub_items: z.array(subItemSchema).optional(),
   conditions: z.string().optional(),
   requires_prescription: z.boolean().optional(),
   requires_cnam_complement: z.boolean().optional(),
   renewal_period: z.string().optional(),
-  age_limit: z.number().min(0).nullable().optional(),
+  age_limit: nanToNull,
 });
 
 const formSchema = z.object({
@@ -182,13 +234,13 @@ const formSchema = z.object({
   intermediary_code: z.string().optional(),
   effective_date: z.string().min(1, 'Date d\'effet requise'),
   expiry_date: z.string().optional(),
-  global_ceiling: z.number().min(0).nullable().optional(),
-  carence_days: z.number().min(0).nullable().optional(),
+  global_ceiling: nanToNull,
+  carence_days: nanToNull,
   covered_risks: z.array(z.string()).optional(),
   covers_spouse: z.boolean().optional(),
   covers_children: z.boolean().optional(),
-  children_max_age: z.number().min(0).nullable().optional(),
-  children_student_max_age: z.number().min(0).nullable().optional(),
+  children_max_age: nanToNull,
+  children_student_max_age: nanToNull,
   covers_disabled_children: z.boolean().optional(),
   covers_retirees: z.boolean().optional(),
   category: z.string().optional(),
@@ -252,6 +304,7 @@ interface ExistingContract {
     annual_limit: number | null;
     per_event_limit: number | null;
     daily_limit: number | null;
+    max_days: number | null;
     letter_keys_json: string | null;
     sub_limits_json: string | null;
     conditions_text: string | null;
@@ -473,7 +526,7 @@ export function GroupContractFormPage() {
         intermediary_code: existingContract.intermediary_code || '',
         effective_date: existingContract.effective_date || '',
         expiry_date: existingContract.annual_renewal_date || '',
-        global_ceiling: existingContract.annual_global_limit,
+        global_ceiling: existingContract.annual_global_limit != null ? existingContract.annual_global_limit / 1000 : null,
         carence_days: existingContract.carence_days ?? null,
         covered_risks: coveredRisks,
         category: existingContract.plan_category || 'standard',
@@ -491,12 +544,44 @@ export function GroupContractFormPage() {
           annual_ceiling: g.annual_limit,
           per_act_ceiling: g.per_event_limit,
           per_day_ceiling: g.daily_limit,
-          letter_keys: g.letter_keys_json
-            ? Object.entries(parseJson(g.letter_keys_json) || {}).map(([key, value]) => ({ key, value }))
-            : [],
-          sub_limits: g.sub_limits_json
-            ? Object.entries(parseJson(g.sub_limits_json) || {}).map(([key, value]) => ({ key, value }))
-            : [],
+          max_days: g.max_days,
+          sub_items: (() => {
+            const items: SubItemFormRow[] = [];
+            const parentRatePct = g.reimbursement_rate != null ? Math.round(g.reimbursement_rate * 100) : 100;
+            // 1. Letter keys → mode 'cle'
+            if (g.letter_keys_json) {
+              const lks = parseJson(g.letter_keys_json) || {};
+              for (const [key, value] of Object.entries(lks)) {
+                items.push({ key, mode: 'cle', lettre_value: Number(value) });
+              }
+            }
+            // 2. Sub-limits → mode 'taux'
+            if (g.sub_limits_json) {
+              for (const [key, val] of Object.entries(parseJson(g.sub_limits_json) || {})) {
+                const normalizedKey = key
+                  .replace(/\s*\(par jour\)/i, '')
+                  .replace(/^Hôpital$/i, 'Hopital')
+                  .replace(/^hôpital$/i, 'Hopital');
+                if (typeof val === 'number') {
+                  items.push({ key: normalizedKey, mode: 'taux', taux: parentRatePct, plafond: val, max_jours: null });
+                } else {
+                  const e = val as { taux?: number; plafond_jour?: number; plafond_acte?: number; plafond_annuel?: number; max_jours?: number };
+                  const tauxPct = e.taux != null ? Math.round(e.taux * 100) : parentRatePct;
+                  const plafond = e.plafond_jour ?? e.plafond_acte ?? e.plafond_annuel ?? null;
+                  items.push({ key: normalizedKey, mode: 'taux', taux: tauxPct, plafond, max_jours: e.max_jours ?? null });
+                }
+              }
+            }
+            // 3. Ensure defaults exist (add missing keys)
+            const defaults = DEFAULT_SUB_ITEMS[g.care_type] || [];
+            const existingKeys = new Set(items.map((it) => it.key.toLowerCase()));
+            for (const def of defaults) {
+              if (!existingKeys.has(def.key.toLowerCase())) {
+                items.push({ ...def, taux: def.taux ?? parentRatePct });
+              }
+            }
+            return items;
+          })(),
           conditions: g.conditions_text || '',
           requires_prescription: g.requires_prescription === 1,
           requires_cnam_complement: g.requires_cnam_complement === 1,
@@ -671,6 +756,13 @@ const handlePdfUpload = useCallback(
         actes_courants: "actes_courants",
         "actes medicaux courants": "actes_courants",
         "actes médicaux courants": "actes_courants",
+        actes_specialistes: "actes_specialistes",
+        "actes specialistes": "actes_specialistes",
+        "actes spécialistes": "actes_specialistes",
+        "actes de specialistes": "actes_specialistes",
+        "actes de spécialistes": "actes_specialistes",
+        "actes specialistes et de pratique medicale courante": "actes_specialistes",
+        "radiologie electro radiographie physiotherapie": "actes_specialistes",
         transport: "transport",
         "transport du malade": "transport",
         surgery: "chirurgie",
@@ -684,9 +776,11 @@ const handlePdfUpload = useCallback(
         hospitalisation: "hospitalisation",
         maternity: "accouchement",
         accouchement: "accouchement",
-        ivg: "interruption_grossesse",
-        interruption_grossesse: "interruption_grossesse",
-        "interruption involontaire de grossesse": "interruption_grossesse",
+        ivg: "accouchement",
+        interruption_grossesse: "accouchement",
+        "interruption involontaire de grossesse": "accouchement",
+        maternite: "accouchement",
+        "maternité": "accouchement",
         dental: "dentaire",
         dentaire: "dentaire",
         "soins et protheses dentaires": "dentaire",
@@ -696,8 +790,8 @@ const handlePdfUpload = useCallback(
         "soins orthodontiques": "orthodontie",
         circumcision: "circoncision",
         circoncision: "circoncision",
-        sanatorium: "sanatorium",
-        "sanatorium preventorium": "sanatorium",
+        sanatorium: "hospitalisation",
+        "sanatorium preventorium": "hospitalisation",
         thermal_cure: "cures_thermales",
         cures_thermales: "cures_thermales",
         "cures thermales": "cures_thermales",
@@ -755,37 +849,38 @@ const handlePdfUpload = useCallback(
             per_act_ceiling:
               g.perEventLimit != null ? g.perEventLimit * 1000 : null,
             per_day_ceiling: g.dailyLimit != null ? g.dailyLimit * 1000 : null,
-            letter_keys: (() => {
+            max_days: g.maxDays ?? null,
+            sub_items: (() => {
+              const items: SubItemFormRow[] = [];
+              // Letter keys from TP upload
               let keys = g.letterKeys;
               if (!keys && g.letterKeysJson) {
-                try {
-                  keys = JSON.parse(g.letterKeysJson);
-                } catch {
-                  keys = null;
+                try { keys = JSON.parse(g.letterKeysJson); } catch { keys = null; }
+              }
+              if (keys) {
+                for (const [key, value] of Object.entries(keys)) {
+                  items.push({ key, mode: 'cle', lettre_value: Number(value) });
                 }
               }
-              return keys
-                ? Object.entries(keys).map(([key, value]) => ({
-                    key,
-                    value: Number(value),
-                  }))
-                : [];
-            })(),
-            sub_limits: (() => {
+              // Sub-limits from TP upload
               let limits = g.subLimits;
               if (!limits && g.subLimitsJson) {
-                try {
-                  limits = JSON.parse(g.subLimitsJson);
-                } catch {
-                  limits = null;
+                try { limits = JSON.parse(g.subLimitsJson); } catch { limits = null; }
+              }
+              if (limits) {
+                for (const [key, value] of Object.entries(limits)) {
+                  items.push({ key, mode: 'taux', taux: ratePercent ?? 100, plafond: Number(value) });
                 }
               }
-              return limits
-                ? Object.entries(limits).map(([key, value]) => ({
-                    key,
-                    value: Number(value),
-                  }))
-                : [];
+              // Add defaults for missing keys
+              const defaults = DEFAULT_SUB_ITEMS[normalizedCareType] || [];
+              const existingKeys = new Set(items.map((it) => it.key.toLowerCase()));
+              for (const def of defaults) {
+                if (!existingKeys.has(def.key.toLowerCase())) {
+                  items.push({ ...def });
+                }
+              }
+              return items;
             })(),
             conditions: conditionParts.join(". "),
             requires_prescription: g.requiresPrescription || false,
@@ -897,12 +992,32 @@ const handlePdfUpload = useCallback(
           annualLimit: g.annual_ceiling ?? undefined,
           perEventLimit: g.per_act_ceiling ?? undefined,
           dailyLimit: g.per_day_ceiling ?? undefined,
-          letterKeysJson: g.letter_keys?.length
-            ? JSON.stringify(Object.fromEntries(g.letter_keys.map((lk) => [lk.key, lk.value])))
-            : undefined,
-          subLimitsJson: g.sub_limits?.length
-            ? JSON.stringify(Object.fromEntries(g.sub_limits.map((sl) => [sl.key, sl.value])))
-            : undefined,
+          maxDays: g.max_days ?? undefined,
+          letterKeysJson: (() => {
+            const cleItems = (g.sub_items || []).filter((si) => si.mode === 'cle' && si.key && si.lettre_value != null);
+            return cleItems.length > 0
+              ? JSON.stringify(Object.fromEntries(cleItems.map((si) => [si.key, si.lettre_value])))
+              : undefined;
+          })(),
+          subLimitsJson: (() => {
+            const tauxItems = (g.sub_items || []).filter((si) => si.mode === 'taux' && si.key);
+            // Also include 'cle' items that have a plafond (e.g. DC/DP dentaire with plafond_acte)
+            const cleWithPlafond = (g.sub_items || []).filter((si) => si.mode === 'cle' && si.key && si.plafond != null && si.plafond > 0);
+            const allSubLimitItems = [...tauxItems, ...cleWithPlafond];
+            if (allSubLimitItems.length === 0) return undefined;
+            const plafondKey = g.care_type === 'hospitalisation' ? 'plafond_jour'
+              : g.care_type === 'pharmacie' ? 'plafond_annuel'
+              : 'plafond_acte';
+            return JSON.stringify(Object.fromEntries(
+              allSubLimitItems.map((si) => {
+                const entry: Record<string, number> = {};
+                if (si.taux != null) entry.taux = si.taux / 100;
+                if (si.plafond != null) entry[plafondKey] = si.plafond;
+                if (si.max_jours != null) entry.max_jours = si.max_jours;
+                return [si.key, Object.keys(entry).length > 0 ? entry : (si.plafond ?? 0)];
+              })
+            ));
+          })(),
           conditionsText: g.conditions || undefined,
           requiresPrescription: g.requires_prescription ?? false,
           requiresCnamComplement: g.requires_cnam_complement ?? false,
@@ -965,8 +1080,8 @@ const handlePdfUpload = useCallback(
       annual_ceiling: null,
       per_act_ceiling: null,
       per_day_ceiling: null,
-      letter_keys: [],
-      sub_limits: [],
+      max_days: null,
+      sub_items: [],
       conditions: '',
       requires_prescription: false,
       requires_cnam_complement: false,
@@ -1557,15 +1672,15 @@ const handlePdfUpload = useCallback(
                                   ?.label || "";
                               setValue(`guarantees.${index}.label`, label);
 
-                              // Auto-populate letter keys
-                              const defaultKeys =
-                                DEFAULT_LETTER_KEYS[val] || [];
+                              // Auto-populate sub-items (lettres clés + sous-plafonds unifiés)
+                              const defaultItems =
+                                DEFAULT_SUB_ITEMS[val] || [];
                               setValue(
-                                `guarantees.${index}.letter_keys`,
-                                defaultKeys,
+                                `guarantees.${index}.sub_items`,
+                                defaultItems.map((d) => ({ ...d })),
                               );
 
-                              // Auto-populate ceilings and options
+                              // Auto-populate options
                               const defaults = DEFAULT_CEILINGS[val];
                               if (defaults) {
                                 if (defaults.rate != null)
@@ -1573,20 +1688,10 @@ const handlePdfUpload = useCallback(
                                     `guarantees.${index}.rate`,
                                     defaults.rate,
                                   );
-                                if (defaults.annual_ceiling != null)
+                                if (defaults.max_days != null)
                                   setValue(
-                                    `guarantees.${index}.annual_ceiling`,
-                                    defaults.annual_ceiling,
-                                  );
-                                if (defaults.per_act_ceiling != null)
-                                  setValue(
-                                    `guarantees.${index}.per_act_ceiling`,
-                                    defaults.per_act_ceiling,
-                                  );
-                                if (defaults.per_day_ceiling != null)
-                                  setValue(
-                                    `guarantees.${index}.per_day_ceiling`,
-                                    defaults.per_day_ceiling,
+                                    `guarantees.${index}.max_days`,
+                                    defaults.max_days,
                                   );
                                 if (defaults.conditions)
                                   setValue(
@@ -1633,7 +1738,7 @@ const handlePdfUpload = useCallback(
                       </div>
 
                       {/* Row 2: Rate + ceilings */}
-                      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
                         <div className="space-y-2">
                           <Label>Taux (%)</Label>
                           <Input
@@ -1668,6 +1773,7 @@ const handlePdfUpload = useCallback(
                             )}
                           />
                         </div>
+                        {careTypeValue !== 'hospitalisation' && (
                         <div className="space-y-2">
                           <Label>Plafond/jour (millimes)</Label>
                           <Input
@@ -1681,141 +1787,125 @@ const handlePdfUpload = useCallback(
                             )}
                           />
                         </div>
-                      </div>
-
-                      {/* Row 3: Letter keys */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <Label>Clés lettres<InfoTooltip text="Lettres-cles de la nomenclature CNAM (C1, C2, B, Z, KC, etc.) et leur valeur unitaire en millimes. Ces cles determinent le bareme de remboursement pour chaque type d'acte." /></Label>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              const current =
-                                watch(`guarantees.${index}.letter_keys`) || [];
-                              setValue(`guarantees.${index}.letter_keys`, [
-                                ...current,
-                                { key: "", value: 0 },
-                              ]);
-                            }}
-                          >
-                            <Plus className="mr-1 h-3 w-3" />
-                            Ajouter
-                          </Button>
-                        </div>
-                        {(watch(`guarantees.${index}.letter_keys`) || []).map(
-                          (_, lkIdx) => (
-                            <div
-                              key={lkIdx}
-                              className="flex items-center gap-2"
-                            >
-                              <Input
-                                placeholder="Cle (ex: C, CS, V)"
-                                {...register(
-                                  `guarantees.${index}.letter_keys.${lkIdx}.key`,
-                                )}
-                                className="w-32"
-                              />
-                              <Input
-                                type="float"
-                                min="0"
-                                placeholder="Valeur"
-                                {...register(
-                                  `guarantees.${index}.letter_keys.${lkIdx}.value`,
-                                  {
-                                    valueAsNumber: true,
-                                  },
-                                )}
-                                className="w-32"
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => {
-                                  const current =
-                                    watch(`guarantees.${index}.letter_keys`) ||
-                                    [];
-                                  setValue(
-                                    `guarantees.${index}.letter_keys`,
-                                    current.filter((_, i) => i !== lkIdx),
-                                  );
-                                }}
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          ),
                         )}
+                        <div className="space-y-2">
+                          <Label>Nbre max jours</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            {...register(
+                              `guarantees.${index}.max_days`,
+                              {
+                                valueAsNumber: true,
+                              },
+                            )}
+                            placeholder="Ex: 21"
+                          />
+                        </div>
                       </div>
 
-                      {/* Row 4: Sub-limits */}
+                      {/* Row 3: Sub-items unifié (lettres clés + sous-plafonds) */}
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <Label>Sous-plafonds</Label>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              const current =
-                                watch(`guarantees.${index}.sub_limits`) || [];
-                              setValue(`guarantees.${index}.sub_limits`, [
-                                ...current,
-                                { key: "", value: 0 },
-                              ]);
-                            }}
-                          >
-                            <Plus className="mr-1 h-3 w-3" />
-                            Ajouter
-                          </Button>
+                          <Label>
+                            Éléments de la garantie
+                            <InfoTooltip text="Chaque élément peut être en mode Clé lettre (valeur unitaire CNAM) ou Taux/Plafond. Ajoutez des éléments selon la nomenclature du contrat." />
+                          </Label>
+                          <div className="flex gap-1">
+                            <Button type="button" variant="ghost" size="sm" onClick={() => {
+                              const current = watch(`guarantees.${index}.sub_items`) || [];
+                              setValue(`guarantees.${index}.sub_items`, [...current, { key: '', mode: 'cle' as const, lettre_value: 0 }]);
+                            }}>
+                              <Plus className="mr-1 h-3 w-3" /> Clé lettre
+                            </Button>
+                            <Button type="button" variant="ghost" size="sm" onClick={() => {
+                              const current = watch(`guarantees.${index}.sub_items`) || [];
+                              setValue(`guarantees.${index}.sub_items`, [...current, { key: '', mode: 'taux' as const, taux: 100, plafond: 0 }]);
+                            }}>
+                              <Plus className="mr-1 h-3 w-3" /> Taux/Plafond
+                            </Button>
+                          </div>
                         </div>
-                        {(watch(`guarantees.${index}.sub_limits`) || []).map(
-                          (_, slIdx) => (
-                            <div
-                              key={slIdx}
-                              className="flex items-center gap-2"
-                            >
-                              <Input
-                                placeholder="Description"
-                                {...register(
-                                  `guarantees.${index}.sub_limits.${slIdx}.key`,
-                                )}
-                                className="flex-1"
-                              />
-                              <Input
-                                type="number"
-                                min="0"
-                                placeholder="Montant"
-                                {...register(
-                                  `guarantees.${index}.sub_limits.${slIdx}.value`,
-                                  {
-                                    valueAsNumber: true,
-                                  },
-                                )}
-                                className="w-32"
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => {
-                                  const current =
-                                    watch(`guarantees.${index}.sub_limits`) ||
-                                    [];
-                                  setValue(
-                                    `guarantees.${index}.sub_limits`,
-                                    current.filter((_, i) => i !== slIdx),
-                                  );
-                                }}
-                              >
-                                <X className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          ),
+                        {((watch(`guarantees.${index}.sub_items`) || []).length > 0) && (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm border-collapse">
+                              <thead>
+                                <tr className="border-b">
+                                  <th className="text-left py-1 px-2 font-medium text-gray-600">Code / Nom</th>
+                                  <th className="text-left py-1 px-2 font-medium text-gray-600">Mode</th>
+                                  <th className="text-left py-1 px-2 font-medium text-gray-600">Val. lettre (mill.)</th>
+                                  <th className="text-left py-1 px-2 font-medium text-gray-600">Taux (%)</th>
+                                  <th className="text-left py-1 px-2 font-medium text-gray-600">{plafondLabel(careTypeValue || '')}</th>
+                                  {careTypeValue === 'hospitalisation' && (
+                                    <th className="text-left py-1 px-2 font-medium text-gray-600">Max jours</th>
+                                  )}
+                                  <th className="py-1 px-2"></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(watch(`guarantees.${index}.sub_items`) || []).map((si, siIdx) => (
+                                  <tr key={siIdx} className="border-b">
+                                    <td className="py-1 px-2">
+                                      <Input placeholder="Ex: PC, AMM, Clinique..."
+                                        {...register(`guarantees.${index}.sub_items.${siIdx}.key`)} className="w-36" />
+                                    </td>
+                                    <td className="py-1 px-2">
+                                      <Select
+                                        value={si.mode}
+                                        onValueChange={(val) => setValue(`guarantees.${index}.sub_items.${siIdx}.mode`, val as 'cle' | 'taux')}
+                                      >
+                                        <SelectTrigger className="w-28 h-8 text-xs">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="cle">Clé lettre</SelectItem>
+                                          <SelectItem value="taux">Taux/Plafond</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </td>
+                                    <td className="py-1 px-2">
+                                      {si.mode === 'cle' ? (
+                                        <Input type="number" min="0" placeholder="Valeur"
+                                          {...register(`guarantees.${index}.sub_items.${siIdx}.lettre_value`, { valueAsNumber: true })}
+                                          className="w-24" />
+                                      ) : <span className="text-gray-300 px-2">—</span>}
+                                    </td>
+                                    <td className="py-1 px-2">
+                                      {si.mode === 'taux' ? (
+                                        <Input type="number" min="0" max="100"
+                                          {...register(`guarantees.${index}.sub_items.${siIdx}.taux`, { valueAsNumber: true })}
+                                          className="w-20" />
+                                      ) : <span className="text-gray-300 px-2">—</span>}
+                                    </td>
+                                    <td className="py-1 px-2">
+                                      {si.mode === 'taux' ? (
+                                        <Input type="number" min="0" placeholder="Montant"
+                                          {...register(`guarantees.${index}.sub_items.${siIdx}.plafond`, { valueAsNumber: true })}
+                                          className="w-28" />
+                                      ) : <span className="text-gray-300 px-2">—</span>}
+                                    </td>
+                                    {careTypeValue === 'hospitalisation' && (
+                                      <td className="py-1 px-2">
+                                        {si.mode === 'taux' ? (
+                                          <Input type="number" min="1" placeholder="—"
+                                            {...register(`guarantees.${index}.sub_items.${siIdx}.max_jours`, { valueAsNumber: true })}
+                                            className="w-20" />
+                                        ) : <span className="text-gray-300 px-2">—</span>}
+                                      </td>
+                                    )}
+                                    <td className="py-1 px-2">
+                                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
+                                        const current = watch(`guarantees.${index}.sub_items`) || [];
+                                        setValue(`guarantees.${index}.sub_items`, current.filter((_, i) => i !== siIdx));
+                                      }}>
+                                        <X className="h-3 w-3" />
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         )}
                       </div>
 

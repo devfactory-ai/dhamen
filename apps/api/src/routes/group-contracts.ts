@@ -30,7 +30,7 @@ import type { Bindings, Variables } from "../types";
 const CARE_TYPES = [
   "consultation","consultation_visite","pharmacy","pharmacie",
   "laboratory","laboratoire","optical","optique",
-  "refractive_surgery","chirurgie_refractive","medical_acts","actes_courants",
+  "refractive_surgery","chirurgie_refractive","medical_acts","actes_courants","actes_specialistes",
   "transport","surgery","chirurgie","orthopedics","orthopedie",
   "hospitalization","hospitalisation","maternity","accouchement",
   "ivg","interruption_grossesse","dental","dentaire",
@@ -132,7 +132,7 @@ const groupContractFiltersSchema = z.object({
 // ---------------------------------------------------------------------------
 // Gemini config — override via env GEMINI_MODEL
 // ---------------------------------------------------------------------------
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 
 // ---------------------------------------------------------------------------
 // Router
@@ -441,7 +441,7 @@ function validateRate(value: unknown): number | null {
   if (num >= 0 && num <= 1) return num;
   return null;
 }
-const VALID_CARE_TYPES = new Set(["consultation","consultation_visite","pharmacy","pharmacie","laboratory","laboratoire","optical","optique","refractive_surgery","chirurgie_refractive","medical_acts","actes_courants","transport","surgery","chirurgie","orthopedics","orthopedie","hospitalization","hospitalisation","maternity","accouchement","ivg","interruption_grossesse","dental","dentaire","orthodontics","orthodontie","circumcision","circoncision","sanatorium","thermal_cure","cures_thermales","funeral","frais_funeraires"]);
+const VALID_CARE_TYPES = new Set(["consultation","consultation_visite","pharmacy","pharmacie","laboratory","laboratoire","optical","optique","refractive_surgery","chirurgie_refractive","medical_acts","actes_courants","actes_specialistes","transport","surgery","chirurgie","orthopedics","orthopedie","hospitalization","hospitalisation","maternity","accouchement","ivg","interruption_grossesse","dental","dentaire","orthodontics","orthodontie","circumcision","circoncision","sanatorium","thermal_cure","cures_thermales","funeral","frais_funeraires"]);
 const GUARANTEE_NUM_TO_CARE_TYPE: Record<number,string> = {1:"consultation",2:"pharmacy",3:"laboratory",4:"optical",5:"refractive_surgery",6:"medical_acts",7:"transport",8:"surgery",9:"orthopedics",10:"hospitalization",11:"maternity",12:"ivg",13:"dental",14:"orthodontics",15:"circumcision",16:"sanatorium",17:"thermal_cure",18:"funeral"};
 
 function validateGuarantee(g: Record<string,unknown>): Record<string,unknown> {

@@ -255,7 +255,7 @@ export function MfLookupInput({
           placeholder={placeholder}
           maxLength={20}
           className={cn(
-            'flex h-9 w-full rounded-xl border border-input bg-transparent pl-8 pr-8 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono',
+            'flex h-9 w-full rounded-md border border-input bg-transparent pl-8 pr-8 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono',
             (lookupStatus === 'found' || lookupStatus === 'registered') && 'border-emerald-300',
             lookupStatus === 'forced' && 'border-blue-300',
             lookupStatus === 'not_found' && 'border-amber-300',

@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { findActeRefByCode, findActeRefByCodeWithCoefficient, listActesGroupesParFamille, listActesReferentiel } from '@dhamen/db';
 // findActeRefByCode kept for acte_ref_id-based lookups in batch resolution
 /**
@@ -61,7 +62,7 @@ const CARE_TYPE_DEFAULT_CODE: Record<string, string> = {
   laboratoire: 'AN', laboratory: 'AN', lab: 'AN',
   optique: 'OPT', optical: 'OPT',
   chirurgie: 'KC', surgery: 'KC',
-  dentaire: 'SD', dental: 'SD',
+  dentaire: 'DC', dental: 'DC',
   actes_courants: 'AM', medical_acts: 'AM',
   hospitalisation: 'CL', hospitalization: 'CL', hospital: 'CL',
   hospitalisation_hopital: 'HP',
@@ -72,7 +73,7 @@ const CARE_TYPE_DEFAULT_CODE: Record<string, string> = {
   transport: 'TR',
   frais_funeraires: 'FF', funeral: 'FF',
   cures_thermales: 'CT', thermal_cure: 'CT',
-  chirurgie_refractive: 'AM', refractive_surgery: 'AM',
+  chirurgie_refractive: 'LASER', refractive_surgery: 'LASER',
   interruption_grossesse: 'IG',
   sanatorium: 'HP',
   consultation: 'C1',
@@ -156,7 +157,8 @@ const NATURE_ACTE_MAPPINGS: Array<{ keywords: string[]; code: string; label: str
   { keywords: ['radio', 'radiograph', 'radiologie'], code: 'R', label: 'Radiologie' },
   { keywords: ['echograph', 'echo'], code: 'E', label: 'Échographie' },
   { keywords: ['scanner', 'irm', 'imagerie'], code: 'TS', label: 'Traitements spéciaux (scanner/IRM)' },
-  { keywords: ['dentaire', 'dent', 'dentist'], code: 'SD', label: 'Soins et prothèses dentaires' },
+  { keywords: ['dentaire', 'dent', 'dentist', 'soin dentaire'], code: 'DC', label: 'Soins Dentaires' },
+  { keywords: ['prothese dentaire', 'prothèse dentaire', 'couronne', 'bridge', 'implant'], code: 'DP', label: 'Prothèses Dentaires' },
   { keywords: ['kine', 'physiother', 'reeducation'], code: 'PC', label: 'Pratiques courantes' },
   { keywords: ['clinique', 'hospitalisation'], code: 'CL', label: 'Hospitalisation clinique' },
   { keywords: ['hopital'], code: 'HP', label: 'Hospitalisation hôpital' },
@@ -2134,88 +2136,174 @@ bulletinsAgent.post('/bulk-delete-batches', async (c) => {
 /**
  * POST /bulletins-soins/agent/estimate - Estimate reimbursement without creating a bulletin
  */
+
+// Schemas de validation
+const estimateActeSchema = z.object({
+  code: z.string().optional(),
+  amount: z.number().nonnegative('Le montant doit être positif ou nul'),
+  care_type: z.string().optional(),
+  nbr_cle: z.number().nonnegative().optional(),
+  nombre_jours: z.number().int().positive().optional(),
+});
+
+const estimateBodySchema = z.object({
+  adherent_matricule: z.string().min(1, 'Matricule requis'),
+  bulletin_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date invalide (format YYYY-MM-DD)'),
+  actes: z.array(estimateActeSchema),
+  company_id: z.string().optional(),
+  type_maladie: z.enum(['ordinaire', 'chronique']).optional(),
+});
+
+type EstimateReason =
+  | 'OK'
+  | 'MISSING_CODE'
+  | 'ACTE_NOT_FOUND'
+  | 'NO_ACTIVE_CONTRACT'
+  | 'CEILING_EXHAUSTED'
+  | 'CALCULATION_ERROR'
+  | 'FALLBACK_RATE_USED';
+
+interface EstimateDetail {
+  code: string | null;
+  amount: number;
+  reimbursed: number;
+  reason: EstimateReason;
+  message?: string;
+  type?: string;
+  valeur?: number;
+  taux?: number;
+  plafonds?: unknown;
+  breakdown?: unknown;
+  _debug?: unknown;
+}
+
 bulletinsAgent.post('/estimate', async (c) => {
   const user = c.get('user');
   if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
-    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+    return c.json(
+      { success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } },
+      403,
+    );
   }
 
   const db = c.get('tenantDb') ?? c.env.DB;
-  const body = await c.req.json<{
-    adherent_matricule: string;
-    bulletin_date: string;
-    actes: Array<{ code?: string; amount: number; care_type?: string }>;
-    company_id?: string;
-  }>();
 
-  const { adherent_matricule, bulletin_date, actes, company_id } = body;
-  if (!adherent_matricule || !actes || actes.length === 0) {
-    return c.json({ success: true, data: { reimbursed_amount: null, details: [] } });
+  // Validation Zod
+  let body: z.infer<typeof estimateBodySchema>;
+  try {
+    const raw = await c.req.json();
+    body = estimateBodySchema.parse(raw);
+  } catch (err) {
+    const issues = err instanceof z.ZodError
+      ? err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')
+      : 'Payload invalide';
+    return c.json(
+      { success: false, error: { code: 'VALIDATION_ERROR', message: issues } },
+      400,
+    );
+  }
+
+  const {
+    adherent_matricule,
+    bulletin_date,
+    actes,
+    company_id,
+    type_maladie = 'ordinaire',
+  } = body;
+
+  if (actes.length === 0) {
+    return c.json({ success: true, data: { reimbursed_amount: 0, details: [] } });
   }
 
   try {
-    // Find adherent — normalize whitespace, filter by company when available, then by insurer
+    // Find adherent — isolation inter-assureurs par contrat
     const cleanMatricule = adherent_matricule.replace(/\s+/g, '');
     let insurerFilter = '';
     let joinClause = '';
     const bindParams: unknown[] = [cleanMatricule];
 
     if (company_id && company_id !== '__INDIVIDUAL__') {
-      // When company_id is provided, filter directly by company for precise match
       joinClause = 'LEFT JOIN companies co ON a.company_id = co.id';
       insurerFilter = 'AND a.company_id = ?';
       bindParams.push(company_id);
     } else if (user.insurerId) {
-      joinClause = 'LEFT JOIN companies co ON a.company_id = co.id';
-      insurerFilter = `AND (co.insurer_id = ? OR a.company_id IS NULL OR a.company_id = '__INDIVIDUAL__')`;
-      bindParams.push(user.insurerId);
+      insurerFilter = `AND EXISTS (
+        SELECT 1 FROM contracts c2
+        LEFT JOIN companies co2 ON c2.company_id = co2.id
+        WHERE c2.adherent_id = a.id
+          AND c2.deleted_at IS NULL
+          AND (co2.insurer_id = ? OR c2.insurer_id = ?)
+      )`;
+      bindParams.push(user.insurerId, user.insurerId);
     }
 
     const adherent = await db
       .prepare(
-        `SELECT a.id FROM adherents a ${joinClause} WHERE REPLACE(a.matricule, ' ', '') = ? AND a.deleted_at IS NULL ${insurerFilter}`
+        `SELECT a.id FROM adherents a ${joinClause}
+         WHERE REPLACE(a.matricule, ' ', '') = ?
+           AND a.deleted_at IS NULL
+           ${insurerFilter}`,
       )
       .bind(...bindParams)
       .first<{ id: string }>();
 
     if (!adherent) {
-      return c.json({ success: true, data: { reimbursed_amount: null, details: [], warning: 'Adhérent non trouvé' } });
+      return c.json({
+        success: true,
+        data: {
+          reimbursed_amount: null,
+          details: [],
+          warning: 'Adhérent non trouvé ou non accessible',
+        },
+      });
     }
 
-    // Find best contract (prioritize group_contract_id)
+    // Recherche du contrat actif
     const contract = await db
       .prepare(
         `SELECT c.id FROM contracts c
-         WHERE c.adherent_id = ? AND c.status = 'active'
-           AND c.start_date <= ? AND c.end_date >= ?
-         ORDER BY CASE WHEN c.group_contract_id IS NOT NULL THEN 0 ELSE 1 END, c.created_at DESC
-         LIMIT 1`
+         WHERE c.adherent_id = ?
+           AND c.status = 'active'
+           AND c.start_date <= ?
+           AND c.end_date >= ?
+         ORDER BY CASE WHEN c.group_contract_id IS NOT NULL THEN 0 ELSE 1 END,
+                  c.created_at DESC
+         LIMIT 1`,
       )
       .bind(adherent.id, bulletin_date, bulletin_date)
       .first<{ id: string }>();
 
     if (!contract) {
-      // Fetch all contracts for this adherent so the frontend can show a selector
       const { results: allContracts } = await db
         .prepare(
-          `SELECT c.id, c.contract_number, c.plan_type, c.status, c.start_date, c.end_date
-           FROM contracts c WHERE c.adherent_id = ?
-           ORDER BY c.end_date DESC`
+          `SELECT c.id, c.contract_number, c.plan_type, c.status,
+                  c.start_date, c.end_date
+           FROM contracts c
+           WHERE c.adherent_id = ?
+           ORDER BY c.end_date DESC`,
         )
         .bind(adherent.id)
-        .all<{ id: string; contract_number: string; plan_type: string; status: string; start_date: string; end_date: string }>();
+        .all<{
+          id: string;
+          contract_number: string;
+          plan_type: string;
+          status: string;
+          start_date: string;
+          end_date: string;
+        }>();
 
-      // No active contract → reimbursement is 0 (cannot calculate without contract)
-      const details = actes.map((acte) => ({
+      const details: EstimateDetail[] = actes.map((acte) => ({
         code: acte.code?.trim() || null,
         amount: acte.amount,
         reimbursed: 0,
+        reason: 'NO_ACTIVE_CONTRACT' as const,
+        message: `Aucun contrat actif à la date du ${bulletin_date}`,
       }));
 
       const hasContracts = allContracts && allContracts.length > 0;
       const warning = hasContracts
         ? `Aucun contrat actif à la date du ${bulletin_date} — ${allContracts.length} contrat(s) existant(s). Remboursement impossible sans contrat actif.`
-        : 'Cet adhérent n\'a aucun contrat enregistré. Remboursement impossible.';
+        : "Cet adhérent n'a aucun contrat enregistré. Remboursement impossible.";
 
       return c.json({
         success: true,
@@ -2229,28 +2317,64 @@ bulletinsAgent.post('/estimate', async (c) => {
       });
     }
 
-    // Contract-aware calculation
-    const details = [];
-    let total = 0;
+    // Boucle de calcul par acte (arithmétique en millimes entiers)
+    const details: EstimateDetail[] = [];
+    let totalMillimes = 0;
     const estimateBatchCtx: CalculBatchContext = {};
+
     for (const acte of actes) {
       let code = acte.code?.trim();
-      // For care_types with known default codes, prefer the default code for bareme lookup
-      // This avoids medication codes (code_amm) being fuzzy-matched to wrong actes
-      const defaultCode = acte.care_type ? CARE_TYPE_DEFAULT_CODE[acte.care_type] : undefined;
-      if (!code && defaultCode) {
-        // Only use default code when user didn't provide one
-        code = defaultCode;
+
+      const defaultCode = acte.care_type
+        ? CARE_TYPE_DEFAULT_CODE[acte.care_type]
+        : undefined;
+
+      if (!code && defaultCode) code = defaultCode;
+
+      if (!code) {
+        details.push({
+          code: null,
+          amount: acte.amount,
+          reimbursed: 0,
+          reason: 'MISSING_CODE',
+          message: 'Code acte manquant et care_type sans code par défaut',
+        });
+        continue;
       }
-      if (!code) { details.push({ code: null, amount: acte.amount, reimbursed: 0 }); continue; }
+
       let refResult = await findActeRefByCodeWithCoefficient(db, code);
-      // Fallback: if code is not found in actes_referentiel (e.g., medication code_amm "303765"),
-      // use the default code for this care_type (e.g., PH1 for pharmacie)
+
       if (!refResult && defaultCode && code !== defaultCode) {
         refResult = await findActeRefByCodeWithCoefficient(db, defaultCode);
+        if (refResult) code = defaultCode;
       }
-      if (!refResult) { details.push({ code, amount: acte.amount, reimbursed: 0 }); continue; }
+
+      // If code looks like a care_type (e.g. CHIRURGIE_REFRACTIVE), resolve to default acte code
+      if (!refResult) {
+        const codeAsCaretype = code.toLowerCase();
+        const fallbackCode = CARE_TYPE_DEFAULT_CODE[codeAsCaretype];
+        if (fallbackCode && fallbackCode !== code) {
+          refResult = await findActeRefByCodeWithCoefficient(db, fallbackCode);
+          if (refResult) {
+            if (!acte.care_type) acte.care_type = codeAsCaretype;
+            code = fallbackCode;
+          }
+        }
+      }
+
+      if (!refResult) {
+        details.push({
+          code,
+          amount: acte.amount,
+          reimbursed: 0,
+          reason: 'ACTE_NOT_FOUND',
+          message: `Code acte "${code}" introuvable dans le référentiel`,
+        });
+        continue;
+      }
+
       const ref = refResult.acte;
+
       try {
         const calcInput: CalculRemboursementInput = {
           adherentId: adherent.id,
@@ -2258,19 +2382,46 @@ bulletinsAgent.post('/estimate', async (c) => {
           acteRefId: ref.id,
           fraisEngages: acte.amount,
           dateSoin: bulletin_date,
-          typeMaladie: 'ordinaire',
-          nbrCle: refResult.parsedCoefficient ?? (acte as Record<string, unknown>).nbr_cle as number | undefined,
-          nombreJours: (acte as Record<string, unknown>).nombre_jours as number | undefined,
+          typeMaladie: type_maladie,
+          nbrCle: acte.nbr_cle ?? refResult.parsedCoefficient ?? undefined,
+          nombreJours: acte.nombre_jours,
           careType: acte.care_type || undefined,
         };
+
         const result = await calculerRemboursement(db, calcInput, estimateBatchCtx);
-        total += result.montantRembourse;
+
+        const reimbursedMillimes = Math.floor(result.montantRembourse * 1000);
+        totalMillimes += reimbursedMillimes;
+
+        let reason: EstimateReason = 'OK';
+        let message: string | undefined;
+        if (reimbursedMillimes === 0) {
+          if (result.plafondGlobalApplique) {
+            reason = 'CEILING_EXHAUSTED';
+            message = 'Plafond global atteint';
+          } else if (result.plafondFamilleApplique) {
+            reason = 'CEILING_EXHAUSTED';
+            message = "Plafond de la famille d'actes atteint";
+          }
+        }
+
         details.push({
-          code, amount: acte.amount, reimbursed: result.montantRembourse,
-          type: result.typeCalcul, valeur: result.valeurBareme,
+          code,
+          amount: acte.amount,
+          reimbursed: result.montantRembourse,
+          reason,
+          message,
+          type: result.typeCalcul,
+          valeur: result.valeurBareme,
           plafonds: {
-            acte: { applied: result.plafondActeApplique, valeur: result.details.plafondActeValeur },
-            jour: { applied: result.plafondJourApplique, valeur: result.details.plafondJourValeur },
+            acte: {
+              applied: result.plafondActeApplique,
+              valeur: result.details.plafondActeValeur,
+            },
+            jour: {
+              applied: result.plafondJourApplique,
+              valeur: result.details.plafondJourValeur,
+            },
             famille: { applied: result.plafondFamilleApplique },
             global: { applied: result.plafondGlobalApplique },
           },
@@ -2283,42 +2434,96 @@ bulletinsAgent.post('/estimate', async (c) => {
           },
           _debug: result._debug,
         });
-      } catch {
-        // Fallback to referentiel rate
+      } catch (err) {
+        console.error(`Error calculating acte ${code}:`, err);
+
         const taux = (ref as { taux_remboursement?: number }).taux_remboursement || 0;
-        const reimbursed = Math.floor(acte.amount * taux * 1000) / 1000;
-        total += reimbursed;
-        details.push({ code, amount: acte.amount, taux, reimbursed });
+        const reimbursedMillimes = Math.floor(acte.amount * taux * 1000);
+        const reimbursed = reimbursedMillimes / 1000;
+        totalMillimes += reimbursedMillimes;
+
+        details.push({
+          code,
+          amount: acte.amount,
+          taux,
+          reimbursed,
+          reason: 'FALLBACK_RATE_USED',
+          message: 'Calcul principal en erreur, taux référentiel utilisé en secours',
+          _debug: { error: err instanceof Error ? err.message : String(err) },
+        });
       }
     }
 
-    // Apply adherent global plafond cap (legacy field — plafond in millimes, amounts in dinars)
+    let total = totalMillimes / 1000;
+
+    // Plafond adhérent — filet de sécurité uniquement si l'engine ne l'a pas déjà appliqué
     let plafondWarning: string | undefined;
-    if (adherent && total > 0) {
+    const engineAlreadyCappedGlobal = details.some(
+      (d) => (d.plafonds as { global?: { applied?: boolean } } | undefined)?.global?.applied === true,
+    );
+
+    if (!engineAlreadyCappedGlobal && total > 0) {
       const adh = await db
         .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
         .bind(adherent.id)
         .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
+
       if (adh?.plafond_global && adh.plafond_global > 0) {
-        const restantDT = Math.max(0, (adh.plafond_global - (adh.plafond_consomme || 0)) / 1000);
-        if (total > restantDT) {
-          plafondWarning = `Plafond restant : ${restantDT.toFixed(3)} DT. Le remboursement a été réduit de ${total.toFixed(3)} à ${restantDT.toFixed(3)} DT.`;
-          // Proportionally reduce each acte's reimbursement
-          const ratio = restantDT / total;
-          for (const d of details) {
-            if (d.reimbursed > 0) {
-              d.reimbursed = Math.round(d.reimbursed * ratio * 1000) / 1000;
+        const plafondMillimes = adh.plafond_global;
+        const consommeMillimes = adh.plafond_consomme || 0;
+        const restantMillimes = Math.max(0, plafondMillimes - consommeMillimes);
+        const restantDT = restantMillimes / 1000;
+
+        if (totalMillimes > restantMillimes) {
+          plafondWarning =
+            `Plafond adhérent restant : ${restantDT.toFixed(3)} DT. ` +
+            `Le remboursement a été réduit de ${total.toFixed(3)} à ${restantDT.toFixed(3)} DT.`;
+
+          const ratio = restantMillimes / totalMillimes;
+          let reallocatedMillimes = 0;
+          for (let i = 0; i < details.length; i++) {
+            const d = details[i];
+            if (!d || d.reimbursed <= 0) continue;
+            const originalMillimes = Math.floor(d.reimbursed * 1000);
+            const isLast = i === details.length - 1;
+            const reducedMillimes = isLast
+              ? restantMillimes - reallocatedMillimes
+              : Math.floor(originalMillimes * ratio);
+            d.reimbursed = Math.max(0, reducedMillimes) / 1000;
+            if (reducedMillimes < originalMillimes) {
+              d.reason = 'CEILING_EXHAUSTED';
+              d.message = `Réduit par plafond adhérent (ratio ${(ratio * 100).toFixed(1)}%)`;
             }
+            reallocatedMillimes += Math.max(0, reducedMillimes);
           }
           total = restantDT;
         }
       }
     }
 
-    return c.json({ success: true, data: { reimbursed_amount: total, details, ...(plafondWarning ? { plafond_warning: plafondWarning } : {}) } });
+    return c.json({
+      success: true,
+      data: {
+        reimbursed_amount: total,
+        details,
+        ...(plafondWarning ? { plafond_warning: plafondWarning } : {}),
+      },
+    });
   } catch (error) {
     console.error('Error estimating reimbursement:', error);
-    return c.json({ success: true, data: { reimbursed_amount: null, details: [] } });
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'ESTIMATE_FAILED',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Erreur inconnue lors du calcul',
+        },
+      },
+      500,
+    );
   }
 });
 

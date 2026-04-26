@@ -74,7 +74,7 @@ export function ActeSelector({ value, onChange, disabled, familleCode }: ActeSel
 
   return (
     <Select value={value || undefined} onValueChange={handleValueChange} disabled={disabled || actes.length === 0}>
-      <SelectTrigger className="text-sm rounded-xl">
+      <SelectTrigger className="text-sm rounded-md h-9">
         <SelectValue placeholder={
           actes.length === 0 ? "Aucun acte dans cette famille" : "Sélectionner un acte"
         } />

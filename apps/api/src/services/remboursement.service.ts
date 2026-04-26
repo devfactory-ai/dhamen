@@ -102,7 +102,7 @@ const CARE_TYPE_TO_FAMILLE: Record<string, string> = {
   orthopedie: 'fa-005', orthopedics: 'fa-005',
   optique: 'fa-006', optical: 'fa-006',
   hospitalisation: 'fa-007', hospitalization: 'fa-007', hospital: 'fa-007',
-  hospitalisation_hopital: 'fa-008',
+  hospitalisation_hopital: 'fa-007',
   chirurgie: 'fa-010', surgery: 'fa-010',
   chirurgie_fso: 'fa-010',
   chirurgie_usage_unique: 'fa-010',
@@ -203,8 +203,7 @@ const FAMILLE_TO_CARE_TYPES: Record<string, string[]> = {
   'fa-004': ['laboratoire', 'laboratory'],
   'fa-005': ['orthopedie', 'orthopedics'],
   'fa-006': ['optique', 'optical'],
-  'fa-007': ['hospitalisation', 'hospitalization'],
-  'fa-008': ['hospitalisation_hopital', 'hospitalisation', 'hospitalization'],
+  'fa-007': ['hospitalisation', 'hospitalisation_hopital', 'hospitalization', 'sanatorium'],
   'fa-009': ['actes_courants', 'medical_acts'],
   'fa-010': ['chirurgie', 'surgery', 'chirurgie_fso', 'chirurgie_usage_unique'],
   'fa-011': ['dentaire', 'dental', 'dentaire_prothese', 'orthodontie', 'orthodontics'],
@@ -258,7 +257,7 @@ async function _legacyCalculerViaContractGuarantees(
               daily_limit, max_days, letter_keys_json, sub_limits_json, bareme_tp_id
        FROM contract_guarantees
        WHERE group_contract_id = ? AND care_type IN (${placeholders}) AND is_active = 1
-       ORDER BY created_at DESC
+       ORDER BY CASE WHEN care_type = 'hospitalisation' THEN 0 ELSE 1 END, created_at DESC
        LIMIT 1`
     )
     .bind(groupContractId, ...careTypes)
