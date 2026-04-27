@@ -65,7 +65,7 @@ const CARE_TYPE_LABELS: Record<string, string> = {
 };
 
 function formatAmount(amount: number): string {
-  return (amount / 1000).toFixed(3) + ' TND';
+  return amount.toFixed(3) + ' TND';
 }
 
 export function HRDashboardPage() {

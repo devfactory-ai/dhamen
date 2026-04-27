@@ -312,7 +312,7 @@ const acteFormSchema = z.object({
     if (!hasCotation) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'La cotation est requise (ex: 30 ou AMO30, B420, KC50)',
+        message: 'Le coefficient est requis (ex: 30, 80, 420)',
         path: ['sub_items', 0, 'cotation'],
       });
     }
@@ -706,7 +706,7 @@ export function BulletinsSaisiePage() {
   const watchedBulletinDate = watch("bulletin_date");
   const estimateKey = JSON.stringify((watchedActes || []).map(a => ({ code: a.code, amount: Number(a.amount) || 0, care_type: a.care_type, nombre_jours: (a as Record<string, unknown>).nombre_jours, subs: ((a as Record<string, unknown>).sub_items as Array<{ cotation?: string; amount?: number }> | undefined)?.map(s => s.cotation || s.amount) })));
   const { data: estimateData } = useQuery({
-    queryKey: ['estimate-reimbursement', watchedMatricule, watchedBulletinDate, estimateKey, selectedCompany?.id],
+    queryKey: ['estimate-reimbursement', watchedMatricule, watchedBulletinDate, estimateKey, selectedCompany?.id, watch("beneficiary_id") || watch("beneficiary_relationship")],
     queryFn: async () => {
       const actes = (watchedActes || []).filter(a => (a.code || a.label) && Number(a.amount) > 0).map(a => {
             // Extract coefficient from sub-item cotations (e.g., "B420" → 420, "KC50" → 50)
@@ -749,6 +749,14 @@ export function BulletinsSaisiePage() {
         bulletin_date: watchedBulletinDate,
         actes,
         company_id: selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__' ? selectedCompany.id : undefined,
+        beneficiary_id: (() => {
+          const rel = watch("beneficiary_relationship");
+          const benId = watch("beneficiary_id");
+          if (rel === 'spouse' && familleData?.conjoint?.id) return familleData.conjoint.id;
+          if (rel === 'child' && benId) return benId as string;
+          return undefined;
+        })(),
+        beneficiary_relationship: watch("beneficiary_relationship") || undefined,
       });
       return res.success ? res.data : null;
     },
@@ -2849,6 +2857,7 @@ export function BulletinsSaisiePage() {
           email: watch("adherent_email") || undefined,
           address: watch("adherent_address") || undefined,
           companyId: selectedCompany?.id || undefined,
+          dossierComplet: false,
         },
       );
       if (result.success && result.data) {
@@ -6531,7 +6540,7 @@ export function BulletinsSaisiePage() {
                                                           updated,
                                                         );
                                                       }}
-                                                      placeholder="30 ou AMO30 *"
+                                                      placeholder="Coefficient *"
                                                       className={`rounded-md text-sm h-9 ${!subItem.cotation?.trim() ? 'border-amber-400' : ''}`}
                                                     />
                                                   </div>
@@ -7867,6 +7876,21 @@ export function BulletinsSaisiePage() {
                     {viewBulletin.adherent_matricule}
                   </p>
                 </div>
+                {viewBulletin.beneficiary_name && viewBulletin.beneficiary_relationship !== "self" && (
+                  <div>
+                    <p className="text-muted-foreground">Bénéficiaire</p>
+                    <p className="font-medium">
+                      {viewBulletin.beneficiary_name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {viewBulletin.beneficiary_relationship === "spouse"
+                        ? "Conjoint(e)"
+                        : viewBulletin.beneficiary_relationship === "child"
+                          ? "Enfant"
+                          : viewBulletin.beneficiary_relationship}
+                    </p>
+                  </div>
+                )}
                 <div>
                   <p className="text-muted-foreground">Praticien</p>
                   <p className="font-medium">
@@ -8319,6 +8343,21 @@ export function BulletinsSaisiePage() {
                     {validateBulletinTarget.adherent_last_name}
                   </p>
                 </div>
+                {validateBulletinTarget.beneficiary_name && validateBulletinTarget.beneficiary_relationship !== "self" && (
+                  <div>
+                    <p className="text-muted-foreground">Bénéficiaire</p>
+                    <p className="font-medium">
+                      {validateBulletinTarget.beneficiary_name}{" "}
+                      <span className="text-xs text-muted-foreground">
+                        ({validateBulletinTarget.beneficiary_relationship === "spouse"
+                          ? "Conjoint(e)"
+                          : validateBulletinTarget.beneficiary_relationship === "child"
+                            ? "Enfant"
+                            : validateBulletinTarget.beneficiary_relationship})
+                      </span>
+                    </p>
+                  </div>
+                )}
                 <div>
                   <p className="text-muted-foreground">Montant declare</p>
                   <p className="font-medium">

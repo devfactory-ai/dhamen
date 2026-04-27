@@ -49,6 +49,8 @@ export interface Adherent {
   etatFiche?: string | null;
   credit?: number | null;
   contractNumber?: string | null;
+  parentAdherentId?: string | null;
+  codeType?: string | null;
 }
 
 export interface AdherentPublic {

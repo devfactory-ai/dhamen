@@ -532,7 +532,9 @@ bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 
     }>();
 
   if (format === 'pdf') {
-    const { generatePDFHTML, formatAmount: fmtAmt, formatDate: fmtDate } = await import('../../services/pdf-generator.service');
+    const { generatePDFHTML, formatDate: fmtDate } = await import('../../services/pdf-generator.service');
+    /** Amounts in bulletins_soins are already in TND — do NOT divide by 1000 */
+    const fmtAmt = (v: number) => (v ?? 0).toFixed(3) + ' TND';
 
     const html = generatePDFHTML(
       {

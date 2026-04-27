@@ -555,20 +555,29 @@ export function GroupContractFormPage() {
                 items.push({ key, mode: 'cle', lettre_value: Number(value) });
               }
             }
-            // 2. Sub-limits → mode 'taux'
+            // 2. Sub-limits → mode 'taux', or merge plafond into existing 'cle' item
             if (g.sub_limits_json) {
               for (const [key, val] of Object.entries(parseJson(g.sub_limits_json) || {})) {
                 const normalizedKey = key
                   .replace(/\s*\(par jour\)/i, '')
                   .replace(/^Hôpital$/i, 'Hopital')
                   .replace(/^hôpital$/i, 'Hopital');
-                if (typeof val === 'number') {
-                  items.push({ key: normalizedKey, mode: 'taux', taux: parentRatePct, plafond: val, max_jours: null });
+                const plafondVal = typeof val === 'number' ? val
+                  : (val as { plafond_acte?: number; plafond_jour?: number; plafond_annuel?: number }).plafond_acte
+                    ?? (val as { plafond_jour?: number }).plafond_jour
+                    ?? (val as { plafond_annuel?: number }).plafond_annuel
+                    ?? null;
+                const tauxVal = typeof val === 'object' && val !== null && (val as { taux?: number }).taux != null
+                  ? Math.round((val as { taux: number }).taux * 100)
+                  : null;
+                const maxJoursVal = typeof val === 'object' && val !== null ? (val as { max_jours?: number }).max_jours ?? null : null;
+                // Merge into existing 'cle' item if same key (e.g. DC/DP with both lettre_value and plafond)
+                const existingCle = items.find(it => it.key.toUpperCase() === normalizedKey.toUpperCase() && it.mode === 'cle');
+                if (existingCle) {
+                  existingCle.plafond = plafondVal;
+                  if (tauxVal != null) existingCle.taux = tauxVal;
                 } else {
-                  const e = val as { taux?: number; plafond_jour?: number; plafond_acte?: number; plafond_annuel?: number; max_jours?: number };
-                  const tauxPct = e.taux != null ? Math.round(e.taux * 100) : parentRatePct;
-                  const plafond = e.plafond_jour ?? e.plafond_acte ?? e.plafond_annuel ?? null;
-                  items.push({ key: normalizedKey, mode: 'taux', taux: tauxPct, plafond, max_jours: e.max_jours ?? null });
+                  items.push({ key: normalizedKey, mode: 'taux', taux: tauxVal ?? parentRatePct, plafond: plafondVal, max_jours: maxJoursVal });
                 }
               }
             }
@@ -1878,8 +1887,8 @@ const handlePdfUpload = useCallback(
                                       ) : <span className="text-gray-300 px-2">—</span>}
                                     </td>
                                     <td className="py-1 px-2">
-                                      {si.mode === 'taux' ? (
-                                        <Input type="number" min="0" placeholder="Montant"
+                                      {(si.mode === 'taux' || si.mode === 'cle') ? (
+                                        <Input type="number" min="0" placeholder="Plafond"
                                           {...register(`guarantees.${index}.sub_items.${siIdx}.plafond`, { valueAsNumber: true })}
                                           className="w-28" />
                                       ) : <span className="text-gray-300 px-2">—</span>}

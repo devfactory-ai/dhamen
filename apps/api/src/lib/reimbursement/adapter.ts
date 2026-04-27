@@ -61,6 +61,7 @@ export interface CalculBatchContext {
   baremeContractId?: string;
   periodeId?: string | null;
   plafondGlobal?: { montant_plafond: number; montant_consomme: number } | null;
+  beneficiaire?: { age: number; type: 'adherent' | 'spouse' | 'child' };
   _resolved?: boolean;
 }
 
@@ -97,6 +98,7 @@ interface DbGuaranteeRow {
   letter_keys_json: string | null;
   sub_limits_json: string | null;
   bareme_tp_id: string | null;
+  age_limit: number | null;
 }
 
 interface DbBaremeRow {
@@ -305,7 +307,7 @@ const FAMILLE_TO_CARE_TYPES_FALLBACK: Record<string, string[]> = {
   'fa-011': ['dentaire', 'dental', 'dentaire_prothese'],
   'fa-012': ['accouchement', 'maternity', 'accouchement_gemellaire', 'interruption_grossesse'],
   'fa-013': ['cures_thermales', 'thermal_cure'],
-  'fa-014': ['orthodontie', 'orthodontics'],
+  'fa-014': ['frais_funeraires', 'funeral'],
   'fa-015': ['circoncision', 'circumcision'],
   'fa-016': ['transport'],
   'fa-017': ['actes_specialistes', 'actes_courants', 'medical_acts'],
@@ -374,7 +376,7 @@ async function findGuaranteeBroad(
   const { results: allGuarantees } = await db
     .prepare(
       `SELECT care_type, reimbursement_rate, is_fixed_amount, annual_limit, per_event_limit,
-              daily_limit, max_days, letter_keys_json, sub_limits_json, bareme_tp_id
+              daily_limit, max_days, letter_keys_json, sub_limits_json, bareme_tp_id, age_limit
        FROM contract_guarantees
        WHERE group_contract_id = ? AND is_active = 1`
     )
@@ -433,7 +435,7 @@ async function findGuaranteeBroad(
 }
 
 // Known letter keys for parseLetterKeyCode
-const KNOWN_LETTER_KEYS = ['AMM', 'AMO', 'AMY', 'AM', 'CS', 'KC', 'PC', 'B', 'C', 'D', 'E', 'K', 'Z'];
+const KNOWN_LETTER_KEYS = ['AMM', 'AMO', 'AMY', 'AM', 'CS', 'DC', 'DP', 'KC', 'PC', 'B', 'C', 'D', 'E', 'K', 'Z'];
 
 // ---------------------------------------------------------------------------
 // Unit normalization
@@ -605,7 +607,7 @@ export function dbRowToGuarantee(
     requires_prescription: false, // Not checked in adapter path (already validated upstream)
     requires_cnam_complement: false,
     renewal_period: '',
-    age_limit: null,
+    age_limit: row.age_limit ?? null,
     conditions: '',
   };
 }
@@ -911,6 +913,33 @@ export async function calculerRemboursementViaEngine(
     }
   }
 
+  // 1b. Resolve beneficiary age & type for eligibility checks (age_limit)
+  let benInfo: { age: number; type: 'adherent' | 'spouse' | 'child' } | undefined;
+  if (batchCtx?.beneficiaire) {
+    benInfo = batchCtx.beneficiaire;
+  } else {
+    const adRow = await db
+      .prepare('SELECT date_of_birth, parent_adherent_id, code_type FROM adherents WHERE id = ?')
+      .bind(adherentId)
+      .first<{ date_of_birth: string | null; parent_adherent_id: string | null; code_type: string | null }>();
+    if (adRow?.date_of_birth) {
+      const birth = new Date(adRow.date_of_birth);
+      const ref = new Date(dateSoin);
+      let age = ref.getFullYear() - birth.getFullYear();
+      const monthDiff = ref.getMonth() - birth.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && ref.getDate() < birth.getDate())) age--;
+      const codeUpper = adRow.code_type?.toUpperCase() ?? '';
+      const benType: 'adherent' | 'spouse' | 'child' =
+        codeUpper === 'C' ? 'spouse'
+        : (codeUpper === 'E' || adRow.parent_adherent_id) ? 'child'
+        : 'adherent';
+      benInfo = { age, type: benType };
+    }
+    if (batchCtx) {
+      batchCtx.beneficiaire = benInfo;
+    }
+  }
+
   // 2. Find active period (cached in batchCtx)
   let periode: { id: string } | null;
   if (batchCtx?._resolved && batchCtx.periodeId !== undefined) {
@@ -1138,7 +1167,7 @@ export async function calculerRemboursementViaEngine(
 
   // 6. Build Engine A Acte
   const engineActe = buildEngineActe(
-    acte, careType, fraisEngages, dateSoin, adherentId, nbrCle, nombreJours, guarantee
+    acte, careType, fraisEngages, dateSoin, adherentId, nbrCle, nombreJours, guarantee, benInfo
   );
 
   // 7. Build AnnualContext
@@ -1249,7 +1278,7 @@ async function calculerViaGuaranteesPath(
       guarantee = await db
         .prepare(
           `SELECT care_type, reimbursement_rate, is_fixed_amount, annual_limit, per_event_limit,
-                  daily_limit, max_days, letter_keys_json, sub_limits_json, bareme_tp_id
+                  daily_limit, max_days, letter_keys_json, sub_limits_json, bareme_tp_id, age_limit
            FROM contract_guarantees
            WHERE group_contract_id = ? AND care_type IN (${placeholders}) AND is_active = 1
            ORDER BY CASE WHEN care_type = 'hospitalisation' THEN 0 ELSE 1 END, created_at DESC
@@ -1263,7 +1292,7 @@ async function calculerViaGuaranteesPath(
       const allRows = await db
         .prepare(
           `SELECT care_type, reimbursement_rate, is_fixed_amount, annual_limit, per_event_limit,
-                  daily_limit, max_days, letter_keys_json, sub_limits_json, bareme_tp_id
+                  daily_limit, max_days, letter_keys_json, sub_limits_json, bareme_tp_id, age_limit
            FROM contract_guarantees
            WHERE group_contract_id = ? AND care_type IN (${placeholders}) AND is_active = 1
            ORDER BY CASE WHEN care_type = 'hospitalisation' THEN 0 ELSE 1 END, guarantee_number ASC`
@@ -1350,9 +1379,12 @@ async function calculerViaGuaranteesPath(
   }
 
   // Acte-code-based sub-limit override (optique, chirurgie, actes courants per-key rate)
+  // Skip per-event plafond when dailyLimit is already resolved (hospitalisation/sanatorium)
+  // — the daily limit × jours calculation handles these ceilings, applying it again as
+  //   perEventLimit would collapse the multi-day total back to a single-day amount.
   if (subLimits && acte.code) {
     const subVal = findSubLimitValue(subLimits, acte.code);
-    if (subVal != null) {
+    if (subVal != null && dailyLimitDT == null) {
       perEventLimitDT = subVal / 1000;
     }
     // Rate override from sub_limits (independent of plafond — allows taux-only entries like PHY: 90%)
@@ -1634,6 +1666,7 @@ function buildEngineActe(
   nbrCle?: number,
   nombreJours?: number,
   guarantee?: Guarantee,
+  beneficiaire?: { age: number; type: 'adherent' | 'spouse' | 'child' },
 ): Acte {
   let letterKey: string | undefined;
   let coefficient: number | undefined;
@@ -1669,8 +1702,8 @@ function buildEngineActe(
     has_prescription: true,
     beneficiaire: {
       id: adherentId,
-      type: 'adherent',
-      age: 35,
+      type: beneficiaire?.type ?? 'adherent',
+      age: beneficiaire?.age ?? 35,
     },
   };
 }

@@ -84,11 +84,8 @@ bulletinsSoins.get('/me', async (c) => {
   // Get bulletins with pagination
   const bulletins = await db.prepare(`
     SELECT
-      bs.*,
-      b.full_name as beneficiary_name,
-      b.relationship as beneficiary_relationship
+      bs.*
     FROM bulletins_soins bs
-    LEFT JOIN beneficiaries b ON bs.beneficiary_id = b.id
     ${whereClause}
     ORDER BY bs.bulletin_date DESC, bs.created_at DESC
     LIMIT ? OFFSET ?
@@ -237,11 +234,8 @@ bulletinsSoins.get('/me/:id', async (c) => {
   // Get bulletin
   const bulletin = await db.prepare(`
     SELECT
-      bs.*,
-      b.full_name as beneficiary_name,
-      b.relationship as beneficiary_relationship
+      bs.*
     FROM bulletins_soins bs
-    LEFT JOIN beneficiaries b ON bs.beneficiary_id = b.id
     WHERE bs.id = ? AND bs.adherent_id = ?
   `).bind(bulletinId, adherent.id).first();
 
@@ -980,12 +974,11 @@ bulletinsSoins.get('/manage', async (c) => {
       a.first_name as adherent_first_name,
       a.last_name as adherent_last_name,
       a.national_id_encrypted as adherent_national_id,
-      b.full_name as beneficiary_name,
-      b.relationship as beneficiary_relationship
+      bs.beneficiary_name,
+      bs.beneficiary_relationship
     FROM bulletins_soins bs
     JOIN adherents a ON bs.adherent_id = a.id
     JOIN companies co ON a.company_id = co.id
-    LEFT JOIN beneficiaries b ON bs.beneficiary_id = b.id
     ${whereClause}
     ORDER BY
       CASE bs.status
@@ -1153,8 +1146,8 @@ bulletinsSoins.get('/manage/:id', async (c) => {
       a.matricule as adherent_matricule,
       a.email as adherent_email,
       a.phone_encrypted as adherent_phone,
-      b.full_name as beneficiary_name,
-      b.relationship as beneficiary_relationship,
+      bs.beneficiary_name,
+      bs.beneficiary_relationship,
       ct.contract_number,
       ct.plan_type,
       ct.coverage_json,
@@ -1162,7 +1155,6 @@ bulletinsSoins.get('/manage/:id', async (c) => {
     FROM bulletins_soins bs
     JOIN adherents a ON bs.adherent_id = a.id
     JOIN companies co ON a.company_id = co.id
-    LEFT JOIN beneficiaries b ON bs.beneficiary_id = b.id
     LEFT JOIN contracts ct ON ct.adherent_id = a.id AND ct.status = 'active'
     LEFT JOIN insurers i ON ct.insurer_id = i.id
     ${detailWhere}
@@ -1289,18 +1281,19 @@ bulletinsSoins.put('/manage/:id/status', async (c) => {
     UPDATE bulletins_soins SET ${updateFields} WHERE id = ?
   `).bind(...updateParams, bulletinId).run();
 
-  // Update adherent plafond_consomme when reimbursing (delta to avoid double-counting)
+  // Update beneficiary plafond_consomme when reimbursing (delta to avoid double-counting)
   // Bulletin amounts are in dinars, plafond_consomme is in millimes (×1000)
+  // Use beneficiary_id (conjoint/enfant) when present, else adherent_id (principal)
   if (status === 'reimbursed') {
     const bul = bulletin as Record<string, unknown>;
-    const adherentId = bul.adherent_id as string | null;
+    const plafondTargetId = (bul.beneficiary_id as string | null) || (bul.adherent_id as string | null);
     const finalAmount = body.reimbursed_amount || bul.approved_amount || bul.total_amount;
     const previousReimbursed = Number(bul.reimbursed_amount) || 0;
     const delta = Number(finalAmount) - previousReimbursed;
-    if (adherentId && delta > 0) {
+    if (plafondTargetId && delta > 0) {
       await db.prepare(
         'UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?'
-      ).bind(Math.round(delta * 1000), adherentId).run();
+      ).bind(Math.round(delta * 1000), plafondTargetId).run();
     }
   }
 
@@ -2337,10 +2330,12 @@ bulletinsSoins.get('/history/:id', async (c) => {
       SELECT bs.*,
              a.first_name as adh_first_name, a.last_name as adh_last_name,
              a.matricule as adh_matricule, a.national_id_encrypted as adh_national_id,
-             a.plafond_global as adh_plafond_global, a.plafond_consomme as adh_plafond_consomme,
-             a.email as adh_email
+             a.email as adh_email,
+             COALESCE(ben.plafond_global, a.plafond_global) as adh_plafond_global,
+             COALESCE(ben.plafond_consomme, a.plafond_consomme) as adh_plafond_consomme
       FROM bulletins_soins bs
       LEFT JOIN adherents a ON bs.adherent_id = a.id
+      LEFT JOIN adherents ben ON bs.beneficiary_id = ben.id
       LEFT JOIN companies co ON a.company_id = co.id
       ${histDetailWhere}
     `).bind(...histDetailParams).first();

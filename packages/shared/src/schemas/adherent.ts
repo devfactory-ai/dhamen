@@ -77,6 +77,8 @@ export const adherentCreateSchema = z.object({
   credit: z.number().min(0).optional(),
   // Numéro de contrat (requis — l'adhérent doit être rattaché à un contrat)
   contractNumber: z.string().min(1, 'Numéro de contrat requis'),
+  // Dossier complet (false = dossier incomplet, e.g. ajout rapide depuis saisie bulletin)
+  dossierComplet: z.boolean().optional(),
   // Ayants droit (conjoint + enfants) créés avec l'adhérent principal
   ayantsDroit: z.array(ayantDroitSchema).max(10).optional(),
 });

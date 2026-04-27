@@ -167,6 +167,8 @@ export function GroupContractDetailPage() {
     onSuccess: () => {
       toast({ title: 'Garanties appliquées aux adhérents avec succès', variant: 'success' });
       queryClient.invalidateQueries({ queryKey: ['group-contract', id] });
+      queryClient.invalidateQueries({ queryKey: ['adherents'] });
+      queryClient.invalidateQueries({ queryKey: ['adherent-plafonds'] });
     },
     onError: (err: Error) => {
       toast({ title: 'Erreur', description: err.message, variant: 'destructive' });

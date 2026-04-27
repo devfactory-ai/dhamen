@@ -831,13 +831,13 @@ adherents.get(
       .first<{ matricule: string | null }>();
     const adherentMatricule = adherentRecord?.matricule;
 
-    // Match by adherent_id OR adherent_matricule (catches bulletins linked to auto-created duplicates)
+    // Match by adherent_id, beneficiary_id, OR adherent_matricule (catches bulletins for beneficiaries and auto-created duplicates)
     const whereClause = adherentMatricule
-      ? `(bs.adherent_id = ? OR bs.adherent_matricule = ?)`
-      : `bs.adherent_id = ?`;
+      ? `(bs.adherent_id = ? OR bs.beneficiary_id = ? OR bs.adherent_matricule = ?)`
+      : `(bs.adherent_id = ? OR bs.beneficiary_id = ?)`;
     const bindParams = adherentMatricule
-      ? [adherentId, adherentMatricule]
-      : [adherentId];
+      ? [adherentId, adherentId, adherentMatricule]
+      : [adherentId, adherentId];
 
     const countResult = await db
       .prepare(`SELECT COUNT(*) as count FROM bulletins_soins bs WHERE ${whereClause}`)
@@ -849,6 +849,7 @@ adherents.get(
     const { results } = await db
       .prepare(
         `SELECT bs.id, bs.bulletin_date, bs.bulletin_number, bs.status, bs.total_amount, bs.reimbursed_amount, bs.care_type, bs.created_at,
+                bs.beneficiary_name, bs.beneficiary_relationship,
                 (SELECT COUNT(*) FROM actes_bulletin ab WHERE ab.bulletin_id = bs.id) as actes_count
          FROM bulletins_soins bs
          WHERE ${whereClause}
@@ -867,6 +868,8 @@ adherents.get(
       declaredAmount: r.total_amount,
       reimbursedAmount: r.reimbursed_amount,
       actesCount: r.actes_count,
+      beneficiaryName: r.beneficiary_name || null,
+      beneficiaryRelationship: r.beneficiary_relationship || null,
       createdAt: r.created_at,
     })), {
       page,
@@ -1433,6 +1436,23 @@ adherents.post(
     const encryptedMobile = data.mobile ? await encrypt(data.mobile, encryptionKey) : null;
     const encryptedRib = data.rib ? await encrypt(data.rib, encryptionKey) : null;
 
+    // If no explicit plafondGlobal, inherit from the group contract's annual_global_limit
+    let effectivePlafondGlobal = data.plafondGlobal ?? null;
+    if (!effectivePlafondGlobal && data.companyId && data.companyId !== '__INDIVIDUAL__') {
+      const gcPlafond = await db
+        .prepare(
+          `SELECT annual_global_limit FROM group_contracts
+           WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL
+           ORDER BY created_at DESC LIMIT 1`
+        )
+        .bind(data.companyId)
+        .first<{ annual_global_limit: number | null }>();
+      if (gcPlafond?.annual_global_limit) {
+        // annual_global_limit is stored in millimes in some cases, or DT — match existing convention
+        effectivePlafondGlobal = gcPlafond.annual_global_limit;
+      }
+    }
+
     await db
       .prepare(
         `INSERT INTO adherents (
@@ -1445,19 +1465,21 @@ adherents.post(
           banque, rib_encrypted, regime_social, handicap,
           fonction, maladie_chronique, matricule_conjoint,
           type_piece_identite, date_edition_piece, contre_visite_obligatoire, etat_fiche, credit,
+          dossier_complet,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         id, encryptedNationalId, nationalIdHash, data.firstName, data.lastName,
         data.dateOfBirth, data.gender ?? null, data.lieuNaissance ?? null, data.etatCivil ?? null, data.dateMarriage ?? null,
         encryptedPhone ?? null, encryptedMobile, data.email ?? null,
         data.rue ?? null, data.address ?? null, data.city ?? null, data.postalCode ?? null, data.lat ?? null, data.lng ?? null,
-        (data.companyId && data.companyId !== '__INDIVIDUAL__') ? data.companyId : null, matricule, data.plafondGlobal ?? null,
+        (data.companyId && data.companyId !== '__INDIVIDUAL__') ? data.companyId : null, matricule, effectivePlafondGlobal,
         data.dateDebutAdhesion ?? null, data.dateFinAdhesion ?? null, data.rang ?? 0, data.isActive !== false ? 1 : 0,
         data.banque ?? null, encryptedRib, data.regimeSocial ?? null, data.handicap ? 1 : 0,
         data.fonction ?? null, data.maladiChronique ? 1 : 0, data.matriculeConjoint ?? null,
         data.typePieceIdentite ?? 'CIN', data.dateEditionPiece ?? null, data.contreVisiteObligatoire ? 1 : 0, data.etatFiche ?? 'NON_TEMPORAIRE', data.credit ?? 0,
+        data.dossierComplet === false ? 0 : 1,
         now, now
       )
       .run();
@@ -1515,7 +1537,7 @@ adherents.post(
             contractNumber,
             startDate,
             endDateStr,
-            data.plafondGlobal ? data.plafondGlobal : null,
+            effectivePlafondGlobal ? effectivePlafondGlobal : null,
             groupContractId
           )
           .run();
@@ -1613,7 +1635,7 @@ adherents.post(
       city: data.city,
       companyId: data.companyId,
       companyName: result?.co_name,
-      plafondGlobal: data.plafondGlobal,
+      plafondGlobal: effectivePlafondGlobal,
       plafondConsomme: 0,
       createdAt: now,
       ayantsDroit: ayantsDroitCreated,

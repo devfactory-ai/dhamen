@@ -56,6 +56,8 @@ interface AdherentRow {
   etat_fiche: string | null;
   credit: number | null;
   contract_number: string | null;
+  parent_adherent_id: string | null;
+  code_type: string | null;
 }
 
 function rowToAdherent(row: AdherentRow): Adherent {
@@ -104,6 +106,8 @@ function rowToAdherent(row: AdherentRow): Adherent {
     etatFiche: row.etat_fiche,
     credit: row.credit,
     contractNumber: row.contract_number,
+    parentAdherentId: row.parent_adherent_id,
+    codeType: row.code_type,
   };
 }
 

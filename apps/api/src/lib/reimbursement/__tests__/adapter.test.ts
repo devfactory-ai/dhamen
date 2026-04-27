@@ -132,6 +132,7 @@ describe('dbRowToGuarantee', () => {
     letter_keys_json: null,
     sub_limits_json: null,
     bareme_tp_id: null,
+    age_limit: null,
   };
 
   it('converts rate from 0-1 to 0-100', () => {
@@ -553,6 +554,7 @@ describe('BH 2025 scenarios via adapter converters', () => {
       letter_keys_json: null,
       sub_limits_json: null,
       bareme_tp_id: null,
+      age_limit: null,
     };
 
     const guarantee = dbRowToGuarantee(row);
@@ -585,6 +587,7 @@ describe('BH 2025 scenarios via adapter converters', () => {
       letter_keys_json: '{"B": 0.27}',
       sub_limits_json: null,
       bareme_tp_id: null,
+      age_limit: null,
     };
 
     const guarantee = dbRowToGuarantee(row);
@@ -615,6 +618,7 @@ describe('BH 2025 scenarios via adapter converters', () => {
       letter_keys_json: null,
       sub_limits_json: '{"clinique": 90000, "hopital": 10000}',
       bareme_tp_id: null,
+      age_limit: null,
     };
 
     const guarantee = dbRowToGuarantee(row, { familleId: 'fa-007' });
@@ -645,6 +649,7 @@ describe('BH 2025 scenarios via adapter converters', () => {
       letter_keys_json: null,
       sub_limits_json: null,
       bareme_tp_id: null,
+      age_limit: null,
     };
 
     const guarantee = dbRowToGuarantee(row);
@@ -675,6 +680,7 @@ describe('BH 2025 scenarios via adapter converters', () => {
       letter_keys_json: null,
       sub_limits_json: '{"Monture": 300000, "Verres": 250000}',
       bareme_tp_id: null,
+      age_limit: null,
     };
 
     const guarantee = dbRowToGuarantee(row, { acteCode: 'MONTURE' });

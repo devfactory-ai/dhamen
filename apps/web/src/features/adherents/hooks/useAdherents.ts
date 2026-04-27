@@ -186,6 +186,8 @@ export interface AdherentBulletin {
   declaredAmount: number;
   reimbursedAmount: number;
   actesCount: number;
+  beneficiaryName: string | null;
+  beneficiaryRelationship: string | null;
   createdAt: string;
 }
 

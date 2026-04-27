@@ -47,10 +47,9 @@ const CARE_TYPE_TO_FAMILLE: Record<string, string> = {
   dentaire: 'fa-011',
   accouchement: 'fa-012',
   cures_thermales: 'fa-013',
-  orthodontie: 'fa-014',
+  frais_funeraires: 'fa-014',
   circoncision: 'fa-015',
   transport: 'fa-016',
-  frais_funeraires: 'fa-019',
   chirurgie_refractive: 'fa-006', // linked to optique family
   sanatorium: 'fa-013',
   interruption_grossesse: 'fa-012',
@@ -1760,13 +1759,14 @@ bulletinsAgent.get('/:id', async (c) => {
       .bind(bulletinId)
       .all();
 
-    // Fetch adherent plafond if linked
+    // Fetch beneficiary plafond (use beneficiary_id if present, else adherent_id)
+    const detailBeneficiaryId = (bulletin.beneficiary_id as string | null) || (bulletin.adherent_id as string | null);
     let plafondGlobal: number | null = null;
     let plafondConsomme: number | null = null;
-    if (bulletin.adherent_id) {
+    if (detailBeneficiaryId) {
       const adh = await db
         .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
-        .bind(bulletin.adherent_id)
+        .bind(detailBeneficiaryId)
         .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
       if (adh) {
         plafondGlobal = adh.plafond_global;
@@ -2152,6 +2152,8 @@ const estimateBodySchema = z.object({
   actes: z.array(estimateActeSchema),
   company_id: z.string().optional(),
   type_maladie: z.enum(['ordinaire', 'chronique']).optional(),
+  beneficiary_id: z.string().optional(),
+  beneficiary_relationship: z.enum(['self', 'spouse', 'child', 'parent']).optional(),
 });
 
 type EstimateReason =
@@ -2209,6 +2211,8 @@ bulletinsAgent.post('/estimate', async (c) => {
     actes,
     company_id,
     type_maladie = 'ordinaire',
+    beneficiary_id,
+    beneficiary_relationship,
   } = body;
 
   if (actes.length === 0) {
@@ -2317,6 +2321,19 @@ bulletinsAgent.post('/estimate', async (c) => {
       });
     }
 
+    // Resolve beneficiary for plafond lookups
+    let estimateBeneficiaryId = adherent.id;
+    if (beneficiary_id) {
+      estimateBeneficiaryId = beneficiary_id;
+    } else if (beneficiary_relationship && beneficiary_relationship !== 'self') {
+      const codeType = beneficiary_relationship === 'spouse' ? 'C' : 'E';
+      const resolvedBen = await db
+        .prepare('SELECT id FROM adherents WHERE parent_adherent_id = ? AND code_type = ? AND deleted_at IS NULL ORDER BY rang_pres ASC LIMIT 1')
+        .bind(adherent.id, codeType)
+        .first<{ id: string }>();
+      if (resolvedBen) estimateBeneficiaryId = resolvedBen.id;
+    }
+
     // Boucle de calcul par acte (arithmétique en millimes entiers)
     const details: EstimateDetail[] = [];
     let totalMillimes = 0;
@@ -2377,7 +2394,7 @@ bulletinsAgent.post('/estimate', async (c) => {
 
       try {
         const calcInput: CalculRemboursementInput = {
-          adherentId: adherent.id,
+          adherentId: estimateBeneficiaryId,
           contractId: contract.id,
           acteRefId: ref.id,
           fraisEngages: acte.amount,
@@ -2556,6 +2573,7 @@ bulletinsAgent.post('/create', async (c) => {
   const beneficiaryName = (formData['beneficiary_name'] as string) || null;
   const beneficiaryId = (formData['beneficiary_id'] as string) || null;
   const beneficiaryRelationship = (formData['beneficiary_relationship'] as string) || null;
+  console.log('[SAISIE] beneficiary data received:', { beneficiaryId, beneficiaryName, beneficiaryRelationship });
   const providerName = (formData['provider_name'] as string) || null;
   const providerSpecialty = (formData['provider_specialty'] as string) || null;
   // care_type is now per-acte; top-level is optional fallback
@@ -3250,9 +3268,24 @@ bulletinsAgent.post('/create', async (c) => {
     // Fallback: derive provider_name from first acte's nom_prof_sant if not provided at bulletin level
     const effectiveProviderName = providerName || (actes.length > 0 && (actes[0] as Record<string, unknown>).nom_prof_sant) || null;
 
-    // Insert bulletin
-    // Use beneficiary_id from form data, or resolve from adherent family if relationship is provided
-    const effectiveBeneficiaryId = beneficiaryRelationship === 'self' ? null : beneficiaryId;
+    // Resolve beneficiary_id: use form data, or lookup from adherent family if relationship provided
+    let effectiveBeneficiaryId: string | null = null;
+    if (beneficiaryRelationship && beneficiaryRelationship !== 'self' && adherentId) {
+      if (beneficiaryId) {
+        effectiveBeneficiaryId = beneficiaryId;
+      } else {
+        // Frontend didn't provide beneficiary_id — resolve from DB by relationship
+        const codeType = beneficiaryRelationship === 'spouse' ? 'C' : 'E';
+        const resolvedBen = await db
+          .prepare('SELECT id FROM adherents WHERE parent_adherent_id = ? AND code_type = ? AND deleted_at IS NULL ORDER BY rang_pres ASC LIMIT 1')
+          .bind(adherentId, codeType)
+          .first<{ id: string }>();
+        if (resolvedBen) {
+          effectiveBeneficiaryId = resolvedBen.id;
+        }
+      }
+    }
+    console.log('[SAISIE] beneficiary resolved:', { effectiveBeneficiaryId, beneficiaryId, beneficiaryRelationship, adherentId });
 
     await db
       .prepare(`
@@ -3381,6 +3414,8 @@ bulletinsAgent.post('/create', async (c) => {
       ]);
 
       // Contract-bareme-aware calculation (TASK-006)
+      // Use beneficiary's own ID for plafond lookups (each family member has their own plafond)
+      const plafondAdherentId = effectiveBeneficiaryId || adherentId;
       if (contractId && adherentId) {
         const baremeResults: CalculRemboursementResult[] = [];
         let totalRembourse = 0;
@@ -3395,7 +3430,7 @@ bulletinsAgent.post('/create', async (c) => {
             try {
               const medMatch = medicationMatches[i];
               const calcInput: CalculRemboursementInput = {
-                adherentId,
+                adherentId: plafondAdherentId,
                 contractId,
                 acteRefId: acteRefInfo.ref.id,
                 fraisEngages: acte.amount,
@@ -3450,11 +3485,11 @@ bulletinsAgent.post('/create', async (c) => {
 
         reimbursedAmount = totalRembourse;
 
-        // Apply adherent global plafond cap (plafond in millimes, amounts in dinars)
-        if (adherentId && reimbursedAmount > 0) {
+        // Apply beneficiary global plafond cap (plafond in millimes, amounts in dinars)
+        if (plafondAdherentId && reimbursedAmount > 0) {
           const adhPlafond = await db
             .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
-            .bind(adherentId)
+            .bind(plafondAdherentId)
             .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
           if (adhPlafond?.plafond_global && adhPlafond.plafond_global > 0) {
             const restantDT = Math.max(0, (adhPlafond.plafond_global - (adhPlafond.plafond_consomme || 0)) / 1000);
@@ -3554,7 +3589,7 @@ bulletinsAgent.post('/create', async (c) => {
           const baremeResult = baremeResults[i]!;
           if (baremeResult.montantRembourse > 0 && familleIds[i] !== undefined) {
             await mettreAJourPlafonds(
-              db, adherentId, contractId, annee,
+              db, plafondAdherentId, contractId, annee,
               familleIds[i]!, baremeResult.montantRembourse * 1000, typeMaladie,
               cachedGroupId
             );
@@ -3567,7 +3602,7 @@ bulletinsAgent.post('/create', async (c) => {
         ];
         if (reimbursedAmount > 0) {
           finalUpdates.push(
-            db.prepare('UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?').bind(Math.round(reimbursedAmount * 1000), adherentId)
+            db.prepare('UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?').bind(Math.round(reimbursedAmount * 1000), plafondAdherentId)
           );
         }
         await db.batch(finalUpdates);
@@ -3592,10 +3627,10 @@ bulletinsAgent.post('/create', async (c) => {
         // If plafond_global is NULL (e.g. individual mode, no contract), treat as unlimited
         // plafond_global and plafond_consomme are in millimes, convert to dinars (÷1000)
         let plafondRestant = contractId ? Number.MAX_SAFE_INTEGER : 0;
-        if (contractId && adherentId) {
+        if (contractId && plafondAdherentId) {
           const adh = await db
             .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
-            .bind(adherentId)
+            .bind(plafondAdherentId)
             .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
           if (adh && adh.plafond_global) {
             plafondRestant = (adh.plafond_global - (adh.plafond_consomme || 0)) / 1000;
@@ -3662,9 +3697,9 @@ bulletinsAgent.post('/create', async (c) => {
         const finalUpdates2: ReturnType<typeof db.prepare>[] = [
           db.prepare('UPDATE bulletins_soins SET reimbursed_amount = ? WHERE id = ?').bind(reimbursedAmount, bulletinId),
         ];
-        if (adherentId && reimbursedAmount > 0) {
+        if (plafondAdherentId && reimbursedAmount > 0) {
           finalUpdates2.push(
-            db.prepare('UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?').bind(Math.round(reimbursedAmount * 1000), adherentId)
+            db.prepare('UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?').bind(Math.round(reimbursedAmount * 1000), plafondAdherentId)
           );
         }
         await db.batch(finalUpdates2);
@@ -4223,12 +4258,13 @@ bulletinsAgent.post('/:id/validate', async (c) => {
   try {
     // Fetch bulletin — all insurer roles and admins can validate any bulletin in their tenant
     const bulletin = await db
-      .prepare('SELECT id, status, adherent_id, reimbursed_amount, bulletin_number, care_type, bulletin_date FROM bulletins_soins WHERE id = ?')
+      .prepare('SELECT id, status, adherent_id, beneficiary_id, reimbursed_amount, bulletin_number, care_type, bulletin_date FROM bulletins_soins WHERE id = ?')
       .bind(bulletinId)
       .first<{
         id: string;
         status: string;
         adherent_id: string | null;
+        beneficiary_id: string | null;
         reimbursed_amount: number | null;
         bulletin_number: string;
         care_type: string | null;
@@ -4262,12 +4298,13 @@ bulletinsAgent.post('/:id/validate', async (c) => {
 
     const now = new Date().toISOString();
 
-    // Cap reimbursed_amount to adherent's remaining plafond (millimes ÷ 1000 → dinars)
+    // Cap reimbursed_amount to beneficiary's remaining plafond (millimes ÷ 1000 → dinars)
+    const plafondBeneficiaryId = bulletin.beneficiary_id || bulletin.adherent_id;
     let finalReimbursedAmount = reimbursed_amount;
-    if (bulletin.adherent_id && reimbursed_amount > 0) {
+    if (plafondBeneficiaryId && reimbursed_amount > 0) {
       const adhP = await db
         .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
-        .bind(bulletin.adherent_id)
+        .bind(plafondBeneficiaryId)
         .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
       if (adhP?.plafond_global && adhP.plafond_global > 0) {
         const previousAmount = bulletin.reimbursed_amount || 0;
@@ -4297,9 +4334,9 @@ bulletinsAgent.post('/:id/validate', async (c) => {
       .bind(finalStatus, finalReimbursedAmount, now, user.id, now, finalReimbursedAmount, now, bulletinId)
       .run();
 
-    // Update adherent plafond_consomme (adjust delta if reimbursement changed)
+    // Update beneficiary plafond_consomme (adjust delta if reimbursement changed)
     // finalReimbursedAmount is in dinars, plafond_consomme is in millimes (×1000)
-    if (bulletin.adherent_id) {
+    if (plafondBeneficiaryId) {
       const previousAmount = bulletin.reimbursed_amount || 0;
       const delta = finalReimbursedAmount - previousAmount;
       if (delta !== 0) {
@@ -4307,7 +4344,7 @@ bulletinsAgent.post('/:id/validate', async (c) => {
           .prepare(
             'UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?'
           )
-          .bind(Math.round(delta * 1000), bulletin.adherent_id)
+          .bind(Math.round(delta * 1000), plafondBeneficiaryId)
           .run();
       }
     }
@@ -4760,8 +4797,8 @@ bulletinsAgent.post('/:id/update', async (c) => {
 
   // Verify bulletin exists and is editable (draft or in_batch only)
   const bulletin = await db.prepare(
-    `SELECT id, status, company_id, batch_id, adherent_id, care_type FROM bulletins_soins WHERE id = ?`
-  ).bind(bulletinId).first<{ id: string; status: string; company_id: string; batch_id: string | null; adherent_id: string | null; care_type: string | null }>();
+    `SELECT id, status, company_id, batch_id, adherent_id, beneficiary_id, care_type FROM bulletins_soins WHERE id = ?`
+  ).bind(bulletinId).first<{ id: string; status: string; company_id: string; batch_id: string | null; adherent_id: string | null; beneficiary_id: string | null; care_type: string | null }>();
 
   if (!bulletin) {
     return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Bulletin introuvable' } }, 404);
@@ -4780,6 +4817,7 @@ bulletinsAgent.post('/:id/update', async (c) => {
   const adherentEmail = (formData['adherent_email'] as string) || null;
   const beneficiaryName = (formData['beneficiary_name'] as string) || null;
   const beneficiaryRelationship = (formData['beneficiary_relationship'] as string) || null;
+  const updateBeneficiaryIdRaw = (formData['beneficiary_id'] as string) || null;
   const actesRaw = formData['actes'] as string;
 
   let actes: Array<{
@@ -4793,18 +4831,33 @@ bulletinsAgent.post('/:id/update', async (c) => {
     return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Format actes invalide' } }, 400);
   }
 
+  // Resolve beneficiary_id for update (same logic as create)
+  let updateResolvedBeneficiaryId: string | null = null;
+  if (beneficiaryRelationship && beneficiaryRelationship !== 'self' && bulletin.adherent_id) {
+    if (updateBeneficiaryIdRaw) {
+      updateResolvedBeneficiaryId = updateBeneficiaryIdRaw;
+    } else {
+      const codeType = beneficiaryRelationship === 'spouse' ? 'C' : 'E';
+      const resolvedBen = await db
+        .prepare('SELECT id FROM adherents WHERE parent_adherent_id = ? AND code_type = ? AND deleted_at IS NULL ORDER BY rang_pres ASC LIMIT 1')
+        .bind(bulletin.adherent_id, codeType)
+        .first<{ id: string }>();
+      if (resolvedBen) updateResolvedBeneficiaryId = resolvedBen.id;
+    }
+  }
+
   // Update bulletin fields
   await db.prepare(`
     UPDATE bulletins_soins SET
       bulletin_number = ?, bulletin_date = ?,
       adherent_matricule = ?, adherent_first_name = ?, adherent_last_name = ?,
-      beneficiary_name = ?, beneficiary_relationship = ?,
+      beneficiary_id = ?, beneficiary_name = ?, beneficiary_relationship = ?,
       updated_at = ?
     WHERE id = ?
   `).bind(
     bulletinNumber, bulletinDate,
     adherentMatricule, adherentFirstName, adherentLastName,
-    beneficiaryName, beneficiaryRelationship,
+    updateResolvedBeneficiaryId, beneficiaryName, beneficiaryRelationship,
     now, bulletinId
   ).run();
 
@@ -4822,6 +4875,7 @@ bulletinsAgent.post('/:id/update', async (c) => {
   const totalAmount = actes.reduce((sum, a) => sum + (a.amount || 0), 0);
   const careType = bulletin.care_type || 'consultation';
   const adherentId = bulletin.adherent_id;
+  const updatePlafondId = updateResolvedBeneficiaryId || adherentId;
   const warnings: string[] = [];
 
   // Recalculate reimbursement based on active contract at bulletin date
@@ -4898,7 +4952,7 @@ bulletinsAgent.post('/:id/update', async (c) => {
           try {
             const medMatch = medicationMatches[i];
             const calcInput: CalculRemboursementInput = {
-              adherentId,
+              adherentId: updatePlafondId!,
               contractId,
               acteRefId: acteRefInfo.ref.id,
               fraisEngages: acte.amount,
@@ -4933,11 +4987,11 @@ bulletinsAgent.post('/:id/update', async (c) => {
 
       reimbursedAmount = totalRembourse;
 
-      // Apply adherent global plafond cap
-      if (reimbursedAmount > 0) {
+      // Apply beneficiary global plafond cap
+      if (reimbursedAmount > 0 && updatePlafondId) {
         const adhPlafond = await db
           .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
-          .bind(adherentId)
+          .bind(updatePlafondId)
           .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
         if (adhPlafond?.plafond_global && adhPlafond.plafond_global > 0) {
           const restantDT = Math.max(0, (adhPlafond.plafond_global - (adhPlafond.plafond_consomme || 0)) / 1000);
