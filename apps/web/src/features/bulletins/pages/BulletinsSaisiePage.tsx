@@ -609,6 +609,13 @@ export function BulletinsSaisiePage() {
     adherent: string; careType: string; totalAmount: number | null;
     reimbursedAmount: number | null; createdAt: string;
   } | null>(null);
+  const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
+  const [duplicateConfirm, setDuplicateConfirm] = useState<{
+    cleanFiles: File[];
+    duplicateFiles: Array<{ name: string; bulletin: Record<string, unknown> | null }>;
+    formData: FormData;
+    resolve: (proceed: boolean) => void;
+  } | null>(null);
 
   // Duplicate alert is cleared directly by deleteMutation.onSuccess / handleRemoveFile / reset flows
   // No polling needed — all deletion paths already call setDuplicateBulletin(null)
@@ -1350,9 +1357,10 @@ export function BulletinsSaisiePage() {
         care_description: '',
         cod_msgr: (a as unknown as Record<string, string>).cod_msgr || '',
         lib_msgr: (a as unknown as Record<string, string>).lib_msgr || '',
-        sub_items: (a.sub_items || []).map((si: { label: string; code?: string | null; amount: number }) => ({
+        sub_items: (a.sub_items || []).map((si: { label: string; code?: string | null; cotation?: string | null; amount: number }) => ({
           label: si.label || '',
           code: si.code || '',
+          cotation: si.cotation || '',
           amount: si.amount || 0,
         })),
       })),
@@ -1793,46 +1801,51 @@ export function BulletinsSaisiePage() {
     return items;
   };
 
-  /** Compute SHA-256 hash of files — content-based, order/name independent.
-   *  Each file is hashed individually, hashes are sorted, then combined and re-hashed. */
-  const computeFilesHash = async (files: File[]): Promise<string> => {
-    // Hash each file individually
-    const perFileHashes: string[] = [];
-    for (const f of files) {
-      const buf = await f.arrayBuffer();
+  /** Compute SHA-256 per-file hashes + combined hash — content-based, order-independent. */
+  const computeFileHashes = async (files: File[]): Promise<{
+    perFile: { index: number; name: string; hash: string }[];
+    combinedHash: string;
+  }> => {
+    const perFile: { index: number; name: string; hash: string }[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const buf = await files[i]!.arrayBuffer();
       const h = await crypto.subtle.digest('SHA-256', buf);
-      perFileHashes.push(Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join(''));
+      perFile.push({
+        index: i,
+        name: files[i]!.name,
+        hash: Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join(''),
+      });
     }
-    // Sort hashes (order-independent) and combine
-    perFileHashes.sort();
-    const combined = new TextEncoder().encode(perFileHashes.join(''));
+    const sorted = [...perFile.map(f => f.hash)].sort();
+    const combined = new TextEncoder().encode(sorted.join(''));
     const finalHash = await crypto.subtle.digest('SHA-256', combined);
-    return Array.from(new Uint8Array(finalHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const combinedHash = Array.from(new Uint8Array(finalHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    return { perFile, combinedHash };
   };
 
-  /** Server-side duplicate check — sends files, server computes hash and checks DB.
-   *  Returns per-file duplicate info so callers can skip only the duplicated files. */
+  /** Multi-level duplicate check — sends pre-computed hashes as JSON (no file upload = fast). */
   const checkFileDuplicate = async (files: File[]): Promise<{
     isDuplicate: boolean;
+    level?: string | null;
     perFile: Array<{ index: number; name: string; hash: string; isDuplicate: boolean; bulletin: Record<string, unknown> | null }>;
   }> => {
-    const form = new FormData();
-    for (const f of files) form.append('files', f);
+    const { perFile, combinedHash } = await computeFileHashes(files);
     const apiBase = apiClient.getBaseUrl();
     const token = localStorage.getItem('accessToken');
     const res = await fetch(`${apiBase}/bulletins-soins/agent/check-file-duplicate`, {
       method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         accept: 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...getTenantHeader(),
       },
-      body: form,
+      body: JSON.stringify({ fileHashes: perFile, combinedHash }),
     });
     if (!res.ok) return { isDuplicate: false, perFile: [] };
-    const json = await res.json() as { success: boolean; data?: { isDuplicate: boolean; files: Array<{ index: number; name: string; hash: string; isDuplicate: boolean; bulletin: Record<string, unknown> | null }> } };
+    const json = await res.json() as { success: boolean; data?: { isDuplicate: boolean; level?: string | null; files: Array<{ index: number; name: string; hash: string; isDuplicate: boolean; bulletin: Record<string, unknown> | null }> } };
     const data = json.data;
-    return { isDuplicate: data?.isDuplicate || false, perFile: data?.files || [] };
+    return { isDuplicate: data?.isDuplicate || false, level: data?.level, perFile: data?.files || [] };
   };
 
   const analyzeWithOCR = async () => {
@@ -1906,38 +1919,57 @@ export function BulletinsSaisiePage() {
           groups.push({ name: folderName, form });
         }
 
-        toast.info(`${groups.length} groupe(s) détecté(s) dans le ZIP — analyse OCR en cours...`);
+        toast.info(`${groups.length} groupe(s) détecté(s) dans le ZIP — vérification des doublons...`);
 
-        // 3. Call /analyse-bulletin per group with pre-OCR hash dedup
+        // 3. Pre-check all groups for duplicates BEFORE launching OCR
+        setIsCheckingDuplicates(true);
+        const skippedDuplicateNames: string[] = [];
+        const cleanGroups: { name: string; form: FormData }[] = [];
+
+        for (const { name, form } of groups) {
+          try {
+            const groupFiles = form.getAll('files') as File[];
+            if (groupFiles.length === 0) continue;
+            const dupResult = await checkFileDuplicate(groupFiles);
+            if (dupResult.isDuplicate) {
+              const cleanFiles = groupFiles.filter((_, i) =>
+                !dupResult.perFile.find(pf => pf.index === i && pf.isDuplicate)
+              );
+              if (cleanFiles.length === 0) {
+                const dupBulletin = dupResult.perFile.find(pf => pf.bulletin)?.bulletin;
+                skippedDuplicateNames.push(`${name} → N° ${(dupBulletin?.bulletinNumber as string) || '?'}`);
+                continue;
+              }
+              const cleanForm = new FormData();
+              for (const f of cleanFiles) cleanForm.append('files', f);
+              cleanGroups.push({ name, form: cleanForm });
+              skippedDuplicateNames.push(`${name} (partiel)`);
+            } else {
+              cleanGroups.push({ name, form });
+            }
+          } catch {
+            cleanGroups.push({ name, form });
+          }
+        }
+        setIsCheckingDuplicates(false);
+
+        if (skippedDuplicateNames.length > 0) {
+          toast.warning(`${skippedDuplicateNames.length} doublon(s) ignoré(s) : ${skippedDuplicateNames.join(', ')}`, { duration: 6000 });
+        }
+
+        if (cleanGroups.length === 0) {
+          toast.error("Tous les bulletins sont des doublons — rien à analyser");
+          return;
+        }
+
+        toast.info(`Analyse OCR de ${cleanGroups.length} bulletin(s)...`, { id: 'bulk-progress' });
+
+        // 4. Call /analyse-bulletin per clean group
         const allBulletins: OcrBulletinItem[] = [];
-        let skippedDuplicates = 0;
 
         const analyseGroup = async (groupName: string, form: FormData): Promise<void> => {
           try {
-            const groupFiles = form.getAll('files') as File[];
-            let filesToAnalyse = groupFiles;
-
-            // Server-side duplicate check — filter out duplicate files
-            if (groupFiles.length > 0) {
-              try {
-                const dupResult = await checkFileDuplicate(groupFiles);
-                if (dupResult.isDuplicate) {
-                  const cleanFiles = groupFiles.filter((_, i) =>
-                    !dupResult.perFile.find(pf => pf.index === i && pf.isDuplicate)
-                  );
-                  skippedDuplicates += groupFiles.length - cleanFiles.length;
-                  if (cleanFiles.length === 0) {
-                    console.log(`[bulk-ocr] Tous doublons pour "${groupName}", skip OCR`);
-                    return;
-                  }
-                  // Rebuild form with only non-duplicate files
-                  filesToAnalyse = cleanFiles;
-                  form = new FormData();
-                  for (const f of cleanFiles) form.append('files', f);
-                }
-              } catch { /* check failed, continue with OCR */ }
-            }
-
+            const filesToAnalyse = form.getAll('files') as File[];
             const res = await fetch(`${ocrBase}/analyse-bulletin`, {
               method: 'POST', headers: { accept: 'application/json' }, body: form,
             });
@@ -1956,22 +1988,21 @@ export function BulletinsSaisiePage() {
 
         const CONCURRENCY = 4;
         let completed = 0;
-        if (groups.length > 1) {
-          setAnalyzeProgress({ current: 0, total: groups.length, groupName: '' });
-          toast.info(`Analyse de ${groups.length} bulletins en parallèle...`, { id: 'bulk-progress' });
+        if (cleanGroups.length > 1) {
+          setAnalyzeProgress({ current: 0, total: cleanGroups.length, groupName: '' });
         }
-        for (let i = 0; i < groups.length; i += CONCURRENCY) {
-          const batch = groups.slice(i, i + CONCURRENCY);
-          if (groups.length > 1) {
-            setAnalyzeProgress({ current: completed + 1, total: groups.length, groupName: batch.map(b => b.name).join(', ') });
+        for (let i = 0; i < cleanGroups.length; i += CONCURRENCY) {
+          const batch = cleanGroups.slice(i, i + CONCURRENCY);
+          if (cleanGroups.length > 1) {
+            setAnalyzeProgress({ current: completed + 1, total: cleanGroups.length, groupName: batch.map(b => b.name).join(', ') });
           }
           await Promise.allSettled(batch.map(({ name, form }) => analyseGroup(name, form)));
           completed += batch.length;
-          if (groups.length > CONCURRENCY) {
-            toast.info(`Analyse ${Math.min(i + CONCURRENCY, groups.length)}/${groups.length} terminée...`, { id: 'bulk-progress' });
+          if (cleanGroups.length > CONCURRENCY) {
+            toast.info(`Analyse ${Math.min(i + CONCURRENCY, cleanGroups.length)}/${cleanGroups.length} terminée...`, { id: 'bulk-progress' });
           }
-          if (groups.length > 1) {
-            setAnalyzeProgress({ current: completed, total: groups.length, groupName: '' });
+          if (cleanGroups.length > 1) {
+            setAnalyzeProgress({ current: completed, total: cleanGroups.length, groupName: '' });
           }
         }
         setAnalyzeProgress(null);
@@ -1982,12 +2013,8 @@ export function BulletinsSaisiePage() {
         }
 
         bulletinsArray = allBulletins;
-        const zipMsg = `${allBulletins.length} bulletin(s) analysés depuis ${groups.length} groupe(s) du ZIP`;
-        if (skippedDuplicates > 0) {
-          toast.success(`${zipMsg} — ${skippedDuplicates} doublon(s) ignoré(s)`);
-        } else {
-          toast.success(zipMsg);
-        }
+        const zipMsg = `${allBulletins.length} bulletin(s) analysés depuis ${cleanGroups.length} groupe(s) du ZIP`;
+        toast.success(zipMsg);
       } catch (error) {
         console.error('Bulk analysis error:', error);
         toast.error(error instanceof Error ? error.message : "Erreur lors de l'analyse");
@@ -2006,34 +2033,64 @@ export function BulletinsSaisiePage() {
           import.meta.env.VITE_OCR_API_URL_STAGING ||
           "https://ocr-api-bh-assurance-staging.yassine-techini.workers.dev"
         ).replace(/\/+$/, "");
+        // Pre-check all groups for duplicates BEFORE launching OCR
+        const groups: { name: string; form: FormData }[] = [];
+        for (const [subFolder, indices] of folderSubGroups) {
+          const form = new FormData();
+          for (const idx of indices) {
+            const f = selectedFiles[idx];
+            if (f) form.append('files', f);
+          }
+          groups.push({ name: subFolder, form });
+        }
+
+        setIsCheckingDuplicates(true);
+        const skippedDuplicateNames: string[] = [];
+        const cleanGroups: { name: string; form: FormData }[] = [];
+
+        for (const { name, form } of groups) {
+          try {
+            const groupFiles = form.getAll('files') as File[];
+            if (groupFiles.length === 0) continue;
+            const dupResult = await checkFileDuplicate(groupFiles);
+            if (dupResult.isDuplicate) {
+              const cleanFiles = groupFiles.filter((_, i) =>
+                !dupResult.perFile.find(pf => pf.index === i && pf.isDuplicate)
+              );
+              if (cleanFiles.length === 0) {
+                const dupBulletin = dupResult.perFile.find(pf => pf.bulletin)?.bulletin;
+                skippedDuplicateNames.push(`${name} → N° ${(dupBulletin?.bulletinNumber as string) || '?'}`);
+                continue;
+              }
+              const cleanForm = new FormData();
+              for (const f of cleanFiles) cleanForm.append('files', f);
+              cleanGroups.push({ name, form: cleanForm });
+              skippedDuplicateNames.push(`${name} (partiel)`);
+            } else {
+              cleanGroups.push({ name, form });
+            }
+          } catch {
+            cleanGroups.push({ name, form });
+          }
+        }
+        setIsCheckingDuplicates(false);
+
+        if (skippedDuplicateNames.length > 0) {
+          toast.warning(`${skippedDuplicateNames.length} doublon(s) ignoré(s) : ${skippedDuplicateNames.join(', ')}`, { duration: 6000 });
+        }
+
+        if (cleanGroups.length === 0) {
+          toast.error("Tous les bulletins sont des doublons — rien à analyser");
+          return;
+        }
+
+        toast.info(`Analyse OCR de ${cleanGroups.length} bulletin(s)...`, { id: 'bulk-progress' });
+
         const allBulletins: OcrBulletinItem[] = [];
-        let skippedDuplicates = 0;
 
         const analyseGroup = async (groupName: string, form: FormData): Promise<void> => {
           try {
-            const groupFiles = form.getAll('files') as File[];
-            let filesToAnalyse = groupFiles;
-
-            // Server-side duplicate check — filter out duplicate files
-            if (groupFiles.length > 0) {
-              try {
-                const dupResult = await checkFileDuplicate(groupFiles);
-                if (dupResult.isDuplicate) {
-                  const cleanFiles = groupFiles.filter((_, i) =>
-                    !dupResult.perFile.find(pf => pf.index === i && pf.isDuplicate)
-                  );
-                  skippedDuplicates += groupFiles.length - cleanFiles.length;
-                  if (cleanFiles.length === 0) {
-                    console.log(`[bulk-ocr] Tous doublons pour "${groupName}", skip OCR`);
-                    return;
-                  }
-                  filesToAnalyse = cleanFiles;
-                  form = new FormData();
-                  for (const f of cleanFiles) form.append('files', f);
-                }
-              } catch { /* check failed, continue with OCR */ }
-            }
-
+            const filesToAnalyse = form.getAll('files') as File[];
             const res = await fetch(`${ocrBase}/analyse-bulletin`, {
               method: 'POST', headers: { accept: 'application/json' }, body: form,
             });
@@ -2050,34 +2107,23 @@ export function BulletinsSaisiePage() {
           }
         };
 
-        const groups: { name: string; form: FormData }[] = [];
-        for (const [subFolder, indices] of folderSubGroups) {
-          const form = new FormData();
-          for (const idx of indices) {
-            const f = selectedFiles[idx];
-            if (f) form.append('files', f);
-          }
-          groups.push({ name: subFolder, form });
-        }
-
         const CONCURRENCY = 4;
         let completed = 0;
-        if (groups.length > 1) {
-          setAnalyzeProgress({ current: 0, total: groups.length, groupName: '' });
-          toast.info(`Analyse de ${groups.length} bulletins en parallèle...`, { id: 'bulk-progress' });
+        if (cleanGroups.length > 1) {
+          setAnalyzeProgress({ current: 0, total: cleanGroups.length, groupName: '' });
         }
-        for (let i = 0; i < groups.length; i += CONCURRENCY) {
-          const batch = groups.slice(i, i + CONCURRENCY);
-          if (groups.length > 1) {
-            setAnalyzeProgress({ current: completed + 1, total: groups.length, groupName: batch.map(b => b.name).join(', ') });
+        for (let i = 0; i < cleanGroups.length; i += CONCURRENCY) {
+          const batch = cleanGroups.slice(i, i + CONCURRENCY);
+          if (cleanGroups.length > 1) {
+            setAnalyzeProgress({ current: completed + 1, total: cleanGroups.length, groupName: batch.map(b => b.name).join(', ') });
           }
           await Promise.allSettled(batch.map(({ name, form }) => analyseGroup(name, form)));
           completed += batch.length;
-          if (groups.length > CONCURRENCY) {
-            toast.info(`Analyse ${Math.min(i + CONCURRENCY, groups.length)}/${groups.length} terminée...`, { id: 'bulk-progress' });
+          if (cleanGroups.length > CONCURRENCY) {
+            toast.info(`Analyse ${Math.min(i + CONCURRENCY, cleanGroups.length)}/${cleanGroups.length} terminée...`, { id: 'bulk-progress' });
           }
-          if (groups.length > 1) {
-            setAnalyzeProgress({ current: completed, total: groups.length, groupName: '' });
+          if (cleanGroups.length > 1) {
+            setAnalyzeProgress({ current: completed, total: cleanGroups.length, groupName: '' });
           }
         }
         setAnalyzeProgress(null);
@@ -2088,12 +2134,7 @@ export function BulletinsSaisiePage() {
         }
 
         bulletinsArray = allBulletins;
-        const folderMsg = `${allBulletins.length} bulletin(s) extraits de ${groups.length} sous-dossier(s)`;
-        if (skippedDuplicates > 0) {
-          toast.success(`${folderMsg} — ${skippedDuplicates} doublon(s) ignoré(s)`);
-        } else {
-          toast.success(folderMsg);
-        }
+        toast.success(`${allBulletins.length} bulletin(s) extraits de ${cleanGroups.length} sous-dossier(s)`);
       } catch (error) {
         console.error('Bulk analysis error:', error);
         toast.error(error instanceof Error ? error.message : "Erreur lors de l'analyse");
@@ -2104,58 +2145,76 @@ export function BulletinsSaisiePage() {
       }
     } else {
       // --- SINGLE FILE: 1) server-side duplicate check, 2) OCR if not duplicate ---
-      setIsAnalyzing(true);
       setDuplicateBulletin(null);
-      try {
-        const formData = new FormData();
-        for (const file of selectedFiles) {
-          formData.append("files", file);
-        }
+      const formData = new FormData();
+      for (const file of selectedFiles) {
+        formData.append("files", file);
+      }
 
-        // Step 1: Server-side duplicate check per file
-        let filesToAnalyse = selectedFiles;
-        if (!skipHashCheckRef.current) {
-          try {
-            const dupResult = await checkFileDuplicate(selectedFiles);
-            if (dupResult.isDuplicate) {
-              const cleanFiles = selectedFiles.filter((_, i) =>
-                !dupResult.perFile.find(pf => pf.index === i && pf.isDuplicate)
-              );
+      // Step 1: Server-side duplicate check per file
+      let filesToAnalyse = selectedFiles;
+      if (!skipHashCheckRef.current) {
+        setIsCheckingDuplicates(true);
+        try {
+          const dupResult = await checkFileDuplicate(selectedFiles);
+          if (dupResult.isDuplicate) {
+            const cleanFiles = selectedFiles.filter((_, i) =>
+              !dupResult.perFile.find(pf => pf.index === i && pf.isDuplicate)
+            );
 
-              if (cleanFiles.length === 0) {
-                // ALL files are duplicates — show alert for first one
-                const firstDup = dupResult.perFile.find(pf => pf.isDuplicate && pf.bulletin);
-                if (firstDup?.bulletin) {
-                  const b = firstDup.bulletin;
-                  setDuplicateBulletin({
-                    id: b.id as string,
-                    bulletinNumber: b.bulletinNumber as string,
-                    status: b.status as string,
-                    date: b.date as string,
-                    adherent: b.adherent as string,
-                    careType: b.careType as string,
-                    totalAmount: b.totalAmount as number | null,
-                    reimbursedAmount: b.reimbursedAmount as number | null,
-                    createdAt: b.createdAt as string,
-                  });
-                }
-                setIsAnalyzing(false);
-                return;
+            if (cleanFiles.length === 0) {
+              // ALL files are duplicates — show alert for first one
+              const firstDup = dupResult.perFile.find(pf => pf.isDuplicate && pf.bulletin);
+              if (firstDup?.bulletin) {
+                const b = firstDup.bulletin;
+                setDuplicateBulletin({
+                  id: b.id as string,
+                  bulletinNumber: b.bulletinNumber as string,
+                  status: b.status as string,
+                  date: b.date as string,
+                  adherent: b.adherent as string,
+                  careType: b.careType as string,
+                  totalAmount: b.totalAmount as number | null,
+                  reimbursedAmount: b.reimbursedAmount as number | null,
+                  createdAt: b.createdAt as string,
+                });
               }
-
-              // Some files are duplicates — notify and continue with clean files only
-              const dupCount = selectedFiles.length - cleanFiles.length;
-              toast.warning(`${dupCount} fichier(s) déjà analysé(s) — ignoré(s)`);
-              filesToAnalyse = cleanFiles;
-              // Rebuild formData with only clean files
-              formData.delete('files');
-              for (const f of cleanFiles) formData.append('files', f);
-              effectiveFiles = cleanFiles;
+              setIsCheckingDuplicates(false);
+              return;
             }
-          } catch (hashErr) {
-            console.warn('[OCR] Duplicate check failed, continuing with OCR:', hashErr);
+
+            // Some files are duplicates — ask user to confirm before continuing
+            setIsCheckingDuplicates(false);
+            const duplicateFileInfos = dupResult.perFile
+              .filter(pf => pf.isDuplicate)
+              .map(pf => ({ name: pf.name, bulletin: pf.bulletin }));
+
+            const proceed = await new Promise<boolean>((resolve) => {
+              setDuplicateConfirm({
+                cleanFiles,
+                duplicateFiles: duplicateFileInfos,
+                formData,
+                resolve,
+              });
+            });
+            setDuplicateConfirm(null);
+
+            if (!proceed) return;
+
+            filesToAnalyse = cleanFiles;
+            formData.delete('files');
+            for (const f of cleanFiles) formData.append('files', f);
+            effectiveFiles = cleanFiles;
           }
+        } catch (hashErr) {
+          console.warn('[OCR] Duplicate check failed, continuing with OCR:', hashErr);
+        } finally {
+          setIsCheckingDuplicates(false);
         }
+      }
+
+      setIsAnalyzing(true);
+      try {
 
         // Step 2: Call OCR directly (no duplicate — proceed with Gemini analysis)
         const ocrBase = (
@@ -3822,10 +3881,15 @@ export function BulletinsSaisiePage() {
                                   type="button"
                                   size="sm"
                                   onClick={analyzeWithOCR}
-                                  disabled={isAnalyzing}
+                                  disabled={isAnalyzing || isCheckingDuplicates}
                                   className="rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
                                 >
-                                  {isAnalyzing ? (
+                                  {isCheckingDuplicates ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                      Vérification doublons...
+                                    </>
+                                  ) : isAnalyzing ? (
                                     <>
                                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                       Analyse en cours...
@@ -4712,9 +4776,59 @@ export function BulletinsSaisiePage() {
                         </div>
                       )}
 
+                      {/* Partial duplicate confirmation dialog */}
+                      {duplicateConfirm && (
+                        <div className="rounded-2xl border-2 border-blue-300 bg-gradient-to-r from-blue-50 to-indigo-50 p-5 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+                          <div className="flex items-start gap-4">
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-100">
+                              <FileWarning className="h-6 w-6 text-blue-600" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-sm font-bold text-blue-900">
+                                {duplicateConfirm.duplicateFiles.length} fichier(s) déjà enregistré(s)
+                              </h3>
+                              <p className="mt-1 text-sm text-blue-800">
+                                {duplicateConfirm.cleanFiles.length} fichier(s) restant(s) à analyser.
+                                Voulez-vous continuer ?
+                              </p>
+                              <div className="mt-2 space-y-1.5">
+                                {duplicateConfirm.duplicateFiles.map((df, i) => (
+                                  <div key={i} className="flex items-center gap-2 text-xs text-blue-700 bg-white/60 rounded-lg px-3 py-1.5">
+                                    <FileWarning className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                                    <span className="truncate font-medium">{df.name}</span>
+                                    {df.bulletin && (
+                                      <span className="text-blue-500 ml-auto shrink-0">
+                                        → N° {df.bulletin.bulletinNumber as string}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="mt-3 flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => duplicateConfirm.resolve(true)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition-colors"
+                                >
+                                  <ScanSearch className="h-3.5 w-3.5" />
+                                  Continuer l'analyse ({duplicateConfirm.cleanFiles.length} fichier{duplicateConfirm.cleanFiles.length > 1 ? 's' : ''})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => duplicateConfirm.resolve(false)}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 transition-colors"
+                                >
+                                  Annuler
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Section 02 + 03 + 04 — disabled pendant l'analyse OCR */}
                       <div
-                        className={`space-y-6 transition-opacity duration-300 ${isAnalyzing ? "opacity-50 pointer-events-none" : ""}`}
+                        className={`space-y-6 transition-opacity duration-300 ${isAnalyzing || isCheckingDuplicates ? "opacity-50 pointer-events-none" : ""}`}
                       >
                         {/* Section 02 + 03 side by side */}
                         <div className="grid gap-6 lg:grid-cols-2">

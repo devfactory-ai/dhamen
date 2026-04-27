@@ -193,15 +193,21 @@ bulletinsAgent.get('/check-file-hash', async (c) => {
   }
 
   const db = c.get('tenantDb') ?? c.env.DB;
+  // Check legacy file_hash, combined_hash, and new bulletin_files table
   const existing = await db
     .prepare(
       `SELECT id, bulletin_number, status, bulletin_date, adherent_first_name, adherent_last_name,
               care_type, total_amount, reimbursed_amount, created_at
        FROM bulletins_soins
-       WHERE file_hash = ? AND status NOT IN ('deleted')
+       WHERE (file_hash = ? OR combined_hash = ?) AND status NOT IN ('deleted')
+       UNION
+       SELECT bs.id, bs.bulletin_number, bs.status, bs.bulletin_date, bs.adherent_first_name, bs.adherent_last_name,
+              bs.care_type, bs.total_amount, bs.reimbursed_amount, bs.created_at
+       FROM bulletin_files bf JOIN bulletins_soins bs ON bs.id = bf.bulletin_id
+       WHERE bf.file_hash = ? AND bs.status NOT IN ('deleted')
        ORDER BY created_at DESC LIMIT 1`
     )
-    .bind(fileHash)
+    .bind(fileHash, fileHash, fileHash)
     .first<{
       id: string; bulletin_number: string; status: string; bulletin_date: string;
       adherent_first_name: string; adherent_last_name: string;
@@ -233,9 +239,12 @@ bulletinsAgent.get('/check-file-hash', async (c) => {
 });
 
 /**
- * POST /bulletins-soins/agent/check-file-duplicate - Server-side duplicate check with file upload
- * Computes SHA-256 hash from uploaded files (same algorithm as /analyse-bulletin and /create).
- * Call this BEFORE /analyse-bulletin to avoid wasting OCR/Gemini tokens.
+ * POST /bulletins-soins/agent/check-file-duplicate - Multi-level duplicate detection
+ * Accepts JSON with pre-computed hashes (no file upload = fast).
+ * Three detection levels:
+ *   FILE_DUPLICATE   — an individual file hash already exists in bulletin_files or file_hash
+ *   BULLETIN_EXACT   — combined_hash matches an existing bulletin exactly
+ *   BULLETIN_OVERLAP — some files overlap with another bulletin's files
  */
 bulletinsAgent.post('/check-file-duplicate', async (c) => {
   const user = c.get('user') as { id: string; role: string; insurerId?: string };
@@ -244,93 +253,174 @@ bulletinsAgent.post('/check-file-duplicate', async (c) => {
   }
 
   try {
-    const body = await c.req.parseBody({ all: true });
-    const files = body['files'];
-    const fileList: File[] = [];
-    if (Array.isArray(files)) {
-      for (const f of files) { if (f instanceof File) fileList.push(f); }
-    } else if (files instanceof File) {
-      fileList.push(files);
+    const body = await c.req.json<{
+      fileHashes: { index: number; name: string; hash: string }[];
+      combinedHash: string;
+    }>();
+
+    const { fileHashes, combinedHash } = body;
+
+    if (!fileHashes || fileHashes.length === 0 || !combinedHash) {
+      return c.json({ success: true, data: { duplicates: [], level: null } });
     }
-
-    if (fileList.length === 0) {
-      return c.json({ success: true, data: { files: [] } });
-    }
-
-    // Hash each file individually (keep order = file index)
-    const fileHashes: { index: number; name: string; hash: string }[] = [];
-    for (let i = 0; i < fileList.length; i++) {
-      const buf = await fileList[i]!.arrayBuffer();
-      const h = await crypto.subtle.digest('SHA-256', buf);
-      const hex = Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
-      fileHashes.push({ index: i, name: fileList[i]!.name, hash: hex });
-    }
-
-    // Also compute combined hash (for multi-file bulletins stored with old algorithm)
-    const sortedHashes = [...fileHashes.map(f => f.hash)].sort();
-    const combined = new TextEncoder().encode(sortedHashes.join(''));
-    const finalHash = await crypto.subtle.digest('SHA-256', combined);
-    const combinedHash = Array.from(new Uint8Array(finalHash)).map(b => b.toString(16).padStart(2, '0')).join('');
-
-    // All unique hashes to check: individual + combined
-    const allHashes = new Set([...fileHashes.map(f => f.hash), combinedHash]);
-
-    console.log(`[check-file-duplicate] files=${fileList.length}, hashes=[${[...allHashes].map(h => h.slice(0, 12)).join(',')}]`);
 
     const db = c.get('tenantDb') ?? c.env.DB;
-    const placeholders = [...allHashes].map(() => '?').join(',');
-    const results = await db
+    const allIndividualHashes = fileHashes.map(f => f.hash);
+
+    // --- Level 1: BULLETIN_EXACT — combined_hash matches exactly ---
+    const exactMatch = await db
       .prepare(
+        `SELECT id, bulletin_number, status, bulletin_date, adherent_first_name, adherent_last_name,
+                care_type, total_amount, reimbursed_amount, created_at
+         FROM bulletins_soins
+         WHERE combined_hash = ? AND status NOT IN ('deleted')
+         ORDER BY created_at DESC LIMIT 1`
+      )
+      .bind(combinedHash)
+      .first<{
+        id: string; bulletin_number: string; status: string; bulletin_date: string;
+        adherent_first_name: string; adherent_last_name: string;
+        care_type: string; total_amount: number | null; reimbursed_amount: number | null;
+        created_at: string;
+      }>();
+
+    if (exactMatch) {
+      return c.json({
+        success: true,
+        data: {
+          level: 'BULLETIN_EXACT',
+          isDuplicate: true,
+          duplicates: [{
+            level: 'BULLETIN_EXACT',
+            bulletin: {
+              id: exactMatch.id,
+              bulletinNumber: exactMatch.bulletin_number,
+              status: exactMatch.status,
+              date: exactMatch.bulletin_date,
+              adherent: `${exactMatch.adherent_first_name || ''} ${exactMatch.adherent_last_name || ''}`.trim(),
+              careType: exactMatch.care_type,
+              totalAmount: exactMatch.total_amount,
+              reimbursedAmount: exactMatch.reimbursed_amount,
+              createdAt: exactMatch.created_at,
+            },
+          }],
+          files: fileHashes.map(f => ({
+            ...f,
+            isDuplicate: true,
+            level: 'BULLETIN_EXACT' as const,
+            bulletin: {
+              id: exactMatch.id,
+              bulletinNumber: exactMatch.bulletin_number,
+              status: exactMatch.status,
+              date: exactMatch.bulletin_date,
+              adherent: `${exactMatch.adherent_first_name || ''} ${exactMatch.adherent_last_name || ''}`.trim(),
+              careType: exactMatch.care_type,
+              totalAmount: exactMatch.total_amount,
+              reimbursedAmount: exactMatch.reimbursed_amount,
+              createdAt: exactMatch.created_at,
+            },
+          })),
+        },
+      });
+    }
+
+    // --- Level 2: FILE_DUPLICATE — check individual file hashes ---
+    // Check both bulletin_files table (new) and legacy file_hash column
+    const allHashes = new Set([...allIndividualHashes, combinedHash]);
+    const placeholders = [...allHashes].map(() => '?').join(',');
+
+    // Query new bulletin_files table + legacy file_hash in parallel
+    const [bfResults, legacyResults] = await Promise.all([
+      db.prepare(
+        `SELECT bf.file_hash, bf.bulletin_id, bs.bulletin_number, bs.status, bs.bulletin_date,
+                bs.adherent_first_name, bs.adherent_last_name, bs.care_type,
+                bs.total_amount, bs.reimbursed_amount, bs.created_at
+         FROM bulletin_files bf
+         JOIN bulletins_soins bs ON bs.id = bf.bulletin_id
+         WHERE bf.file_hash IN (${placeholders}) AND bs.status NOT IN ('deleted')
+         ORDER BY bs.created_at DESC`
+      ).bind(...allHashes).all<{
+        file_hash: string; bulletin_id: string; bulletin_number: string; status: string;
+        bulletin_date: string; adherent_first_name: string; adherent_last_name: string;
+        care_type: string; total_amount: number | null; reimbursed_amount: number | null;
+        created_at: string;
+      }>().catch(() => ({ results: [] as any[] })),
+      db.prepare(
         `SELECT id, bulletin_number, status, bulletin_date, adherent_first_name, adherent_last_name,
                 care_type, total_amount, reimbursed_amount, file_hash, created_at
          FROM bulletins_soins
          WHERE file_hash IN (${placeholders}) AND status NOT IN ('deleted')
          ORDER BY created_at DESC`
-      )
-      .bind(...allHashes)
-      .all<{
+      ).bind(...allHashes).all<{
         id: string; bulletin_number: string; status: string; bulletin_date: string;
         adherent_first_name: string; adherent_last_name: string;
         care_type: string; total_amount: number | null; reimbursed_amount: number | null;
         file_hash: string; created_at: string;
-      }>();
+      }>(),
+    ]);
 
-    const found = results.results || [];
-    const matchedHashes = new Set(found.map(b => b.file_hash));
+    // Merge results: hash → bulletin info
+    const hashToBulletin = new Map<string, {
+      id: string; bulletinNumber: string; status: string; date: string;
+      adherent: string; careType: string; totalAmount: number | null;
+      reimbursedAmount: number | null; createdAt: string;
+    }>();
 
-    // Build per-file response: which files are duplicates, which are clean
+    for (const r of (bfResults.results || [])) {
+      if (!hashToBulletin.has(r.file_hash)) {
+        hashToBulletin.set(r.file_hash, {
+          id: r.bulletin_id, bulletinNumber: r.bulletin_number, status: r.status,
+          date: r.bulletin_date,
+          adherent: `${r.adherent_first_name || ''} ${r.adherent_last_name || ''}`.trim(),
+          careType: r.care_type, totalAmount: r.total_amount,
+          reimbursedAmount: r.reimbursed_amount, createdAt: r.created_at,
+        });
+      }
+    }
+    for (const r of (legacyResults.results || [])) {
+      if (r.file_hash && !hashToBulletin.has(r.file_hash)) {
+        hashToBulletin.set(r.file_hash, {
+          id: r.id, bulletinNumber: r.bulletin_number, status: r.status,
+          date: r.bulletin_date,
+          adherent: `${r.adherent_first_name || ''} ${r.adherent_last_name || ''}`.trim(),
+          careType: r.care_type, totalAmount: r.total_amount,
+          reimbursedAmount: r.reimbursed_amount, createdAt: r.created_at,
+        });
+      }
+    }
+
+    // Build per-file response
     const filesResponse = fileHashes.map(f => {
-      const match = found.find(b => b.file_hash === f.hash);
-      // Also check if combined hash matched (old algorithm: single file stored as combined)
-      const combinedMatch = !match && matchedHashes.has(combinedHash) && fileList.length === 1
-        ? found.find(b => b.file_hash === combinedHash) : null;
-      const dup = match || combinedMatch;
+      const match = hashToBulletin.get(f.hash);
       return {
         index: f.index,
         name: f.name,
         hash: f.hash,
-        isDuplicate: !!dup,
-        bulletin: dup ? {
-          id: dup.id,
-          bulletinNumber: dup.bulletin_number,
-          status: dup.status,
-          date: dup.bulletin_date,
-          adherent: `${dup.adherent_first_name || ''} ${dup.adherent_last_name || ''}`.trim(),
-          careType: dup.care_type,
-          totalAmount: dup.total_amount,
-          reimbursedAmount: dup.reimbursed_amount,
-          createdAt: dup.created_at,
-        } : null,
+        isDuplicate: !!match,
+        level: match ? 'FILE_DUPLICATE' as const : null,
+        bulletin: match || null,
       };
     });
 
-    const hasDuplicates = filesResponse.some(f => f.isDuplicate);
-    console.log(`[check-file-duplicate] ${filesResponse.filter(f => f.isDuplicate).length}/${fileList.length} duplicates`);
+    const duplicateFiles = filesResponse.filter(f => f.isDuplicate);
+    const allDuplicate = duplicateFiles.length === fileHashes.length;
+    const someDuplicate = duplicateFiles.length > 0;
 
-    return c.json({ success: true, data: { isDuplicate: hasDuplicates, files: filesResponse } });
+    // Determine highest level
+    const level = allDuplicate ? 'BULLETIN_OVERLAP' : someDuplicate ? 'FILE_DUPLICATE' : null;
+
+    return c.json({
+      success: true,
+      data: {
+        level,
+        isDuplicate: someDuplicate,
+        duplicates: duplicateFiles.map(f => ({ level: 'FILE_DUPLICATE', bulletin: f.bulletin })),
+        files: filesResponse,
+      },
+    });
   } catch (error) {
     console.error('[check-file-duplicate] Error:', error);
-    return c.json({ success: true, data: { isDuplicate: false } });
+    return c.json({ success: true, data: { isDuplicate: false, level: null, duplicates: [], files: [] } });
   }
 });
 
@@ -384,7 +474,7 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
       fileHash = Array.from(new Uint8Array(finalHash)).map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
-    // Check if this exact file was already analysed
+    // Check if this exact file was already analysed (legacy file_hash + new combined_hash + bulletin_files)
     const db = c.get('tenantDb') ?? c.env.DB;
     if (fileHash && !forceReanalyse) {
       const existing = await db
@@ -392,10 +482,10 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
           `SELECT id, bulletin_number, status, bulletin_date, adherent_first_name, adherent_last_name,
                   care_type, total_amount, reimbursed_amount, created_at
            FROM bulletins_soins
-           WHERE file_hash = ? AND status NOT IN ('deleted')
+           WHERE (file_hash = ? OR combined_hash = ?) AND status NOT IN ('deleted')
            ORDER BY created_at DESC LIMIT 1`
         )
-        .bind(fileHash)
+        .bind(fileHash, fileHash)
         .first<{
           id: string; bulletin_number: string; status: string; bulletin_date: string;
           adherent_first_name: string; adherent_last_name: string;
@@ -1782,17 +1872,17 @@ bulletinsAgent.get('/:id', async (c) => {
     // Fetch sub_items for all actes in this bulletin
     const acteList = actes.results || [];
     const acteIdList = acteList.map((a: Record<string, unknown>) => a.id as string);
-    let subItemsMap: Record<string, Array<{ id: string; label: string; code: string | null; amount: number }>> = {};
+    let subItemsMap: Record<string, Array<{ id: string; label: string; code: string | null; cotation: string | null; amount: number }>> = {};
     if (acteIdList.length > 0) {
       const placeholders = acteIdList.map(() => '?').join(',');
       const { results: subItems } = await db
-        .prepare(`SELECT id, acte_id, label, code, amount FROM acte_sub_items WHERE acte_id IN (${placeholders}) ORDER BY created_at`)
+        .prepare(`SELECT id, acte_id, label, code, cotation, amount FROM acte_sub_items WHERE acte_id IN (${placeholders}) ORDER BY created_at`)
         .bind(...acteIdList)
         .all();
       for (const si of subItems) {
         const aid = si.acte_id as string;
         if (!subItemsMap[aid]) subItemsMap[aid] = [];
-        subItemsMap[aid].push({ id: si.id as string, label: si.label as string, code: si.code as string | null, amount: si.amount as number });
+        subItemsMap[aid].push({ id: si.id as string, label: si.label as string, code: si.code as string | null, cotation: si.cotation as string | null, amount: si.amount as number });
       }
     }
 
@@ -2727,34 +2817,37 @@ bulletinsAgent.post('/create', async (c) => {
   }
 
   // Compute file hash server-side from scan files
-  // Single file → direct SHA-256 of the file (so individual checks match)
-  // Multiple files → hash each, sort, combine, re-hash
-  let fileHash: string | null = frontendFileHash;
-  if (scanBuffers.length === 1) {
-    const h = await crypto.subtle.digest('SHA-256', scanBuffers[0]!);
-    fileHash = Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
-  } else if (scanBuffers.length > 1) {
-    const perFileHashes: string[] = [];
-    for (const buf of scanBuffers) {
-      const h = await crypto.subtle.digest('SHA-256', buf);
-      perFileHashes.push(Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join(''));
-    }
-    perFileHashes.sort();
-    const combined = new TextEncoder().encode(perFileHashes.join(''));
-    const finalHash = await crypto.subtle.digest('SHA-256', combined);
-    fileHash = Array.from(new Uint8Array(finalHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  // Each file hashed individually → sorted → combined → re-hashed for combined_hash
+  // Legacy file_hash = combined hash (backward compat)
+  const perFileHashes: string[] = [];
+  for (const buf of scanBuffers) {
+    const h = await crypto.subtle.digest('SHA-256', buf);
+    perFileHashes.push(Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join(''));
   }
 
-  // Server-side duplicate detection using file hash
+  let fileHash: string | null = frontendFileHash;
+  let combinedHash: string | null = null;
+  if (perFileHashes.length === 1) {
+    fileHash = perFileHashes[0]!;
+    combinedHash = fileHash; // single file: combined = individual
+  } else if (perFileHashes.length > 1) {
+    const sorted = [...perFileHashes].sort();
+    const combined = new TextEncoder().encode(sorted.join(''));
+    const finalHash = await crypto.subtle.digest('SHA-256', combined);
+    fileHash = Array.from(new Uint8Array(finalHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    combinedHash = fileHash;
+  }
+
+  // Server-side duplicate detection — check combined_hash, bulletin_files, and legacy file_hash
   if (fileHash) {
     const existingByHash = await db
       .prepare(
         `SELECT id, bulletin_number, status, total_amount, adherent_first_name, adherent_last_name
          FROM bulletins_soins
-         WHERE file_hash = ? AND status NOT IN ('deleted')
+         WHERE (file_hash = ? OR combined_hash = ?) AND status NOT IN ('deleted')
          ORDER BY created_at DESC LIMIT 1`
       )
-      .bind(fileHash)
+      .bind(fileHash, combinedHash || fileHash)
       .first<{ id: string; bulletin_number: string; status: string; total_amount: number | null; adherent_first_name: string; adherent_last_name: string }>();
 
     if (existingByHash) {
@@ -3295,8 +3388,8 @@ bulletinsAgent.post('/create', async (c) => {
         beneficiary_id, beneficiary_name, beneficiary_relationship,
         provider_id, provider_name, provider_specialty, care_type, care_description,
         total_amount, scan_url, batch_id, company_id, status, created_by,
-        file_hash, submission_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
+        file_hash, combined_hash, submission_date, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
     `)
       .bind(
         bulletinId,
@@ -3322,9 +3415,27 @@ bulletinsAgent.post('/create', async (c) => {
         companyId,
         status,
         user.id,
-        fileHash
+        fileHash,
+        combinedHash
       )
       .run();
+
+    // Insert per-file hashes into bulletin_files for granular duplicate detection
+    if (perFileHashes.length > 0) {
+      const bfStatements = perFileHashes.map((hash, idx) =>
+        db.prepare(
+          `INSERT OR IGNORE INTO bulletin_files (id, bulletin_id, file_index, file_name, file_hash, created_at)
+           VALUES (?, ?, ?, ?, ?, datetime('now'))`
+        ).bind(
+          generateId(),
+          bulletinId,
+          idx,
+          scanKeys[idx] ? (formData[scanKeys[idx]!] as File)?.name || null : null,
+          hash
+        )
+      );
+      await db.batch(bfStatements);
+    }
 
     // Insert actes and calculate reimbursement
     let reimbursedAmount: number | null = null;
@@ -3549,13 +3660,13 @@ bulletinsAgent.post('/create', async (c) => {
         // Insert sub_items for each acte (medications, analyses, etc.)
         const subItemStmts: ReturnType<typeof db.prepare>[] = [];
         actes.forEach((acte, i) => {
-          const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; amount: number }> | undefined;
+          const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; cotation?: string; amount: number }> | undefined;
           if (subs && subs.length > 0) {
             for (const si of subs) {
               subItemStmts.push(
                 db.prepare(
-                  `INSERT INTO acte_sub_items (id, acte_id, label, code, amount, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
-                ).bind(generateId(), acteIds[i], si.label, si.code || null, si.amount)
+                  `INSERT INTO acte_sub_items (id, acte_id, label, code, cotation, amount, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+                ).bind(generateId(), acteIds[i], si.label, si.code || null, si.cotation || null, si.amount)
               );
             }
           }
@@ -3680,13 +3791,13 @@ bulletinsAgent.post('/create', async (c) => {
         // Insert sub_items for each acte (medications, analyses, etc.)
         const subItemStmts2: ReturnType<typeof db.prepare>[] = [];
         actes.forEach((acte, i) => {
-          const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; amount: number }> | undefined;
+          const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; cotation?: string; amount: number }> | undefined;
           if (subs && subs.length > 0) {
             for (const si of subs) {
               subItemStmts2.push(
                 db.prepare(
-                  `INSERT INTO acte_sub_items (id, acte_id, label, code, amount, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
-                ).bind(generateId(), acteIds2[i], si.label, si.code || null, si.amount)
+                  `INSERT INTO acte_sub_items (id, acte_id, label, code, cotation, amount, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+                ).bind(generateId(), acteIds2[i], si.label, si.code || null, si.cotation || null, si.amount)
               );
             }
           }
@@ -5037,13 +5148,13 @@ bulletinsAgent.post('/:id/update', async (c) => {
       // Insert sub_items
       const subItemStmts: ReturnType<typeof db.prepare>[] = [];
       actes.forEach((acte, i) => {
-        const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; amount: number }> | undefined;
+        const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; cotation?: string; amount: number }> | undefined;
         if (subs && subs.length > 0) {
           for (const si of subs) {
             subItemStmts.push(
               db.prepare(
-                `INSERT INTO acte_sub_items (id, acte_id, label, code, amount, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
-              ).bind(generateId(), acteIds[i], si.label, si.code || null, si.amount)
+                `INSERT INTO acte_sub_items (id, acte_id, label, code, cotation, amount, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+              ).bind(generateId(), acteIds[i], si.label, si.code || null, si.cotation || null, si.amount)
             );
           }
         }
@@ -5074,13 +5185,13 @@ bulletinsAgent.post('/:id/update', async (c) => {
       // Insert sub_items
       const subItemStmts: ReturnType<typeof db.prepare>[] = [];
       actes.forEach((acte, i) => {
-        const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; amount: number }> | undefined;
+        const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; cotation?: string; amount: number }> | undefined;
         if (subs && subs.length > 0) {
           for (const si of subs) {
             subItemStmts.push(
               db.prepare(
-                `INSERT INTO acte_sub_items (id, acte_id, label, code, amount, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
-              ).bind(generateId(), acteIds[i], si.label, si.code || null, si.amount)
+                `INSERT INTO acte_sub_items (id, acte_id, label, code, cotation, amount, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+              ).bind(generateId(), acteIds[i], si.label, si.code || null, si.cotation || null, si.amount)
             );
           }
         }
