@@ -46,6 +46,8 @@ interface MfLookupInputProps {
   onProviderFound: (provider: ProviderInfo) => void;
   onStatusChange?: (status: MfStatus) => void;
   providerType?: 'pharmacist' | 'doctor' | 'lab' | 'clinic';
+  /** When true, skip initial MF validation (e.g. editing a bulletin with an already-resolved provider) */
+  initialFound?: boolean;
   error?: string;
   className?: string;
   placeholder?: string;
@@ -64,11 +66,12 @@ export function MfLookupInput({
   onProviderFound,
   onStatusChange,
   providerType,
+  initialFound,
   error,
   className,
   placeholder = 'Rechercher par MF ou nom...',
 }: MfLookupInputProps) {
-  const [lookupStatus, setLookupStatus] = useState<MfStatus>('idle');
+  const [lookupStatus, setLookupStatus] = useState<MfStatus>(initialFound ? 'found' : 'idle');
   const [providerName, setProviderName] = useState<string | null>(null);
   const [mfVerified, setMfVerified] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -76,8 +79,8 @@ export function MfLookupInput({
   const [showDropdown, setShowDropdown] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  // Track if provider was selected from dropdown (skip MF validation)
-  const [selectedFromDropdown, setSelectedFromDropdown] = useState(false);
+  // Track if provider was selected from dropdown or pre-loaded (skip MF validation)
+  const [selectedFromDropdown, setSelectedFromDropdown] = useState(!!initialFound);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const updateStatus = useCallback((status: MfStatus) => {

@@ -256,7 +256,7 @@ export function AgentAdherentFormPage() {
   const { data: nextMatricule } = useNextMatricule(effectiveCompanyId || undefined);
 
   // --- Load company's group contracts for the contract selector ---
-  const [companyContracts, setCompanyContracts] = useState<Array<{ id: string; contractNumber: string; status: string }>>([]);
+  const [companyContracts, setCompanyContracts] = useState<Array<{ id: string; contractNumber: string; status: string; annualGlobalLimit: number | null }>>([]);
   const [contractsLoaded, setContractsLoaded] = useState(false);
   const currentCompanyId = resolveCompanyId();
   const prevCompanyIdRef = useRef<string | undefined>(undefined);
@@ -277,15 +277,16 @@ export function AgentAdherentFormPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await apiClient.get<Array<{ id: string; contract_number: string; status: string }>>('/group-contracts', {
+        const res = await apiClient.get<Array<{ id: string; contract_number: string; status: string; annual_global_limit: number | null }>>('/group-contracts', {
           params: { companyId: currentCompanyId, status: 'active', limit: '100' },
         });
         if (!cancelled && res.success) {
-          const raw = res.data as unknown as Array<{ id: string; contract_number: string; status: string }>;
+          const raw = res.data as unknown as Array<{ id: string; contract_number: string; status: string; annual_global_limit: number | null }>;
           setCompanyContracts((Array.isArray(raw) ? raw : []).map((gc) => ({
             id: gc.id,
             contractNumber: gc.contract_number,
             status: gc.status,
+            annualGlobalLimit: gc.annual_global_limit,
           })));
         }
       } catch { /* ignore */ }
@@ -988,7 +989,11 @@ export function AgentAdherentFormPage() {
                         value={form.contractNumber || "none"}
                         onValueChange={(v) => {
                           const val = v === "none" ? "" : v;
-                          setForm({ ...form, contractNumber: val });
+                          const selected = companyContracts.find((gc) => gc.contractNumber === val);
+                          const plafond = selected?.annualGlobalLimit
+                            ? String(selected.annualGlobalLimit / 1000)
+                            : form.plafondGlobal;
+                          setForm({ ...form, contractNumber: val, plafondGlobal: plafond });
                           setContractNumberValid(!!val);
                         }}
                       >

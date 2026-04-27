@@ -783,7 +783,8 @@ export function BulletinsSaisiePage() {
   const MF_BLOCKING_STATUSES: import("@/features/bulletins/components/mf-lookup-input").MfStatus[] =
     ["loading", "invalid", "error"];
   // MF missing = bulletin saved as incomplete draft (can't be validated), but NOT blocking save
-  const hasMfMissing = watchedActes?.length > 0 &&
+  const hasAnyData = !!watchedMatricule?.trim() || actesTotal > 0;
+  const hasMfMissing = hasAnyData && watchedActes?.length > 0 &&
     watchedActes.some((_a) => !_a?.ref_prof_sant?.trim());
   const hasMfBlocking =
     watchedActes?.length > 0 &&
@@ -1365,6 +1366,23 @@ export function BulletinsSaisiePage() {
         })),
       })),
     });
+
+    // Auto-resolve famille codes for each acte so ActeSelector dropdowns are populated
+    const resolvedFamilles: Record<number, string> = {};
+    (b.actes || []).forEach((a, i) => {
+      const resolved = resolveFamilleCodeForActe(a.code, a.care_type);
+      if (resolved) resolvedFamilles[i] = resolved;
+    });
+    setActeFamilleCodes(resolvedFamilles);
+
+    // Pre-set MF statuses as 'found' for actes that already have ref_prof_sant
+    const initialMfStatuses: Record<number, import('@/features/bulletins/components/mf-lookup-input').MfStatus> = {};
+    (b.actes || []).forEach((a, i) => {
+      if (a.ref_prof_sant && (a.ref_prof_sant as string).trim()) {
+        initialMfStatuses[i] = 'found';
+      }
+    });
+    setMfStatuses(initialMfStatuses);
 
     // Switch to saisie tab
     setActiveTab('saisie');
@@ -6141,9 +6159,11 @@ export function BulletinsSaisiePage() {
                                           Matricule fiscale *
                                         </Label>
                                         <MfLookupInput
+                                          key={`mf-${index}-${editingBulletinId || ''}`}
                                           value={
                                             currentActe?.ref_prof_sant || ""
                                           }
+                                          initialFound={!!editingBulletinId && !!(currentActe?.ref_prof_sant?.trim())}
                                           onChange={(val) =>
                                             setValue(
                                               `actes.${index}.ref_prof_sant`,
@@ -7105,7 +7125,18 @@ export function BulletinsSaisiePage() {
                       <button
                         type="button"
                         onClick={() => {
-                          reset();
+                          reset({
+                            bulletin_number: '',
+                            bulletin_date: new Date().toISOString().split('T')[0],
+                            adherent_matricule: '',
+                            adherent_first_name: '',
+                            adherent_last_name: '',
+                            adherent_national_id: '',
+                            adherent_email: '',
+                            beneficiary_name: '',
+                            beneficiary_relationship: undefined,
+                            actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_type: 'consultation' as const, care_description: '', cod_msgr: '', lib_msgr: '' }],
+                          });
                           setSelectedFiles([]);
                           setFolderSubGroups(null);
                           setSelectedAdherentInfo(null);

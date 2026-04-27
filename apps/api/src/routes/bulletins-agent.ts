@@ -5215,19 +5215,30 @@ bulletinsAgent.post('/:id/update', async (c) => {
     }
   }
 
-  // Update total_amount + reimbursed_amount
-  await db.prepare('UPDATE bulletins_soins SET total_amount = ?, reimbursed_amount = ?, updated_at = ? WHERE id = ?')
-    .bind(totalAmount, reimbursedAmount, now, bulletinId).run();
+  // Re-evaluate status: if all MF are now filled and bulletin has a batch, promote draft → in_batch
+  const mfNowComplete = actes.every((a) => a.ref_prof_sant && a.ref_prof_sant.trim().length >= 7);
+  let newStatus = bulletin.status;
+  if (bulletin.status === 'draft' && mfNowComplete && bulletin.batch_id) {
+    newStatus = 'in_batch';
+  }
+
+  // Update total_amount + reimbursed_amount + status
+  await db.prepare('UPDATE bulletins_soins SET total_amount = ?, reimbursed_amount = ?, status = ?, updated_at = ? WHERE id = ?')
+    .bind(totalAmount, reimbursedAmount, newStatus, now, bulletinId).run();
 
   await logAudit(db, {
     userId: user.id,
     action: 'BULLETIN_UPDATE',
     entityType: 'bulletin',
     entityId: bulletinId,
-    changes: { adherentMatricule, actesCount: actes.length, totalAmount, reimbursedAmount },
+    changes: { adherentMatricule, actesCount: actes.length, totalAmount, reimbursedAmount, statusChanged: newStatus !== bulletin.status ? newStatus : undefined },
   });
 
-  return c.json({ success: true, data: { id: bulletinId, warnings: warnings.length > 0 ? warnings : undefined } });
+  if (newStatus !== bulletin.status) {
+    warnings.push(`Statut mis à jour : ${bulletin.status} → ${newStatus}`);
+  }
+
+  return c.json({ success: true, data: { id: bulletinId, status: newStatus, warnings: warnings.length > 0 ? warnings : undefined } });
 });
 
 // ---------------------------------------------------------------------------
