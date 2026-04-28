@@ -30,6 +30,8 @@ interface MedicationResult {
 interface MedicationAutocompleteProps {
   value: string;
   onSelect: (medication: MedicationResult) => void;
+  /** Called when the user types free text without selecting from dropdown */
+  onFreeText?: (text: string) => void;
   familyId?: string;
   placeholder?: string;
   className?: string;
@@ -38,6 +40,7 @@ interface MedicationAutocompleteProps {
 export function MedicationAutocomplete({
   value,
   onSelect,
+  onFreeText,
   familyId,
   placeholder = 'Rechercher un médicament...',
   className,
@@ -48,6 +51,7 @@ export function MedicationAutocomplete({
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const prevValueRef = useRef(value);
 
   // Debounced search query
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -84,12 +88,14 @@ export function MedicationAutocomplete({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Sync display value when external value changes
+  // Sync display value only when the parent prop actually changes (OCR fill, selection, reset)
   useEffect(() => {
-    if (value && !searchQuery) {
-      setDisplayValue(value);
+    if (value !== prevValueRef.current) {
+      prevValueRef.current = value;
+      setDisplayValue(value || '');
+      setSearchQuery('');
     }
-  }, [value, searchQuery]);
+  }, [value]);
 
   const handleSelect = useCallback(
     (med: MedicationResult) => {
@@ -154,6 +160,15 @@ export function MedicationAutocomplete({
             if (searchQuery.length >= 2 || displayValue) {
               setIsOpen(true);
             }
+          }}
+          onBlur={() => {
+            // Commit free text if user typed without selecting from dropdown
+            if (searchQuery && onFreeText) {
+              onFreeText(searchQuery);
+              setDisplayValue(searchQuery);
+              setSearchQuery('');
+            }
+            setIsOpen(false);
           }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}

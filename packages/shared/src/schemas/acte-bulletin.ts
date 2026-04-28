@@ -15,6 +15,7 @@ const CARE_TYPE_LABELS: Record<string, string> = {
   lab: 'Laboratoire',
   optique: 'Optique',
   actes_courants: 'Actes courants',
+  actes_specialistes: 'Actes spécialistes',
   chirurgie: 'Chirurgie',
   hospitalisation: 'Hospitalisation',
   hospital: 'Hospitalisation',
@@ -42,7 +43,7 @@ export const acteBulletinSchema = z.object({
   care_type: z.enum([
     // 18 canonical French care_types
     'consultation', 'pharmacie', 'laboratoire', 'optique', 'chirurgie_refractive',
-    'actes_courants', 'transport', 'chirurgie', 'orthopedie', 'hospitalisation',
+    'actes_courants', 'actes_specialistes', 'transport', 'chirurgie', 'orthopedie', 'hospitalisation',
     'accouchement', 'interruption_grossesse', 'dentaire', 'orthodontie',
     'circoncision', 'sanatorium', 'cures_thermales', 'frais_funeraires',
     // Legacy English aliases (backward compat)

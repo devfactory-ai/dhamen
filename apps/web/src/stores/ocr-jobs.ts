@@ -18,6 +18,13 @@ export interface ActiveOcrJob {
   notified: boolean;
 }
 
+/** Lightweight file metadata (File objects can't be serialized) */
+export interface FileMeta {
+  name: string;
+  size: number;
+  type: string;
+}
+
 /** Persisted analysis session — survives page navigation */
 export interface AnalysisSession {
   id: string;
@@ -31,6 +38,10 @@ export interface AnalysisSession {
   createdAt: string;
   /** Has this session been restored already? */
   consumed: boolean;
+  /** File metadata for display after navigation (File objects lost on unmount) */
+  filesMeta?: FileMeta[];
+  /** IndexedDB session key for retrieving actual file blobs */
+  fileSessionId?: string;
 }
 
 interface OcrJobsState {

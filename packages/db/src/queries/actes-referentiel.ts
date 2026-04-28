@@ -29,28 +29,23 @@ export interface ActesGroupeParFamille {
 }
 
 /**
- * Known letter-key prefixes sorted longest-first for correct parsing.
- * Used to parse composite codes like "B40", "KC50", "Z30".
- */
-const KNOWN_LETTER_KEYS = ['AMM', 'AMO', 'AMY', 'AM', 'CS', 'DC', 'DP', 'KC', 'PC', 'B', 'C', 'D', 'E', 'K', 'Z'];
-
-/**
  * Parse a composite acte code into letter-key + numeric coefficient.
- * "B40" → { letter: "B", coefficient: 40 }
- * "KC50" → { letter: "KC", coefficient: 50 }
- * "C1" → null (C1 is a specific acte code, not composite)
+ * Splits any alphabetic prefix from a trailing integer: "B40" → {letter:"B", coefficient:40}
+ * "KC50" → {letter:"KC", coefficient:50}, "PHY10" → {letter:"PHY", coefficient:10}
+ * Returns null for pure codes without numeric suffix (e.g. "C1" matched as direct code).
  */
 export function parseLetterKeyCode(code: string): { letter: string; coefficient: number } | null {
   if (!code) return null;
   const upper = code.toUpperCase().trim();
-  for (const key of KNOWN_LETTER_KEYS) {
-    if (upper.startsWith(key) && upper.length > key.length) {
-      const rest = upper.slice(key.length);
-      const num = Number(rest);
-      if (!isNaN(num) && num > 0 && Number.isInteger(num)) {
-        return { letter: key, coefficient: num };
-      }
-    }
+  // Split into alphabetic prefix + numeric suffix
+  const match = upper.match(/^([A-Z]+)(\d+)$/);
+  if (!match) return null;
+  const letter = match[1]!;
+  const num = Number(match[2]);
+  // Reject single-char letter + single digit (e.g. "C1", "V2") — these are direct acte codes
+  if (letter.length === 1 && match[2]!.length === 1) return null;
+  if (num > 0 && Number.isInteger(num)) {
+    return { letter, coefficient: num };
   }
   return null;
 }

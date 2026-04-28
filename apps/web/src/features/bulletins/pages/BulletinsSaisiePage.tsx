@@ -59,7 +59,8 @@ import { useActesGroupes } from '@/features/agent/hooks/use-actes';
 import { MedicationAutocomplete } from '@/features/bulletins/components/medication-autocomplete';
 import { MfLookupInput } from '@/features/bulletins/components/mf-lookup-input';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
-import { useOcrJobsStore } from '@/stores/ocr-jobs';
+import { useOcrJobsStore, type FileMeta } from '@/stores/ocr-jobs';
+import { saveFilesToIdb, loadFilesFromIdb, clearFilesFromIdb } from '@/lib/file-storage';
 import { useOcrJobQuery, useRetryOcrJobMutation } from '@/features/bulletins/hooks/useBulkAnalyse';
 import {
   CARE_TYPE_CONFIG,
@@ -209,8 +210,18 @@ interface BulletinActeDetail {
   sub_items?: BulletinSubItem[];
 }
 
+interface BulletinFile {
+  id: string;
+  file_index: number;
+  file_name: string | null;
+  mime_type: string | null;
+  file_size: number | null;
+  created_at: string | null;
+}
+
 interface BulletinDetail extends BulletinSaisie {
   actes?: BulletinActeDetail[];
+  files?: BulletinFile[];
   plafond_global?: number | null;
   plafond_consomme?: number | null;
   plafond_consomme_avant?: number | null;
@@ -412,12 +423,18 @@ export function BulletinsSaisiePage() {
   const canUpdate = hasPermission('bulletins_soins', 'update');
   const canDelete = hasPermission('bulletins_soins', 'delete');
 
+  // Track component mount state — detached OCR promises check this before setting React state
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+
   const queryClient = useQueryClient();
   const { selectedCompany, selectedBatch, setBatch } = useAgentContext();
   const [searchParams] = useSearchParams();
   const initialTab = useMemo(() => searchParams.get('tab') || 'saisie', []);
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  // Restored file metadata from persisted session (File objects lost on navigation)
+  const [restoredFilesMeta, setRestoredFilesMeta] = useState<FileMeta[]>([]);
   // Sub-folder grouping from webkitdirectory (stored at selection time to avoid webkitRelativePath issues)
   const [folderSubGroups, setFolderSubGroups] = useState<Map<string, number[]> | null>(null);
   // Inline message shown after folder/file selection (replaces toast.info alerts)
@@ -490,6 +507,8 @@ export function BulletinsSaisiePage() {
   // Multi-bulletin OCR state
   const [ocrBulletins, setOcrBulletins] = useState<OcrBulletinItem[]>([]);
   const [activeBulletinIndex, setActiveBulletinIndex] = useState(0);
+  // Deferred form fill index: when set, triggers handleSwitchBulletin after render
+  const [pendingFormFillIndex, setPendingFormFillIndex] = useState<number | null>(null);
 
   // Restore OCR results from previous session if user navigated away and came back
   const sessionRestoredRef = useRef(false);
@@ -502,8 +521,28 @@ export function BulletinsSaisiePage() {
         const restored = JSON.parse(session.bulletinsJson) as OcrBulletinItem[];
         if (restored.length > 0) {
           setOcrBulletins(restored);
-          setActiveBulletinIndex(0);
-          toast.info(`${restored.length} bulletin(s) restauré(s) de la session précédente`);
+          // Set index to -1 so handleSwitchBulletin(0) won't bail (guard: index === activeBulletinIndex)
+          setActiveBulletinIndex(-1);
+          setPendingFormFillIndex(0);
+          // Restore file metadata for display + reconstruct File objects from IndexedDB
+          if (session.filesMeta && session.filesMeta.length > 0) {
+            setRestoredFilesMeta(session.filesMeta);
+            if (session.fileSessionId) {
+              (async () => {
+                try {
+                  const restoredFiles = await loadFilesFromIdb(session.fileSessionId!);
+                  if (restoredFiles.length > 0) {
+                    setSelectedFiles(restoredFiles);
+                    for (const b of restored) {
+                      b._source_files = restoredFiles;
+                    }
+                    setOcrBulletins([...restored]);
+                  }
+                } catch { /* IndexedDB unavailable, files lost — metadata still shown */ }
+              })();
+            }
+          }
+          toast.info(`${restored.length} bulletin(s) restauré(s) — remplissage du formulaire...`);
         }
       } catch { /* corrupted session, ignore */ }
     }
@@ -967,20 +1006,35 @@ export function BulletinsSaisiePage() {
         form.append("file_hash", bulletinHash);
       }
 
-      // Use per-bulletin source files if available, otherwise fallback to all selected files
-      const filesToUpload = ocrBulletins[activeBulletinIndex]?._source_files || data.files;
-      filesToUpload.forEach((file, index) => {
-        form.append(`scan_${index}`, file);
-      });
+      // Files are uploaded separately after creation via upload-scan endpoint
+      // to avoid Worker CPU timeout with large multipart payloads
 
       // If editing existing bulletin → PUT, otherwise → POST create
       const endpoint = editingBulletinId
         ? `/bulletins-soins/agent/${editingBulletinId}/update`
         : '/bulletins-soins/agent/create';
-      const result = await apiClient.upload<{ warnings?: string[] }>(endpoint, form);
+      const result = await apiClient.upload<{ id?: string; warnings?: string[] }>(endpoint, form);
       if (!result.success) {
         throw new Error(result.error?.message || "Erreur lors de la saisie");
       }
+
+      // Upload files separately after creation to avoid Worker CPU timeout
+      if (!editingBulletinId && result.data?.id) {
+        const filesToUpload = ocrBulletins[activeBulletinIndex]?._source_files || data.files;
+        if (filesToUpload.length > 0) {
+          const uploadPromises = filesToUpload.map(async (file) => {
+            const scanForm = new FormData();
+            scanForm.append('scan', file);
+            return apiClient.upload(`/bulletins-soins/agent/${result.data!.id}/upload-scan`, scanForm);
+          });
+          const uploadResults = await Promise.allSettled(uploadPromises);
+          const failed = uploadResults.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success));
+          if (failed.length > 0) {
+            console.warn(`[save-bulletin] ${failed.length}/${filesToUpload.length} file uploads failed`);
+          }
+        }
+      }
+
       return { success: result.success, data: result.data };
     },
     onSuccess: (result: { success: boolean; data?: { warnings?: string[] } }) => {
@@ -1040,7 +1094,9 @@ export function BulletinsSaisiePage() {
       setCurrentFileHash(null);
       setSavedBulletinIndices(new Set());
       setSavedBulletinSnapshots({});
+      const sessionToClean = ocrJobsStore.analysisSession?.fileSessionId;
       ocrJobsStore.clearAnalysisSession();
+      if (sessionToClean) clearFilesFromIdb(sessionToClean).catch(() => {});
       setActiveBulletinIndex(0);
       setEditingBulletinId(null);
       setActiveTab("liste");
@@ -1409,6 +1465,9 @@ export function BulletinsSaisiePage() {
         "Certains fichiers ont été ignorés (format ou taille invalide)",
       );
     }
+
+    // Clear restored metadata when new files are selected
+    if (restoredFilesMeta.length > 0) setRestoredFilesMeta([]);
 
     // If files already exist OR editing a bulletin, just append new ones (no form reset)
     if (selectedFiles.length > 0 || editingBulletinId) {
@@ -1877,7 +1936,6 @@ export function BulletinsSaisiePage() {
     const hasSubFolders = folderSubGroups !== null && folderSubGroups.size > 1;
     console.log('[analyzeWithOCR] hasZip:', hasZip, 'hasSubFolders:', hasSubFolders, 'folderSubGroups:', folderSubGroups ? Object.fromEntries(folderSubGroups) : null);
 
-    let bulletinsArray: OcrBulletinItem[] = [];
     let effectiveFiles = selectedFiles; // Files actually sent to OCR (after dedup filtering)
 
     // --- BULK: ZIP → extract client-side, group by sub-folder, /analyse-bulletin per group ---
@@ -1924,6 +1982,7 @@ export function BulletinsSaisiePage() {
 
         if (folderGroups.size === 0) {
           toast.error("Aucun fichier valide trouvé dans le ZIP");
+          setIsAnalyzing(false);
           return;
         }
 
@@ -1977,69 +2036,107 @@ export function BulletinsSaisiePage() {
 
         if (cleanGroups.length === 0) {
           toast.error("Tous les bulletins sont des doublons — rien à analyser");
+          setIsAnalyzing(false);
           return;
         }
 
-        toast.info(`Analyse OCR de ${cleanGroups.length} bulletin(s)...`, { id: 'bulk-progress' });
+        toast.info(`Analyse OCR de ${cleanGroups.length} bulletin(s) en cours... Vous pouvez naviguer librement.`, { id: 'bulk-progress' });
 
-        // 4. Call /analyse-bulletin per clean group
-        const allBulletins: OcrBulletinItem[] = [];
+        // 4. Fire-and-forget: run OCR calls in background (survives page navigation)
+        const capturedParseOcrResponse = parseOcrResponse;
+        const capturedCompanyId = selectedCompany?.id || '';
+        const capturedBatchId = selectedBatch?.id;
+        const capturedMountedRef = mountedRef;
+        const totalGroups = cleanGroups.length;
 
-        const analyseGroup = async (groupName: string, form: FormData): Promise<void> => {
-          try {
-            const filesToAnalyse = form.getAll('files') as File[];
-            const res = await fetch(`${ocrBase}/analyse-bulletin`, {
-              method: 'POST', headers: { accept: 'application/json' }, body: form,
-            });
-            if (!res.ok) {
-              toast.error(`Erreur OCR pour "${groupName}"`);
-              return;
+        // Copy group data (forms with files) before async — closure captures references
+        const groupsCopy = cleanGroups.map(({ name, form }) => ({
+          name,
+          files: form.getAll('files') as File[],
+        }));
+        // Capture file metadata for display + store blobs in IndexedDB
+        const allGroupFiles = groupsCopy.flatMap(g => g.files);
+        const capturedFilesMeta: FileMeta[] = allGroupFiles.map(f => ({ name: f.name, size: f.size, type: f.type }));
+        const sessionId = crypto.randomUUID();
+        await saveFilesToIdb(sessionId, allGroupFiles).catch(() => {});
+
+        (async () => {
+          const allBulletins: OcrBulletinItem[] = [];
+          const CONCURRENCY = 4;
+          let completed = 0;
+
+          for (let i = 0; i < groupsCopy.length; i += CONCURRENCY) {
+            const batch = groupsCopy.slice(i, i + CONCURRENCY);
+            if (capturedMountedRef.current && totalGroups > 1) {
+              setAnalyzeProgress({ current: completed + 1, total: totalGroups, groupName: batch.map(b => b.name).join(', ') });
             }
-            const parsed = parseOcrResponse(await res.json());
-            for (const b of parsed) b._source_files = filesToAnalyse;
-            allBulletins.push(...parsed);
-          } catch (err) {
-            console.error(`[zip-ocr] Erreur "${groupName}":`, err);
-            toast.error(`Erreur pour "${groupName}"`);
+            await Promise.allSettled(batch.map(async ({ name, files }) => {
+              try {
+                const form = new FormData();
+                for (const f of files) form.append('files', f);
+                const res = await fetch(`${ocrBase}/analyse-bulletin`, {
+                  method: 'POST', headers: { accept: 'application/json' }, body: form,
+                });
+                if (!res.ok) {
+                  toast.error(`Erreur OCR pour "${name}"`);
+                  return;
+                }
+                const parsed = capturedParseOcrResponse(await res.json());
+                for (const b of parsed) b._source_files = files;
+                allBulletins.push(...parsed);
+              } catch (err) {
+                console.error(`[zip-ocr] Erreur "${name}":`, err);
+                toast.error(`Erreur pour "${name}"`);
+              }
+            }));
+            completed += batch.length;
+            if (totalGroups > CONCURRENCY) {
+              toast.info(`Analyse ${Math.min(i + CONCURRENCY, totalGroups)}/${totalGroups} terminée...`, { id: 'bulk-progress' });
+            }
           }
-        };
 
-        const CONCURRENCY = 4;
-        let completed = 0;
-        if (cleanGroups.length > 1) {
-          setAnalyzeProgress({ current: 0, total: cleanGroups.length, groupName: '' });
-        }
-        for (let i = 0; i < cleanGroups.length; i += CONCURRENCY) {
-          const batch = cleanGroups.slice(i, i + CONCURRENCY);
-          if (cleanGroups.length > 1) {
-            setAnalyzeProgress({ current: completed + 1, total: cleanGroups.length, groupName: batch.map(b => b.name).join(', ') });
-          }
-          await Promise.allSettled(batch.map(({ name, form }) => analyseGroup(name, form)));
-          completed += batch.length;
-          if (cleanGroups.length > CONCURRENCY) {
-            toast.info(`Analyse ${Math.min(i + CONCURRENCY, cleanGroups.length)}/${cleanGroups.length} terminée...`, { id: 'bulk-progress' });
-          }
-          if (cleanGroups.length > 1) {
-            setAnalyzeProgress({ current: completed, total: cleanGroups.length, groupName: '' });
-          }
-        }
-        setAnalyzeProgress(null);
+          // Analysis done — save results to persistent store
+          if (allBulletins.length === 0) {
+            toast.error("Aucun bulletin n'a pu être extrait du ZIP");
+          } else {
+            // Always save to Zustand (survives navigation)
+            useOcrJobsStore.getState().saveAnalysisSession({
+              id: sessionId,
+              bulletinsJson: JSON.stringify(allBulletins, (k, v) => k === '_source_files' ? undefined : v),
+              companyId: capturedCompanyId,
+              batchId: capturedBatchId,
+              count: allBulletins.length,
+              createdAt: new Date().toISOString(),
+              filesMeta: capturedFilesMeta,
+              fileSessionId: sessionId,
+            });
 
-        if (allBulletins.length === 0) {
-          toast.error("Aucun bulletin n'a pu être extrait du ZIP");
-          return;
-        }
+            toast.success(`${allBulletins.length} bulletin(s) analysés depuis ${totalGroups} groupe(s) du ZIP`);
 
-        bulletinsArray = allBulletins;
-        const zipMsg = `${allBulletins.length} bulletin(s) analysés depuis ${cleanGroups.length} groupe(s) du ZIP`;
-        toast.success(zipMsg);
+            // If component is still mounted, fill form directly
+            if (capturedMountedRef.current) {
+              setOcrBulletins(allBulletins);
+              setActiveBulletinIndex(-1);
+              setSavedBulletinIndices(new Set());
+              setSavedBulletinSnapshots({});
+              setPendingFormFillIndex(0);
+            }
+          }
+
+          // Cleanup analysis state if still mounted
+          if (capturedMountedRef.current) {
+            setIsAnalyzing(false);
+            setAnalyzeProgress(null);
+          }
+        })();
+
+        // Return immediately — OCR runs in background, isAnalyzing cleared when done
+        return;
       } catch (error) {
         console.error('Bulk analysis error:', error);
         toast.error(error instanceof Error ? error.message : "Erreur lors de l'analyse");
-        return;
-      } finally {
         setIsAnalyzing(false);
-        setAnalyzeProgress(null);
+        return;
       }
     }
 
@@ -2099,67 +2196,100 @@ export function BulletinsSaisiePage() {
 
         if (cleanGroups.length === 0) {
           toast.error("Tous les bulletins sont des doublons — rien à analyser");
+          setIsAnalyzing(false);
           return;
         }
 
-        toast.info(`Analyse OCR de ${cleanGroups.length} bulletin(s)...`, { id: 'bulk-progress' });
+        toast.info(`Analyse OCR de ${cleanGroups.length} bulletin(s) en cours... Vous pouvez naviguer librement.`, { id: 'bulk-progress' });
 
-        const allBulletins: OcrBulletinItem[] = [];
+        // Fire-and-forget: run OCR calls in background (survives page navigation)
+        const capturedParseOcrResponse = parseOcrResponse;
+        const capturedCompanyId = selectedCompany?.id || '';
+        const capturedBatchId = selectedBatch?.id;
+        const capturedMountedRef = mountedRef;
+        const totalGroups = cleanGroups.length;
 
-        const analyseGroup = async (groupName: string, form: FormData): Promise<void> => {
-          try {
-            const filesToAnalyse = form.getAll('files') as File[];
-            const res = await fetch(`${ocrBase}/analyse-bulletin`, {
-              method: 'POST', headers: { accept: 'application/json' }, body: form,
-            });
-            if (!res.ok) {
-              toast.error(`Erreur OCR pour "${groupName}"`);
-              return;
+        const groupsCopy = cleanGroups.map(({ name, form }) => ({
+          name,
+          files: form.getAll('files') as File[],
+        }));
+        const allFolderFiles = groupsCopy.flatMap(g => g.files);
+        const capturedFilesMeta: FileMeta[] = allFolderFiles.map(f => ({ name: f.name, size: f.size, type: f.type }));
+        const sessionId = crypto.randomUUID();
+        await saveFilesToIdb(sessionId, allFolderFiles).catch(() => {});
+
+        (async () => {
+          const allBulletins: OcrBulletinItem[] = [];
+          const CONCURRENCY = 4;
+          let completed = 0;
+
+          for (let i = 0; i < groupsCopy.length; i += CONCURRENCY) {
+            const batch = groupsCopy.slice(i, i + CONCURRENCY);
+            if (capturedMountedRef.current && totalGroups > 1) {
+              setAnalyzeProgress({ current: completed + 1, total: totalGroups, groupName: batch.map(b => b.name).join(', ') });
             }
-            const parsed = parseOcrResponse(await res.json());
-            for (const b of parsed) b._source_files = filesToAnalyse;
-            allBulletins.push(...parsed);
-          } catch (err) {
-            console.error(`[bulk-ocr] Erreur "${groupName}":`, err);
-            toast.error(`Erreur pour "${groupName}"`);
+            await Promise.allSettled(batch.map(async ({ name, files }) => {
+              try {
+                const form = new FormData();
+                for (const f of files) form.append('files', f);
+                const res = await fetch(`${ocrBase}/analyse-bulletin`, {
+                  method: 'POST', headers: { accept: 'application/json' }, body: form,
+                });
+                if (!res.ok) {
+                  toast.error(`Erreur OCR pour "${name}"`);
+                  return;
+                }
+                const parsed = capturedParseOcrResponse(await res.json());
+                for (const b of parsed) b._source_files = files;
+                allBulletins.push(...parsed);
+              } catch (err) {
+                console.error(`[folder-ocr] Erreur "${name}":`, err);
+                toast.error(`Erreur pour "${name}"`);
+              }
+            }));
+            completed += batch.length;
+            if (totalGroups > CONCURRENCY) {
+              toast.info(`Analyse ${Math.min(i + CONCURRENCY, totalGroups)}/${totalGroups} terminée...`, { id: 'bulk-progress' });
+            }
           }
-        };
 
-        const CONCURRENCY = 4;
-        let completed = 0;
-        if (cleanGroups.length > 1) {
-          setAnalyzeProgress({ current: 0, total: cleanGroups.length, groupName: '' });
-        }
-        for (let i = 0; i < cleanGroups.length; i += CONCURRENCY) {
-          const batch = cleanGroups.slice(i, i + CONCURRENCY);
-          if (cleanGroups.length > 1) {
-            setAnalyzeProgress({ current: completed + 1, total: cleanGroups.length, groupName: batch.map(b => b.name).join(', ') });
-          }
-          await Promise.allSettled(batch.map(({ name, form }) => analyseGroup(name, form)));
-          completed += batch.length;
-          if (cleanGroups.length > CONCURRENCY) {
-            toast.info(`Analyse ${Math.min(i + CONCURRENCY, cleanGroups.length)}/${cleanGroups.length} terminée...`, { id: 'bulk-progress' });
-          }
-          if (cleanGroups.length > 1) {
-            setAnalyzeProgress({ current: completed, total: cleanGroups.length, groupName: '' });
-          }
-        }
-        setAnalyzeProgress(null);
+          if (allBulletins.length === 0) {
+            toast.error("Aucun bulletin n'a pu être extrait");
+          } else {
+            useOcrJobsStore.getState().saveAnalysisSession({
+              id: sessionId,
+              bulletinsJson: JSON.stringify(allBulletins, (k, v) => k === '_source_files' ? undefined : v),
+              companyId: capturedCompanyId,
+              batchId: capturedBatchId,
+              count: allBulletins.length,
+              createdAt: new Date().toISOString(),
+              filesMeta: capturedFilesMeta,
+              fileSessionId: sessionId,
+            });
 
-        if (allBulletins.length === 0) {
-          toast.error("Aucun bulletin n'a pu être extrait");
-          return;
-        }
+            toast.success(`${allBulletins.length} bulletin(s) extraits de ${totalGroups} sous-dossier(s)`);
 
-        bulletinsArray = allBulletins;
-        toast.success(`${allBulletins.length} bulletin(s) extraits de ${cleanGroups.length} sous-dossier(s)`);
+            if (capturedMountedRef.current) {
+              setOcrBulletins(allBulletins);
+              setActiveBulletinIndex(-1);
+              setSavedBulletinIndices(new Set());
+              setSavedBulletinSnapshots({});
+              setPendingFormFillIndex(0);
+            }
+          }
+
+          if (capturedMountedRef.current) {
+            setIsAnalyzing(false);
+            setAnalyzeProgress(null);
+          }
+        })();
+
+        return;
       } catch (error) {
         console.error('Bulk analysis error:', error);
         toast.error(error instanceof Error ? error.message : "Erreur lors de l'analyse");
-        return;
-      } finally {
         setIsAnalyzing(false);
-        setAnalyzeProgress(null);
+        return;
       }
     } else {
       // --- SINGLE FILE: 1) server-side duplicate check, 2) OCR if not duplicate ---
@@ -2170,7 +2300,6 @@ export function BulletinsSaisiePage() {
       }
 
       // Step 1: Server-side duplicate check per file
-      let filesToAnalyse = selectedFiles;
       if (!skipHashCheckRef.current) {
         setIsCheckingDuplicates(true);
         try {
@@ -2219,7 +2348,6 @@ export function BulletinsSaisiePage() {
 
             if (!proceed) return;
 
-            filesToAnalyse = cleanFiles;
             formData.delete('files');
             for (const f of cleanFiles) formData.append('files', f);
             effectiveFiles = cleanFiles;
@@ -2232,383 +2360,89 @@ export function BulletinsSaisiePage() {
       }
 
       setIsAnalyzing(true);
-      try {
+      toast.info("Analyse OCR en cours... Vous pouvez naviguer librement.", { id: 'single-ocr-progress' });
 
-        // Step 2: Call OCR directly (no duplicate — proceed with Gemini analysis)
-        const ocrBase = (
-          import.meta.env.VITE_OCR_API_URL_STAGING ||
-          "https://ocr-api-bh-assurance-staging.yassine-techini.workers.dev"
-        ).replace(/\/+$/, "");
-        const ocrRes = await fetch(`${ocrBase}/analyse-bulletin`, {
-          method: "POST",
-          headers: { accept: "application/json" },
-          body: formData,
-        });
+      // Step 2: Fire-and-forget OCR call (survives page navigation)
+      const ocrBase = (
+        import.meta.env.VITE_OCR_API_URL_STAGING ||
+        "https://ocr-api-bh-assurance-staging.yassine-techini.workers.dev"
+      ).replace(/\/+$/, "");
+      const capturedParseOcrResponse = parseOcrResponse;
+      const capturedCompanyId = selectedCompany?.id || '';
+      const capturedBatchId = selectedBatch?.id;
+      const capturedMountedRef = mountedRef;
+      const capturedEffectiveFiles = [...effectiveFiles];
+      const capturedFilesMeta: FileMeta[] = capturedEffectiveFiles.map(f => ({ name: f.name, size: f.size, type: f.type }));
+      const sessionId = crypto.randomUUID();
+      await saveFilesToIdb(sessionId, capturedEffectiveFiles).catch(() => {});
 
-        if (!ocrRes.ok) throw new Error(`Erreur OCR: ${ocrRes.status}`);
+      (async () => {
+        try {
+          const ocrRes = await fetch(`${ocrBase}/analyse-bulletin`, {
+            method: "POST",
+            headers: { accept: "application/json" },
+            body: formData,
+          });
 
-        const result = await ocrRes.json();
-        console.log("[OCR] Raw API response:", JSON.stringify(result, null, 2));
-
-        bulletinsArray = parseOcrResponse(result);
-      } catch (error) {
-        console.error("OCR analysis error:", error);
-        toast.error("Erreur lors de l'analyse du bulletin");
-        return;
-      } finally {
-        setIsAnalyzing(false);
-      }
-    }
-
-    // --- Common: fill form from first bulletin ---
-    if (!bulletinsArray || bulletinsArray.length === 0) return;
-
-      // Associate source files with each bulletin for submit (skip if already set by bulk flows)
-      if (!bulletinsArray[0]?._source_files) {
-        if (bulletinsArray.length > 1 && effectiveFiles.length === bulletinsArray.length) {
-          // 1 file per bulletin (e.g. 2 images → 2 bulletins)
-          for (let i = 0; i < bulletinsArray.length; i++) {
-            bulletinsArray[i]!._source_files = [effectiveFiles[i]!];
+          if (!ocrRes.ok) {
+            toast.error(`Erreur OCR: ${ocrRes.status}`);
+            return;
           }
-        } else {
-          // All files belong to all bulletins (e.g. recto/verso = 1 bulletin)
-          for (const b of bulletinsArray) {
-            b._source_files = [...effectiveFiles];
+
+          const result = await ocrRes.json();
+          console.log("[OCR] Raw API response:", JSON.stringify(result, null, 2));
+
+          const parsed = capturedParseOcrResponse(result);
+          if (!parsed || parsed.length === 0) {
+            toast.error("Aucun bulletin extrait");
+            return;
           }
-        }
-      }
 
-      // Persist results so they survive navigation (user can leave and come back)
-      ocrJobsStore.saveAnalysisSession({
-        id: crypto.randomUUID(),
-        bulletinsJson: JSON.stringify(bulletinsArray),
-        companyId: selectedCompany?.id || '',
-        batchId: selectedBatch?.id,
-        count: bulletinsArray.length,
-        createdAt: new Date().toISOString(),
-      });
-
-      // Store all bulletins for multi-bulletin navigation
-      setOcrBulletins(bulletinsArray);
-      setActiveBulletinIndex(0);
-      setSavedBulletinIndices(new Set());
-      setSavedBulletinSnapshots({});
-
-      // Use first bulletin for initial form fill
-      const parsed = bulletinsArray[0]!;
-      const info = parsed.infos_adherent as Record<string, string>;
-      const actes = parsed.volet_medical as Array<Record<string, string | null>>;
-
-      // Store raw OCR result for feedback panel
-      setOcrFeedback({
-        donneesIa: { infos_adherent: info || {}, volet_medical: actes || [] },
-        visible: true,
-      });
-      setFeedbackErrors([]);
-      setFeedbackComment("");
-
-      // Auto-fill bulletin number (can be at top level or in infos_adherent)
-      const numeroBulletin = parsed?.numero_bulletin || info?.numero_bulletin;
-      if (numeroBulletin) {
-        setValue("bulletin_number", numeroBulletin);
-        setBulletinNumberFromOcr(true);
-
-        // Check for duplicate bulletin (already validated/processed)
-        const companyParam = selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__' ? `&companyId=${selectedCompany.id}` : '';
-        apiClient.get<BulletinSaisie[]>(
-          `/bulletins-soins/agent?search=${encodeURIComponent(String(numeroBulletin))}&status=approved,approuve,non_remboursable,soumis,en_examen,paye,exported${companyParam}`
-        ).then((res) => {
-          if (res.success && res.data && res.data.length > 0) {
-            const dup = res.data.find((b) => b.bulletin_number === String(numeroBulletin));
-            if (dup) {
-              toast.warning(
-                `Attention : le bulletin N° ${numeroBulletin} existe déjà (${dup.adherent_first_name} ${dup.adherent_last_name}, statut: ${dup.status}). Vérifiez qu'il ne s'agit pas d'un doublon.`,
-                { duration: 10000 }
-              );
-            }
-          }
-        }).catch(() => { /* silent — non-blocking check */ });
-      } else {
-        setBulletinNumberFromOcr(false);
-      }
-
-      // Auto-fill adherent fields
-      if (info) {
-        if (info.nom_prenom) {
-          const parts = info.nom_prenom.trim().split(/\s+/);
-          if (parts.length >= 2) {
-            setValue("adherent_last_name", parts[0]!);
-            setValue("adherent_first_name", parts.slice(1).join(" "));
-          }
-        }
-        const matriculeRaw = [info.numero_adherent, info.numero_contrat].find(
-          (v) => v && v !== "illisible",
-        );
-        if (matriculeRaw) {
-          const matricule = matriculeRaw.replace(/\s+/g, "");
-          setValue("adherent_matricule", matricule);
-          setAdherentSearch(matricule);
-        }
-        if (info.numero_contrat && info.numero_contrat !== "illisible") {
-          setValue(
-            "adherent_contract_number",
-            info.numero_contrat.replace(/\s+/g, ""),
-          );
-        }
-        if (info.date_signature) {
-          const dateParts = info.date_signature.split(/[.\/]/);
-          if (dateParts.length === 3) {
-            const year =
-              dateParts[2]!.length === 2 ? `20${dateParts[2]}` : dateParts[2];
-            setValue(
-              "bulletin_date",
-              `${year}-${dateParts[1]}-${dateParts[0]}`,
-            );
-          }
-        }
-        if (info.adresse) {
-          setValue("adherent_address", info.adresse);
-        }
-        // Map beneficiaire_coche -> lien de parente (TASK-006)
-        if (info.beneficiaire_coche) {
-          const benef = info.beneficiaire_coche.toLowerCase().trim();
-          if (benef.includes("conjoint")) {
-            setValue(
-              "beneficiary_relationship" as keyof BulletinFormData,
-              "spouse",
-            );
-          } else if (benef.includes("enfant")) {
-            setValue(
-              "beneficiary_relationship" as keyof BulletinFormData,
-              "child",
-            );
-          } else if (benef.includes("parent") || benef.includes("ascendant")) {
-            setValue(
-              "beneficiary_relationship" as keyof BulletinFormData,
-              "parent",
-            );
-          } else if (benef.includes("adh") || benef.includes("assur") || benef.includes("lui-m") || benef.includes("elle-m")) {
-            setValue(
-              "beneficiary_relationship" as keyof BulletinFormData,
-              "self",
-            );
-          }
-        }
-        // Default to "self" if no beneficiaire detected from OCR
-        if (!info.beneficiaire_coche) {
-          setValue("beneficiary_relationship" as keyof BulletinFormData, "self");
-        }
-        // Fill beneficiary name from OCR
-        if (info.nom_beneficiaire) {
-          setValue("beneficiary_name", info.nom_beneficiaire.trim());
-        }
-      }
-
-      // Helper: detect care_type from OCR type_soin / nature_acte string
-      const detectCareType = (
-        typeSoin?: string | null,
-        natureActe?: string | null,
-      ): string => {
-        const combined = [typeSoin, natureActe]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "");
-        if (!combined) return "consultation";
-        if (combined.includes("pharmac") || combined.includes("medicament")) return "pharmacie";
-        if (combined.includes("dentaire") || combined.includes("dentist") || combined.includes("dent ")) return "dentaire";
-        if (combined.includes("orthodont")) return "orthodontie";
-        if (combined.includes("optique") || combined.includes("lunette") || combined.includes("verres")) return "optique";
-        if (combined.includes("chirurg") && (combined.includes("refract") || combined.includes("lasik"))) return "chirurgie_refractive";
-        if (combined.includes("chirurg") || combined.includes("operation") || combined.includes("bloc")) return "chirurgie";
-        if (combined.includes("labo") || combined.includes("analyse") || combined.includes("biolog")) return "laboratoire";
-        if (combined.includes("radio") || combined.includes("echograph") || combined.includes("scanner") || combined.includes("irm") || combined.includes("physiother")) return "actes_specialistes";
-        if (combined.includes("kine")) return "actes_courants";
-        if (combined.includes("accouchement") || combined.includes("maternite")) return "accouchement";
-        if (combined.includes("hosp") || combined.includes("clinique")) return "hospitalisation";
-        if (combined.includes("circoncision")) return "circoncision";
-        if (combined.includes("orthopedie") || combined.includes("orthoped") || combined.includes("prothese orthoped")) return "orthopedie";
-        if (combined.includes("transport") || combined.includes("ambulance")) return "transport";
-        if (combined.includes("cure") || combined.includes("thermal")) return "cures_thermales";
-        if (combined.includes("sanatorium")) return "sanatorium";
-        if (combined.includes("funeraire") || combined.includes("deces")) return "frais_funeraires";
-        if (combined.includes("interruption") || combined.includes("ivg")) return "accouchement";
-        return "consultation";
-      };
-
-      // Auto-fill global care type from first acte's type_soin
-      if (Array.isArray(actes) && actes.length > 0 && actes[0]?.type_soin) {
-        setValue("care_type", detectCareType(actes[0].type_soin, actes[0].nature_acte as string | null));
-      }
-
-      // Auto-fill actes with enriched codes from backend (TASK-003)
-      if (Array.isArray(actes) && actes.length > 0) {
-        const currentActes = watch("actes");
-        while (currentActes.length > 1) {
-          removeActe(currentActes.length - 1);
-        }
-
-        actes.forEach((acte: Record<string, unknown>, i: number) => {
-          // Detect care_type per acte from its own type_soin
-          const acteCareType = detectCareType(acte.type_soin as string | null, acte.nature_acte as string | null);
-          const isPharmacy = resolveCareType(acteCareType) === "pharmacie";
-          const rawMontant = (
-            (acte.montant_facture as string) ||
-            (acte.montant_honoraires as string) ||
-            "0"
-          )
-            .replace(/[^\d.,]/g, "")
-            .replace(",", ".");
-          const montant = parseFloat(rawMontant) || 0;
-
-          // For pharmacy: use OCR-matched medication if available, otherwise leave empty
-          // For other types: use backend-enriched codes or local mapping
-          const mapped = (acte.nature_acte as string)
-            ? mapNatureActeToCode(acte.nature_acte as string)
-            : null;
-          const matchedMed = acte.matched_medication as
-            | {
-                code_pct?: string;
-                brand_name?: string;
-                dci?: string;
-                dosage?: string;
-                form?: string;
-                price_public?: number;
-                reimbursement_rate?: number;
+          // Associate source files
+          if (!parsed[0]?._source_files) {
+            if (parsed.length > 1 && capturedEffectiveFiles.length === parsed.length) {
+              for (let i = 0; i < parsed.length; i++) {
+                parsed[i]!._source_files = [capturedEffectiveFiles[i]!];
               }
-            | undefined;
-
-          let code: string;
-          let label: string;
-          let autoAmount: number | null = null;
-
-          if (isPharmacy && matchedMed) {
-            // Single matched medication → convert to sub-item (pharmacy always uses sub-items)
-            code = "PH1";
-            label = "Pharmacie";
-            const medPriceDT = matchedMed.price_public ? matchedMed.price_public / 1000 : 0;
-            const reimbLabel = matchedMed.reimbursement_rate
-              ? `[R ${Math.round(matchedMed.reimbursement_rate * 100)}%]`
-              : "[NR]";
-            const medLabel =
-              `${matchedMed.brand_name || ""} - ${matchedMed.dci || ""} ${matchedMed.dosage || ""} ${matchedMed.form || ""} ${reimbLabel}`.trim();
-            const ocrExistingSubs = acte._sub_items as Array<{ label: string; amount: number; code: string; cotation?: string }> | undefined;
-            if (!ocrExistingSubs || ocrExistingSubs.length === 0) {
-              acte._sub_items = [{ label: medLabel, amount: medPriceDT || montant, code: matchedMed.code_pct || "", cotation: "" }];
+            } else {
+              for (const b of parsed) {
+                b._source_files = [...capturedEffectiveFiles];
+              }
             }
-            if (medPriceDT) {
-              autoAmount = medPriceDT;
-            }
-          } else if (isPharmacy) {
-            code = "PH1";
-            const ocrSubs = acte._sub_items as Array<unknown> | undefined;
-            label = "Pharmacie";
-            // If no sub-items from OCR, add one empty sub-item so user can fill it
-            if (!ocrSubs || ocrSubs.length === 0) {
-              acte._sub_items = [{ label: (acte.nature_acte as string) || "", amount: montant, code: "", cotation: "" }];
-            }
-          } else {
-            code = (acte.matched_code as string) || mapped?.code || "";
-            label =
-              (acte.matched_label as string) || mapped?.label || (acte.nature_acte as string) || "";
           }
 
-          // Keep nature_acte from OCR as care_description (e.g. "Psychiatrie")
-          const natureActeOriginal = (acte.nature_acte as string) || "";
+          // Always save to Zustand (survives navigation)
+          useOcrJobsStore.getState().saveAnalysisSession({
+            id: sessionId,
+            bulletinsJson: JSON.stringify(parsed, (k, v) => k === '_source_files' ? undefined : v),
+            companyId: capturedCompanyId,
+            batchId: capturedBatchId,
+            count: parsed.length,
+            createdAt: new Date().toISOString(),
+            filesMeta: capturedFilesMeta,
+            fileSessionId: sessionId,
+          });
 
-          // Use OCR-matched amount or fallback to extracted montant
-          const finalAmount = isPharmacy && autoAmount ? autoAmount : montant;
+          toast.success(`${parsed.length} bulletin(s) analysé(s)`);
 
-          // MF: use enriched provider name if available, fallback to OCR raw
-          const mfProvider = acte.mf_provider as
-            | { name?: string; speciality?: string; address?: string }
-            | undefined;
-          const nomPraticien = mfProvider?.name || (acte.nom_praticien as string) || "";
-          const refProfSant =
-            (acte.mf_extracted as string) || (acte.matricule_fiscale as string) || "";
-
-          // For lab: use lab name as praticien name if available
-          const laboNom = (acte._labo_nom as string) || "";
-          const pharmacieNom = (acte._pharmacie_nom as string) || "";
-          const displayPraticien = laboNom || pharmacieNom || nomPraticien;
-
-          // Store OCR-extracted praticien info for display when MF not found in DB
-          if (refProfSant || displayPraticien) {
-            setOcrPraticienInfos((prev) => ({
-              ...prev,
-              [i]: {
-                nom: displayPraticien,
-                mf: refProfSant,
-                specialite:
-                  mfProvider?.speciality ||
-                  (acte.specialite as string) ||
-                  natureActeOriginal ||
-                  undefined,
-                adresse:
-                  (acte.adresse_praticien as string) ||
-                  mfProvider?.address ||
-                  undefined,
-                telephone: (acte.telephone_praticien as string) || undefined,
-              },
-            }));
+          // If still mounted, fill form directly
+          if (capturedMountedRef.current) {
+            setOcrBulletins(parsed);
+            setActiveBulletinIndex(-1);
+            setSavedBulletinIndices(new Set());
+            setSavedBulletinSnapshots({});
+            setPendingFormFillIndex(0);
           }
+        } catch (error) {
+          console.error("OCR analysis error:", error);
+          toast.error("Erreur lors de l'analyse du bulletin");
+        } finally {
+          if (capturedMountedRef.current) setIsAnalyzing(false);
+        }
+      })();
 
-          // Build sub_items from OCR-extracted nested items
-          const ocrSubItems = acte._sub_items as Array<{ label: string; amount: number; code: string; cotation?: string }> | undefined;
-          const subItems = ocrSubItems?.map((si) => ({
-            label: si.label,
-            amount: si.amount,
-            code: si.code || '',
-            cotation: si.cotation || '',
-          }));
-
-          if (i === 0) {
-            setValue("actes.0.code", code);
-            setValue("actes.0.label", label);
-            setValue("actes.0.amount", finalAmount);
-            setValue("actes.0.nom_prof_sant", displayPraticien);
-            setValue("actes.0.ref_prof_sant", refProfSant);
-            setValue("actes.0.care_type", acteCareType);
-            if (natureActeOriginal && !isPharmacy) {
-              setValue("actes.0.care_description", natureActeOriginal);
-            }
-            if (subItems && subItems.length > 0) {
-              setValue("actes.0.sub_items", subItems);
-            }
-          } else {
-            appendActe({
-              code,
-              label,
-              amount: finalAmount,
-              nom_prof_sant: displayPraticien,
-              ref_prof_sant: refProfSant,
-              care_type: acteCareType,
-              cod_msgr: "",
-              lib_msgr: "",
-              care_description: !isPharmacy ? natureActeOriginal : "",
-              sub_items: subItems,
-            });
-          }
-        });
-
-        // Auto-resolve famille codes for each acte so ActeSelector dropdowns are populated
-        const resolvedFamilles: Record<number, string> = {};
-        actes.forEach((acte: Record<string, unknown>, i: number) => {
-          const acteCareType = detectCareType(acte.type_soin as string | null, acte.nature_acte as string | null);
-          const acteCode = (acte.matched_code as string) || mapNatureActeToCode(acte.nature_acte as string)?.code || "";
-          const resolved = resolveFamilleCodeForActe(acteCode, acteCareType);
-          if (resolved) resolvedFamilles[i] = resolved;
-        });
-        setActeFamilleCodes(resolvedFamilles);
-      }
-
-    if (!hasZip) {
-      toast.success(
-        bulletinsArray.length > 1
-          ? `${bulletinsArray.length} bulletins détectés — naviguez entre eux ci-dessus`
-          : "Analyse terminée — champs remplis automatiquement. Vérifiez puis envoyez votre feedback.",
-      );
+      // Return immediately — OCR runs in background
+      return;
     }
   };
 
@@ -2742,8 +2576,9 @@ export function BulletinsSaisiePage() {
       if (info.numero_contrat && info.numero_contrat !== "illisible") {
         setValue("adherent_contract_number", info.numero_contrat.replace(/\s+/g, ""));
       }
-      if (info.date_signature) {
-        const dateParts = info.date_signature.split(/[.\/]/);
+      const rawDate = info.date_bulletin || info.date_signature;
+      if (rawDate) {
+        const dateParts = rawDate.split(/[.\/]/);
         if (dateParts.length === 3) {
           const year = dateParts[2]!.length === 2 ? `20${dateParts[2]}` : dateParts[2];
           setValue("bulletin_date", `${year}-${dateParts[1]}-${dateParts[0]}`);
@@ -2844,6 +2679,14 @@ export function BulletinsSaisiePage() {
     }
   };
 
+  // Deferred form fill: triggered by session restoration or detached OCR completion
+  useEffect(() => {
+    if (pendingFormFillIndex !== null && ocrBulletins.length > 0 && pendingFormFillIndex < ocrBulletins.length) {
+      handleSwitchBulletin(pendingFormFillIndex);
+      setPendingFormFillIndex(null);
+    }
+  }, [pendingFormFillIndex, ocrBulletins.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // --- OCR Feedback handlers ---
   const sendOcrFeedback = async (
     statut: "valide" | "invalide" | "partiellement_valide",
@@ -2874,6 +2717,7 @@ export function BulletinsSaisiePage() {
         toast.success("Feedback OCR envoyé avec succès");
       } else {
         toast.error("Erreur lors de l'envoi du feedback");
+      
       }
     } catch {
       toast.error("Erreur reseau lors de l'envoi du feedback");
@@ -3878,7 +3722,12 @@ export function BulletinsSaisiePage() {
                           </h2>
                         </div>
                         <div className="space-y-4">
-                          {selectedFiles.length > 0 ? (
+                          {editingBulletinId ? (
+                            <ScanUpload
+                              bulletinId={editingBulletinId}
+                              readOnly={false}
+                            />
+                          ) : selectedFiles.length > 0 ? (
                             <div className="space-y-3">
                               <FilePreviewList
                                 files={selectedFiles}
@@ -3946,6 +3795,38 @@ export function BulletinsSaisiePage() {
                                     </div>
                                   </div>
                                 )}
+                            </div>
+                          ) : restoredFilesMeta.length > 0 ? (
+                            <div className="space-y-3">
+                              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 space-y-2">
+                                <p className="text-xs font-medium text-emerald-700 flex items-center gap-1.5">
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  Fichiers analysés (session restaurée)
+                                </p>
+                                {restoredFilesMeta.map((fm, i) => (
+                                  <div key={`${fm.name}-${i}`} className="flex items-center gap-2 text-sm text-gray-700 pl-5">
+                                    {fm.type.startsWith('image/') ? (
+                                      <FileImage className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                                    ) : (
+                                      <FileText className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                                    )}
+                                    <span className="truncate">{fm.name}</span>
+                                    <span className="text-xs text-gray-400 shrink-0">
+                                      {fm.size < 1024 ? `${fm.size} o` : fm.size < 1048576 ? `${(fm.size / 1024).toFixed(0)} Ko` : `${(fm.size / 1048576).toFixed(1)} Mo`}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => { setRestoredFilesMeta([]); fileInputRef.current?.click(); }}
+                                className="rounded-xl"
+                              >
+                                <Upload className="h-4 w-4 mr-2" />
+                                Remplacer les fichiers
+                              </Button>
                             </div>
                           ) : (
                             <div
@@ -6576,6 +6457,11 @@ export function BulletinsSaisiePage() {
                                                       value={subItem.label}
                                                       placeholder="Rechercher un médicament..."
                                                       className="[&_input]:h-9 [&_input]:text-sm [&_input]:rounded-md"
+                                                      onFreeText={(text) => {
+                                                        const updated = [...currentSubItems];
+                                                        updated[subIdx] = { ...updated[subIdx]!, label: text };
+                                                        setValue(`actes.${index}.sub_items`, updated);
+                                                      }}
                                                       onSelect={(med) => {
                                                         const priceDT =
                                                           med.price_public
@@ -6802,7 +6688,7 @@ export function BulletinsSaisiePage() {
                           {[
                             {
                               label: "Numérisation réalisée",
-                              done: selectedFiles.length > 0,
+                              done: selectedFiles.length > 0 || restoredFilesMeta.length > 0,
                             },
                             {
                               label: "Données générales",
@@ -7071,6 +6957,7 @@ export function BulletinsSaisiePage() {
                         </p>
                       </div>
 
+
                       {/* Action buttons */}
                       {canCreate && (
                         <button
@@ -7138,6 +7025,7 @@ export function BulletinsSaisiePage() {
                             actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_type: 'consultation' as const, care_description: '', cod_msgr: '', lib_msgr: '' }],
                           });
                           setSelectedFiles([]);
+                          setRestoredFilesMeta([]);
                           setFolderSubGroups(null);
                           setSelectedAdherentInfo(null);
                           setOcrFeedback(null);
@@ -7157,6 +7045,9 @@ export function BulletinsSaisiePage() {
                           setFeedbackErrors([]);
                           setFileSelectionInfo(null);
                           setAnalyzeProgress(null);
+                          const s = ocrJobsStore.analysisSession?.fileSessionId;
+                          if (s) clearFilesFromIdb(s).catch(() => {});
+                          ocrJobsStore.clearAnalysisSession();
                           setDuplicateBulletin(null);
                           setActeFamilleCodes({});
                           setNewPractitioners([]);
@@ -8394,13 +8285,8 @@ export function BulletinsSaisiePage() {
               {/* Scan upload */}
               <ScanUpload
                 bulletinId={viewBulletin.id}
-                existingScanUrl={viewBulletin.scan_url}
-                existingScanFilename={
-                  viewBulletin.scan_url
-                    ? viewBulletin.scan_url.split("/").pop()
-                    : null
-                }
                 onUploadComplete={() => fetchBulletinDetail(viewBulletin.id)}
+                readOnly={!['draft', 'in_batch'].includes(viewBulletin.status)}
               />
 
               {/* Status badge + actions */}

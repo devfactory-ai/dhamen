@@ -854,7 +854,7 @@ export function BulletinsValidationPage() {
               <Input
                 placeholder="Rechercher par nom, CIN, numero..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
                 className="pl-9"
               />
             </div>
@@ -886,6 +886,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "all"}
               onClick={() => {
                 setStatusFilter("all");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -895,6 +896,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "pending"}
               onClick={() => {
                 setStatusFilter("pending");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -904,6 +906,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "scan_uploaded"}
               onClick={() => {
                 setStatusFilter("scan_uploaded");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -913,6 +916,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "paper_received"}
               onClick={() => {
                 setStatusFilter("paper_received");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -922,6 +926,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "paper_incomplete"}
               onClick={() => {
                 setStatusFilter("paper_incomplete");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -931,6 +936,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "paper_complete"}
               onClick={() => {
                 setStatusFilter("paper_complete");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -940,6 +946,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "processing"}
               onClick={() => {
                 setStatusFilter("processing");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -949,6 +956,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "approved"}
               onClick={() => {
                 setStatusFilter("approved");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -958,6 +966,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "pending_payment"}
               onClick={() => {
                 setStatusFilter("pending_payment");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -967,6 +976,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "reimbursed"}
               onClick={() => {
                 setStatusFilter("reimbursed");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -976,6 +986,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "rejected"}
               onClick={() => {
                 setStatusFilter("rejected");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -985,6 +996,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "non_remboursable"}
               onClick={() => {
                 setStatusFilter("non_remboursable");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >

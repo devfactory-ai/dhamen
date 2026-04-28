@@ -1886,6 +1886,12 @@ bulletinsAgent.get('/:id', async (c) => {
       }
     }
 
+    // Fetch attached files
+    const { results: files } = await db.prepare(
+      `SELECT id, file_index, file_name, mime_type, file_size, created_at
+       FROM bulletin_files WHERE bulletin_id = ? ORDER BY file_index`
+    ).bind(bulletinId).all();
+
     return c.json({
       success: true,
       data: {
@@ -1894,6 +1900,7 @@ bulletinsAgent.get('/:id', async (c) => {
           ...a,
           sub_items: subItemsMap[a.id as string] || [],
         })),
+        files: files || [],
         plafond_global: plafondGlobal,
         plafond_consomme: plafondConsomme,
         plafond_consomme_avant: plafondConsommeAvant,
@@ -2788,48 +2795,45 @@ bulletinsAgent.post('/create', async (c) => {
   }
 
   // Handle file upload (scan) + compute server-side file hash
+  // Upload to R2 and hash in parallel per file to minimize CPU time
   let scanUrl: string | null = null;
   const storage = c.env.STORAGE;
-  const scanBuffers: ArrayBuffer[] = [];
 
-  // Collect all scan files and upload them in parallel
   const scanKeys = Object.keys(formData).filter(k => k.startsWith('scan_') && formData[k] instanceof File).sort();
   const uploadPromises = scanKeys.map(async (key) => {
     const file = formData[key] as File;
     if (file.size > 0) {
       const arrayBuffer = await file.arrayBuffer();
-      const fileName = `bulletins/${bulletinId}/${key}_${file.name}`;
-      await storage.put(fileName, arrayBuffer, {
-        httpMetadata: { contentType: file.type },
-      });
-      return { arrayBuffer, fileName };
+      const r2Key = `bulletins/${bulletinId}/${key}_${file.name}`;
+      // Upload and hash in parallel for each file
+      const [, hashBuf] = await Promise.all([
+        storage.put(r2Key, arrayBuffer, { httpMetadata: { contentType: file.type } }),
+        crypto.subtle.digest('SHA-256', arrayBuffer),
+      ]);
+      const hash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+      return { hash, r2Key, originalName: file.name, mimeType: file.type, fileSize: file.size };
     }
     return null;
   });
   const uploadResults = await Promise.all(uploadPromises);
+  const uploadedFiles: { hash: string; r2Key: string; originalName: string; mimeType: string; fileSize: number }[] = [];
+  const perFileHashes: string[] = [];
   for (const result of uploadResults) {
     if (result) {
-      scanBuffers.push(result.arrayBuffer);
+      uploadedFiles.push(result);
+      perFileHashes.push(result.hash);
       if (!scanUrl) {
-        scanUrl = `https://dhamen-files.${c.env.ENVIRONMENT === 'production' ? '' : 'dev.'}r2.cloudflarestorage.com/${result.fileName}`;
+        scanUrl = `https://dhamen-files.${c.env.ENVIRONMENT === 'production' ? '' : 'dev.'}r2.cloudflarestorage.com/${result.r2Key}`;
       }
     }
   }
 
-  // Compute file hash server-side from scan files
-  // Each file hashed individually → sorted → combined → re-hashed for combined_hash
-  // Legacy file_hash = combined hash (backward compat)
-  const perFileHashes: string[] = [];
-  for (const buf of scanBuffers) {
-    const h = await crypto.subtle.digest('SHA-256', buf);
-    perFileHashes.push(Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join(''));
-  }
-
+  // Compute combined hash from per-file hashes
   let fileHash: string | null = frontendFileHash;
   let combinedHash: string | null = null;
   if (perFileHashes.length === 1) {
     fileHash = perFileHashes[0]!;
-    combinedHash = fileHash; // single file: combined = individual
+    combinedHash = fileHash;
   } else if (perFileHashes.length > 1) {
     const sorted = [...perFileHashes].sort();
     const combined = new TextEncoder().encode(sorted.join(''));
@@ -3420,20 +3424,24 @@ bulletinsAgent.post('/create', async (c) => {
       )
       .run();
 
-    // Insert per-file hashes into bulletin_files for granular duplicate detection
+    // Insert per-file hashes into bulletin_files for granular duplicate detection + R2 retrieval
     if (perFileHashes.length > 0) {
-      const bfStatements = perFileHashes.map((hash, idx) =>
-        db.prepare(
-          `INSERT OR IGNORE INTO bulletin_files (id, bulletin_id, file_index, file_name, file_hash, created_at)
-           VALUES (?, ?, ?, ?, ?, datetime('now'))`
+      const bfStatements = perFileHashes.map((hash, idx) => {
+        const uploaded = uploadedFiles[idx];
+        return db.prepare(
+          `INSERT OR IGNORE INTO bulletin_files (id, bulletin_id, file_index, file_name, file_hash, r2_key, mime_type, file_size, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
         ).bind(
           generateId(),
           bulletinId,
           idx,
-          scanKeys[idx] ? (formData[scanKeys[idx]!] as File)?.name || null : null,
-          hash
-        )
-      );
+          uploaded?.originalName || (scanKeys[idx] ? (formData[scanKeys[idx]!] as File)?.name || null : null),
+          hash,
+          uploaded?.r2Key || null,
+          uploaded?.mimeType || null,
+          uploaded?.fileSize || null
+        );
+      });
       await db.batch(bfStatements);
     }
 
@@ -4687,6 +4695,151 @@ bulletinsAgent.post('/:id/reject', async (c) => {
 });
 
 /**
+ * GET /bulletins-soins/agent/:id/files - List all files attached to a bulletin
+ */
+bulletinsAgent.get('/:id/files', async (c) => {
+  const user = c.get('user');
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  const { results } = await db.prepare(
+    `SELECT id, file_index, file_name, file_hash, r2_key, mime_type, file_size, created_at
+     FROM bulletin_files WHERE bulletin_id = ? ORDER BY file_index`
+  ).bind(bulletinId).all();
+
+  // Fallback: if no bulletin_files rows but bulletin has scan_url, return that as a virtual file
+  if (!results || results.length === 0) {
+    const bulletin = await db.prepare(
+      'SELECT scan_url, scan_filename FROM bulletins_soins WHERE id = ?'
+    ).bind(bulletinId).first<{ scan_url: string | null; scan_filename: string | null }>();
+    if (bulletin?.scan_url) {
+      return c.json({
+        success: true,
+        data: [{
+          id: 'legacy',
+          file_index: 0,
+          file_name: bulletin.scan_filename || 'scan',
+          r2_key: null,
+          mime_type: null,
+          file_size: null,
+          created_at: null,
+          legacy_scan_url: true,
+        }],
+      });
+    }
+  }
+
+  return c.json({ success: true, data: results || [] });
+});
+
+/**
+ * GET /bulletins-soins/agent/:id/files/:fileId/download - Download a specific file from R2
+ */
+bulletinsAgent.get('/:id/files/:fileId/download', async (c) => {
+  const user = c.get('user');
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const fileId = c.req.param('fileId');
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const storage = c.env.STORAGE;
+
+  // Legacy fallback: fileId === 'legacy' → use scan_url from bulletins_soins
+  if (fileId === 'legacy') {
+    const bulletin = await db.prepare(
+      'SELECT scan_url, scan_filename FROM bulletins_soins WHERE id = ?'
+    ).bind(bulletinId).first<{ scan_url: string | null; scan_filename: string | null }>();
+    if (!bulletin?.scan_url) {
+      return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Scan introuvable' } }, 404);
+    }
+    const R2_PREFIX = 'https://dhamen-files.r2.cloudflarestorage.com/';
+    const DEV_R2_PREFIX = 'https://dhamen-files.dev.r2.cloudflarestorage.com/';
+    let r2Key = bulletin.scan_url;
+    if (r2Key.startsWith(R2_PREFIX)) r2Key = r2Key.slice(R2_PREFIX.length);
+    else if (r2Key.startsWith(DEV_R2_PREFIX)) r2Key = r2Key.slice(DEV_R2_PREFIX.length);
+    const object = await storage.get(r2Key);
+    if (!object) {
+      return c.json({ success: false, error: { code: 'STORAGE_ERROR', message: 'Fichier introuvable dans le stockage' } }, 404);
+    }
+    const headers = new Headers();
+    headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
+    headers.set('Content-Disposition', `inline; filename="${bulletin.scan_filename || 'scan'}"`);
+    return new Response(object.body, { headers });
+  }
+
+  const file = await db.prepare(
+    'SELECT r2_key, file_name, mime_type FROM bulletin_files WHERE id = ? AND bulletin_id = ?'
+  ).bind(fileId, bulletinId).first<{ r2_key: string | null; file_name: string | null; mime_type: string | null }>();
+
+  if (!file || !file.r2_key) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Fichier introuvable' } }, 404);
+  }
+
+  const object = await storage.get(file.r2_key);
+  if (!object) {
+    return c.json({ success: false, error: { code: 'STORAGE_ERROR', message: 'Fichier introuvable dans le stockage' } }, 404);
+  }
+
+  const headers = new Headers();
+  headers.set('Content-Type', file.mime_type || object.httpMetadata?.contentType || 'application/octet-stream');
+  headers.set('Content-Disposition', `inline; filename="${file.file_name || 'scan'}"`);
+  return new Response(object.body, { headers });
+});
+
+/**
+ * DELETE /bulletins-soins/agent/:id/files/:fileId - Delete a specific file from R2 and DB
+ */
+bulletinsAgent.delete('/:id/files/:fileId', async (c) => {
+  const user = c.get('user');
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const fileId = c.req.param('fileId');
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const storage = c.env.STORAGE;
+
+  // Verify bulletin is editable
+  const bulletin = await db.prepare(
+    'SELECT status FROM bulletins_soins WHERE id = ?'
+  ).bind(bulletinId).first<{ status: string }>();
+  if (!bulletin || !['draft', 'in_batch'].includes(bulletin.status)) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Bulletin non modifiable' } }, 400);
+  }
+
+  const file = await db.prepare(
+    'SELECT id, r2_key, file_name FROM bulletin_files WHERE id = ? AND bulletin_id = ?'
+  ).bind(fileId, bulletinId).first<{ id: string; r2_key: string | null; file_name: string | null }>();
+
+  if (!file) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Fichier introuvable' } }, 404);
+  }
+
+  // Delete from R2
+  if (file.r2_key) {
+    try { await storage.delete(file.r2_key); } catch { /* R2 key may already be gone */ }
+  }
+
+  // Delete from DB
+  await db.prepare('DELETE FROM bulletin_files WHERE id = ?').bind(fileId).run();
+
+  // If this was the scan_url file, clear it
+  await db.prepare(
+    `UPDATE bulletins_soins SET scan_url = NULL, scan_filename = NULL, updated_at = datetime('now')
+     WHERE id = ? AND scan_url LIKE '%' || ?`
+  ).bind(bulletinId, file.file_name || '___never_match___').run();
+
+  return c.json({ success: true, data: { deleted: file.id } });
+});
+
+/**
  * POST /bulletins-soins/agent/:id/upload-scan - Upload a scan for a bulletin
  */
 bulletinsAgent.post('/:id/upload-scan', async (c) => {
@@ -4774,34 +4927,46 @@ bulletinsAgent.post('/:id/upload-scan', async (c) => {
 
     const scanUrl = `https://dhamen-files.r2.cloudflarestorage.com/${r2Key}`;
 
-    // Update bulletin with scan info
-    await db
-      .prepare(`
-      UPDATE bulletins_soins
-      SET scan_url = ?, scan_filename = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `)
-      .bind(scanUrl, file.name, bulletinId)
-      .run();
+    // Compute file hash
+    const hashBuf = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const fileHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    // Get next file_index
+    const maxIdx = await db.prepare(
+      'SELECT COALESCE(MAX(file_index), -1) as max_idx FROM bulletin_files WHERE bulletin_id = ?'
+    ).bind(bulletinId).first<{ max_idx: number }>();
+    const nextIndex = (maxIdx?.max_idx ?? -1) + 1;
+
+    // Update bulletin scan_url (keep first file as legacy scan_url)
+    const existingScan = await db.prepare(
+      'SELECT scan_url FROM bulletins_soins WHERE id = ?'
+    ).bind(bulletinId).first<{ scan_url: string | null }>();
+    if (!existingScan?.scan_url) {
+      await db.prepare(
+        `UPDATE bulletins_soins SET scan_url = ?, scan_filename = ?, updated_at = datetime('now') WHERE id = ?`
+      ).bind(scanUrl, file.name, bulletinId).run();
+    }
+
+    // Insert into bulletin_files
+    const fileId = generateId();
+    await db.prepare(
+      `INSERT OR IGNORE INTO bulletin_files (id, bulletin_id, file_index, file_name, file_hash, r2_key, mime_type, file_size, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    ).bind(fileId, bulletinId, nextIndex, file.name, fileHash, r2Key, file.type, file.size).run();
 
     // Audit log
-    await db
-      .prepare(`
-      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
-      VALUES (?, ?, 'scan_uploaded', 'bulletins_soins', ?, ?, ?, datetime('now'))
-    `)
-      .bind(
-        generateId(),
-        user.id,
-        bulletinId,
-        JSON.stringify({ filename: file.name, size: file.size, mime_type: file.type }),
-        c.req.header('CF-Connecting-IP') || 'unknown'
-      )
-      .run();
+    await db.prepare(
+      `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+       VALUES (?, ?, 'scan_uploaded', 'bulletins_soins', ?, ?, ?, datetime('now'))`
+    ).bind(
+      generateId(), user.id, bulletinId,
+      JSON.stringify({ filename: file.name, size: file.size, mime_type: file.type }),
+      c.req.header('CF-Connecting-IP') || 'unknown'
+    ).run();
 
     return c.json({
       success: true,
-      data: { scan_url: scanUrl, scan_filename: file.name },
+      data: { id: fileId, scan_url: scanUrl, scan_filename: file.name, r2_key: r2Key },
     });
   } catch (error) {
     console.error('Error uploading scan:', error);

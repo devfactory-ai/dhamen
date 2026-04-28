@@ -223,11 +223,13 @@ export function findSubLimitValue(
       }
     }
   }
-  // Also try acte code as partial match
+  // Also try acte code as partial match (skip single-letter codes — too ambiguous)
   const codeLower = acteCode.toLowerCase();
-  for (const key of allKeys) {
-    if (key.includes(codeLower) || codeLower.includes(key)) {
-      return extractValue(lowerMap[key]!);
+  if (codeLower.length >= 2) {
+    for (const key of allKeys) {
+      if (key.includes(codeLower) || codeLower.includes(key)) {
+        return extractValue(lowerMap[key]!);
+      }
     }
   }
 
@@ -271,10 +273,12 @@ function findSubLimitRate(
   }
 
   // 3. Partial match: check if any sub_limits key contains a candidate or vice versa
+  // Require minimum 2-char match to avoid false positives (e.g. "R" matching "ELR")
   function tryExtractPartial(searchTerms: string[]): number | null {
     const allKeys = Object.keys(lowerMap);
     for (const term of searchTerms) {
       const tl = term.toLowerCase();
+      if (tl.length < 2) continue; // skip single-letter codes — too ambiguous for partial match
       for (const key of allKeys) {
         if (key.includes(tl) || tl.includes(key)) {
           const raw = lowerMap[key];
@@ -1306,21 +1310,39 @@ async function calculerViaGuaranteesPath(
         // Pick the guarantee that has this acte code in its sub_limits or letter_keys
         const codeUpper = acte.code.toUpperCase();
         const lkUpper = acte.lettre_cle?.toUpperCase() || null;
-        for (const row of rows) {
-          try {
-            if (row.sub_limits_json) {
-              const keys = Object.keys(JSON.parse(row.sub_limits_json) as Record<string, unknown>);
-              if (keys.some(k => k.toUpperCase() === codeUpper || (lkUpper && k.toUpperCase() === lkUpper))) {
-                guarantee = row; break;
+        // Parse composite code letter (e.g., "R" from "R40", "PHY" from "PHY50")
+        const parsedLetter = parseLetterKeyCode(acte.code)?.letter || null;
+
+        // 1. If careTypeOverride is specified, prefer the guarantee matching that care_type
+        if (careTypeOverride) {
+          const overrideRow = rows.find(r => r.care_type === careTypeOverride);
+          if (overrideRow) guarantee = overrideRow;
+        }
+
+        // 2. If no match yet, match by acte code / lettre_cle / parsed letter in sub_limits or letter_keys
+        if (!guarantee) {
+          for (const row of rows) {
+            try {
+              if (row.sub_limits_json) {
+                const keys = Object.keys(JSON.parse(row.sub_limits_json) as Record<string, unknown>);
+                if (keys.some(k => {
+                  const ku = k.toUpperCase();
+                  return ku === codeUpper || (lkUpper && ku === lkUpper) || (parsedLetter && ku === parsedLetter);
+                })) {
+                  guarantee = row; break;
+                }
               }
-            }
-            if (row.letter_keys_json) {
-              const keys = Object.keys(JSON.parse(row.letter_keys_json) as Record<string, unknown>);
-              if (keys.some(k => k.toUpperCase() === codeUpper || (lkUpper && k.toUpperCase() === lkUpper))) {
-                guarantee = row; break;
+              if (row.letter_keys_json) {
+                const keys = Object.keys(JSON.parse(row.letter_keys_json) as Record<string, unknown>);
+                if (keys.some(k => {
+                  const ku = k.toUpperCase();
+                  return ku === codeUpper || (lkUpper && ku === lkUpper) || (parsedLetter && ku === parsedLetter);
+                })) {
+                  guarantee = row; break;
+                }
               }
-            }
-          } catch { /* skip malformed JSON */ }
+            } catch { /* skip malformed JSON */ }
+          }
         }
         if (!guarantee) guarantee = rows[0]!;
       } else {
