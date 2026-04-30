@@ -122,6 +122,23 @@ function formatAmount(amount: number | null | undefined): string {
   }).format(amount / 1000);
 }
 
+function formatSubLimitValue(value: unknown): string {
+  if (value == null) return '-';
+  if (typeof value === 'number') return formatAmount(value);
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof obj.taux === 'number') parts.push(`${Math.round(obj.taux * 100)}%`);
+    if (typeof obj.plafond_acte === 'number' && obj.plafond_acte > 0) parts.push(`plafond ${formatAmount(obj.plafond_acte)}/acte`);
+    if (typeof obj.plafond_jour === 'number' && obj.plafond_jour > 0) parts.push(`plafond ${formatAmount(obj.plafond_jour)}/jour`);
+    if (typeof obj.plafond_annuel === 'number' && obj.plafond_annuel > 0) parts.push(`plafond ${formatAmount(obj.plafond_annuel)}/an`);
+    if (typeof obj.max_jours === 'number') parts.push(`max ${obj.max_jours} jours`);
+    if (parts.length > 0) return parts.join(', ');
+    return '-';
+  }
+  return String(value);
+}
+
 export function GroupContractDetailPage() {
   const { hasPermission } = usePermissions();
   const canUpdate = hasPermission('contracts', 'update');
@@ -317,8 +334,8 @@ export function GroupContractDetailPage() {
               <Users className="h-6 w-6 text-blue-600" />
             </div>
             <div>
-              <p className="text-2xl font-bold">-</p>
-              <p className="text-sm text-muted-foreground">Adherents couverts</p>
+              <p className="text-2xl font-bold">{contract?.adherent_count ?? '-'}</p>
+              <p className="text-sm text-muted-foreground">Adhérents couverts</p>
             </div>
           </CardContent>
         </Card>
@@ -488,7 +505,7 @@ export function GroupContractDetailPage() {
                             {g.letter_keys &&
                               Object.entries(g.letter_keys).map(([key, value]) => (
                                 <Badge key={key} variant="outline" className="text-xs font-mono">
-                                  {key}={(value / 1000).toFixed(3)} DT
+                                  {key}={typeof value === 'number' ? (value / 1000).toFixed(3) : String(value ?? '-')} DT
                                 </Badge>
                               ))}
                             {(!g.letter_keys || Object.keys(g.letter_keys).length === 0) && '-'}
@@ -497,9 +514,9 @@ export function GroupContractDetailPage() {
                         <td className="px-3 py-3">
                           <div className="flex flex-wrap gap-1">
                             {g.sub_limits &&
-                              Object.entries(g.sub_limits).map(([key, value]) => (
+                              Object.entries(g?.sub_limits).map(([key, value]) => (
                                 <Badge key={key} variant="outline" className="text-xs">
-                                  {key.replace(/_/g, ' ')}: {formatAmount(value as number)}
+                                  {key.replace(/_/g, ' ')}: {formatSubLimitValue(value)}
                                 </Badge>
                               ))}
                             {(!g.sub_limits || Object.keys(g.sub_limits).length === 0) && '-'}

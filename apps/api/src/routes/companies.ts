@@ -484,7 +484,11 @@ companies.get('/:id/contracts', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_A
       .bind(id)
       .all();
 
-    return success(c, results || []);
+    const mapped = (results || []).map((r: Record<string, unknown>) => ({
+      ...r,
+      status: r.status === 'active' && r.end_date && (r.end_date as string) < new Date().toISOString().split('T')[0] ? 'expired' : r.status,
+    }));
+    return success(c, mapped);
   } catch {
     // Table may not exist or query fails — return empty
     return success(c, []);

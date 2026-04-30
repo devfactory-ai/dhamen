@@ -43,6 +43,7 @@ import {
 import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { FilePreviewList } from '@/components/ui/file-preview';
 import { apiClient } from '@/lib/api-client';
+import { uploadFilePresigned } from '../lib/presigned-upload';
 import { getTenantHeader } from '@/lib/tenant';
 import { useAgentContext } from '@/features/agent/stores/agent-context';
 import { useSearchAdherents, type AdherentSearchResult } from '@/features/adherents/hooks/useAdherents';
@@ -417,31 +418,51 @@ function SubItemsList({ items, formatAmount }: { items: BulletinSubItem[]; forma
   );
 }
 
+/** Clamp a date on blur: if < minDate → clear, if > maxDate → maxDate */
+function clampDateValue(value: string, minDate: string, maxDate?: string): string {
+  if (!value) return value;
+  if (value < minDate) return "";
+  if (maxDate && value > maxDate) return maxDate;
+  return value;
+}
+
 export function BulletinsSaisiePage() {
   const { hasPermission } = usePermissions();
-  const canCreate = hasPermission('bulletins_soins', 'create');
-  const canUpdate = hasPermission('bulletins_soins', 'update');
-  const canDelete = hasPermission('bulletins_soins', 'delete');
+  const canCreate = hasPermission("bulletins_soins", "create");
+  const canUpdate = hasPermission("bulletins_soins", "update");
+  const canDelete = hasPermission("bulletins_soins", "delete");
 
   // Track component mount state — detached OCR promises check this before setting React state
   const mountedRef = useRef(true);
-  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const queryClient = useQueryClient();
   const { selectedCompany, selectedBatch, setBatch } = useAgentContext();
   const [searchParams] = useSearchParams();
-  const initialTab = useMemo(() => searchParams.get('tab') || 'saisie', []);
+  const initialTab = useMemo(() => searchParams.get("tab") || "saisie", []);
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   // Restored file metadata from persisted session (File objects lost on navigation)
   const [restoredFilesMeta, setRestoredFilesMeta] = useState<FileMeta[]>([]);
   // Sub-folder grouping from webkitdirectory (stored at selection time to avoid webkitRelativePath issues)
-  const [folderSubGroups, setFolderSubGroups] = useState<Map<string, number[]> | null>(null);
+  const [folderSubGroups, setFolderSubGroups] = useState<Map<
+    string,
+    number[]
+  > | null>(null);
   // Inline message shown after folder/file selection (replaces toast.info alerts)
-  const [fileSelectionInfo, setFileSelectionInfo] = useState<{ type: 'info' | 'success' | 'warning'; message: string } | null>(null);
+  const [fileSelectionInfo, setFileSelectionInfo] = useState<{
+    type: "info" | "success" | "warning";
+    message: string;
+  } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedBulletins, setSelectedBulletins] = useState<string[]>([]);
-  const [bulkDeleteBulletinConfirm, setBulkDeleteBulletinConfirm] = useState(false);
+  const [bulkDeleteBulletinConfirm, setBulkDeleteBulletinConfirm] =
+    useState(false);
   const [bulkDeleteBatchConfirm, setBulkDeleteBatchConfirm] = useState(false);
   const [showBatchDialog, setShowBatchDialog] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
@@ -454,11 +475,13 @@ export function BulletinsSaisiePage() {
   const [batchStatusDropdownOpen, setBatchStatusDropdownOpen] = useState(false);
   const [batchPage, setBatchPage] = useState(1);
   const BATCH_PAGE_SIZE = 10;
-  const isIndividualMode = selectedCompany?.id === '__INDIVIDUAL__';
+  const isIndividualMode = selectedCompany?.id === "__INDIVIDUAL__";
   const [adherentSearch, setAdherentSearch] = useState("");
   const [showAdherentDropdown, setShowAdherentDropdown] = useState(false);
-  const adherentDropdownVisible = showAdherentDropdown && adherentSearch.length >= 2;
-  const { triggerRef: adherentPortalRef, position: adherentPortalPos } = useDropdownPortal(adherentDropdownVisible);
+  const adherentDropdownVisible =
+    showAdherentDropdown && adherentSearch.length >= 2;
+  const { triggerRef: adherentPortalRef, position: adherentPortalPos } =
+    useDropdownPortal(adherentDropdownVisible);
   const [selectedAdherentInfo, setSelectedAdherentInfo] =
     useState<AdherentSearchResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -469,8 +492,14 @@ export function BulletinsSaisiePage() {
   const [validateNotes, setValidateNotes] = useState("");
   const validateMutation = useBulletinValidation();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [editingBulletinId, setEditingBulletinId] = useState<string | null>(null);
-  const [analyzeProgress, setAnalyzeProgress] = useState<{ current: number; total: number; groupName: string } | null>(null);
+  const [editingBulletinId, setEditingBulletinId] = useState<string | null>(
+    null,
+  );
+  const [analyzeProgress, setAnalyzeProgress] = useState<{
+    current: number;
+    total: number;
+    groupName: string;
+  } | null>(null);
   const [bulletinNumberFromOcr, setBulletinNumberFromOcr] = useState(false);
   const [showScanPreview, setShowScanPreview] = useState(false);
   const [ocrFeedback, setOcrFeedback] = useState<OcrFeedbackState | null>(null);
@@ -483,16 +512,21 @@ export function BulletinsSaisiePage() {
   const [bulkJobId, setBulkJobIdRaw] = useState<string | null>(null);
   const retryMutation = useRetryOcrJobMutation();
   const { data: bulkJobData } = useOcrJobQuery(bulkJobId);
-  const [expandedBulkBulletinId, setExpandedBulkBulletinId] = useState<string | null>(null);
+  const [expandedBulkBulletinId, setExpandedBulkBulletinId] = useState<
+    string | null
+  >(null);
 
   // Wrapper: setBulkJobId also manages global store for cross-page tracking
-  const setBulkJobId = useCallback((jobId: string | null) => {
-    // When clearing, mark old job as notified so global tracker stops polling it
-    if (!jobId && bulkJobId) {
-      ocrJobsStore.markNotified(bulkJobId);
-    }
-    setBulkJobIdRaw(jobId);
-  }, [ocrJobsStore, bulkJobId]);
+  const setBulkJobId = useCallback(
+    (jobId: string | null) => {
+      // When clearing, mark old job as notified so global tracker stops polling it
+      if (!jobId && bulkJobId) {
+        ocrJobsStore.markNotified(bulkJobId);
+      }
+      setBulkJobIdRaw(jobId);
+    },
+    [ocrJobsStore, bulkJobId],
+  );
 
   // Restore bulkJobId from global store on mount (if user navigated away and came back)
   useEffect(() => {
@@ -508,7 +542,9 @@ export function BulletinsSaisiePage() {
   const [ocrBulletins, setOcrBulletins] = useState<OcrBulletinItem[]>([]);
   const [activeBulletinIndex, setActiveBulletinIndex] = useState(0);
   // Deferred form fill index: when set, triggers handleSwitchBulletin after render
-  const [pendingFormFillIndex, setPendingFormFillIndex] = useState<number | null>(null);
+  const [pendingFormFillIndex, setPendingFormFillIndex] = useState<
+    number | null
+  >(null);
 
   // Restore OCR results from previous session if user navigated away and came back
   const sessionRestoredRef = useRef(false);
@@ -530,7 +566,9 @@ export function BulletinsSaisiePage() {
             if (session.fileSessionId) {
               (async () => {
                 try {
-                  const restoredFiles = await loadFilesFromIdb(session.fileSessionId!);
+                  const restoredFiles = await loadFilesFromIdb(
+                    session.fileSessionId!,
+                  );
                   if (restoredFiles.length > 0) {
                     setSelectedFiles(restoredFiles);
                     for (const b of restored) {
@@ -538,44 +576,71 @@ export function BulletinsSaisiePage() {
                     }
                     setOcrBulletins([...restored]);
                   }
-                } catch { /* IndexedDB unavailable, files lost — metadata still shown */ }
+                } catch {
+                  /* IndexedDB unavailable, files lost — metadata still shown */
+                }
               })();
             }
           }
-          toast.info(`${restored.length} bulletin(s) restauré(s) — remplissage du formulaire...`);
+          toast.info(
+            `${restored.length} bulletin(s) restauré(s) — remplissage du formulaire...`,
+          );
         }
-      } catch { /* corrupted session, ignore */ }
+      } catch {
+        /* corrupted session, ignore */
+      }
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const [savedBulletinIndices, setSavedBulletinIndices] = useState<Set<number>>(new Set());
+  const [savedBulletinIndices, setSavedBulletinIndices] = useState<Set<number>>(
+    new Set(),
+  );
   /** Snapshot of form data for each saved bulletin (for readonly display) */
-  const [savedBulletinSnapshots, setSavedBulletinSnapshots] = useState<Record<number, BulletinFormData>>({});
+  const [savedBulletinSnapshots, setSavedBulletinSnapshots] = useState<
+    Record<number, BulletinFormData>
+  >({});
   /** Whether the active bulletin is in readonly mode (already saved) */
   const isActiveBulletinSaved = savedBulletinIndices.has(activeBulletinIndex);
   /** State for adding ayant droit inline */
   const [isAddingAyantDroit, setIsAddingAyantDroit] = useState(false);
   const [ayantDroitForm, setAyantDroitForm] = useState<{
-    firstName: string; lastName: string; dateOfBirth: string; email: string; gender: string;
-  }>({ firstName: '', lastName: '', dateOfBirth: '', email: '', gender: '' });
+    firstName: string;
+    lastName: string;
+    dateOfBirth: string;
+    email: string;
+    gender: string;
+  }>({ firstName: "", lastName: "", dateOfBirth: "", email: "", gender: "" });
 
-  const { data: adherentResults } = useSearchAdherents(adherentSearch, selectedCompany?.id);
+  const { data: adherentResults } = useSearchAdherents(
+    adherentSearch,
+    selectedCompany?.id,
+  );
   const { data: familleData } = useAdherentFamille(selectedAdherentInfo?.id);
 
   // Load contracts for the selected company (for contract number dropdown)
   const { data: companyContracts } = useQuery({
-    queryKey: ['company-contracts', selectedCompany?.id],
+    queryKey: ["company-contracts", selectedCompany?.id],
     queryFn: async () => {
-      const res = await apiClient.get<Array<{ id: string; contract_number: string; status: string }>>('/group-contracts', {
-        params: { companyId: selectedCompany!.id, status: 'active', limit: '100' },
+      const res = await apiClient.get<
+        Array<{ id: string; contract_number: string; status: string }>
+      >("/group-contracts", {
+        params: {
+          companyId: selectedCompany!.id,
+          status: "active",
+          limit: "100",
+        },
       });
       if (!res.success) return [];
-      const raw = res.data as unknown as Array<{ id: string; contract_number: string; status: string }>;
+      const raw = res.data as unknown as Array<{
+        id: string;
+        contract_number: string;
+        status: string;
+      }>;
       return (Array.isArray(raw) ? raw : []).map((gc) => ({
         id: gc.id,
         contractNumber: gc.contract_number,
       }));
     },
-    enabled: !!selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__',
+    enabled: !!selectedCompany?.id && selectedCompany.id !== "__INDIVIDUAL__",
   });
 
   // Auto-select adherent when search results contain an exact matricule match
@@ -614,14 +679,19 @@ export function BulletinsSaisiePage() {
   const { data: actesGroupes } = useActesGroupes();
 
   // Selected famille code per acte (for cascading famille → acte selector)
-  const [acteFamilleCodes, setActeFamilleCodes] = useState<Record<number, string>>({});
+  const [acteFamilleCodes, setActeFamilleCodes] = useState<
+    Record<number, string>
+  >({});
 
   /**
    * Resolve the famille code for an acte — used by OCR to auto-select the famille dropdown.
    * Priority: 1) find acte code in actesGroupes, 2) fallback to care_type → familleCodes[0]
    */
   const resolveFamilleCodeForActe = useCallback(
-    (acteCode: string | null | undefined, careType: string | null | undefined): string | null => {
+    (
+      acteCode: string | null | undefined,
+      careType: string | null | undefined,
+    ): string | null => {
       // 1. Try to find acte code in loaded actesGroupes
       if (acteCode && actesGroupes) {
         for (const groupe of actesGroupes) {
@@ -644,14 +714,23 @@ export function BulletinsSaisiePage() {
   const [currentFileHash, setCurrentFileHash] = useState<string | null>(null);
   const skipHashCheckRef = useRef(false);
   const [duplicateBulletin, setDuplicateBulletin] = useState<{
-    id: string; bulletinNumber: string; status: string; date: string;
-    adherent: string; careType: string; totalAmount: number | null;
-    reimbursedAmount: number | null; createdAt: string;
+    id: string;
+    bulletinNumber: string;
+    status: string;
+    date: string;
+    adherent: string;
+    careType: string;
+    totalAmount: number | null;
+    reimbursedAmount: number | null;
+    createdAt: string;
   } | null>(null);
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
   const [duplicateConfirm, setDuplicateConfirm] = useState<{
     cleanFiles: File[];
-    duplicateFiles: Array<{ name: string; bulletin: Record<string, unknown> | null }>;
+    duplicateFiles: Array<{
+      name: string;
+      bulletin: Record<string, unknown> | null;
+    }>;
     formData: FormData;
     resolve: (proceed: boolean) => void;
   } | null>(null);
@@ -729,7 +808,6 @@ export function BulletinsSaisiePage() {
     0,
   );
 
-
   // Pre-fill ayantDroitForm from OCR-detected beneficiary name
   const watchedBenefName = watch("beneficiary_name");
   useEffect(() => {
@@ -742,7 +820,11 @@ export function BulletinsSaisiePage() {
           firstName: parts.slice(1).join(" "),
         }));
       } else if (parts.length === 1) {
-        setAyantDroitForm((prev) => ({ ...prev, firstName: parts[0]!, lastName: '' }));
+        setAyantDroitForm((prev) => ({
+          ...prev,
+          firstName: parts[0]!,
+          lastName: "",
+        }));
       }
     }
   }, [watchedBenefName, selectedAdherentInfo]);
@@ -750,63 +832,120 @@ export function BulletinsSaisiePage() {
   // Estimate reimbursement in real-time
   const watchedMatricule = watch("adherent_matricule");
   const watchedBulletinDate = watch("bulletin_date");
-  const estimateKey = JSON.stringify((watchedActes || []).map(a => ({ code: a.code, amount: Number(a.amount) || 0, care_type: a.care_type, nombre_jours: (a as Record<string, unknown>).nombre_jours, subs: ((a as Record<string, unknown>).sub_items as Array<{ cotation?: string; amount?: number }> | undefined)?.map(s => s.cotation || s.amount) })));
+  const estimateKey = JSON.stringify(
+    (watchedActes || []).map((a) => ({
+      code: a.code,
+      amount: Number(a.amount) || 0,
+      care_type: a.care_type,
+      nombre_jours: (a as Record<string, unknown>).nombre_jours,
+      subs: (
+        (a as Record<string, unknown>).sub_items as
+          | Array<{ cotation?: string; amount?: number }>
+          | undefined
+      )?.map((s) => s.cotation || s.amount),
+    })),
+  );
   const { data: estimateData } = useQuery({
-    queryKey: ['estimate-reimbursement', watchedMatricule, watchedBulletinDate, estimateKey, selectedCompany?.id, watch("beneficiary_id") || watch("beneficiary_relationship")],
+    queryKey: [
+      "estimate-reimbursement",
+      watchedMatricule,
+      watchedBulletinDate,
+      estimateKey,
+      selectedCompany?.id,
+      watch("beneficiary_id") || watch("beneficiary_relationship"),
+    ],
     queryFn: async () => {
-      const actes = (watchedActes || []).filter(a => (a.code || a.label) && Number(a.amount) > 0).map(a => {
-            // Extract coefficient from sub-item cotations (e.g., "B420" → 420, "KC50" → 50)
-            // Also supports bare numbers (e.g., "30") when acte code is already a letter key (AMO, B, KC...)
-            const subs = (a as Record<string, unknown>).sub_items as Array<{ cotation?: string }> | undefined;
-            let nbr_cle: number | undefined;
-            let cotationCode: string | undefined;
-            if (subs?.length) {
-              let totalCoeff = 0;
-              for (const si of subs) {
-                const cot = si.cotation?.trim();
-                if (!cot) continue;
-                // Full cotation: "AMO30", "B420", "KC50"
-                const match = cot.match(/^([A-Za-z]+)(\d+)$/);
-                if (match) {
-                  totalCoeff += parseInt(match[2]!, 10);
-                  if (!cotationCode) cotationCode = cot;
-                } else if (/^\d+$/.test(cot)) {
-                  // Bare number: "30" — combine with parent acte code (e.g., AMO + 30 → AMO30)
-                  totalCoeff += parseInt(cot, 10);
-                  if (!cotationCode && a.code) cotationCode = `${a.code}${cot}`;
-                }
+      const actes = (watchedActes || [])
+        .filter((a) => (a.code || a.label) && Number(a.amount) > 0)
+        .map((a) => {
+          // Extract coefficient from sub-item cotations (e.g., "B420" → 420, "KC50" → 50)
+          // Also supports bare numbers (e.g., "30") when acte code is already a letter key (AMO, B, KC...)
+          const subs = (a as Record<string, unknown>).sub_items as
+            | Array<{ cotation?: string }>
+            | undefined;
+          let nbr_cle: number | undefined;
+          let cotationCode: string | undefined;
+          if (subs?.length) {
+            let totalCoeff = 0;
+            for (const si of subs) {
+              const cot = si.cotation?.trim();
+              if (!cot) continue;
+              // Full cotation: "AMO30", "B420", "KC50"
+              const match = cot.match(/^([A-Za-z]+)(\d+)$/);
+              if (match) {
+                totalCoeff += parseInt(match[2]!, 10);
+                if (!cotationCode) cotationCode = cot;
+              } else if (/^\d+$/.test(cot)) {
+                // Bare number: "30" — combine with parent acte code (e.g., AMO + 30 → AMO30)
+                totalCoeff += parseInt(cot, 10);
+                if (!cotationCode && a.code) cotationCode = `${a.code}${cot}`;
               }
-              if (totalCoeff > 0) nbr_cle = totalCoeff;
             }
-            // Send cotation code (e.g., "B420") as code when available, for letter-key parsing
-            const code = cotationCode || a.code || 'PH1';
-            const nombre_jours = (a as Record<string, unknown>).nombre_jours as number | undefined;
-            return { code, amount: Number(a.amount), care_type: a.care_type, nbr_cle, nombre_jours: nombre_jours && nombre_jours > 0 ? nombre_jours : undefined };
-          });
+            if (totalCoeff > 0) nbr_cle = totalCoeff;
+          }
+          // Send cotation code (e.g., "B420") as code when available, for letter-key parsing
+          const code = cotationCode || a.code || "PH1";
+          const nombre_jours = (a as Record<string, unknown>).nombre_jours as
+            | number
+            | undefined;
+          return {
+            code,
+            amount: Number(a.amount),
+            care_type: a.care_type,
+            nbr_cle,
+            nombre_jours:
+              nombre_jours && nombre_jours > 0 ? nombre_jours : undefined,
+          };
+        });
       if (!actes.length) return null;
       const res = await apiClient.post<{
         reimbursed_amount: number | null;
         details: Array<{ code: string; reimbursed: number }>;
         warning?: string;
         no_active_contract?: boolean;
-        contracts?: Array<{ id: string; contract_number: string; plan_type: string; status: string; start_date: string; end_date: string }>;
-      }>('/bulletins-soins/agent/estimate', {
+        contracts?: Array<{
+          id: string;
+          contract_number: string;
+          plan_type: string;
+          status: string;
+          start_date: string;
+          end_date: string;
+        }>;
+      }>("/bulletins-soins/agent/estimate", {
         adherent_matricule: watchedMatricule,
         bulletin_date: watchedBulletinDate,
         actes,
-        company_id: selectedCompany?.id && selectedCompany.id !== '__INDIVIDUAL__' ? selectedCompany.id : undefined,
+        company_id:
+          selectedCompany?.id && selectedCompany.id !== "__INDIVIDUAL__"
+            ? selectedCompany.id
+            : undefined,
         beneficiary_id: (() => {
           const rel = watch("beneficiary_relationship");
           const benId = watch("beneficiary_id");
-          if (rel === 'spouse' && familleData?.conjoint?.id) return familleData.conjoint.id;
-          if (rel === 'child' && benId) return benId as string;
+          if (rel === "spouse" && familleData?.conjoint?.id)
+            return familleData.conjoint.id;
+          if (rel === "child" && benId) return benId as string;
           return undefined;
         })(),
-        beneficiary_relationship: watch("beneficiary_relationship") || undefined,
+        beneficiary_relationship:
+          watch("beneficiary_relationship") || undefined,
       });
       return res.success ? res.data : null;
     },
-    enabled: !!watchedMatricule && watchedMatricule.length >= 2 && actesTotal > 0 && !!watchedBulletinDate,
+    enabled:
+      !!watchedMatricule &&
+      watchedMatricule.length >= 2 &&
+      actesTotal > 0 &&
+      !!watchedBulletinDate &&
+      (!selectedAdherentInfo || !!selectedAdherentInfo.id) &&
+      !(
+        selectedAdherentInfo?.contractStartDate &&
+        watchedBulletinDate < selectedAdherentInfo.contractStartDate
+      ) &&
+      !(
+        selectedAdherentInfo?.contractEndDate &&
+        watchedBulletinDate > selectedAdherentInfo.contractEndDate
+      ),
     staleTime: 5000,
   });
   const estimatedReimbursement = estimateData?.reimbursed_amount;
@@ -814,7 +953,9 @@ export function BulletinsSaisiePage() {
   // care_type is now per-acte; derive "primary" care type from first acte for medication families query
   const selectedCareType = watchedActes?.[0]?.care_type || "consultation";
   // Check if any acte is pharmacy type (for medication families fetch)
-  const hasPharmacyActe = watchedActes?.some((a) => resolveCareType(a.care_type) === "pharmacie");
+  const hasPharmacyActe = watchedActes?.some(
+    (a) => resolveCareType(a.care_type) === "pharmacie",
+  );
 
   // Check if any MF is invalid or errored — blocks submit
   // Allowed (non-blocking) statuses: 'found', 'registered', 'not_found', 'forced', 'idle' (not yet checked)
@@ -823,7 +964,9 @@ export function BulletinsSaisiePage() {
     ["loading", "invalid", "error"];
   // MF missing = bulletin saved as incomplete draft (can't be validated), but NOT blocking save
   const hasAnyData = !!watchedMatricule?.trim() || actesTotal > 0;
-  const hasMfMissing = hasAnyData && watchedActes?.length > 0 &&
+  const hasMfMissing =
+    hasAnyData &&
+    watchedActes?.length > 0 &&
     watchedActes.some((_a) => !_a?.ref_prof_sant?.trim());
   const hasMfBlocking =
     watchedActes?.length > 0 &&
@@ -867,8 +1010,10 @@ export function BulletinsSaisiePage() {
   // When beneficiary is conjoint/enfant, show THEIR individual plafond, not the principal's
   const effectivePlafondId = (() => {
     if (!selectedAdherentInfo?.id) return undefined;
-    if (watchedBeneficiaryRel === 'spouse' && familleData?.conjoint?.id) return familleData.conjoint.id;
-    if (watchedBeneficiaryRel === 'child' && watchedBenefId) return watchedBenefId as string;
+    if (watchedBeneficiaryRel === "spouse" && familleData?.conjoint?.id)
+      return familleData.conjoint.id;
+    if (watchedBeneficiaryRel === "child" && watchedBenefId)
+      return watchedBenefId as string;
     return selectedAdherentInfo.id; // self
   })();
   const { data: plafondsData } = useAdherentPlafonds(effectivePlafondId);
@@ -899,10 +1044,18 @@ export function BulletinsSaisiePage() {
 
   // Fetch bulletins (drafts and in_batch) for current batch & company
   const { data: bulletinsData, isLoading: loadingBulletins } = useQuery({
-    queryKey: ["agent-bulletins", selectedCompany?.id, selectedBatch?.id, searchQuery],
+    queryKey: [
+      "agent-bulletins",
+      selectedCompany?.id,
+      selectedBatch?.id,
+      searchQuery,
+    ],
     queryFn: async () => {
       const params = new URLSearchParams();
-      params.append("status", "draft,in_batch,paper_complete,approved,rejected");
+      params.append(
+        "status",
+        "draft,in_batch,paper_complete,approved,rejected",
+      );
       if (selectedCompany) params.append("companyId", selectedCompany.id);
       if (selectedBatch) params.append("batchId", selectedBatch.id);
       if (searchQuery) params.append("search", searchQuery);
@@ -982,7 +1135,9 @@ export function BulletinsSaisiePage() {
       form.append("actes", JSON.stringify(data.formData.actes));
 
       // Flag as incomplete if any acte is missing MF
-      const hasMissingMf = data.formData.actes.some((a) => !a.ref_prof_sant?.trim());
+      const hasMissingMf = data.formData.actes.some(
+        (a) => !a.ref_prof_sant?.trim(),
+      );
       if (hasMissingMf) {
         form.append("mf_incomplete", "1");
       }
@@ -996,11 +1151,15 @@ export function BulletinsSaisiePage() {
       }
 
       // Attach file hash for duplicate detection (per-bulletin from OCR, or global from single file)
-      const bulletinHash = ocrBulletins[activeBulletinIndex]?._file_hash || currentFileHash;
-      console.log('[save-bulletin] hash sources:', {
-        fromOcrBulletin: ocrBulletins[activeBulletinIndex]?._file_hash?.slice(0, 16),
+      const bulletinHash =
+        ocrBulletins[activeBulletinIndex]?._file_hash || currentFileHash;
+      console.log("[save-bulletin] hash sources:", {
+        fromOcrBulletin: ocrBulletins[activeBulletinIndex]?._file_hash?.slice(
+          0,
+          16,
+        ),
         fromCurrentFileHash: currentFileHash?.slice(0, 16),
-        final: bulletinHash?.slice(0, 16) || 'NULL',
+        final: bulletinHash?.slice(0, 16) || "NULL",
       });
       if (bulletinHash) {
         form.append("file_hash", bulletinHash);
@@ -1012,32 +1171,42 @@ export function BulletinsSaisiePage() {
       // If editing existing bulletin → PUT, otherwise → POST create
       const endpoint = editingBulletinId
         ? `/bulletins-soins/agent/${editingBulletinId}/update`
-        : '/bulletins-soins/agent/create';
-      const result = await apiClient.upload<{ id?: string; warnings?: string[] }>(endpoint, form);
+        : "/bulletins-soins/agent/create";
+      const result = await apiClient.upload<{
+        id?: string;
+        warnings?: string[];
+      }>(endpoint, form);
       if (!result.success) {
         throw new Error(result.error?.message || "Erreur lors de la saisie");
       }
 
-      // Upload files separately after creation to avoid Worker CPU timeout
+      // Upload files via presigned R2 URLs (falls back to legacy if not configured)
       if (!editingBulletinId && result.data?.id) {
-        const filesToUpload = ocrBulletins[activeBulletinIndex]?._source_files || data.files;
+        const filesToUpload =
+          ocrBulletins[activeBulletinIndex]?._source_files || data.files;
         if (filesToUpload.length > 0) {
-          const uploadPromises = filesToUpload.map(async (file) => {
-            const scanForm = new FormData();
-            scanForm.append('scan', file);
-            return apiClient.upload(`/bulletins-soins/agent/${result.data!.id}/upload-scan`, scanForm);
-          });
-          const uploadResults = await Promise.allSettled(uploadPromises);
-          const failed = uploadResults.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success));
-          if (failed.length > 0) {
-            console.warn(`[save-bulletin] ${failed.length}/${filesToUpload.length} file uploads failed`);
+          let failedCount = 0;
+          for (const file of filesToUpload) {
+            try {
+              await uploadFilePresigned(result.data!.id, file);
+            } catch {
+              failedCount++;
+            }
+          }
+          if (failedCount > 0) {
+            console.warn(
+              `[save-bulletin] ${failedCount}/${filesToUpload.length} file uploads failed`,
+            );
           }
         }
       }
 
       return { success: result.success, data: result.data };
     },
-    onSuccess: (result: { success: boolean; data?: { warnings?: string[] } }) => {
+    onSuccess: (result: {
+      success: boolean;
+      data?: { warnings?: string[] };
+    }) => {
       queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
       const responseWarnings = result?.data?.warnings;
 
@@ -1045,20 +1214,29 @@ export function BulletinsSaisiePage() {
       if (ocrBulletins.length > 1) {
         // Snapshot current form data for readonly display
         const currentFormData = watch();
-        setSavedBulletinSnapshots((prev) => ({ ...prev, [activeBulletinIndex]: { ...currentFormData } as BulletinFormData }));
+        setSavedBulletinSnapshots((prev) => ({
+          ...prev,
+          [activeBulletinIndex]: { ...currentFormData } as BulletinFormData,
+        }));
 
         const newSaved = new Set(savedBulletinIndices);
         newSaved.add(activeBulletinIndex);
         setSavedBulletinIndices(newSaved);
 
         // Find next unsaved bulletin
-        const nextUnsaved = ocrBulletins.findIndex((_, i) => i !== activeBulletinIndex && !newSaved.has(i));
+        const nextUnsaved = ocrBulletins.findIndex(
+          (_, i) => i !== activeBulletinIndex && !newSaved.has(i),
+        );
 
         if (nextUnsaved !== -1) {
           if (responseWarnings && responseWarnings.length > 0) {
-            toast.warning(responseWarnings[0] || "Attention: remboursement approximatif");
+            toast.warning(
+              responseWarnings[0] || "Attention: remboursement approximatif",
+            );
           } else {
-            toast.success(`Bulletin ${activeBulletinIndex + 1}/${ocrBulletins.length} enregistré — passage au suivant`);
+            toast.success(
+              `Bulletin ${activeBulletinIndex + 1}/${ocrBulletins.length} enregistré — passage au suivant`,
+            );
           }
           // Auto-switch to next unsaved bulletin
           handleSwitchBulletin(nextUnsaved);
@@ -1066,12 +1244,20 @@ export function BulletinsSaisiePage() {
         }
 
         // All bulletins saved
-        toast.success(`Tous les ${ocrBulletins.length} bulletins ont été enregistrés !`);
+        toast.success(
+          `Tous les ${ocrBulletins.length} bulletins ont été enregistrés !`,
+        );
       } else {
         if (responseWarnings && responseWarnings.length > 0) {
-          toast.warning(responseWarnings[0] || "Attention: remboursement approximatif");
+          toast.warning(
+            responseWarnings[0] || "Attention: remboursement approximatif",
+          );
         } else {
-          toast.success(editingBulletinId ? "Bulletin modifié avec succès!" : "Bulletin saisi avec succès!");
+          toast.success(
+            editingBulletinId
+              ? "Bulletin modifié avec succès!"
+              : "Bulletin saisi avec succès!",
+          );
         }
       }
 
@@ -1168,8 +1354,8 @@ export function BulletinsSaisiePage() {
       force?: boolean;
     }) => {
       const res = await apiClient.get<Blob>(
-        `/bulletins-soins/agent/batches/${batchId}/export${force ? '?force=true' : ''}`,
-        { responseType: 'blob' },
+        `/bulletins-soins/agent/batches/${batchId}/export${force ? "?force=true" : ""}`,
+        { responseType: "blob" },
       );
       if (!res.success || !res.data) {
         throw new Error("Erreur lors de l'export");
@@ -1207,7 +1393,7 @@ export function BulletinsSaisiePage() {
     mutationFn: async ({ batchId }: { batchId: string }) => {
       const res = await apiClient.get<Blob>(
         `/bulletins-soins/agent/batches/${batchId}/export-detail`,
-        { responseType: 'blob' },
+        { responseType: "blob" },
       );
       if (!res.success || !res.data) {
         throw new Error("Erreur lors de l'export detaille");
@@ -1325,15 +1511,18 @@ export function BulletinsSaisiePage() {
   const submitToValidation = async (id: string) => {
     setSubmittingId(id);
     try {
-      const response = await apiClient.post(`/bulletins-soins/agent/${id}/submit`, {});
+      const response = await apiClient.post(
+        `/bulletins-soins/agent/${id}/submit`,
+        {},
+      );
       if (response.success) {
-        toast.success('Bulletin soumis à la validation');
-        queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
+        toast.success("Bulletin soumis à la validation");
+        queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
       } else {
-        toast.error(response.error?.message || 'Erreur lors de la soumission');
+        toast.error(response.error?.message || "Erreur lors de la soumission");
       }
     } catch {
-      toast.error('Erreur lors de la soumission');
+      toast.error("Erreur lors de la soumission");
     } finally {
       setSubmittingId(null);
     }
@@ -1341,21 +1530,32 @@ export function BulletinsSaisiePage() {
 
   const bulkSubmitToValidation = async (ids: string[]) => {
     try {
-      const response = await apiClient.post('/bulletins-soins/agent/bulk-submit', { ids });
+      const response = await apiClient.post(
+        "/bulletins-soins/agent/bulk-submit",
+        { ids },
+      );
       if (response.success) {
-        const resData = response.data as { submitted: number; skipped?: number; skippedReason?: string };
+        const resData = response.data as {
+          submitted: number;
+          skipped?: number;
+          skippedReason?: string;
+        };
         if (resData.skipped && resData.skipped > 0) {
-          toast.warning(`${resData.submitted} bulletin(s) soumis. ${resData.skippedReason}`);
+          toast.warning(
+            `${resData.submitted} bulletin(s) soumis. ${resData.skippedReason}`,
+          );
         } else {
-          toast.success(`${resData.submitted || ids.length} bulletin(s) soumis à la validation`);
+          toast.success(
+            `${resData.submitted || ids.length} bulletin(s) soumis à la validation`,
+          );
         }
-        queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
+        queryClient.invalidateQueries({ queryKey: ["agent-bulletins"] });
         setSelectedBulletins([]);
       } else {
-        toast.error(response.error?.message || 'Erreur lors de la soumission');
+        toast.error(response.error?.message || "Erreur lors de la soumission");
       }
     } catch {
-      toast.error('Erreur lors de la soumission');
+      toast.error("Erreur lors de la soumission");
     }
   };
 
@@ -1375,18 +1575,21 @@ export function BulletinsSaisiePage() {
     setEditingBulletinId(b.id);
 
     // Pre-fill adherent search
-    const adherentLabel = [b.adherent_first_name, b.adherent_last_name].filter(Boolean).join(' ');
+    const adherentLabel = [b.adherent_first_name, b.adherent_last_name]
+      .filter(Boolean)
+      .join(" ");
     setAdherentSearch(b.adherent_matricule || adherentLabel);
     setSelectedAdherentInfo({
-      id: '',
-      matricule: b.adherent_matricule || '',
-      firstName: b.adherent_first_name || '',
-      lastName: b.adherent_last_name || '',
+      id: "",
+      matricule: b.adherent_matricule || "",
+      firstName: b.adherent_first_name || "",
+      lastName: b.adherent_last_name || "",
       email: null,
       companyName: null,
       plafondGlobal: null,
       plafondConsomme: null,
       contractType: null,
+      contractStartDate: null,
       contractEndDate: null,
       contractNumber: null,
       contractWarning: null,
@@ -1394,32 +1597,45 @@ export function BulletinsSaisiePage() {
 
     // Pre-fill form fields
     reset({
-      bulletin_number: b.bulletin_number || '',
-      bulletin_date: b.bulletin_date ? b.bulletin_date.split('T')[0] : new Date().toISOString().split('T')[0],
-      adherent_matricule: b.adherent_matricule || '',
-      adherent_first_name: b.adherent_first_name || '',
-      adherent_last_name: b.adherent_last_name || '',
-      adherent_national_id: '',
-      adherent_email: '',
-      beneficiary_name: b.beneficiary_name || '',
-      beneficiary_relationship: (['self', 'spouse', 'child'].includes(b.beneficiary_relationship || '') ? b.beneficiary_relationship as 'self' | 'spouse' | 'child' : 'self'),
+      bulletin_number: b.bulletin_number || "",
+      bulletin_date: b.bulletin_date
+        ? b.bulletin_date.split("T")[0]
+        : new Date().toISOString().split("T")[0],
+      adherent_matricule: b.adherent_matricule || "",
+      adherent_first_name: b.adherent_first_name || "",
+      adherent_last_name: b.adherent_last_name || "",
+      adherent_national_id: "",
+      adherent_email: "",
+      beneficiary_name: b.beneficiary_name || "",
+      beneficiary_relationship: ["self", "spouse", "child"].includes(
+        b.beneficiary_relationship || "",
+      )
+        ? (b.beneficiary_relationship as "self" | "spouse" | "child")
+        : "self",
       actes: (b.actes || []).map((a) => ({
-        code: a.code || '',
-        label: a.label || '',
+        code: a.code || "",
+        label: a.label || "",
         amount: a.amount || 0,
-        ref_prof_sant: a.ref_prof_sant || '',
-        nom_prof_sant: a.nom_prof_sant || '',
-        provider_id: '',
+        ref_prof_sant: a.ref_prof_sant || "",
+        nom_prof_sant: a.nom_prof_sant || "",
+        provider_id: "",
         care_type: resolveCareType(a.care_type),
-        care_description: '',
-        cod_msgr: (a as unknown as Record<string, string>).cod_msgr || '',
-        lib_msgr: (a as unknown as Record<string, string>).lib_msgr || '',
-        sub_items: (a.sub_items || []).map((si: { label: string; code?: string | null; cotation?: string | null; amount: number }) => ({
-          label: si.label || '',
-          code: si.code || '',
-          cotation: si.cotation || '',
-          amount: si.amount || 0,
-        })),
+        care_description: "",
+        cod_msgr: (a as unknown as Record<string, string>).cod_msgr || "",
+        lib_msgr: (a as unknown as Record<string, string>).lib_msgr || "",
+        sub_items: (a.sub_items || []).map(
+          (si: {
+            label: string;
+            code?: string | null;
+            cotation?: string | null;
+            amount: number;
+          }) => ({
+            label: si.label || "",
+            code: si.code || "",
+            cotation: si.cotation || "",
+            amount: si.amount || 0,
+          }),
+        ),
       })),
     });
 
@@ -1432,30 +1648,34 @@ export function BulletinsSaisiePage() {
     setActeFamilleCodes(resolvedFamilles);
 
     // Pre-set MF statuses as 'found' for actes that already have ref_prof_sant
-    const initialMfStatuses: Record<number, import('@/features/bulletins/components/mf-lookup-input').MfStatus> = {};
+    const initialMfStatuses: Record<
+      number,
+      import("@/features/bulletins/components/mf-lookup-input").MfStatus
+    > = {};
     (b.actes || []).forEach((a, i) => {
       if (a.ref_prof_sant && (a.ref_prof_sant as string).trim()) {
-        initialMfStatuses[i] = 'found';
+        initialMfStatuses[i] = "found";
       }
     });
     setMfStatuses(initialMfStatuses);
 
     // Switch to saisie tab
-    setActiveTab('saisie');
-    toast.info('Bulletin chargé pour modification');
+    setActiveTab("saisie");
+    toast.info("Bulletin chargé pour modification");
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     const validFiles = files.filter((file) => {
-      const isValidType = [
-        "application/pdf",
-        "image/jpeg",
-        "image/png",
-        "image/jpg",
-        "application/zip",
-        "application/x-zip-compressed",
-      ].includes(file.type) || file.name.toLowerCase().endsWith('.zip');
+      const isValidType =
+        [
+          "application/pdf",
+          "image/jpeg",
+          "image/png",
+          "image/jpg",
+          "application/zip",
+          "application/x-zip-compressed",
+        ].includes(file.type) || file.name.toLowerCase().endsWith(".zip");
       const isValidSize = file.size <= 50 * 1024 * 1024; // 50MB for ZIP
       return isValidType && isValidSize;
     });
@@ -1561,7 +1781,10 @@ export function BulletinsSaisiePage() {
       setValue("adherent_email", "");
       setValue("adherent_address", "");
       setValue("beneficiary_name", "");
-      setValue("bulletin_date", new Date().toISOString().split("T")[0] as string);
+      setValue(
+        "bulletin_date",
+        new Date().toISOString().split("T")[0] as string,
+      );
       setSelectedAdherentInfo(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -1573,12 +1796,10 @@ export function BulletinsSaisiePage() {
 
     // Filter valid file types from the folder
     const validFiles = files.filter((file) => {
-      const isValidType = [
-        "application/pdf",
-        "image/jpeg",
-        "image/png",
-        "image/jpg",
-      ].includes(file.type) || file.name.toLowerCase().match(/\.(pdf|jpg|jpeg|png)$/);
+      const isValidType =
+        ["application/pdf", "image/jpeg", "image/png", "image/jpg"].includes(
+          file.type,
+        ) || file.name.toLowerCase().match(/\.(pdf|jpg|jpeg|png)$/);
       return isValidType && file.size <= 10 * 1024 * 1024;
     });
 
@@ -1598,7 +1819,7 @@ export function BulletinsSaisiePage() {
       for (let i = 0; i < validFiles.length; i++) {
         const relPath = validFiles[i]!.webkitRelativePath;
         if (relPath) {
-          const parts = relPath.split('/').filter(Boolean);
+          const parts = relPath.split("/").filter(Boolean);
           if (parts.length >= 3) {
             const subFolder = parts[1]!;
             if (!groupMap.has(subFolder)) groupMap.set(subFolder, []);
@@ -1609,14 +1830,16 @@ export function BulletinsSaisiePage() {
       setSelectedFiles((prev) => [...prev, ...validFiles]);
       setFolderSubGroups(groupMap.size > 1 ? groupMap : null);
       if (folderInputRef.current) folderInputRef.current.value = "";
-      toast.success(`${validFiles.length} fichier(s) ajouté(s) depuis le dossier`);
+      toast.success(
+        `${validFiles.length} fichier(s) ajouté(s) depuis le dossier`,
+      );
       return;
     }
 
     for (let i = 0; i < validFiles.length; i++) {
       const relPath = validFiles[i]!.webkitRelativePath;
       if (relPath) {
-        const parts = relPath.split('/').filter(Boolean);
+        const parts = relPath.split("/").filter(Boolean);
         // parent/subFolder/file.ext → 3 parts means file is inside a sub-folder
         if (parts.length >= 3) {
           const subFolder = parts[1]!;
@@ -1626,8 +1849,14 @@ export function BulletinsSaisiePage() {
       }
     }
 
-    console.log('[folder-import] webkitRelativePath samples:', validFiles.slice(0, 3).map(f => f.webkitRelativePath));
-    console.log('[folder-import] Sub-folder groups:', Object.fromEntries(groupMap));
+    console.log(
+      "[folder-import] webkitRelativePath samples:",
+      validFiles.slice(0, 3).map((f) => f.webkitRelativePath),
+    );
+    console.log(
+      "[folder-import] Sub-folder groups:",
+      Object.fromEntries(groupMap),
+    );
 
     setSelectedFiles(validFiles);
     setFolderSubGroups(groupMap.size > 1 ? groupMap : null);
@@ -1638,9 +1867,13 @@ export function BulletinsSaisiePage() {
     if (folderInputRef.current) folderInputRef.current.value = "";
 
     if (groupMap.size > 1) {
-      toast.info(`${groupMap.size} sous-dossiers détectés — chaque sous-dossier sera traité comme un bulletin séparé`);
+      toast.info(
+        `${groupMap.size} sous-dossiers détectés — chaque sous-dossier sera traité comme un bulletin séparé`,
+      );
     } else {
-      toast.info(`${validFiles.length} fichier(s) détecté(s) — seront traités comme un seul bulletin`);
+      toast.info(
+        `${validFiles.length} fichier(s) détecté(s) — seront traités comme un seul bulletin`,
+      );
     }
   };
 
@@ -1650,215 +1883,309 @@ export function BulletinsSaisiePage() {
   //   Format B: { adherent, actes, total_dossier }
   // Also expands nested ordonnance.medicaments and analyses into separate actes
   const normalizeOcrItem = (item: Record<string, unknown>): OcrBulletinItem => {
-        // Determine adherent info
-        const adherentRaw = item.infos_adherent || item.adherent || {};
-        const adh = adherentRaw as Record<string, unknown>;
+    // Determine adherent info
+    const adherentRaw = item.infos_adherent || item.adherent || {};
+    const adh = adherentRaw as Record<string, unknown>;
 
-        // Determine raw actes (support volet_medical, actes, and actes_independants formats)
-        const rawActesSource = (item.volet_medical || item.actes || item.actes_independants || []) as Array<Record<string, unknown>>;
+    // Determine raw actes (support volet_medical, actes, and actes_independants formats)
+    const rawActesSource = (item.volet_medical ||
+      item.actes ||
+      item.actes_independants ||
+      []) as Array<Record<string, unknown>>;
 
-        // Normalize actes_independants format to standard format
-        const rawActes: Array<Record<string, unknown>> = rawActesSource.map((a) => {
-          // Already in standard format (has type_soin or nature_acte)
-          if (a.type_soin || a.nature_acte) return a;
-          // actes_independants format → normalize
-          const typeRaw = ((a.type as string) || '').toUpperCase();
-          const isPharm = typeRaw.includes('PHARMAC');
-          const isLab = typeRaw.includes('LABORAT') || typeRaw.includes('ANALYSE');
-          const typeSoin = isPharm ? 'Pharmacie' : isLab ? 'Laboratoire' : 'Médecin';
-          const montantRaw = String(a.montant || a.montant_total || a.total_ligne || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-          return {
-            ...a,
-            type_soin: typeSoin,
-            nature_acte: a.acte || a.medicament || typeSoin,
-            date_acte: a.date,
-            montant_facture: montantRaw,
-            montant_honoraires: montantRaw,
-            nom_praticien: a.praticien || a.pharmacie || a.laboratoire || a.centre_radiologie || '',
-            matricule_fiscale: a.matricule_fiscale,
-            cotation: a.cotation,
-          };
-        });
+    // Normalize actes_independants format to standard format
+    const rawActes: Array<Record<string, unknown>> = rawActesSource.map((a) => {
+      // Already in standard format (has type_soin or nature_acte)
+      if (a.type_soin || a.nature_acte) return a;
+      // actes_independants format → normalize
+      const typeRaw = ((a.type as string) || "").toUpperCase();
+      const isPharm = typeRaw.includes("PHARMAC");
+      const isLab = typeRaw.includes("LABORAT") || typeRaw.includes("ANALYSE");
+      const typeSoin = isPharm
+        ? "Pharmacie"
+        : isLab
+          ? "Laboratoire"
+          : "Médecin";
+      const montantRaw = String(
+        a.montant || a.montant_total || a.total_ligne || "0",
+      )
+        .replace(/[^\d.,]/g, "")
+        .replace(",", ".");
+      return {
+        ...a,
+        type_soin: typeSoin,
+        nature_acte: a.acte || a.medicament || typeSoin,
+        date_acte: a.date,
+        montant_facture: montantRaw,
+        montant_honoraires: montantRaw,
+        nom_praticien:
+          a.praticien ||
+          a.pharmacie ||
+          a.laboratoire ||
+          a.centre_radiologie ||
+          "",
+        matricule_fiscale: a.matricule_fiscale,
+        cotation: a.cotation,
+      };
+    });
 
-        // Extract date from first acte if available (Format B)
-        const firstActe = (rawActes[0] || {}) as Record<string, unknown>;
-        const infos_adherent: Record<string, unknown> = item.infos_adherent
-          ? (item.infos_adherent as Record<string, unknown>)
-          : {
-              nom_prenom: adh.nom_prenom,
-              numero_adherent: adh.numero_adherent,
-              numero_contrat: adh.numero_contrat,
-              adresse: adh.adresse,
-              beneficiaire_coche: adh.beneficiaire,
-              nom_beneficiaire: (() => {
-                const benef = ((adh.beneficiaire as string) || '').toLowerCase();
-                if (benef.includes('enfant')) {
-                  const enfants = adh.enfants as Array<Record<string, string>> | undefined;
-                  return enfants?.[0]?.nom_prenom || undefined;
-                }
-                return (adh.conjoint as Record<string, string>)?.nom_prenom || undefined;
-              })(),
-              date_signature: firstActe.date_acte || undefined,
-            };
-
-        // Build actes with sub_items — split pharmacie/analyse into separate actes when embedded
-        const flatActes: Array<Record<string, unknown>> = [];
-        for (const acte of rawActes) {
-          // Normalize praticien sub-object into flat fields if needed
-          const praticien = acte.praticien as Record<string, string> | undefined;
-          if (praticien && !acte.nom_praticien) {
-            acte.nom_praticien = praticien.nom_prenom || '';
-            acte.matricule_fiscale = praticien.matricule_fiscale || '';
-            acte.specialite = praticien.specialite || '';
-          }
-
-          // Check for embedded pharmacie sub-object → split into separate acte
-          const pharmacie = acte.pharmacie as Record<string, unknown> | undefined;
-          const pharmacieDetails = pharmacie?.details_lignes as Array<Record<string, string>> | undefined;
-          const pharmacieMeds = pharmacie?.medicaments as Array<Record<string, string>> | undefined;
-          const hasPharmacieData = (Array.isArray(pharmacieDetails) && pharmacieDetails.length > 0)
-            || (Array.isArray(pharmacieMeds) && pharmacieMeds.length > 0);
-
-          // Check for embedded analyse sub-object → will be sub-items of this acte
-          const analyseObj = acte.analyse as Record<string, unknown> | undefined;
-          const resultats = (analyseObj?.resultats || analyseObj?.details_lignes) as Array<Record<string, string>> | undefined;
-
-          // --- Main acte (consultation/médecin) ---
-          // Collect sub-items that belong to the main acte (ordonnance meds if no separate pharmacie)
-          const mainSubItems: Array<{ label: string; amount: number; code: string; cotation?: string }> = [];
-
-          // ordonnance.medicaments → only as sub-items if NO separate pharmacie
-          if (!hasPharmacieData) {
-            const ordonnance = acte.ordonnance as Record<string, unknown> | undefined;
-            const meds = (ordonnance?.medicaments || acte.medicaments) as Array<Record<string, string>> | undefined;
-            if (Array.isArray(meds) && meds.length > 0) {
-              for (const med of meds) {
-                const rawPrix = (med.montant || med.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-                mainSubItems.push({
-                  label: [med.nom, med.dosage].filter(Boolean).join(' '),
-                  amount: parseFloat(rawPrix) || 0,
-                  code: '',
-                });
-              }
+    // Extract date from first acte if available (Format B)
+    const firstActe = (rawActes[0] || {}) as Record<string, unknown>;
+    const infos_adherent: Record<string, unknown> = item.infos_adherent
+      ? (item.infos_adherent as Record<string, unknown>)
+      : {
+          nom_prenom: adh.nom_prenom,
+          numero_adherent: adh.numero_adherent,
+          numero_contrat: adh.numero_contrat,
+          adresse: adh.adresse,
+          beneficiaire_coche: adh.beneficiaire,
+          nom_beneficiaire: (() => {
+            const benef = ((adh.beneficiaire as string) || "").toLowerCase();
+            if (benef.includes("enfant")) {
+              const enfants = adh.enfants as
+                | Array<Record<string, string>>
+                | undefined;
+              return enfants?.[0]?.nom_prenom || undefined;
             }
+            return (
+              (adh.conjoint as Record<string, string>)?.nom_prenom || undefined
+            );
+          })(),
+          date_signature: firstActe.date_acte || undefined,
+        };
+
+    // Build actes with sub_items — split pharmacie/analyse into separate actes when embedded
+    const flatActes: Array<Record<string, unknown>> = [];
+    for (const acte of rawActes) {
+      // Normalize praticien sub-object into flat fields if needed
+      const praticien = acte.praticien as Record<string, string> | undefined;
+      if (praticien && !acte.nom_praticien) {
+        acte.nom_praticien = praticien.nom_prenom || "";
+        acte.matricule_fiscale = praticien.matricule_fiscale || "";
+        acte.specialite = praticien.specialite || "";
+      }
+
+      // Check for embedded pharmacie sub-object → split into separate acte
+      const pharmacie = acte.pharmacie as Record<string, unknown> | undefined;
+      const pharmacieDetails = pharmacie?.details_lignes as
+        | Array<Record<string, string>>
+        | undefined;
+      const pharmacieMeds = pharmacie?.medicaments as
+        | Array<Record<string, string>>
+        | undefined;
+      const hasPharmacieData =
+        (Array.isArray(pharmacieDetails) && pharmacieDetails.length > 0) ||
+        (Array.isArray(pharmacieMeds) && pharmacieMeds.length > 0);
+
+      // Check for embedded analyse sub-object → will be sub-items of this acte
+      const analyseObj = acte.analyse as Record<string, unknown> | undefined;
+      const resultats = (analyseObj?.resultats ||
+        analyseObj?.details_lignes) as
+        | Array<Record<string, string>>
+        | undefined;
+
+      // --- Main acte (consultation/médecin) ---
+      // Collect sub-items that belong to the main acte (ordonnance meds if no separate pharmacie)
+      const mainSubItems: Array<{
+        label: string;
+        amount: number;
+        code: string;
+        cotation?: string;
+      }> = [];
+
+      // ordonnance.medicaments → only as sub-items if NO separate pharmacie
+      if (!hasPharmacieData) {
+        const ordonnance = acte.ordonnance as
+          | Record<string, unknown>
+          | undefined;
+        const meds = (ordonnance?.medicaments || acte.medicaments) as
+          | Array<Record<string, string>>
+          | undefined;
+        if (Array.isArray(meds) && meds.length > 0) {
+          for (const med of meds) {
+            const rawPrix = (med.montant || med.prix || "0")
+              .replace(/[^\d.,]/g, "")
+              .replace(",", ".");
+            mainSubItems.push({
+              label: [med.nom, med.dosage].filter(Boolean).join(" "),
+              amount: parseFloat(rawPrix) || 0,
+              code: "",
+            });
           }
+        }
+      }
 
-          // analyse sub-items on main acte (lab/radiologie)
-          if (Array.isArray(resultats) && resultats.length > 0) {
-            for (const res of resultats) {
-              const rawPrix = (res.montant || res.resultat || res.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-              mainSubItems.push({
-                label: res.designation || res.nom || res.libelle || res.acte || '',
-                amount: parseFloat(rawPrix) || 0,
-                code: res.code_amm || '',
-              });
-            }
-            if (analyseObj?.nom_laboratoire) {
-              acte._labo_nom = analyseObj.nom_laboratoire;
-            }
+      // analyse sub-items on main acte (lab/radiologie)
+      if (Array.isArray(resultats) && resultats.length > 0) {
+        for (const res of resultats) {
+          const rawPrix = (res.montant || res.resultat || res.prix || "0")
+            .replace(/[^\d.,]/g, "")
+            .replace(",", ".");
+          mainSubItems.push({
+            label: res.designation || res.nom || res.libelle || res.acte || "",
+            amount: parseFloat(rawPrix) || 0,
+            code: res.code_amm || "",
+          });
+        }
+        if (analyseObj?.nom_laboratoire) {
+          acte._labo_nom = analyseObj.nom_laboratoire;
+        }
+      }
+
+      // details_lignes at acte level (format actes_independants — pharmacy/lab)
+      const acteLevelDetails = acte.details_lignes as
+        | Array<Record<string, string>>
+        | undefined;
+      if (
+        !resultats?.length &&
+        Array.isArray(acteLevelDetails) &&
+        acteLevelDetails.length > 0
+      ) {
+        for (const ligne of acteLevelDetails) {
+          const rawPrix = (
+            ligne.montant ||
+            ligne.total_ligne ||
+            ligne.prix_unitaire ||
+            "0"
+          )
+            .replace(/[^\d.,]/g, "")
+            .replace(",", ".");
+          mainSubItems.push({
+            label:
+              ligne.designation ||
+              ligne.nom ||
+              ligne.medicament ||
+              ligne.acte ||
+              "",
+            amount: parseFloat(rawPrix) || 0,
+            code: ligne.code_amm || ligne.code_acte || "",
+            cotation: ligne.cotation || "",
+          });
+        }
+      }
+
+      // Legacy: analyses/examens array
+      const analyses = (acte.analyses || acte.examens) as
+        | Array<Record<string, string>>
+        | undefined;
+      if (
+        !resultats?.length &&
+        Array.isArray(analyses) &&
+        analyses.length > 0
+      ) {
+        for (const analyse of analyses) {
+          const rawPrix = (analyse.montant || analyse.prix || "0")
+            .replace(/[^\d.,]/g, "")
+            .replace(",", ".");
+          mainSubItems.push({
+            label: analyse.nom || analyse.libelle || analyse.nature || "",
+            amount: parseFloat(rawPrix) || 0,
+            code: "",
+          });
+        }
+      }
+
+      if (mainSubItems.length > 0) {
+        acte._sub_items = mainSubItems;
+      }
+      flatActes.push(acte);
+
+      // --- Split: create separate pharmacie acte if embedded ---
+      if (hasPharmacieData) {
+        const pharmSubItems: Array<{
+          label: string;
+          amount: number;
+          code: string;
+        }> = [];
+
+        // pharmacie.details_lignes (prix réels d'achat)
+        if (Array.isArray(pharmacieDetails) && pharmacieDetails.length > 0) {
+          for (const ligne of pharmacieDetails) {
+            const rawPrix = (ligne.montant || ligne.prix_unitaire || "0")
+              .replace(/[^\d.,]/g, "")
+              .replace(",", ".");
+            pharmSubItems.push({
+              label: ligne.designation || ligne.nom || "",
+              amount: parseFloat(rawPrix) || 0,
+              code: ligne.code_amm || "",
+            });
           }
-
-          // details_lignes at acte level (format actes_independants — pharmacy/lab)
-          const acteLevelDetails = acte.details_lignes as Array<Record<string, string>> | undefined;
-          if (!resultats?.length && Array.isArray(acteLevelDetails) && acteLevelDetails.length > 0) {
-            for (const ligne of acteLevelDetails) {
-              const rawPrix = (ligne.montant || ligne.total_ligne || ligne.prix_unitaire || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-              mainSubItems.push({
-                label: ligne.designation || ligne.nom || ligne.medicament || ligne.acte || '',
-                amount: parseFloat(rawPrix) || 0,
-                code: ligne.code_amm || ligne.code_acte || '',
-                cotation: ligne.cotation || '',
-              });
-            }
-          }
-
-          // Legacy: analyses/examens array
-          const analyses = (acte.analyses || acte.examens) as Array<Record<string, string>> | undefined;
-          if (!resultats?.length && Array.isArray(analyses) && analyses.length > 0) {
-            for (const analyse of analyses) {
-              const rawPrix = (analyse.montant || analyse.prix || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-              mainSubItems.push({
-                label: analyse.nom || analyse.libelle || analyse.nature || '',
-                amount: parseFloat(rawPrix) || 0,
-                code: '',
-              });
-            }
-          }
-
-          if (mainSubItems.length > 0) {
-            acte._sub_items = mainSubItems;
-          }
-          flatActes.push(acte);
-
-          // --- Split: create separate pharmacie acte if embedded ---
-          if (hasPharmacieData) {
-            const pharmSubItems: Array<{ label: string; amount: number; code: string }> = [];
-
-            // pharmacie.details_lignes (prix réels d'achat)
-            if (Array.isArray(pharmacieDetails) && pharmacieDetails.length > 0) {
-              for (const ligne of pharmacieDetails) {
-                const rawPrix = (ligne.montant || ligne.prix_unitaire || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-                pharmSubItems.push({
-                  label: ligne.designation || ligne.nom || '',
-                  amount: parseFloat(rawPrix) || 0,
-                  code: ligne.code_amm || '',
-                });
-              }
-            } else if (Array.isArray(pharmacieMeds) && pharmacieMeds.length > 0) {
-              // pharmacie.medicaments fallback
-              for (const med of pharmacieMeds) {
-                const rawPrix = (med.prix || med.montant || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-                pharmSubItems.push({
-                  label: med.nom || '',
-                  amount: parseFloat(rawPrix) || 0,
-                  code: '',
-                });
-              }
-            }
-
-            const pharmMontant = String(pharmacie?.montant_total || '0').replace(/[^\d.,]/g, '').replace(',', '.');
-
-            // All pharmacy meds go as sub-items (even single medication)
-            const pharmActe: Record<string, unknown> = {
-              type_soin: 'Pharmacie',
-              nature_acte: 'Pharmacie',
-              date_acte: pharmacie?.date_achat || acte.date_acte,
-              montant_facture: pharmSubItems.length === 1 ? String(pharmSubItems[0]!.amount || pharmMontant) : pharmMontant,
-              montant_honoraires: pharmSubItems.length === 1 ? String(pharmSubItems[0]!.amount || pharmMontant) : pharmMontant,
-              nom_praticien: pharmacie?.nom_pharmacie || '',
-              _pharmacie_nom: pharmacie?.nom_pharmacie || '',
-              _sub_items: pharmSubItems,
-            };
-            flatActes.push(pharmActe);
+        } else if (Array.isArray(pharmacieMeds) && pharmacieMeds.length > 0) {
+          // pharmacie.medicaments fallback
+          for (const med of pharmacieMeds) {
+            const rawPrix = (med.prix || med.montant || "0")
+              .replace(/[^\d.,]/g, "")
+              .replace(",", ".");
+            pharmSubItems.push({
+              label: med.nom || "",
+              amount: parseFloat(rawPrix) || 0,
+              code: "",
+            });
           }
         }
 
-        // Extract patient name from infos_patient (when beneficiary ≠ adherent)
-        const infosPatient = item.infos_patient as Record<string, unknown> | undefined;
-        if (infosPatient?.nom_prenom_malade && !infos_adherent.nom_beneficiaire) {
-          infos_adherent.nom_beneficiaire = infosPatient.nom_prenom_malade;
-        }
+        const pharmMontant = String(pharmacie?.montant_total || "0")
+          .replace(/[^\d.,]/g, "")
+          .replace(",", ".");
 
-        const numero_bulletin = (item.numero_bulletin as string)
-          || (infos_adherent.numero_bulletin as string)
-          || (adh.numero_bulletin as string)
-          || undefined;
+        // All pharmacy meds go as sub-items (even single medication)
+        const pharmActe: Record<string, unknown> = {
+          type_soin: "Pharmacie",
+          nature_acte: "Pharmacie",
+          date_acte: pharmacie?.date_achat || acte.date_acte,
+          montant_facture:
+            pharmSubItems.length === 1
+              ? String(pharmSubItems[0]!.amount || pharmMontant)
+              : pharmMontant,
+          montant_honoraires:
+            pharmSubItems.length === 1
+              ? String(pharmSubItems[0]!.amount || pharmMontant)
+              : pharmMontant,
+          nom_praticien: pharmacie?.nom_pharmacie || "",
+          _pharmacie_nom: pharmacie?.nom_pharmacie || "",
+          _sub_items: pharmSubItems,
+        };
+        flatActes.push(pharmActe);
+      }
+    }
 
-        return { infos_adherent, volet_medical: flatActes, numero_bulletin, _file_hash: item._file_hash as string | undefined };
+    // Extract patient name from infos_patient (when beneficiary ≠ adherent)
+    const infosPatient = item.infos_patient as
+      | Record<string, unknown>
+      | undefined;
+    if (infosPatient?.nom_prenom_malade && !infos_adherent.nom_beneficiaire) {
+      infos_adherent.nom_beneficiaire = infosPatient.nom_prenom_malade;
+    }
+
+    const numero_bulletin =
+      (item.numero_bulletin as string) ||
+      (infos_adherent.numero_bulletin as string) ||
+      (adh.numero_bulletin as string) ||
+      undefined;
+
+    return {
+      infos_adherent,
+      volet_medical: flatActes,
+      numero_bulletin,
+      _file_hash: item._file_hash as string | undefined,
+    };
   };
 
   /** Parse a raw OCR API response into an array of OcrBulletinItem */
-  const parseOcrResponse = (result: Record<string, unknown>): OcrBulletinItem[] => {
+  const parseOcrResponse = (
+    result: Record<string, unknown>,
+  ): OcrBulletinItem[] => {
     // Extract _file_hash from any level of the response
-    const responseHash = (result._file_hash || (result.data as Record<string, unknown>)?._file_hash) as string | undefined;
+    const responseHash = (result._file_hash ||
+      (result.data as Record<string, unknown>)?._file_hash) as
+      | string
+      | undefined;
 
     let rawParsed =
       result.donnees_ia || result.resultat || result.data || result;
 
     if (typeof result.raw_response === "string") {
-      const jsonMatch = result.raw_response.match(
-        /```json\s*([\s\S]*?)\s*```/,
-      );
+      const jsonMatch = result.raw_response.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMatch?.[1]) {
         rawParsed = JSON.parse(jsonMatch[1]);
       }
@@ -1879,50 +2206,84 @@ export function BulletinsSaisiePage() {
   };
 
   /** Compute SHA-256 per-file hashes + combined hash — content-based, order-independent. */
-  const computeFileHashes = async (files: File[]): Promise<{
+  const computeFileHashes = async (
+    files: File[],
+  ): Promise<{
     perFile: { index: number; name: string; hash: string }[];
     combinedHash: string;
   }> => {
     const perFile: { index: number; name: string; hash: string }[] = [];
     for (let i = 0; i < files.length; i++) {
       const buf = await files[i]!.arrayBuffer();
-      const h = await crypto.subtle.digest('SHA-256', buf);
+      const h = await crypto.subtle.digest("SHA-256", buf);
       perFile.push({
         index: i,
         name: files[i]!.name,
-        hash: Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join(''),
+        hash: Array.from(new Uint8Array(h))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join(""),
       });
     }
-    const sorted = [...perFile.map(f => f.hash)].sort();
-    const combined = new TextEncoder().encode(sorted.join(''));
-    const finalHash = await crypto.subtle.digest('SHA-256', combined);
-    const combinedHash = Array.from(new Uint8Array(finalHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const sorted = [...perFile.map((f) => f.hash)].sort();
+    const combined = new TextEncoder().encode(sorted.join(""));
+    const finalHash = await crypto.subtle.digest("SHA-256", combined);
+    const combinedHash = Array.from(new Uint8Array(finalHash))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
     return { perFile, combinedHash };
   };
 
   /** Multi-level duplicate check — sends pre-computed hashes as JSON (no file upload = fast). */
-  const checkFileDuplicate = async (files: File[]): Promise<{
+  const checkFileDuplicate = async (
+    files: File[],
+  ): Promise<{
     isDuplicate: boolean;
     level?: string | null;
-    perFile: Array<{ index: number; name: string; hash: string; isDuplicate: boolean; bulletin: Record<string, unknown> | null }>;
+    perFile: Array<{
+      index: number;
+      name: string;
+      hash: string;
+      isDuplicate: boolean;
+      bulletin: Record<string, unknown> | null;
+    }>;
   }> => {
     const { perFile, combinedHash } = await computeFileHashes(files);
     const apiBase = apiClient.getBaseUrl();
-    const token = localStorage.getItem('accessToken');
-    const res = await fetch(`${apiBase}/bulletins-soins/agent/check-file-duplicate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        accept: 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...getTenantHeader(),
+    const token = localStorage.getItem("accessToken");
+    const res = await fetch(
+      `${apiBase}/bulletins-soins/agent/check-file-duplicate`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          accept: "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...getTenantHeader(),
+        },
+        body: JSON.stringify({ fileHashes: perFile, combinedHash }),
       },
-      body: JSON.stringify({ fileHashes: perFile, combinedHash }),
-    });
+    );
     if (!res.ok) return { isDuplicate: false, perFile: [] };
-    const json = await res.json() as { success: boolean; data?: { isDuplicate: boolean; level?: string | null; files: Array<{ index: number; name: string; hash: string; isDuplicate: boolean; bulletin: Record<string, unknown> | null }> } };
+    const json = (await res.json()) as {
+      success: boolean;
+      data?: {
+        isDuplicate: boolean;
+        level?: string | null;
+        files: Array<{
+          index: number;
+          name: string;
+          hash: string;
+          isDuplicate: boolean;
+          bulletin: Record<string, unknown> | null;
+        }>;
+      };
+    };
     const data = json.data;
-    return { isDuplicate: data?.isDuplicate || false, level: data?.level, perFile: data?.files || [] };
+    return {
+      isDuplicate: data?.isDuplicate || false,
+      level: data?.level,
+      perFile: data?.files || [],
+    };
   };
 
   const analyzeWithOCR = async () => {
@@ -1930,11 +2291,21 @@ export function BulletinsSaisiePage() {
 
     // Detect ZIP files
     const hasZip = selectedFiles.some(
-      (f) => f.name.toLowerCase().endsWith('.zip') || f.type === 'application/zip' || f.type === 'application/x-zip-compressed'
+      (f) =>
+        f.name.toLowerCase().endsWith(".zip") ||
+        f.type === "application/zip" ||
+        f.type === "application/x-zip-compressed",
     );
     // Use pre-computed folder grouping from handleFolderChange (stored at selection time)
     const hasSubFolders = folderSubGroups !== null && folderSubGroups.size > 1;
-    console.log('[analyzeWithOCR] hasZip:', hasZip, 'hasSubFolders:', hasSubFolders, 'folderSubGroups:', folderSubGroups ? Object.fromEntries(folderSubGroups) : null);
+    console.log(
+      "[analyzeWithOCR] hasZip:",
+      hasZip,
+      "hasSubFolders:",
+      hasSubFolders,
+      "folderSubGroups:",
+      folderSubGroups ? Object.fromEntries(folderSubGroups) : null,
+    );
 
     let effectiveFiles = selectedFiles; // Files actually sent to OCR (after dedup filtering)
 
@@ -1950,33 +2321,43 @@ export function BulletinsSaisiePage() {
         // 1. Extract files from ZIP and group by sub-folder
         const folderGroups = new Map<string, File[]>();
         for (const file of selectedFiles) {
-          const isZip = file.name.toLowerCase().endsWith('.zip') ||
-            file.type === 'application/zip' ||
-            file.type === 'application/x-zip-compressed';
+          const isZip =
+            file.name.toLowerCase().endsWith(".zip") ||
+            file.type === "application/zip" ||
+            file.type === "application/x-zip-compressed";
           if (isZip) {
             const zip = await JSZip.loadAsync(file);
             const entries = Object.entries(zip.files).filter(
-              ([name, entry]) => !entry.dir && /\.(pdf|jpg|jpeg|png)$/i.test(name)
+              ([name, entry]) =>
+                !entry.dir && /\.(pdf|jpg|jpeg|png)$/i.test(name),
             );
             for (const [name, entry] of entries) {
-              const blob = await entry.async('blob');
-              const ext = name.split('.').pop()?.toLowerCase() || 'pdf';
-              const mimeMap: Record<string, string> = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' };
-              const fileName = name.split('/').pop() || name;
-              const extracted = new File([blob], fileName, { type: mimeMap[ext] || 'application/octet-stream' });
+              const blob = await entry.async("blob");
+              const ext = name.split(".").pop()?.toLowerCase() || "pdf";
+              const mimeMap: Record<string, string> = {
+                pdf: "application/pdf",
+                jpg: "image/jpeg",
+                jpeg: "image/jpeg",
+                png: "image/png",
+              };
+              const fileName = name.split("/").pop() || name;
+              const extracted = new File([blob], fileName, {
+                type: mimeMap[ext] || "application/octet-stream",
+              });
 
               // Group by parent folder path (first-level sub-folder)
-              const parts = name.split('/').filter(Boolean);
-              const groupKey = parts.length > 1 ? parts.slice(0, -1).join('/') : 'racine';
+              const parts = name.split("/").filter(Boolean);
+              const groupKey =
+                parts.length > 1 ? parts.slice(0, -1).join("/") : "racine";
               const existing = folderGroups.get(groupKey) || [];
               existing.push(extracted);
               folderGroups.set(groupKey, existing);
             }
           } else {
             // Non-zip files go to 'racine' group
-            const existing = folderGroups.get('racine') || [];
+            const existing = folderGroups.get("racine") || [];
             existing.push(file);
-            folderGroups.set('racine', existing);
+            folderGroups.set("racine", existing);
           }
         }
 
@@ -1991,12 +2372,14 @@ export function BulletinsSaisiePage() {
         for (const [folderName, files] of folderGroups) {
           const form = new FormData();
           for (const f of files) {
-            form.append('files', f);
+            form.append("files", f);
           }
           groups.push({ name: folderName, form });
         }
 
-        toast.info(`${groups.length} groupe(s) détecté(s) dans le ZIP — vérification des doublons...`);
+        toast.info(
+          `${groups.length} groupe(s) détecté(s) dans le ZIP — vérification des doublons...`,
+        );
 
         // 3. Pre-check all groups for duplicates BEFORE launching OCR
         setIsCheckingDuplicates(true);
@@ -2005,20 +2388,27 @@ export function BulletinsSaisiePage() {
 
         for (const { name, form } of groups) {
           try {
-            const groupFiles = form.getAll('files') as File[];
+            const groupFiles = form.getAll("files") as File[];
             if (groupFiles.length === 0) continue;
             const dupResult = await checkFileDuplicate(groupFiles);
             if (dupResult.isDuplicate) {
-              const cleanFiles = groupFiles.filter((_, i) =>
-                !dupResult.perFile.find(pf => pf.index === i && pf.isDuplicate)
+              const cleanFiles = groupFiles.filter(
+                (_, i) =>
+                  !dupResult.perFile.find(
+                    (pf) => pf.index === i && pf.isDuplicate,
+                  ),
               );
               if (cleanFiles.length === 0) {
-                const dupBulletin = dupResult.perFile.find(pf => pf.bulletin)?.bulletin;
-                skippedDuplicateNames.push(`${name} → N° ${(dupBulletin?.bulletinNumber as string) || '?'}`);
+                const dupBulletin = dupResult.perFile.find(
+                  (pf) => pf.bulletin,
+                )?.bulletin;
+                skippedDuplicateNames.push(
+                  `${name} → N° ${(dupBulletin?.bulletinNumber as string) || "?"}`,
+                );
                 continue;
               }
               const cleanForm = new FormData();
-              for (const f of cleanFiles) cleanForm.append('files', f);
+              for (const f of cleanFiles) cleanForm.append("files", f);
               cleanGroups.push({ name, form: cleanForm });
               skippedDuplicateNames.push(`${name} (partiel)`);
             } else {
@@ -2031,7 +2421,10 @@ export function BulletinsSaisiePage() {
         setIsCheckingDuplicates(false);
 
         if (skippedDuplicateNames.length > 0) {
-          toast.warning(`${skippedDuplicateNames.length} doublon(s) ignoré(s) : ${skippedDuplicateNames.join(', ')}`, { duration: 6000 });
+          toast.warning(
+            `${skippedDuplicateNames.length} doublon(s) ignoré(s) : ${skippedDuplicateNames.join(", ")}`,
+            { duration: 6000 },
+          );
         }
 
         if (cleanGroups.length === 0) {
@@ -2040,11 +2433,14 @@ export function BulletinsSaisiePage() {
           return;
         }
 
-        toast.info(`Analyse OCR de ${cleanGroups.length} bulletin(s) en cours... Vous pouvez naviguer librement.`, { id: 'bulk-progress' });
+        toast.info(
+          `Analyse OCR de ${cleanGroups.length} bulletin(s) en cours... Vous pouvez naviguer librement.`,
+          { id: "bulk-progress" },
+        );
 
         // 4. Fire-and-forget: run OCR calls in background (survives page navigation)
         const capturedParseOcrResponse = parseOcrResponse;
-        const capturedCompanyId = selectedCompany?.id || '';
+        const capturedCompanyId = selectedCompany?.id || "";
         const capturedBatchId = selectedBatch?.id;
         const capturedMountedRef = mountedRef;
         const totalGroups = cleanGroups.length;
@@ -2052,11 +2448,15 @@ export function BulletinsSaisiePage() {
         // Copy group data (forms with files) before async — closure captures references
         const groupsCopy = cleanGroups.map(({ name, form }) => ({
           name,
-          files: form.getAll('files') as File[],
+          files: form.getAll("files") as File[],
         }));
         // Capture file metadata for display + store blobs in IndexedDB
-        const allGroupFiles = groupsCopy.flatMap(g => g.files);
-        const capturedFilesMeta: FileMeta[] = allGroupFiles.map(f => ({ name: f.name, size: f.size, type: f.type }));
+        const allGroupFiles = groupsCopy.flatMap((g) => g.files);
+        const capturedFilesMeta: FileMeta[] = allGroupFiles.map((f) => ({
+          name: f.name,
+          size: f.size,
+          type: f.type,
+        }));
         const sessionId = crypto.randomUUID();
         await saveFilesToIdb(sessionId, allGroupFiles).catch(() => {});
 
@@ -2068,30 +2468,41 @@ export function BulletinsSaisiePage() {
           for (let i = 0; i < groupsCopy.length; i += CONCURRENCY) {
             const batch = groupsCopy.slice(i, i + CONCURRENCY);
             if (capturedMountedRef.current && totalGroups > 1) {
-              setAnalyzeProgress({ current: completed + 1, total: totalGroups, groupName: batch.map(b => b.name).join(', ') });
+              setAnalyzeProgress({
+                current: completed + 1,
+                total: totalGroups,
+                groupName: batch.map((b) => b.name).join(", "),
+              });
             }
-            await Promise.allSettled(batch.map(async ({ name, files }) => {
-              try {
-                const form = new FormData();
-                for (const f of files) form.append('files', f);
-                const res = await fetch(`${ocrBase}/analyse-bulletin`, {
-                  method: 'POST', headers: { accept: 'application/json' }, body: form,
-                });
-                if (!res.ok) {
-                  toast.error(`Erreur OCR pour "${name}"`);
-                  return;
+            await Promise.allSettled(
+              batch.map(async ({ name, files }) => {
+                try {
+                  const form = new FormData();
+                  for (const f of files) form.append("files", f);
+                  const res = await fetch(`${ocrBase}/analyse-bulletin`, {
+                    method: "POST",
+                    headers: { accept: "application/json" },
+                    body: form,
+                  });
+                  if (!res.ok) {
+                    toast.error(`Erreur OCR pour "${name}"`);
+                    return;
+                  }
+                  const parsed = capturedParseOcrResponse(await res.json());
+                  for (const b of parsed) b._source_files = files;
+                  allBulletins.push(...parsed);
+                } catch (err) {
+                  console.error(`[zip-ocr] Erreur "${name}":`, err);
+                  toast.error(`Erreur pour "${name}"`);
                 }
-                const parsed = capturedParseOcrResponse(await res.json());
-                for (const b of parsed) b._source_files = files;
-                allBulletins.push(...parsed);
-              } catch (err) {
-                console.error(`[zip-ocr] Erreur "${name}":`, err);
-                toast.error(`Erreur pour "${name}"`);
-              }
-            }));
+              }),
+            );
             completed += batch.length;
             if (totalGroups > CONCURRENCY) {
-              toast.info(`Analyse ${Math.min(i + CONCURRENCY, totalGroups)}/${totalGroups} terminée...`, { id: 'bulk-progress' });
+              toast.info(
+                `Analyse ${Math.min(i + CONCURRENCY, totalGroups)}/${totalGroups} terminée...`,
+                { id: "bulk-progress" },
+              );
             }
           }
 
@@ -2102,7 +2513,9 @@ export function BulletinsSaisiePage() {
             // Always save to Zustand (survives navigation)
             useOcrJobsStore.getState().saveAnalysisSession({
               id: sessionId,
-              bulletinsJson: JSON.stringify(allBulletins, (k, v) => k === '_source_files' ? undefined : v),
+              bulletinsJson: JSON.stringify(allBulletins, (k, v) =>
+                k === "_source_files" ? undefined : v,
+              ),
               companyId: capturedCompanyId,
               batchId: capturedBatchId,
               count: allBulletins.length,
@@ -2111,7 +2524,9 @@ export function BulletinsSaisiePage() {
               fileSessionId: sessionId,
             });
 
-            toast.success(`${allBulletins.length} bulletin(s) analysés depuis ${totalGroups} groupe(s) du ZIP`);
+            toast.success(
+              `${allBulletins.length} bulletin(s) analysés depuis ${totalGroups} groupe(s) du ZIP`,
+            );
 
             // If component is still mounted, fill form directly
             if (capturedMountedRef.current) {
@@ -2133,8 +2548,10 @@ export function BulletinsSaisiePage() {
         // Return immediately — OCR runs in background, isAnalyzing cleared when done
         return;
       } catch (error) {
-        console.error('Bulk analysis error:', error);
-        toast.error(error instanceof Error ? error.message : "Erreur lors de l'analyse");
+        console.error("Bulk analysis error:", error);
+        toast.error(
+          error instanceof Error ? error.message : "Erreur lors de l'analyse",
+        );
         setIsAnalyzing(false);
         return;
       }
@@ -2154,7 +2571,7 @@ export function BulletinsSaisiePage() {
           const form = new FormData();
           for (const idx of indices) {
             const f = selectedFiles[idx];
-            if (f) form.append('files', f);
+            if (f) form.append("files", f);
           }
           groups.push({ name: subFolder, form });
         }
@@ -2165,20 +2582,27 @@ export function BulletinsSaisiePage() {
 
         for (const { name, form } of groups) {
           try {
-            const groupFiles = form.getAll('files') as File[];
+            const groupFiles = form.getAll("files") as File[];
             if (groupFiles.length === 0) continue;
             const dupResult = await checkFileDuplicate(groupFiles);
             if (dupResult.isDuplicate) {
-              const cleanFiles = groupFiles.filter((_, i) =>
-                !dupResult.perFile.find(pf => pf.index === i && pf.isDuplicate)
+              const cleanFiles = groupFiles.filter(
+                (_, i) =>
+                  !dupResult.perFile.find(
+                    (pf) => pf.index === i && pf.isDuplicate,
+                  ),
               );
               if (cleanFiles.length === 0) {
-                const dupBulletin = dupResult.perFile.find(pf => pf.bulletin)?.bulletin;
-                skippedDuplicateNames.push(`${name} → N° ${(dupBulletin?.bulletinNumber as string) || '?'}`);
+                const dupBulletin = dupResult.perFile.find(
+                  (pf) => pf.bulletin,
+                )?.bulletin;
+                skippedDuplicateNames.push(
+                  `${name} → N° ${(dupBulletin?.bulletinNumber as string) || "?"}`,
+                );
                 continue;
               }
               const cleanForm = new FormData();
-              for (const f of cleanFiles) cleanForm.append('files', f);
+              for (const f of cleanFiles) cleanForm.append("files", f);
               cleanGroups.push({ name, form: cleanForm });
               skippedDuplicateNames.push(`${name} (partiel)`);
             } else {
@@ -2191,7 +2615,10 @@ export function BulletinsSaisiePage() {
         setIsCheckingDuplicates(false);
 
         if (skippedDuplicateNames.length > 0) {
-          toast.warning(`${skippedDuplicateNames.length} doublon(s) ignoré(s) : ${skippedDuplicateNames.join(', ')}`, { duration: 6000 });
+          toast.warning(
+            `${skippedDuplicateNames.length} doublon(s) ignoré(s) : ${skippedDuplicateNames.join(", ")}`,
+            { duration: 6000 },
+          );
         }
 
         if (cleanGroups.length === 0) {
@@ -2200,21 +2627,28 @@ export function BulletinsSaisiePage() {
           return;
         }
 
-        toast.info(`Analyse OCR de ${cleanGroups.length} bulletin(s) en cours... Vous pouvez naviguer librement.`, { id: 'bulk-progress' });
+        toast.info(
+          `Analyse OCR de ${cleanGroups.length} bulletin(s) en cours... Vous pouvez naviguer librement.`,
+          { id: "bulk-progress" },
+        );
 
         // Fire-and-forget: run OCR calls in background (survives page navigation)
         const capturedParseOcrResponse = parseOcrResponse;
-        const capturedCompanyId = selectedCompany?.id || '';
+        const capturedCompanyId = selectedCompany?.id || "";
         const capturedBatchId = selectedBatch?.id;
         const capturedMountedRef = mountedRef;
         const totalGroups = cleanGroups.length;
 
         const groupsCopy = cleanGroups.map(({ name, form }) => ({
           name,
-          files: form.getAll('files') as File[],
+          files: form.getAll("files") as File[],
         }));
-        const allFolderFiles = groupsCopy.flatMap(g => g.files);
-        const capturedFilesMeta: FileMeta[] = allFolderFiles.map(f => ({ name: f.name, size: f.size, type: f.type }));
+        const allFolderFiles = groupsCopy.flatMap((g) => g.files);
+        const capturedFilesMeta: FileMeta[] = allFolderFiles.map((f) => ({
+          name: f.name,
+          size: f.size,
+          type: f.type,
+        }));
         const sessionId = crypto.randomUUID();
         await saveFilesToIdb(sessionId, allFolderFiles).catch(() => {});
 
@@ -2226,30 +2660,41 @@ export function BulletinsSaisiePage() {
           for (let i = 0; i < groupsCopy.length; i += CONCURRENCY) {
             const batch = groupsCopy.slice(i, i + CONCURRENCY);
             if (capturedMountedRef.current && totalGroups > 1) {
-              setAnalyzeProgress({ current: completed + 1, total: totalGroups, groupName: batch.map(b => b.name).join(', ') });
+              setAnalyzeProgress({
+                current: completed + 1,
+                total: totalGroups,
+                groupName: batch.map((b) => b.name).join(", "),
+              });
             }
-            await Promise.allSettled(batch.map(async ({ name, files }) => {
-              try {
-                const form = new FormData();
-                for (const f of files) form.append('files', f);
-                const res = await fetch(`${ocrBase}/analyse-bulletin`, {
-                  method: 'POST', headers: { accept: 'application/json' }, body: form,
-                });
-                if (!res.ok) {
-                  toast.error(`Erreur OCR pour "${name}"`);
-                  return;
+            await Promise.allSettled(
+              batch.map(async ({ name, files }) => {
+                try {
+                  const form = new FormData();
+                  for (const f of files) form.append("files", f);
+                  const res = await fetch(`${ocrBase}/analyse-bulletin`, {
+                    method: "POST",
+                    headers: { accept: "application/json" },
+                    body: form,
+                  });
+                  if (!res.ok) {
+                    toast.error(`Erreur OCR pour "${name}"`);
+                    return;
+                  }
+                  const parsed = capturedParseOcrResponse(await res.json());
+                  for (const b of parsed) b._source_files = files;
+                  allBulletins.push(...parsed);
+                } catch (err) {
+                  console.error(`[folder-ocr] Erreur "${name}":`, err);
+                  toast.error(`Erreur pour "${name}"`);
                 }
-                const parsed = capturedParseOcrResponse(await res.json());
-                for (const b of parsed) b._source_files = files;
-                allBulletins.push(...parsed);
-              } catch (err) {
-                console.error(`[folder-ocr] Erreur "${name}":`, err);
-                toast.error(`Erreur pour "${name}"`);
-              }
-            }));
+              }),
+            );
             completed += batch.length;
             if (totalGroups > CONCURRENCY) {
-              toast.info(`Analyse ${Math.min(i + CONCURRENCY, totalGroups)}/${totalGroups} terminée...`, { id: 'bulk-progress' });
+              toast.info(
+                `Analyse ${Math.min(i + CONCURRENCY, totalGroups)}/${totalGroups} terminée...`,
+                { id: "bulk-progress" },
+              );
             }
           }
 
@@ -2258,7 +2703,9 @@ export function BulletinsSaisiePage() {
           } else {
             useOcrJobsStore.getState().saveAnalysisSession({
               id: sessionId,
-              bulletinsJson: JSON.stringify(allBulletins, (k, v) => k === '_source_files' ? undefined : v),
+              bulletinsJson: JSON.stringify(allBulletins, (k, v) =>
+                k === "_source_files" ? undefined : v,
+              ),
               companyId: capturedCompanyId,
               batchId: capturedBatchId,
               count: allBulletins.length,
@@ -2267,7 +2714,9 @@ export function BulletinsSaisiePage() {
               fileSessionId: sessionId,
             });
 
-            toast.success(`${allBulletins.length} bulletin(s) extraits de ${totalGroups} sous-dossier(s)`);
+            toast.success(
+              `${allBulletins.length} bulletin(s) extraits de ${totalGroups} sous-dossier(s)`,
+            );
 
             if (capturedMountedRef.current) {
               setOcrBulletins(allBulletins);
@@ -2286,8 +2735,10 @@ export function BulletinsSaisiePage() {
 
         return;
       } catch (error) {
-        console.error('Bulk analysis error:', error);
-        toast.error(error instanceof Error ? error.message : "Erreur lors de l'analyse");
+        console.error("Bulk analysis error:", error);
+        toast.error(
+          error instanceof Error ? error.message : "Erreur lors de l'analyse",
+        );
         setIsAnalyzing(false);
         return;
       }
@@ -2305,13 +2756,18 @@ export function BulletinsSaisiePage() {
         try {
           const dupResult = await checkFileDuplicate(selectedFiles);
           if (dupResult.isDuplicate) {
-            const cleanFiles = selectedFiles.filter((_, i) =>
-              !dupResult.perFile.find(pf => pf.index === i && pf.isDuplicate)
+            const cleanFiles = selectedFiles.filter(
+              (_, i) =>
+                !dupResult.perFile.find(
+                  (pf) => pf.index === i && pf.isDuplicate,
+                ),
             );
 
             if (cleanFiles.length === 0) {
               // ALL files are duplicates — show alert for first one
-              const firstDup = dupResult.perFile.find(pf => pf.isDuplicate && pf.bulletin);
+              const firstDup = dupResult.perFile.find(
+                (pf) => pf.isDuplicate && pf.bulletin,
+              );
               if (firstDup?.bulletin) {
                 const b = firstDup.bulletin;
                 setDuplicateBulletin({
@@ -2333,8 +2789,8 @@ export function BulletinsSaisiePage() {
             // Some files are duplicates — ask user to confirm before continuing
             setIsCheckingDuplicates(false);
             const duplicateFileInfos = dupResult.perFile
-              .filter(pf => pf.isDuplicate)
-              .map(pf => ({ name: pf.name, bulletin: pf.bulletin }));
+              .filter((pf) => pf.isDuplicate)
+              .map((pf) => ({ name: pf.name, bulletin: pf.bulletin }));
 
             const proceed = await new Promise<boolean>((resolve) => {
               setDuplicateConfirm({
@@ -2348,19 +2804,24 @@ export function BulletinsSaisiePage() {
 
             if (!proceed) return;
 
-            formData.delete('files');
-            for (const f of cleanFiles) formData.append('files', f);
+            formData.delete("files");
+            for (const f of cleanFiles) formData.append("files", f);
             effectiveFiles = cleanFiles;
           }
         } catch (hashErr) {
-          console.warn('[OCR] Duplicate check failed, continuing with OCR:', hashErr);
+          console.warn(
+            "[OCR] Duplicate check failed, continuing with OCR:",
+            hashErr,
+          );
         } finally {
           setIsCheckingDuplicates(false);
         }
       }
 
       setIsAnalyzing(true);
-      toast.info("Analyse OCR en cours... Vous pouvez naviguer librement.", { id: 'single-ocr-progress' });
+      toast.info("Analyse OCR en cours... Vous pouvez naviguer librement.", {
+        id: "single-ocr-progress",
+      });
 
       // Step 2: Fire-and-forget OCR call (survives page navigation)
       const ocrBase = (
@@ -2368,11 +2829,15 @@ export function BulletinsSaisiePage() {
         "https://ocr-api-bh-assurance-staging.yassine-techini.workers.dev"
       ).replace(/\/+$/, "");
       const capturedParseOcrResponse = parseOcrResponse;
-      const capturedCompanyId = selectedCompany?.id || '';
+      const capturedCompanyId = selectedCompany?.id || "";
       const capturedBatchId = selectedBatch?.id;
       const capturedMountedRef = mountedRef;
       const capturedEffectiveFiles = [...effectiveFiles];
-      const capturedFilesMeta: FileMeta[] = capturedEffectiveFiles.map(f => ({ name: f.name, size: f.size, type: f.type }));
+      const capturedFilesMeta: FileMeta[] = capturedEffectiveFiles.map((f) => ({
+        name: f.name,
+        size: f.size,
+        type: f.type,
+      }));
       const sessionId = crypto.randomUUID();
       await saveFilesToIdb(sessionId, capturedEffectiveFiles).catch(() => {});
 
@@ -2390,7 +2855,10 @@ export function BulletinsSaisiePage() {
           }
 
           const result = await ocrRes.json();
-          console.log("[OCR] Raw API response:", JSON.stringify(result, null, 2));
+          console.log(
+            "[OCR] Raw API response:",
+            JSON.stringify(result, null, 2),
+          );
 
           const parsed = capturedParseOcrResponse(result);
           if (!parsed || parsed.length === 0) {
@@ -2400,7 +2868,10 @@ export function BulletinsSaisiePage() {
 
           // Associate source files
           if (!parsed[0]?._source_files) {
-            if (parsed.length > 1 && capturedEffectiveFiles.length === parsed.length) {
+            if (
+              parsed.length > 1 &&
+              capturedEffectiveFiles.length === parsed.length
+            ) {
               for (let i = 0; i < parsed.length; i++) {
                 parsed[i]!._source_files = [capturedEffectiveFiles[i]!];
               }
@@ -2414,7 +2885,9 @@ export function BulletinsSaisiePage() {
           // Always save to Zustand (survives navigation)
           useOcrJobsStore.getState().saveAnalysisSession({
             id: sessionId,
-            bulletinsJson: JSON.stringify(parsed, (k, v) => k === '_source_files' ? undefined : v),
+            bulletinsJson: JSON.stringify(parsed, (k, v) =>
+              k === "_source_files" ? undefined : v,
+            ),
             companyId: capturedCompanyId,
             batchId: capturedBatchId,
             count: parsed.length,
@@ -2447,44 +2920,60 @@ export function BulletinsSaisiePage() {
   };
 
   /** Load a bulk-OCR bulletin into the main form for review/correction */
-  const loadBulkBulletinIntoForm = (b: import('@/features/bulletins/hooks/useBulkAnalyse').PendingBulletin) => {
+  const loadBulkBulletinIntoForm = (
+    b: import("@/features/bulletins/hooks/useBulkAnalyse").PendingBulletin,
+  ) => {
     // Reset form
     reset({
-      bulletin_number: b.bulletin_number || '',
-      bulletin_date: b.bulletin_date || new Date().toISOString().split('T')[0],
-      adherent_matricule: b.adherent_matricule || '',
-      adherent_first_name: b.adherent_first_name || '',
-      adherent_last_name: b.adherent_last_name || '',
-      adherent_national_id: '',
-      adherent_contract_number: '',
-      adherent_email: '',
-      adherent_address: '',
-      adherent_date_of_birth: '',
-      beneficiary_name: b.beneficiary_name || '',
-      beneficiary_id: '',
-      beneficiary_relationship: (b.beneficiary_relationship as 'self' | 'spouse' | 'child') || 'self',
-      beneficiary_email: '',
-      beneficiary_address: '',
-      beneficiary_date_of_birth: '',
+      bulletin_number: b.bulletin_number || "",
+      bulletin_date: b.bulletin_date || new Date().toISOString().split("T")[0],
+      adherent_matricule: b.adherent_matricule || "",
+      adherent_first_name: b.adherent_first_name || "",
+      adherent_last_name: b.adherent_last_name || "",
+      adherent_national_id: "",
+      adherent_contract_number: "",
+      adherent_email: "",
+      adherent_address: "",
+      adherent_date_of_birth: "",
+      beneficiary_name: b.beneficiary_name || "",
+      beneficiary_id: "",
+      beneficiary_relationship:
+        (b.beneficiary_relationship as "self" | "spouse" | "child") || "self",
+      beneficiary_email: "",
+      beneficiary_address: "",
+      beneficiary_date_of_birth: "",
       care_type: undefined,
-      actes: b.actes.length > 0
-        ? b.actes.map((a) => ({
-            code: a.code || '',
-            label: a.label || '',
-            amount: a.amount || 0,
-            ref_prof_sant: a.ref_prof_sant || '',
-            nom_prof_sant: a.nom_prof_sant || '',
-            care_type: resolveCareType(a.care_type),
-            care_description: '',
-            cod_msgr: '',
-            lib_msgr: '',
-          }))
-        : [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_type: 'consultation' as const, care_description: '', cod_msgr: '', lib_msgr: '' }],
+      actes:
+        b.actes.length > 0
+          ? b.actes.map((a) => ({
+              code: a.code || "",
+              label: a.label || "",
+              amount: a.amount || 0,
+              ref_prof_sant: a.ref_prof_sant || "",
+              nom_prof_sant: a.nom_prof_sant || "",
+              care_type: resolveCareType(a.care_type),
+              care_description: "",
+              cod_msgr: "",
+              lib_msgr: "",
+            }))
+          : [
+              {
+                code: "",
+                label: "",
+                amount: 0,
+                ref_prof_sant: "",
+                nom_prof_sant: "",
+                care_type: "consultation" as const,
+                care_description: "",
+                cod_msgr: "",
+                lib_msgr: "",
+              },
+            ],
     });
 
     // Reset related states
     setSelectedAdherentInfo(null);
-    setAdherentSearch(b.adherent_matricule || '');
+    setAdherentSearch(b.adherent_matricule || "");
     setOcrPraticienInfos({});
     setMfStatuses({});
     setOcrFeedback(null);
@@ -2492,19 +2981,29 @@ export function BulletinsSaisiePage() {
     // Pre-fill praticien infos for MF lookup
     b.actes.forEach((a, i) => {
       if (a.ref_prof_sant || a.nom_prof_sant) {
-        setOcrPraticienInfos((prev) => ({ ...prev, [i]: { nom: a.nom_prof_sant || '', mf: a.ref_prof_sant || '' } }));
+        setOcrPraticienInfos((prev) => ({
+          ...prev,
+          [i]: { nom: a.nom_prof_sant || "", mf: a.ref_prof_sant || "" },
+        }));
       }
     });
 
     // Close bulk panel and switch to saisie tab
     setBulkJobId(null);
-    setActiveTab('saisie');
-    toast.info(`Bulletin de ${b.adherent_first_name || ''} ${b.adherent_last_name || ''} chargé dans le formulaire`);
+    setActiveTab("saisie");
+    toast.info(
+      `Bulletin de ${b.adherent_first_name || ""} ${b.adherent_last_name || ""} chargé dans le formulaire`,
+    );
   };
 
   /** Switch to a different OCR-analyzed bulletin and fill the form */
   const handleSwitchBulletin = (index: number) => {
-    if (index < 0 || index >= ocrBulletins.length || index === activeBulletinIndex) return;
+    if (
+      index < 0 ||
+      index >= ocrBulletins.length ||
+      index === activeBulletinIndex
+    )
+      return;
 
     // If switching to a saved bulletin, just update the index (detail view handles display)
     if (savedBulletinIndices.has(index)) {
@@ -2514,7 +3013,9 @@ export function BulletinsSaisiePage() {
 
     const bulletin = ocrBulletins[index]!;
     const info = bulletin.infos_adherent as Record<string, string>;
-    const actes = bulletin.volet_medical as Array<Record<string, string | null>>;
+    const actes = bulletin.volet_medical as Array<
+      Record<string, string | null>
+    >;
 
     // Full reset to clear ALL fields from previous bulletin
     reset({
@@ -2535,7 +3036,19 @@ export function BulletinsSaisiePage() {
       beneficiary_address: "",
       beneficiary_date_of_birth: "",
       care_type: undefined,
-      actes: [{ code: "", label: "", amount: 0, ref_prof_sant: "", nom_prof_sant: "", care_type: "consultation" as const, care_description: "", cod_msgr: "", lib_msgr: "" }],
+      actes: [
+        {
+          code: "",
+          label: "",
+          amount: 0,
+          ref_prof_sant: "",
+          nom_prof_sant: "",
+          care_type: "consultation" as const,
+          care_description: "",
+          cod_msgr: "",
+          lib_msgr: "",
+        },
+      ],
     });
     setSelectedAdherentInfo(null);
     setAdherentSearch("");
@@ -2567,91 +3080,227 @@ export function BulletinsSaisiePage() {
           setValue("adherent_first_name", parts.slice(1).join(" "));
         }
       }
-      const matriculeRaw = [info.numero_adherent, info.numero_contrat].find((v) => v && v !== "illisible");
+      const matriculeRaw = [info.numero_adherent, info.numero_contrat].find(
+        (v) => v && v !== "illisible",
+      );
       if (matriculeRaw) {
         const matricule = matriculeRaw.replace(/\s+/g, "");
         setValue("adherent_matricule", matricule);
         setAdherentSearch(matricule);
       }
       if (info.numero_contrat && info.numero_contrat !== "illisible") {
-        setValue("adherent_contract_number", info.numero_contrat.replace(/\s+/g, ""));
+        setValue(
+          "adherent_contract_number",
+          info.numero_contrat.replace(/\s+/g, ""),
+        );
       }
       const rawDate = info.date_bulletin || info.date_signature;
       if (rawDate) {
         const dateParts = rawDate.split(/[.\/]/);
         if (dateParts.length === 3) {
-          const year = dateParts[2]!.length === 2 ? `20${dateParts[2]}` : dateParts[2];
+          const year =
+            dateParts[2]!.length === 2 ? `20${dateParts[2]}` : dateParts[2];
           setValue("bulletin_date", `${year}-${dateParts[1]}-${dateParts[0]}`);
         }
       }
       if (info.beneficiaire_coche) {
         const benef = info.beneficiaire_coche.toLowerCase().trim();
-        if (benef.includes("conjoint")) setValue("beneficiary_relationship" as keyof BulletinFormData, "spouse");
-        else if (benef.includes("enfant")) setValue("beneficiary_relationship" as keyof BulletinFormData, "child");
-        else if (benef.includes("parent") || benef.includes("ascendant")) setValue("beneficiary_relationship" as keyof BulletinFormData, "parent");
-        else if (benef.includes("adh") || benef.includes("assur")) setValue("beneficiary_relationship" as keyof BulletinFormData, "self");
+        if (benef.includes("conjoint"))
+          setValue(
+            "beneficiary_relationship" as keyof BulletinFormData,
+            "spouse",
+          );
+        else if (benef.includes("enfant"))
+          setValue(
+            "beneficiary_relationship" as keyof BulletinFormData,
+            "child",
+          );
+        else if (benef.includes("parent") || benef.includes("ascendant"))
+          setValue(
+            "beneficiary_relationship" as keyof BulletinFormData,
+            "parent",
+          );
+        else if (benef.includes("adh") || benef.includes("assur"))
+          setValue(
+            "beneficiary_relationship" as keyof BulletinFormData,
+            "self",
+          );
       } else {
         setValue("beneficiary_relationship" as keyof BulletinFormData, "self");
       }
-      if (info.nom_beneficiaire) setValue("beneficiary_name", info.nom_beneficiaire.trim());
+      if (info.nom_beneficiaire)
+        setValue("beneficiary_name", info.nom_beneficiaire.trim());
     }
 
     // Care type from type_soin + nature_acte
-    const detectCareType = (typeSoin?: string | null, natureActe?: string | null): string => {
-      const combined = [typeSoin, natureActe].filter(Boolean).join(" ").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const detectCareType = (
+      typeSoin?: string | null,
+      natureActe?: string | null,
+    ): string => {
+      const combined = [typeSoin, natureActe]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
       if (!combined) return "consultation";
-      if (combined.includes("pharmac") || combined.includes("medicament")) return "pharmacie";
-      if (combined.includes("dentaire") || combined.includes("dentist") || combined.includes("dent ")) return "dentaire";
+      if (combined.includes("pharmac") || combined.includes("medicament"))
+        return "pharmacie";
+      if (
+        combined.includes("dentaire") ||
+        combined.includes("dentist") ||
+        combined.includes("dent ")
+      )
+        return "dentaire";
       if (combined.includes("orthodont")) return "orthodontie";
-      if (combined.includes("optique") || combined.includes("lunette") || combined.includes("verres")) return "optique";
-      if (combined.includes("chirurg") && (combined.includes("refract") || combined.includes("lasik"))) return "chirurgie_refractive";
-      if (combined.includes("chirurg") || combined.includes("operation") || combined.includes("bloc")) return "chirurgie";
-      if (combined.includes("labo") || combined.includes("analyse") || combined.includes("biolog")) return "laboratoire";
-      if (combined.includes("radio") || combined.includes("echograph") || combined.includes("scanner") || combined.includes("irm") || combined.includes("physiother")) return "actes_specialistes";
-        if (combined.includes("kine")) return "actes_courants";
-      if (combined.includes("accouchement") || combined.includes("maternite")) return "accouchement";
-      if (combined.includes("hosp") || combined.includes("clinique")) return "hospitalisation";
+      if (
+        combined.includes("optique") ||
+        combined.includes("lunette") ||
+        combined.includes("verres")
+      )
+        return "optique";
+      if (
+        combined.includes("chirurg") &&
+        (combined.includes("refract") || combined.includes("lasik"))
+      )
+        return "chirurgie_refractive";
+      if (
+        combined.includes("chirurg") ||
+        combined.includes("operation") ||
+        combined.includes("bloc")
+      )
+        return "chirurgie";
+      if (
+        combined.includes("labo") ||
+        combined.includes("analyse") ||
+        combined.includes("biolog")
+      )
+        return "laboratoire";
+      if (
+        combined.includes("radio") ||
+        combined.includes("echograph") ||
+        combined.includes("scanner") ||
+        combined.includes("irm") ||
+        combined.includes("physiother")
+      )
+        return "actes_specialistes";
+      if (combined.includes("kine")) return "actes_courants";
+      if (combined.includes("accouchement") || combined.includes("maternite"))
+        return "accouchement";
+      if (combined.includes("hosp") || combined.includes("clinique"))
+        return "hospitalisation";
       if (combined.includes("circoncision")) return "circoncision";
-      if (combined.includes("orthopedie") || combined.includes("orthoped") || combined.includes("prothese orthoped")) return "orthopedie";
-      if (combined.includes("transport") || combined.includes("ambulance")) return "transport";
-      if (combined.includes("cure") || combined.includes("thermal")) return "cures_thermales";
+      if (
+        combined.includes("orthopedie") ||
+        combined.includes("orthoped") ||
+        combined.includes("prothese orthoped")
+      )
+        return "orthopedie";
+      if (combined.includes("transport") || combined.includes("ambulance"))
+        return "transport";
+      if (combined.includes("cure") || combined.includes("thermal"))
+        return "cures_thermales";
       if (combined.includes("sanatorium")) return "sanatorium";
-      if (combined.includes("funeraire") || combined.includes("deces")) return "frais_funeraires";
-      if (combined.includes("interruption") || combined.includes("ivg")) return "accouchement";
+      if (combined.includes("funeraire") || combined.includes("deces"))
+        return "frais_funeraires";
+      if (combined.includes("interruption") || combined.includes("ivg"))
+        return "accouchement";
       return "consultation";
     };
 
     if (Array.isArray(actes) && actes.length > 0 && actes[0]?.type_soin) {
-      setValue("care_type", detectCareType(actes[0].type_soin, actes[0].nature_acte as string | null));
+      setValue(
+        "care_type",
+        detectCareType(
+          actes[0].type_soin,
+          actes[0].nature_acte as string | null,
+        ),
+      );
     }
 
     // Fill actes with sub_items
     if (Array.isArray(actes) && actes.length > 0) {
       actes.forEach((acte: Record<string, unknown>, i: number) => {
-        const acteCareType = detectCareType(acte.type_soin as string | null, acte.nature_acte as string | null);
+        const acteCareType = detectCareType(
+          acte.type_soin as string | null,
+          acte.nature_acte as string | null,
+        );
         const isPharmacy = resolveCareType(acteCareType) === "pharmacie";
-        const rawMontant = ((acte.montant_facture as string) || (acte.montant_honoraires as string) || "0").replace(/[^\d.,]/g, "").replace(",", ".");
+        const rawMontant = (
+          (acte.montant_facture as string) ||
+          (acte.montant_honoraires as string) ||
+          "0"
+        )
+          .replace(/[^\d.,]/g, "")
+          .replace(",", ".");
         const montant = parseFloat(rawMontant) || 0;
-        const mapped = (acte.nature_acte as string) ? mapNatureActeToCode(acte.nature_acte as string) : null;
-        const code = isPharmacy ? "PH1" : ((acte.matched_code as string) || mapped?.code || "");
-        const ocrSubs = acte._sub_items as Array<{ label: string; amount: number; code: string; cotation?: string }> | undefined;
+        const mapped = (acte.nature_acte as string)
+          ? mapNatureActeToCode(acte.nature_acte as string)
+          : null;
+        const code = isPharmacy
+          ? "PH1"
+          : (acte.matched_code as string) || mapped?.code || "";
+        const ocrSubs = acte._sub_items as
+          | Array<{
+              label: string;
+              amount: number;
+              code: string;
+              cotation?: string;
+            }>
+          | undefined;
         const label = isPharmacy
           ? "Pharmacie"
-          : ((acte.matched_label as string) || mapped?.label || (acte.nature_acte as string) || "");
+          : (acte.matched_label as string) ||
+            mapped?.label ||
+            (acte.nature_acte as string) ||
+            "";
         // For pharmacy without sub-items, create one from the nature_acte
         if (isPharmacy && (!ocrSubs || ocrSubs.length === 0)) {
-          acte._sub_items = [{ label: (acte.nature_acte as string) || "", amount: montant, code: "", cotation: "" }];
+          acte._sub_items = [
+            {
+              label: (acte.nature_acte as string) || "",
+              amount: montant,
+              code: "",
+              cotation: "",
+            },
+          ];
         }
-        const nomPraticien = (acte._labo_nom as string) || (acte._pharmacie_nom as string) || (acte.nom_praticien as string) || "";
-        const refProfSant = (acte.mf_extracted as string) || (acte.matricule_fiscale as string) || "";
+        const nomPraticien =
+          (acte._labo_nom as string) ||
+          (acte._pharmacie_nom as string) ||
+          (acte.nom_praticien as string) ||
+          "";
+        const refProfSant =
+          (acte.mf_extracted as string) ||
+          (acte.matricule_fiscale as string) ||
+          "";
 
         if (refProfSant || nomPraticien) {
-          setOcrPraticienInfos((prev) => ({ ...prev, [i]: { nom: nomPraticien, mf: refProfSant, specialite: (acte.nature_acte as string) || undefined } }));
+          setOcrPraticienInfos((prev) => ({
+            ...prev,
+            [i]: {
+              nom: nomPraticien,
+              mf: refProfSant,
+              specialite: (acte.nature_acte as string) || undefined,
+            },
+          }));
         }
 
         // Build sub_items from OCR-extracted nested items
-        const ocrSubItems = acte._sub_items as Array<{ label: string; amount: number; code: string; cotation?: string }> | undefined;
-        const subItems = ocrSubItems?.map((si) => ({ label: si.label, amount: si.amount, code: si.code || '', cotation: si.cotation || '' }));
+        const ocrSubItems = acte._sub_items as
+          | Array<{
+              label: string;
+              amount: number;
+              code: string;
+              cotation?: string;
+            }>
+          | undefined;
+        const subItems = ocrSubItems?.map((si) => ({
+          label: si.label,
+          amount: si.amount,
+          code: si.code || "",
+          cotation: si.cotation || "",
+        }));
 
         if (i === 0) {
           setValue("actes.0.code", code);
@@ -2660,18 +3309,39 @@ export function BulletinsSaisiePage() {
           setValue("actes.0.nom_prof_sant", nomPraticien);
           setValue("actes.0.ref_prof_sant", refProfSant);
           setValue("actes.0.care_type", acteCareType);
-          if ((acte.nature_acte as string) && !isPharmacy) setValue("actes.0.care_description", acte.nature_acte as string);
-          if (subItems && subItems.length > 0) setValue("actes.0.sub_items", subItems);
+          if ((acte.nature_acte as string) && !isPharmacy)
+            setValue("actes.0.care_description", acte.nature_acte as string);
+          if (subItems && subItems.length > 0)
+            setValue("actes.0.sub_items", subItems);
         } else {
-          appendActe({ code, label, amount: montant, nom_prof_sant: nomPraticien, ref_prof_sant: refProfSant, care_type: acteCareType, cod_msgr: "", lib_msgr: "", care_description: !isPharmacy ? ((acte.nature_acte as string) || "") : "", sub_items: subItems });
+          appendActe({
+            code,
+            label,
+            amount: montant,
+            nom_prof_sant: nomPraticien,
+            ref_prof_sant: refProfSant,
+            care_type: acteCareType,
+            cod_msgr: "",
+            lib_msgr: "",
+            care_description: !isPharmacy
+              ? (acte.nature_acte as string) || ""
+              : "",
+            sub_items: subItems,
+          });
         }
       });
 
       // Auto-resolve famille codes for ActeSelector dropdowns
       const resolvedFamilles: Record<number, string> = {};
       actes.forEach((acte: Record<string, unknown>, i: number) => {
-        const acteCareType = detectCareType(acte.type_soin as string | null, acte.nature_acte as string | null);
-        const acteCode = (acte.matched_code as string) || mapNatureActeToCode(acte.nature_acte as string)?.code || "";
+        const acteCareType = detectCareType(
+          acte.type_soin as string | null,
+          acte.nature_acte as string | null,
+        );
+        const acteCode =
+          (acte.matched_code as string) ||
+          mapNatureActeToCode(acte.nature_acte as string)?.code ||
+          "";
         const resolved = resolveFamilleCodeForActe(acteCode, acteCareType);
         if (resolved) resolvedFamilles[i] = resolved;
       });
@@ -2681,11 +3351,34 @@ export function BulletinsSaisiePage() {
 
   // Deferred form fill: triggered by session restoration or detached OCR completion
   useEffect(() => {
-    if (pendingFormFillIndex !== null && ocrBulletins.length > 0 && pendingFormFillIndex < ocrBulletins.length) {
+    if (
+      pendingFormFillIndex !== null &&
+      ocrBulletins.length > 0 &&
+      pendingFormFillIndex < ocrBulletins.length
+    ) {
       handleSwitchBulletin(pendingFormFillIndex);
       setPendingFormFillIndex(null);
     }
   }, [pendingFormFillIndex, ocrBulletins.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Refetch adherent data when bulletin date changes (contract dates may differ)
+  useEffect(() => {
+    if (!selectedAdherentInfo?.id || !watchedBulletinDate) return;
+    const matricule = watch("adherent_matricule");
+    if (!matricule || matricule.length < 2) return;
+    const companyId =
+      selectedCompany?.id && selectedCompany.id !== "__INDIVIDUAL__"
+        ? selectedCompany.id
+        : undefined;
+    const params: Record<string, string> = { q: matricule };
+    if (companyId) params.companyId = companyId;
+    apiClient
+      .get<AdherentSearchResult[]>("/adherents/search", { params })
+      .then((res) => {
+        if (!res.success || !res.data) return;
+        const match = res.data.find((a) => a.matricule === matricule);
+        if (match) setSelectedAdherentInfo(match);
+      });
+  }, [watchedBulletinDate]);
 
   // --- OCR Feedback handlers ---
   const sendOcrFeedback = async (
@@ -2717,7 +3410,6 @@ export function BulletinsSaisiePage() {
         toast.success("Feedback OCR envoyé avec succès");
       } else {
         toast.error("Erreur lors de l'envoi du feedback");
-      
       }
     } catch {
       toast.error("Erreur reseau lors de l'envoi du feedback");
@@ -2795,7 +3487,8 @@ export function BulletinsSaisiePage() {
           setAyantDroitForm((prev) => ({
             ...prev,
             lastName: parts[0] || prev.lastName,
-            firstName: parts.length >= 2 ? parts.slice(1).join(" ") : prev.firstName,
+            firstName:
+              parts.length >= 2 ? parts.slice(1).join(" ") : prev.firstName,
             dateOfBirth: currentBenefDob || prev.dateOfBirth,
             email: currentBenefEmail || prev.email,
           }));
@@ -2804,7 +3497,9 @@ export function BulletinsSaisiePage() {
         setAdherentSearch(matricule || lastName);
         setShowAdherentDropdown(true);
         await queryClient.invalidateQueries({ queryKey: ["adherents"] });
-        await queryClient.invalidateQueries({ queryKey: ["estimate-reimbursement"] });
+        await queryClient.invalidateQueries({
+          queryKey: ["estimate-reimbursement"],
+        });
       } else if (!result.success) {
         toast.error(result.error?.message || "Erreur lors de l'enregistrement");
       }
@@ -2817,7 +3512,7 @@ export function BulletinsSaisiePage() {
   };
 
   /** Add ayant droit (conjoint or enfant) to an already-registered adherent */
-  const handleAddAyantDroit = async (lienParente: 'C' | 'E') => {
+  const handleAddAyantDroit = async (lienParente: "C" | "E") => {
     if (!selectedAdherentInfo?.id) return;
     const { firstName, lastName, dateOfBirth, email, gender } = ayantDroitForm;
     if (!firstName || !lastName || !dateOfBirth) {
@@ -2827,24 +3522,38 @@ export function BulletinsSaisiePage() {
     setIsAddingAyantDroit(true);
     try {
       const result = await apiClient.post<{
-        id: string; matricule: string; firstName: string; lastName: string; codeType: string;
+        id: string;
+        matricule: string;
+        firstName: string;
+        lastName: string;
+        codeType: string;
       }>(`/adherents/${selectedAdherentInfo.id}/add-ayant-droit`, {
         lienParente,
         firstName,
         lastName,
         dateOfBirth,
         gender: gender || undefined,
-        email: (lienParente === 'C' && email) ? email : undefined,
+        email: lienParente === "C" && email ? email : undefined,
       });
       if (result.success && result.data) {
-        toast.success(`${lienParente === 'C' ? 'Conjoint(e)' : 'Enfant'} ajouté(e) avec succès`);
+        toast.success(
+          `${lienParente === "C" ? "Conjoint(e)" : "Enfant"} ajouté(e) avec succès`,
+        );
         // Refresh family data
-        queryClient.invalidateQueries({ queryKey: ['adherent-famille', selectedAdherentInfo.id] });
+        queryClient.invalidateQueries({
+          queryKey: ["adherent-famille", selectedAdherentInfo.id],
+        });
         // Auto-select as beneficiary
         setValue("beneficiary_name", `${firstName} ${lastName}`);
         setValue("beneficiary_id", result.data.id);
         // Reset form
-        setAyantDroitForm({ firstName: '', lastName: '', dateOfBirth: '', email: '', gender: '' });
+        setAyantDroitForm({
+          firstName: "",
+          lastName: "",
+          dateOfBirth: "",
+          email: "",
+          gender: "",
+        });
       } else if (!result.success) {
         toast.error(result.error?.message || "Erreur lors de l'ajout");
       }
@@ -2859,7 +3568,9 @@ export function BulletinsSaisiePage() {
   const onSubmitForm = async (data: BulletinFormData) => {
     // Company must be selected
     if (!selectedCompany) {
-      toast.error("Veuillez sélectionner une entreprise avant d'enregistrer un bulletin.");
+      toast.error(
+        "Veuillez sélectionner une entreprise avant d'enregistrer un bulletin.",
+      );
       return;
     }
 
@@ -2879,6 +3590,23 @@ export function BulletinsSaisiePage() {
           "La date du bulletin ne peut pas être dans le futur.",
         );
       }
+      // Validate against the adherent's individual contract dates
+      if (
+        selectedAdherentInfo?.contractStartDate &&
+        data.bulletin_date < selectedAdherentInfo.contractStartDate
+      ) {
+        validationErrors.push(
+          `La date du bulletin (${data.bulletin_date}) est antérieure au début du contrat de l'adhérent (${selectedAdherentInfo.contractStartDate}).`,
+        );
+      }
+      if (
+        selectedAdherentInfo?.contractEndDate &&
+        data.bulletin_date > selectedAdherentInfo.contractEndDate
+      ) {
+        validationErrors.push(
+          `La date du bulletin (${data.bulletin_date}) est postérieure à la fin du contrat de l'adhérent (${selectedAdherentInfo.contractEndDate}).`,
+        );
+      }
     }
 
     // Total amount must be > 0 (sub_items are informational, only main amount counts)
@@ -2894,7 +3622,9 @@ export function BulletinsSaisiePage() {
     const actesWithoutCode = data.actes
       .map((a, i) => ({ index: i, code: a.code, careType: a.care_type }))
       .filter(
-        (a) => (!a.code || a.code.trim() === "") && resolveCareType(a.careType) !== "pharmacie",
+        (a) =>
+          (!a.code || a.code.trim() === "") &&
+          resolveCareType(a.careType) !== "pharmacie",
       );
     if (actesWithoutCode.length > 0) {
       validationErrors.push(
@@ -2969,12 +3699,22 @@ export function BulletinsSaisiePage() {
 
   // Revalidate cached batch: if restored from localStorage, check it still exists and is open
   const { data: revalidatedBatch, isFetched: batchRevalidated } = useQuery({
-    queryKey: ['revalidate-batch', selectedBatch?.id, selectedCompany?.id],
+    queryKey: ["revalidate-batch", selectedBatch?.id, selectedCompany?.id],
     queryFn: async () => {
-      const params = new URLSearchParams({ companyId: selectedCompany!.id, status: 'all', limit: '1', search: selectedBatch!.name });
-      const response = await apiClient.get<Batch[]>(`/bulletins-soins/agent/batches?${params}`);
+      const params = new URLSearchParams({
+        companyId: selectedCompany!.id,
+        status: "all",
+        limit: "1",
+        search: selectedBatch!.name,
+      });
+      const response = await apiClient.get<Batch[]>(
+        `/bulletins-soins/agent/batches?${params}`,
+      );
       if (!response.success) return null;
-      return (response.data || []).find((b: Batch) => b.id === selectedBatch!.id) || null;
+      return (
+        (response.data || []).find((b: Batch) => b.id === selectedBatch!.id) ||
+        null
+      );
     },
     enabled: !!selectedBatch && !!selectedCompany,
     staleTime: 30000,
@@ -2985,11 +3725,13 @@ export function BulletinsSaisiePage() {
     if (!revalidatedBatch) {
       // Batch no longer exists or not accessible — clear it
       setBatch(null);
-      toast.error('Le lot sélectionné n\'existe plus ou n\'est plus accessible');
-    } else if (revalidatedBatch.status !== 'open') {
+      toast.error("Le lot sélectionné n'existe plus ou n'est plus accessible");
+    } else if (revalidatedBatch.status !== "open") {
       // Batch exists but is no longer open
       setBatch(null);
-      toast.error(`Le lot "${revalidatedBatch.name}" n'est plus ouvert (${revalidatedBatch.status})`);
+      toast.error(
+        `Le lot "${revalidatedBatch.name}" n'est plus ouvert (${revalidatedBatch.status})`,
+      );
     }
   }, [selectedBatch?.id, batchRevalidated, revalidatedBatch, setBatch]);
 
@@ -3022,12 +3764,10 @@ export function BulletinsSaisiePage() {
   };
 
   const formatAmount = (amount: number) => {
-    return (
-      new Intl.NumberFormat("fr-TN", {
-        minimumFractionDigits: 3,
-        maximumFractionDigits: 3,
-      }).format(amount)
-    );
+    return new Intl.NumberFormat("fr-TN", {
+      minimumFractionDigits: 3,
+      maximumFractionDigits: 3,
+    }).format(amount);
   };
 
   const formatDate = (dateString: string) => {
@@ -3325,16 +4065,22 @@ export function BulletinsSaisiePage() {
             <form
               onSubmit={handleSubmit(onSubmitForm, (formErrors) => {
                 // DEBUG: log full form errors to console
-                console.error('[BulletinForm] Validation errors:', JSON.stringify(formErrors, null, 2));
+                console.error(
+                  "[BulletinForm] Validation errors:",
+                  JSON.stringify(formErrors, null, 2),
+                );
                 // Show validation errors from Zod schema when form is invalid
                 const messages: string[] = [];
 
                 // Helper: recursively extract all error messages from nested form errors
-                const extractErrors = (obj: Record<string, unknown>, prefix: string) => {
+                const extractErrors = (
+                  obj: Record<string, unknown>,
+                  prefix: string,
+                ) => {
                   for (const [key, val] of Object.entries(obj)) {
-                    if (!val || typeof val !== 'object') continue;
+                    if (!val || typeof val !== "object") continue;
                     const rec = val as Record<string, unknown>;
-                    if (typeof rec.message === 'string' && rec.message) {
+                    if (typeof rec.message === "string" && rec.message) {
                       messages.push(`${prefix}${key}: ${rec.message}`);
                     } else {
                       extractErrors(rec, `${prefix}${key}.`);
@@ -3344,20 +4090,24 @@ export function BulletinsSaisiePage() {
 
                 // Top-level fields
                 const topFields: Array<[string, string]> = [
-                  ['bulletin_date', 'Date'],
-                  ['adherent_matricule', 'Matricule'],
-                  ['care_type', 'Type de soin'],
-                  ['beneficiary_relationship', 'Lien bénéficiaire'],
-                  ['beneficiary_name', 'Nom bénéficiaire'],
+                  ["bulletin_date", "Date"],
+                  ["adherent_matricule", "Matricule"],
+                  ["care_type", "Type de soin"],
+                  ["beneficiary_relationship", "Lien bénéficiaire"],
+                  ["beneficiary_name", "Nom bénéficiaire"],
                 ];
                 for (const [field, label] of topFields) {
-                  const err = (formErrors as Record<string, { message?: string }>)[field];
+                  const err = (
+                    formErrors as Record<string, { message?: string }>
+                  )[field];
                   if (err?.message) messages.push(`${label}: ${err.message}`);
                 }
 
                 // Actes root error
                 if (formErrors.actes?.root)
-                  messages.push(formErrors.actes.root.message || "Erreur actes");
+                  messages.push(
+                    formErrors.actes.root.message || "Erreur actes",
+                  );
 
                 // Per-acte errors (including sub_items)
                 if (formErrors.actes && Array.isArray(formErrors.actes)) {
@@ -3365,20 +4115,29 @@ export function BulletinsSaisiePage() {
                     if (!acteErr) return;
                     const acteRec = acteErr as Record<string, unknown>;
                     for (const [key, val] of Object.entries(acteRec)) {
-                      if (!val || typeof val !== 'object') continue;
+                      if (!val || typeof val !== "object") continue;
                       const rec = val as Record<string, unknown>;
-                      if (typeof rec.message === 'string' && rec.message) {
-                        messages.push(`Acte ${idx + 1} — ${key}: ${rec.message}`);
-                      } else if (key === 'sub_items' && Array.isArray(val)) {
-                        (val as Array<Record<string, unknown>>).forEach((si, siIdx) => {
-                          if (!si) return;
-                          for (const [siKey, siVal] of Object.entries(si)) {
-                            const siRec = siVal as Record<string, unknown> | null;
-                            if (siRec && typeof siRec.message === 'string') {
-                              messages.push(`Acte ${idx + 1} — sous-item ${siIdx + 1} ${siKey}: ${siRec.message}`);
+                      if (typeof rec.message === "string" && rec.message) {
+                        messages.push(
+                          `Acte ${idx + 1} — ${key}: ${rec.message}`,
+                        );
+                      } else if (key === "sub_items" && Array.isArray(val)) {
+                        (val as Array<Record<string, unknown>>).forEach(
+                          (si, siIdx) => {
+                            if (!si) return;
+                            for (const [siKey, siVal] of Object.entries(si)) {
+                              const siRec = siVal as Record<
+                                string,
+                                unknown
+                              > | null;
+                              if (siRec && typeof siRec.message === "string") {
+                                messages.push(
+                                  `Acte ${idx + 1} — sous-item ${siIdx + 1} ${siKey}: ${siRec.message}`,
+                                );
+                              }
                             }
-                          }
-                        });
+                          },
+                        );
                       }
                     }
                   });
@@ -3386,14 +4145,17 @@ export function BulletinsSaisiePage() {
 
                 // Fallback: if no specific messages extracted, dump all errors
                 if (messages.length === 0) {
-                  extractErrors(formErrors as Record<string, unknown>, '');
+                  extractErrors(formErrors as Record<string, unknown>, "");
                 }
 
                 if (messages.length > 0) {
                   messages.forEach((m) => toast.error(m));
                 } else {
                   toast.error("Veuillez vérifier les champs du formulaire.");
-                  console.warn('[BulletinForm] Unhandled validation errors:', formErrors);
+                  console.warn(
+                    "[BulletinForm] Unhandled validation errors:",
+                    formErrors,
+                  );
                 }
               })}
             >
@@ -3804,15 +4566,22 @@ export function BulletinsSaisiePage() {
                                   Fichiers analysés (session restaurée)
                                 </p>
                                 {restoredFilesMeta.map((fm, i) => (
-                                  <div key={`${fm.name}-${i}`} className="flex items-center gap-2 text-sm text-gray-700 pl-5">
-                                    {fm.type.startsWith('image/') ? (
+                                  <div
+                                    key={`${fm.name}-${i}`}
+                                    className="flex items-center gap-2 text-sm text-gray-700 pl-5"
+                                  >
+                                    {fm.type.startsWith("image/") ? (
                                       <FileImage className="h-3.5 w-3.5 text-gray-400 shrink-0" />
                                     ) : (
                                       <FileText className="h-3.5 w-3.5 text-gray-400 shrink-0" />
                                     )}
                                     <span className="truncate">{fm.name}</span>
                                     <span className="text-xs text-gray-400 shrink-0">
-                                      {fm.size < 1024 ? `${fm.size} o` : fm.size < 1048576 ? `${(fm.size / 1024).toFixed(0)} Ko` : `${(fm.size / 1048576).toFixed(1)} Mo`}
+                                      {fm.size < 1024
+                                        ? `${fm.size} o`
+                                        : fm.size < 1048576
+                                          ? `${(fm.size / 1024).toFixed(0)} Ko`
+                                          : `${(fm.size / 1048576).toFixed(1)} Mo`}
                                     </span>
                                   </div>
                                 ))}
@@ -3821,7 +4590,10 @@ export function BulletinsSaisiePage() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                onClick={() => { setRestoredFilesMeta([]); fileInputRef.current?.click(); }}
+                                onClick={() => {
+                                  setRestoredFilesMeta([]);
+                                  fileInputRef.current?.click();
+                                }}
                                 className="rounded-xl"
                               >
                                 <Upload className="h-4 w-4 mr-2" />
@@ -4684,24 +5456,33 @@ export function BulletinsSaisiePage() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <h3 className="text-sm font-bold text-blue-900">
-                                {duplicateConfirm.duplicateFiles.length} fichier(s) déjà enregistré(s)
+                                {duplicateConfirm.duplicateFiles.length}{" "}
+                                fichier(s) déjà enregistré(s)
                               </h3>
                               <p className="mt-1 text-sm text-blue-800">
-                                {duplicateConfirm.cleanFiles.length} fichier(s) restant(s) à analyser.
-                                Voulez-vous continuer ?
+                                {duplicateConfirm.cleanFiles.length} fichier(s)
+                                restant(s) à analyser. Voulez-vous continuer ?
                               </p>
                               <div className="mt-2 space-y-1.5">
-                                {duplicateConfirm.duplicateFiles.map((df, i) => (
-                                  <div key={i} className="flex items-center gap-2 text-xs text-blue-700 bg-white/60 rounded-lg px-3 py-1.5">
-                                    <FileWarning className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                                    <span className="truncate font-medium">{df.name}</span>
-                                    {df.bulletin && (
-                                      <span className="text-blue-500 ml-auto shrink-0">
-                                        → N° {df.bulletin.bulletinNumber as string}
+                                {duplicateConfirm.duplicateFiles.map(
+                                  (df, i) => (
+                                    <div
+                                      key={i}
+                                      className="flex items-center gap-2 text-xs text-blue-700 bg-white/60 rounded-lg px-3 py-1.5"
+                                    >
+                                      <FileWarning className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                                      <span className="truncate font-medium">
+                                        {df.name}
                                       </span>
-                                    )}
-                                  </div>
-                                ))}
+                                      {df.bulletin && (
+                                        <span className="text-blue-500 ml-auto shrink-0">
+                                          → N°{" "}
+                                          {df.bulletin.bulletinNumber as string}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ),
+                                )}
                               </div>
                               <div className="mt-3 flex items-center gap-2">
                                 <button
@@ -4710,11 +5491,18 @@ export function BulletinsSaisiePage() {
                                   className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition-colors"
                                 >
                                   <ScanSearch className="h-3.5 w-3.5" />
-                                  Continuer l'analyse ({duplicateConfirm.cleanFiles.length} fichier{duplicateConfirm.cleanFiles.length > 1 ? 's' : ''})
+                                  Continuer l'analyse (
+                                  {duplicateConfirm.cleanFiles.length} fichier
+                                  {duplicateConfirm.cleanFiles.length > 1
+                                    ? "s"
+                                    : ""}
+                                  )
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => duplicateConfirm.resolve(false)}
+                                  onClick={() =>
+                                    duplicateConfirm.resolve(false)
+                                  }
                                   className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 transition-colors"
                                 >
                                   Annuler
@@ -4771,12 +5559,36 @@ export function BulletinsSaisiePage() {
                                 <Label className="text-sm text-gray-700">
                                   Date du bulletin *
                                 </Label>
-                                <Input
-                                  type="date"
-                                  {...register("bulletin_date")}
-                                  max={new Date().toISOString().split("T")[0]}
-                                  className="rounded-md h-9"
-                                />
+                                {(() => {
+                                  const { onChange: rhfOnChange, ...restRegister } = register("bulletin_date");
+                                  return (
+                                    <Input
+                                      type="date"
+                                      {...restRegister}
+                                      min="2000-01-01"
+                                      max={new Date().toISOString().split("T")[0]}
+                                      className={`rounded-md h-9 ${
+                                        (selectedAdherentInfo?.contractStartDate &&
+                                          watchedBulletinDate &&
+                                          watchedBulletinDate <
+                                            selectedAdherentInfo.contractStartDate) ||
+                                        (selectedAdherentInfo?.contractEndDate &&
+                                          watchedBulletinDate &&
+                                          watchedBulletinDate >
+                                            selectedAdherentInfo.contractEndDate)
+                                          ? "border-red-500 focus:ring-red-500"
+                                          : ""
+                                      }`}
+                                      onChange={(e) => {
+                                        rhfOnChange(e);
+                                      }}
+                                      onBlur={(e) => {
+                                        const v = clampDateValue(e.target.value, "2000-01-01", new Date().toISOString().split("T")[0]);
+                                        if (v !== e.target.value) setValue("bulletin_date", v);
+                                      }}
+                                    />
+                                  );
+                                })()}
                                 {errors.bulletin_date && (
                                   <p className="text-sm text-destructive">
                                     {errors.bulletin_date.message}
@@ -5224,7 +6036,9 @@ export function BulletinsSaisiePage() {
                                             type="date"
                                             {...register(
                                               "adherent_date_of_birth",
+                                              { onBlur: (e: React.FocusEvent<HTMLInputElement>) => { const v = clampDateValue(e.target.value, "1900-01-01"); if (v !== e.target.value) setValue("adherent_date_of_birth", v); } },
                                             )}
+                                            min="1900-01-01"
                                             max={
                                               new Date()
                                                 .toISOString()
@@ -5402,18 +6216,18 @@ export function BulletinsSaisiePage() {
                                           <Input
                                             type="date"
                                             className="rounded-md text-sm h-9"
+                                            min="1900-01-01"
                                             max={
                                               new Date()
                                                 .toISOString()
                                                 .split("T")[0]
                                             }
                                             value={ayantDroitForm.dateOfBirth}
-                                            onChange={(e) =>
-                                              setAyantDroitForm((p) => ({
-                                                ...p,
-                                                dateOfBirth: e.target.value,
-                                              }))
-                                            }
+                                            onChange={(e) => setAyantDroitForm((p) => ({ ...p, dateOfBirth: e.target.value }))}
+                                            onBlur={(e) => {
+                                              const v = clampDateValue(e.target.value, "1900-01-01");
+                                              if (v !== e.target.value) setAyantDroitForm((p) => ({ ...p, dateOfBirth: v }));
+                                            }}
                                           />
                                         </div>
                                         <div className="space-y-1">
@@ -5486,8 +6300,10 @@ export function BulletinsSaisiePage() {
                                           <Input
                                             type="date"
                                             className="rounded-md text-sm h-9"
+                                            min="1900-01-01"
                                             {...register(
                                               "beneficiary_date_of_birth",
+                                              { onBlur: (e: React.FocusEvent<HTMLInputElement>) => { const v = clampDateValue(e.target.value, "1900-01-01"); if (v !== e.target.value) setValue("beneficiary_date_of_birth", v); } },
                                             )}
                                           />
                                         </div>
@@ -5628,18 +6444,18 @@ export function BulletinsSaisiePage() {
                                           <Input
                                             type="date"
                                             className="rounded-md text-sm h-9"
+                                            min="1900-01-01"
                                             max={
                                               new Date()
                                                 .toISOString()
                                                 .split("T")[0]
                                             }
                                             value={ayantDroitForm.dateOfBirth}
-                                            onChange={(e) =>
-                                              setAyantDroitForm((p) => ({
-                                                ...p,
-                                                dateOfBirth: e.target.value,
-                                              }))
-                                            }
+                                            onChange={(e) => setAyantDroitForm((p) => ({ ...p, dateOfBirth: e.target.value }))}
+                                            onBlur={(e) => {
+                                              const v = clampDateValue(e.target.value, "1900-01-01");
+                                              if (v !== e.target.value) setAyantDroitForm((p) => ({ ...p, dateOfBirth: v }));
+                                            }}
                                           />
                                         </div>
                                         {/* Pas de champ email pour les enfants */}
@@ -5695,8 +6511,10 @@ export function BulletinsSaisiePage() {
                                           <Input
                                             type="date"
                                             className="rounded-md text-sm h-9"
+                                            min="1900-01-01"
                                             {...register(
                                               "beneficiary_date_of_birth",
+                                              { onBlur: (e: React.FocusEvent<HTMLInputElement>) => { const v = clampDateValue(e.target.value, "1900-01-01"); if (v !== e.target.value) setValue("beneficiary_date_of_birth", v); } },
                                             )}
                                           />
                                         </div>
@@ -5777,93 +6595,133 @@ export function BulletinsSaisiePage() {
                                   {/* Famille d'actes per acte */}
                                   <div className="flex items-end gap-2 w-full">
                                     <div className="flex flex-col gap-1 flex-1 min-w-0">
-                                    <span className="text-xs font-semibold text-gray-400 uppercase">
-                                      Famille d'Actes
-                                    </span>
-                                    <Select
-                                      value={
-                                        acteFamilleCodes[index] || undefined
-                                      }
-                                      disabled={
-                                        isSubmitting || isRegisteringAdherent
-                                      }
-                                      onValueChange={(val) => {
-                                        // Handle care_types without famille (CT:xxx prefix)
-                                        const isCareTypeOnly = val.startsWith('CT:');
-                                        const familleCode = isCareTypeOnly ? '' : val;
-                                        const newCareType = isCareTypeOnly
-                                          ? val.slice(3)
-                                          : (FAMILLE_CODE_TO_CARE_TYPE[familleCode] || "consultation");
-
-                                        setActeFamilleCodes((prev) => ({
-                                          ...prev,
-                                          [index]: val,
-                                        }));
-                                        setValue(
-                                          `actes.${index}.care_type`,
-                                          newCareType,
-                                        );
-                                        // Reset sub_items + amount when switching
-                                        setValue(`actes.${index}.sub_items`, []);
-                                        setValue(`actes.${index}.amount`, 0);
-
-                                        if (isCareTypeOnly) {
-                                          // Care type sans famille: saisie directe (mode simple)
-                                          const config = getCareTypeConfig(newCareType);
-                                          setValue(`actes.${index}.code`, newCareType.toUpperCase());
-                                          setValue(`actes.${index}.label`, config.label);
-                                        } else if (
-                                          getCareTypeConfig(newCareType)
-                                            .useMedicationAutocomplete
-                                        ) {
-                                          setValue(
-                                            `actes.${index}.code`,
-                                            "PH1",
-                                          );
-                                          setValue(`actes.${index}.label`, getCareTypeConfig(newCareType).label || "Pharmacie");
-                                          setValue(`actes.${index}.sub_items`, [{ label: "", cotation: "", amount: 0, code: "" }]);
-                                        } else {
-                                          setValue(`actes.${index}.code`, "");
-                                          setValue(`actes.${index}.label`, "");
+                                      <span className="text-xs font-semibold text-gray-400 uppercase">
+                                        Famille d'Actes
+                                      </span>
+                                      <Select
+                                        value={
+                                          acteFamilleCodes[index] || undefined
                                         }
-                                      }}
-                                    >
-                                      <SelectTrigger className="w-full h-9 rounded-md text-xs">
-                                        <SelectValue placeholder="Famille d'actes" />
-                                      </SelectTrigger>
-                                      <SelectContent className="max-h-72">
-                                        {(actesGroupes || []).filter((g) => g.actes.length > 0).map((groupe) => {
-                                          const FIcon =
-                                            FAMILLE_ICON[groupe.famille.code] ||
-                                            ClipboardList;
-                                          return (
-                                            <SelectItem
-                                              key={groupe.famille.code}
-                                              value={groupe.famille.code}
-                                            >
-                                              <span className="flex items-center gap-1.5">
-                                                <FIcon className="h-3.5 w-3.5 shrink-0" />
-                                                {groupe.famille.label}
-                                                {/* <span className="font-mono text-[10px] text-gray-400">
+                                        disabled={
+                                          isSubmitting || isRegisteringAdherent
+                                        }
+                                        onValueChange={(val) => {
+                                          // Handle care_types without famille (CT:xxx prefix)
+                                          const isCareTypeOnly =
+                                            val.startsWith("CT:");
+                                          const familleCode = isCareTypeOnly
+                                            ? ""
+                                            : val;
+                                          const newCareType = isCareTypeOnly
+                                            ? val.slice(3)
+                                            : FAMILLE_CODE_TO_CARE_TYPE[
+                                                familleCode
+                                              ] || "consultation";
+
+                                          setActeFamilleCodes((prev) => ({
+                                            ...prev,
+                                            [index]: val,
+                                          }));
+                                          setValue(
+                                            `actes.${index}.care_type`,
+                                            newCareType,
+                                          );
+                                          // Reset sub_items + amount when switching
+                                          setValue(
+                                            `actes.${index}.sub_items`,
+                                            [],
+                                          );
+                                          setValue(`actes.${index}.amount`, 0);
+
+                                          if (isCareTypeOnly) {
+                                            // Care type sans famille: saisie directe (mode simple)
+                                            const config =
+                                              getCareTypeConfig(newCareType);
+                                            setValue(
+                                              `actes.${index}.code`,
+                                              newCareType.toUpperCase(),
+                                            );
+                                            setValue(
+                                              `actes.${index}.label`,
+                                              config.label,
+                                            );
+                                          } else if (
+                                            getCareTypeConfig(newCareType)
+                                              .useMedicationAutocomplete
+                                          ) {
+                                            setValue(
+                                              `actes.${index}.code`,
+                                              "PH1",
+                                            );
+                                            setValue(
+                                              `actes.${index}.label`,
+                                              getCareTypeConfig(newCareType)
+                                                .label || "Pharmacie",
+                                            );
+                                            setValue(
+                                              `actes.${index}.sub_items`,
+                                              [
+                                                {
+                                                  label: "",
+                                                  cotation: "",
+                                                  amount: 0,
+                                                  code: "",
+                                                },
+                                              ],
+                                            );
+                                          } else {
+                                            setValue(`actes.${index}.code`, "");
+                                            setValue(
+                                              `actes.${index}.label`,
+                                              "",
+                                            );
+                                          }
+                                        }}
+                                      >
+                                        <SelectTrigger className="w-full h-9 rounded-md text-xs">
+                                          <SelectValue placeholder="Famille d'actes" />
+                                        </SelectTrigger>
+                                        <SelectContent className="max-h-72">
+                                          {(actesGroupes || [])
+                                            .filter((g) => g.actes.length > 0)
+                                            .map((groupe) => {
+                                              const FIcon =
+                                                FAMILLE_ICON[
+                                                  groupe.famille.code
+                                                ] || ClipboardList;
+                                              return (
+                                                <SelectItem
+                                                  key={groupe.famille.code}
+                                                  value={groupe.famille.code}
+                                                >
+                                                  <span className="flex items-center gap-1.5">
+                                                    <FIcon className="h-3.5 w-3.5 shrink-0" />
+                                                    {groupe.famille.label}
+                                                    {/* <span className="font-mono text-[10px] text-gray-400">
                                                   ({groupe.famille.code})
                                                 </span> */}
-                                              </span>
-                                            </SelectItem>
-                                          );
-                                        })}
-                                        {/* Care types sans famille d'actes (saisie directe) */}
-                                        {ALL_CARE_TYPES
-                                          .filter((ct) => CARE_TYPE_CONFIG[ct].familleCodes.length === 0)
-                                          .map((ct) => (
-                                            <SelectItem key={`ct-${ct}`} value={`CT:${ct}`}>
+                                                  </span>
+                                                </SelectItem>
+                                              );
+                                            })}
+                                          {/* Care types sans famille d'actes (saisie directe) */}
+                                          {ALL_CARE_TYPES?.filter(
+                                            (ct) =>
+                                              CARE_TYPE_CONFIG[ct]?.familleCodes
+                                                .length === 0,
+                                          ).map((ct) => (
+                                            <SelectItem
+                                              key={`ct-${ct}`}
+                                              value={`CT:${ct}`}
+                                            >
                                               <span className="flex items-center gap-1.5">
                                                 <ClipboardList className="h-3.5 w-3.5 shrink-0" />
-                                                {CARE_TYPE_CONFIG[ct].label}
+                                                {CARE_TYPE_CONFIG[ct]?.label}
                                               </span>
                                             </SelectItem>
                                           ))}
-                                      </SelectContent>
-                                    </Select>
+                                        </SelectContent>
+                                      </Select>
                                     </div>
                                     {actesFields.length > 1 && (
                                       <button
@@ -6040,11 +6898,14 @@ export function BulletinsSaisiePage() {
                                           Matricule fiscale *
                                         </Label>
                                         <MfLookupInput
-                                          key={`mf-${index}-${editingBulletinId || ''}`}
+                                          key={`mf-${index}-${editingBulletinId || ""}`}
                                           value={
                                             currentActe?.ref_prof_sant || ""
                                           }
-                                          initialFound={!!editingBulletinId && !!(currentActe?.ref_prof_sant?.trim())}
+                                          initialFound={
+                                            !!editingBulletinId &&
+                                            !!currentActe?.ref_prof_sant?.trim()
+                                          }
                                           onChange={(val) =>
                                             setValue(
                                               `actes.${index}.ref_prof_sant`,
@@ -6121,16 +6982,15 @@ export function BulletinsSaisiePage() {
                                       {/* For non-pharmacy: show ActeSelector; pharmacy uses sub-items only */}
                                       {/* Hide ActeSelector for care types without familleCodes (direct entry) */}
                                       {!getCareTypeConfig(acteCareType)
-                                          .useMedicationAutocomplete &&
-                                        getCareTypeConfig(acteCareType).familleCodes.length > 0 && (
+                                        .useMedicationAutocomplete &&
+                                        getCareTypeConfig(acteCareType)
+                                          .familleCodes.length > 0 && (
                                           <div>
                                             <Label className="text-sm text-gray-700">
                                               Acte médical *
                                             </Label>
                                             <ActeSelector
-                                              value={
-                                                currentActe?.code || ""
-                                              }
+                                              value={currentActe?.code || ""}
                                               familleCode={
                                                 acteFamilleCodes[index]
                                               }
@@ -6156,12 +7016,17 @@ export function BulletinsSaisiePage() {
                                                       fc
                                                     ] || "consultation";
                                                   // Hospitalisation: distinguish clinique vs hôpital by acte code
-                                                  if (fc === 'FA0007') {
-                                                    const upper = code.toUpperCase();
-                                                    if (upper === 'HP' || upper === 'SANA') {
-                                                      ct = 'hospitalisation_hopital';
+                                                  if (fc === "FA0007") {
+                                                    const upper =
+                                                      code.toUpperCase();
+                                                    if (
+                                                      upper === "HP" ||
+                                                      upper === "SANA"
+                                                    ) {
+                                                      ct =
+                                                        "hospitalisation_hopital";
                                                     } else {
-                                                      ct = 'hospitalisation';
+                                                      ct = "hospitalisation";
                                                     }
                                                   }
                                                   setValue(
@@ -6180,7 +7045,7 @@ export function BulletinsSaisiePage() {
                                               </p>
                                             )}
                                           </div>
-                                      )}
+                                        )}
                                       {/* Description de soin — Textarea */}
                                       <div>
                                         <Label className="text-sm text-gray-700">
@@ -6223,20 +7088,35 @@ export function BulletinsSaisiePage() {
                                             },
                                           )}
                                           placeholder="0.000"
-                                          readOnly={getCareTypeConfig(acteCareType).mode === "sejour" && !!(currentActe?.montant_jour && currentActe?.nombre_jours)}
+                                          readOnly={
+                                            getCareTypeConfig(acteCareType)
+                                              .mode === "sejour" &&
+                                            !!(
+                                              currentActe?.montant_jour &&
+                                              currentActe?.nombre_jours
+                                            )
+                                          }
                                           className={cn(
                                             "rounded-md text-right h-9",
-                                            getCareTypeConfig(acteCareType).mode === "sejour" && currentActe?.montant_jour && currentActe?.nombre_jours && "bg-gray-50 font-semibold"
+                                            getCareTypeConfig(acteCareType)
+                                              .mode === "sejour" &&
+                                              currentActe?.montant_jour &&
+                                              currentActe?.nombre_jours &&
+                                              "bg-gray-50 font-semibold",
                                           )}
                                         />
                                         {errors.actes?.[index]?.amount && (
                                           <p className="text-xs text-destructive mt-1">
-                                            {errors.actes[index].amount?.message}
+                                            {
+                                              errors.actes[index].amount
+                                                ?.message
+                                            }
                                           </p>
                                         )}
                                       </div>
                                       {/* Séjour mode: montant par jour + nombre de jours en dessous */}
-                                      {getCareTypeConfig(acteCareType).mode === "sejour" && (
+                                      {getCareTypeConfig(acteCareType).mode ===
+                                        "sejour" && (
                                         <div className="grid grid-cols-2 gap-2 pt-1 border-t border-dashed border-gray-200">
                                           <div>
                                             <Label className="text-xs text-gray-500">
@@ -6249,11 +7129,23 @@ export function BulletinsSaisiePage() {
                                                 `actes.${index}.montant_jour`,
                                                 {
                                                   valueAsNumber: true,
-                                                  onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
-                                                    const mj = parseFloat(e.target.value) || 0;
-                                                    const nj = currentActe?.nombre_jours || 0;
+                                                  onChange: (
+                                                    e: React.ChangeEvent<HTMLInputElement>,
+                                                  ) => {
+                                                    const mj =
+                                                      parseFloat(
+                                                        e.target.value,
+                                                      ) || 0;
+                                                    const nj =
+                                                      currentActe?.nombre_jours ||
+                                                      0;
                                                     if (mj > 0 && nj > 0) {
-                                                      setValue(`actes.${index}.amount`, Math.round(mj * nj * 1000) / 1000);
+                                                      setValue(
+                                                        `actes.${index}.amount`,
+                                                        Math.round(
+                                                          mj * nj * 1000,
+                                                        ) / 1000,
+                                                      );
                                                     }
                                                   },
                                                 },
@@ -6274,11 +7166,23 @@ export function BulletinsSaisiePage() {
                                                 `actes.${index}.nombre_jours`,
                                                 {
                                                   valueAsNumber: true,
-                                                  onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
-                                                    const nj = parseInt(e.target.value) || 0;
-                                                    const mj = currentActe?.montant_jour || 0;
+                                                  onChange: (
+                                                    e: React.ChangeEvent<HTMLInputElement>,
+                                                  ) => {
+                                                    const nj =
+                                                      parseInt(
+                                                        e.target.value,
+                                                      ) || 0;
+                                                    const mj =
+                                                      currentActe?.montant_jour ||
+                                                      0;
                                                     if (mj > 0 && nj > 0) {
-                                                      setValue(`actes.${index}.amount`, Math.round(mj * nj * 1000) / 1000);
+                                                      setValue(
+                                                        `actes.${index}.amount`,
+                                                        Math.round(
+                                                          mj * nj * 1000,
+                                                        ) / 1000,
+                                                      );
                                                     }
                                                   },
                                                 },
@@ -6357,8 +7261,7 @@ export function BulletinsSaisiePage() {
                                             `Depasse le plafond annuel restant: ${(plafond.montantRestant / 1000).toFixed(3)} DT`,
                                           );
                                         }
-                                        if (warnings.length === 0)
-                                          return null;
+                                        if (warnings.length === 0) return null;
                                         return (
                                           <div className="mt-1 space-y-0.5">
                                             {warnings.map((w, i) => (
@@ -6429,10 +7332,18 @@ export function BulletinsSaisiePage() {
                                                 updated,
                                               );
                                               // Auto-set parent acte label if empty
-                                              const currentLabel = getValues(`actes.${index}.label`);
+                                              const currentLabel = getValues(
+                                                `actes.${index}.label`,
+                                              );
                                               if (!currentLabel) {
-                                                const cfg = getCareTypeConfig(acteCareType);
-                                                setValue(`actes.${index}.label`, cfg.label || acteCareType);
+                                                const cfg =
+                                                  getCareTypeConfig(
+                                                    acteCareType,
+                                                  );
+                                                setValue(
+                                                  `actes.${index}.label`,
+                                                  cfg.label || acteCareType,
+                                                );
                                               }
                                             }}
                                             className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-0.5"
@@ -6458,9 +7369,17 @@ export function BulletinsSaisiePage() {
                                                       placeholder="Rechercher un médicament..."
                                                       className="[&_input]:h-9 [&_input]:text-sm [&_input]:rounded-md"
                                                       onFreeText={(text) => {
-                                                        const updated = [...currentSubItems];
-                                                        updated[subIdx] = { ...updated[subIdx]!, label: text };
-                                                        setValue(`actes.${index}.sub_items`, updated);
+                                                        const updated = [
+                                                          ...currentSubItems,
+                                                        ];
+                                                        updated[subIdx] = {
+                                                          ...updated[subIdx]!,
+                                                          label: text,
+                                                        };
+                                                        setValue(
+                                                          `actes.${index}.sub_items`,
+                                                          updated,
+                                                        );
                                                       }}
                                                       onSelect={(med) => {
                                                         const priceDT =
@@ -6510,10 +7429,20 @@ export function BulletinsSaisiePage() {
                                                           ) / 1000,
                                                         );
                                                         // Auto-set parent acte label if empty
-                                                        const currentLabel = getValues(`actes.${index}.label`);
+                                                        const currentLabel =
+                                                          getValues(
+                                                            `actes.${index}.label`,
+                                                          );
                                                         if (!currentLabel) {
-                                                          const cfg = getCareTypeConfig(acteCareType);
-                                                          setValue(`actes.${index}.label`, cfg.label || acteCareType);
+                                                          const cfg =
+                                                            getCareTypeConfig(
+                                                              acteCareType,
+                                                            );
+                                                          setValue(
+                                                            `actes.${index}.label`,
+                                                            cfg.label ||
+                                                              acteCareType,
+                                                          );
                                                         }
                                                       }}
                                                     />
@@ -6561,7 +7490,7 @@ export function BulletinsSaisiePage() {
                                                         );
                                                       }}
                                                       placeholder="Coefficient *"
-                                                      className={`rounded-md text-sm h-9 ${!subItem.cotation?.trim() ? 'border-amber-400' : ''}`}
+                                                      className={`rounded-md text-sm h-9 ${!subItem.cotation?.trim() ? "border-amber-400" : ""}`}
                                                     />
                                                   </div>
                                                 )}
@@ -6688,7 +7617,9 @@ export function BulletinsSaisiePage() {
                           {[
                             {
                               label: "Numérisation réalisée",
-                              done: selectedFiles.length > 0 || restoredFilesMeta.length > 0,
+                              done:
+                                selectedFiles.length > 0 ||
+                                restoredFilesMeta.length > 0,
                             },
                             {
                               label: "Données générales",
@@ -6851,37 +7782,45 @@ export function BulletinsSaisiePage() {
                         </DialogContent>
                       </Dialog>
 
-                      {/* Contract warning banner */}
-                      {estimateData?.no_active_contract && (
-                        <div
-                          className={`rounded-2xl border p-4 ${estimateData.contracts && estimateData.contracts.length > 0 ? "border-amber-200 bg-amber-50" : "border-red-200 bg-red-50"}`}
-                        >
+                      {/* Contract warning banner — date hors contrat adhérent OR estimate no_active_contract */}
+                      {((selectedAdherentInfo?.contractStartDate &&
+                        watchedBulletinDate &&
+                        watchedBulletinDate <
+                          selectedAdherentInfo.contractStartDate) ||
+                        (selectedAdherentInfo?.contractEndDate &&
+                          watchedBulletinDate &&
+                          watchedBulletinDate >
+                            selectedAdherentInfo.contractEndDate) ||
+                        estimateData?.no_active_contract) && (
+                        <div className="rounded-2xl border p-4 border-red-200 bg-red-50">
                           <div className="flex items-start gap-2">
-                            <AlertTriangle
-                              className={`h-4 w-4 mt-0.5 shrink-0 ${estimateData.contracts && estimateData.contracts.length > 0 ? "text-amber-600" : "text-red-600"}`}
-                            />
+                            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-red-600" />
                             <div className="flex-1 min-w-0">
-                              <p
-                                className={`text-xs font-semibold ${estimateData.contracts && estimateData.contracts.length > 0 ? "text-amber-800" : "text-red-800"}`}
-                              >
-                                {estimateData.contracts &&
-                                estimateData.contracts.length > 0
-                                  ? "Aucun contrat actif à cette date"
-                                  : "Aucun contrat enregistré pour cet adhérent"}
+                              <p className="text-xs font-semibold text-red-800">
+                                Aucun contrat actif à cette date
                               </p>
-                              {estimateData.contracts &&
+                              {selectedAdherentInfo?.contractStartDate &&
+                                selectedAdherentInfo?.contractEndDate && (
+                                  <p className="text-[10px] text-red-600 mt-1">
+                                    Contrat de l'adhérent :{" "}
+                                    {selectedAdherentInfo.contractStartDate} →{" "}
+                                    {selectedAdherentInfo.contractEndDate}
+                                  </p>
+                                )}
+                              {estimateData?.no_active_contract &&
+                                estimateData.contracts &&
                                 estimateData.contracts.length > 0 && (
                                   <div className="mt-2 space-y-1.5">
-                                    <p className="text-[10px] text-amber-700 font-medium uppercase tracking-wider">
+                                    <p className="text-[10px] text-red-700 font-medium uppercase tracking-wider">
                                       Contrats existants :
                                     </p>
                                     {estimateData.contracts.map((ct) => (
                                       <div
                                         key={ct.id}
-                                        className="flex items-center justify-between rounded-lg bg-white/80 border border-amber-100 px-3 py-1.5"
+                                        className="flex items-center justify-between rounded-lg bg-white/80 border border-red-100 px-3 py-1.5"
                                       >
                                         <div className="flex items-center gap-2 min-w-0">
-                                          <FileText className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                                          <FileText className="h-3.5 w-3.5 text-red-500 shrink-0" />
                                           <span className="text-xs font-medium text-gray-800 truncate">
                                             {ct.contract_number}
                                           </span>
@@ -6957,7 +7896,6 @@ export function BulletinsSaisiePage() {
                         </p>
                       </div>
 
-
                       {/* Action buttons */}
                       {canCreate && (
                         <button
@@ -7013,16 +7951,30 @@ export function BulletinsSaisiePage() {
                         type="button"
                         onClick={() => {
                           reset({
-                            bulletin_number: '',
-                            bulletin_date: new Date().toISOString().split('T')[0],
-                            adherent_matricule: '',
-                            adherent_first_name: '',
-                            adherent_last_name: '',
-                            adherent_national_id: '',
-                            adherent_email: '',
-                            beneficiary_name: '',
+                            bulletin_number: "",
+                            bulletin_date: new Date()
+                              .toISOString()
+                              .split("T")[0],
+                            adherent_matricule: "",
+                            adherent_first_name: "",
+                            adherent_last_name: "",
+                            adherent_national_id: "",
+                            adherent_email: "",
+                            beneficiary_name: "",
                             beneficiary_relationship: undefined,
-                            actes: [{ code: '', label: '', amount: 0, ref_prof_sant: '', nom_prof_sant: '', care_type: 'consultation' as const, care_description: '', cod_msgr: '', lib_msgr: '' }],
+                            actes: [
+                              {
+                                code: "",
+                                label: "",
+                                amount: 0,
+                                ref_prof_sant: "",
+                                nom_prof_sant: "",
+                                care_type: "consultation" as const,
+                                care_description: "",
+                                cod_msgr: "",
+                                lib_msgr: "",
+                              },
+                            ],
                           });
                           setSelectedFiles([]);
                           setRestoredFilesMeta([]);
@@ -7036,12 +7988,12 @@ export function BulletinsSaisiePage() {
                           setActiveBulletinIndex(0);
                           setOcrPraticienInfos({});
                           setCurrentFileHash(null);
-                          setAdherentSearch('');
+                          setAdherentSearch("");
                           setShowAdherentDropdown(false);
                           setShowScanPreview(false);
                           setSavedBulletinIndices(new Set());
                           setSavedBulletinSnapshots({});
-                          setFeedbackComment('');
+                          setFeedbackComment("");
                           setFeedbackErrors([]);
                           setFileSelectionInfo(null);
                           setAnalyzeProgress(null);
@@ -7912,21 +8864,22 @@ export function BulletinsSaisiePage() {
                     {viewBulletin.adherent_matricule}
                   </p>
                 </div>
-                {viewBulletin.beneficiary_name && viewBulletin.beneficiary_relationship !== "self" && (
-                  <div>
-                    <p className="text-muted-foreground">Bénéficiaire</p>
-                    <p className="font-medium">
-                      {viewBulletin.beneficiary_name}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {viewBulletin.beneficiary_relationship === "spouse"
-                        ? "Conjoint(e)"
-                        : viewBulletin.beneficiary_relationship === "child"
-                          ? "Enfant"
-                          : viewBulletin.beneficiary_relationship}
-                    </p>
-                  </div>
-                )}
+                {viewBulletin.beneficiary_name &&
+                  viewBulletin.beneficiary_relationship !== "self" && (
+                    <div>
+                      <p className="text-muted-foreground">Bénéficiaire</p>
+                      <p className="font-medium">
+                        {viewBulletin.beneficiary_name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {viewBulletin.beneficiary_relationship === "spouse"
+                          ? "Conjoint(e)"
+                          : viewBulletin.beneficiary_relationship === "child"
+                            ? "Enfant"
+                            : viewBulletin.beneficiary_relationship}
+                      </p>
+                    </div>
+                  )}
                 <div>
                   <p className="text-muted-foreground">Praticien</p>
                   <p className="font-medium">
@@ -8286,7 +9239,7 @@ export function BulletinsSaisiePage() {
               <ScanUpload
                 bulletinId={viewBulletin.id}
                 onUploadComplete={() => fetchBulletinDetail(viewBulletin.id)}
-                readOnly={!['draft', 'in_batch'].includes(viewBulletin.status)}
+                readOnly={!["draft", "in_batch"].includes(viewBulletin.status)}
               />
 
               {/* Status badge + actions */}
@@ -8374,21 +9327,27 @@ export function BulletinsSaisiePage() {
                     {validateBulletinTarget.adherent_last_name}
                   </p>
                 </div>
-                {validateBulletinTarget.beneficiary_name && validateBulletinTarget.beneficiary_relationship !== "self" && (
-                  <div>
-                    <p className="text-muted-foreground">Bénéficiaire</p>
-                    <p className="font-medium">
-                      {validateBulletinTarget.beneficiary_name}{" "}
-                      <span className="text-xs text-muted-foreground">
-                        ({validateBulletinTarget.beneficiary_relationship === "spouse"
-                          ? "Conjoint(e)"
-                          : validateBulletinTarget.beneficiary_relationship === "child"
-                            ? "Enfant"
-                            : validateBulletinTarget.beneficiary_relationship})
-                      </span>
-                    </p>
-                  </div>
-                )}
+                {validateBulletinTarget.beneficiary_name &&
+                  validateBulletinTarget.beneficiary_relationship !==
+                    "self" && (
+                    <div>
+                      <p className="text-muted-foreground">Bénéficiaire</p>
+                      <p className="font-medium">
+                        {validateBulletinTarget.beneficiary_name}{" "}
+                        <span className="text-xs text-muted-foreground">
+                          (
+                          {validateBulletinTarget.beneficiary_relationship ===
+                          "spouse"
+                            ? "Conjoint(e)"
+                            : validateBulletinTarget.beneficiary_relationship ===
+                                "child"
+                              ? "Enfant"
+                              : validateBulletinTarget.beneficiary_relationship}
+                          )
+                        </span>
+                      </p>
+                    </div>
+                  )}
                 <div>
                   <p className="text-muted-foreground">Montant declare</p>
                   <p className="font-medium">

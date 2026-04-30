@@ -42,6 +42,15 @@ const PLAN_CATEGORIES = ["basic","standard","premium","vip"] as const;
 const CONTRACT_STATUSES = ["draft","active","suspended","expired","cancelled"] as const;
 const CONTRACT_TYPES = ["group","individual"] as const;
 
+/** Compute effective status: if DB says 'active' but end_date has passed, return 'expired' */
+function effectiveStatus(status: string, endDate: string | null | undefined, renewalDate: string | null | undefined): string {
+  if (status !== 'active') return status;
+  const expiry = endDate || renewalDate;
+  if (!expiry) return status;
+  const today = new Date().toISOString().split('T')[0];
+  return expiry < today ? 'expired' : status;
+}
+
 const groupContractCreateSchema = z.object({
   contractType: z.enum(CONTRACT_TYPES).default("group"),
   contractNumber: z.string().min(1, "Numéro de contrat requis"),
@@ -164,7 +173,11 @@ groupContracts.get("/", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT","HR"
   const total = countResult?.total ?? 0;
   const offset = (page - 1) * limit;
   const rows = await db.prepare(`SELECT gc.*, CASE WHEN gc.contract_type = 'individual' THEN (a.first_name || ' ' || a.last_name) ELSE co.name END as company_name, ins.name as insurer_name FROM group_contracts gc LEFT JOIN companies co ON gc.company_id = co.id LEFT JOIN adherents a ON gc.adherent_id = a.id LEFT JOIN insurers ins ON gc.insurer_id = ins.id ${whereClause} ORDER BY gc.created_at DESC LIMIT ? OFFSET ?`).bind(...params, limit, offset).all();
-  return paginated(c, rows.results ?? [], { page, limit, total });
+  const results = (rows.results ?? []).map((r: Record<string, unknown>) => ({
+    ...r,
+    status: effectiveStatus(r.status as string, r.end_date as string | null, r.annual_renewal_date as string | null),
+  }));
+  return paginated(c, results, { page, limit, total });
 });
 
 // ---------------------------------------------------------------------------
@@ -177,6 +190,17 @@ groupContracts.get("/:id", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT","
   if (user?.insurerId && (user.role === "INSURER_ADMIN" || user.role === "INSURER_AGENT") && contract.insurer_id !== user.insurerId) return notFound(c, "Contrat groupe non trouvé");
   if (user.role === "HR" && contract.company_id !== user.companyId) return notFound(c, "Contrat non trouvé");
   const guarantees = await db.prepare(`SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1 ORDER BY guarantee_number ASC`).bind(id).all();
+
+  // Count adherents of this company who have a contract linked to this group contract
+  const adherentCount = contract.contract_type === 'individual'
+    ? (contract.adherent_id ? 1 : 0)
+    : (await db.prepare(
+        `SELECT COUNT(DISTINCT c.adherent_id) as cnt
+         FROM contracts c
+         JOIN adherents a ON a.id = c.adherent_id
+         WHERE c.group_contract_id = ? AND c.status != 'cancelled'
+           AND a.company_id = ? AND a.deleted_at IS NULL`
+      ).bind(id, contract.company_id).first<{ cnt: number }>())?.cnt ?? 0;
 
   // Build covered_risks array from boolean columns
   const coveredRisks: string[] = [];
@@ -202,12 +226,14 @@ groupContracts.get("/:id", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT","
 
   return success(c, {
     ...contract,
+    status: effectiveStatus(contract.status as string, contract.end_date as string | null, contract.annual_renewal_date as string | null),
     // Aliases for detail page
     expiry_date: contract.annual_renewal_date || contract.end_date || null,
     global_ceiling: contract.annual_global_limit,
     intermediary: contract.intermediary_name,
     category: contract.plan_category,
     covered_risks: JSON.stringify(coveredRisks),
+    adherent_count: adherentCount,
     guarantees: mappedGuarantees,
   });
 });
@@ -268,6 +294,15 @@ groupContracts.put("/:id", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT"),
 
   if (sets.length === 0 && !guaranteesRaw) return success(c, existing);
   if (sets.length > 0) { sets.push("updated_at = ?"); values.push(new Date().toISOString()); values.push(id); await db.prepare(`UPDATE group_contracts SET ${sets.join(", ")} WHERE id = ?`).bind(...values).run(); }
+  // Propagate date changes to individual contracts linked to this group contract
+  if (data.effectiveDate !== undefined || data.endDate !== undefined || data.annualRenewalDate !== undefined) {
+    const gc = await db.prepare("SELECT effective_date, end_date, annual_renewal_date FROM group_contracts WHERE id = ?").bind(id).first<{ effective_date: string; end_date: string | null; annual_renewal_date: string | null }>();
+    if (gc) {
+      const newStart = gc.effective_date;
+      const newEnd = gc.end_date ?? gc.annual_renewal_date ?? new Date(new Date(newStart).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      await db.prepare("UPDATE contracts SET start_date = ?, end_date = ?, updated_at = ? WHERE group_contract_id = ? AND status = 'active'").bind(newStart, newEnd, new Date().toISOString(), id).run();
+    }
+  }
   if (guaranteesRaw) {
     await db.prepare("UPDATE contract_guarantees SET is_active = 0 WHERE group_contract_id = ?").bind(id).run();
     const now = new Date().toISOString();

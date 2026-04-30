@@ -4980,6 +4980,232 @@ bulletinsAgent.post('/:id/upload-scan', async (c) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Presigned R2 Upload — browser uploads directly to R2, bypassing Worker CPU
+// ---------------------------------------------------------------------------
+
+const PRESIGNED_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
+const PRESIGNED_MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+const PRESIGNED_EXPIRY_SECONDS = 600; // 10 minutes
+const PRESIGNED_MAX_FILES = 10;
+
+/**
+ * GET /bulletins-soins/agent/:id/upload-url
+ * Generates a presigned PUT URL for direct browser → R2 upload.
+ * Query params: fileName, contentType, fileSize
+ */
+bulletinsAgent.get('/:id/upload-url', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+  }
+
+  // Validate R2 credentials are configured
+  const { R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, CF_ACCOUNT_ID } = c.env;
+  if (!R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !CF_ACCOUNT_ID) {
+    // Fallback: credentials not configured, client should use legacy upload-scan
+    return c.json({ success: false, error: { code: 'PRESIGN_UNAVAILABLE', message: 'Presigned uploads not configured' } }, 501);
+  }
+
+  const bulletinId = c.req.param('id');
+  const fileName = c.req.query('fileName');
+  const contentType = c.req.query('contentType');
+  const fileSizeStr = c.req.query('fileSize');
+
+  if (!fileName || !contentType || !fileSizeStr) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'fileName, contentType et fileSize sont requis' } }, 400);
+  }
+
+  // Validate content type
+  if (!PRESIGNED_ALLOWED_TYPES.includes(contentType)) {
+    return c.json({
+      success: false,
+      error: { code: 'INVALID_FILE_TYPE', message: 'Type non supporte. Formats acceptes : JPEG, PNG, PDF' },
+    }, 400);
+  }
+
+  // Validate file size
+  const fileSize = Number.parseInt(fileSizeStr, 10);
+  if (Number.isNaN(fileSize) || fileSize <= 0 || fileSize > PRESIGNED_MAX_SIZE) {
+    return c.json({
+      success: false,
+      error: { code: 'FILE_TOO_LARGE', message: 'Le fichier ne doit pas depasser 10 Mo' },
+    }, 400);
+  }
+
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  try {
+    // Verify bulletin exists and belongs to user
+    const bulletin = await db
+      .prepare('SELECT id FROM bulletins_soins WHERE id = ? AND created_by = ?')
+      .bind(bulletinId, user.id)
+      .first();
+
+    if (!bulletin) {
+      return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Bulletin non trouve' } }, 404);
+    }
+
+    // Check max files limit
+    const fileCount = await db.prepare(
+      'SELECT COUNT(*) as cnt FROM bulletin_files WHERE bulletin_id = ?'
+    ).bind(bulletinId).first<{ cnt: number }>();
+    if (fileCount && fileCount.cnt >= PRESIGNED_MAX_FILES) {
+      return c.json({
+        success: false,
+        error: { code: 'MAX_FILES_REACHED', message: `Maximum ${PRESIGNED_MAX_FILES} fichiers par bulletin` },
+      }, 400);
+    }
+
+    // Generate R2 key (server-controlled, client cannot choose)
+    const fileId = generateId();
+    const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const r2Key = `bulletins/${bulletinId}/${fileId}_${sanitizedName}`;
+
+    // Determine R2 bucket name based on environment
+    const bucketName = c.env.ENVIRONMENT === 'production'
+      ? 'dhamen-files-production'
+      : c.env.ENVIRONMENT === 'staging'
+        ? 'dhamen-files-staging'
+        : 'dhamen-files';
+
+    // Dynamic import to avoid breaking the module if aws4fetch has issues
+    const { AwsClient } = await import('aws4fetch');
+    const r2Client = new AwsClient({
+      accessKeyId: R2_ACCESS_KEY_ID,
+      secretAccessKey: R2_SECRET_ACCESS_KEY,
+    });
+
+    const r2Endpoint = `https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com/${bucketName}/${r2Key}`;
+    const url = new URL(r2Endpoint);
+    url.searchParams.set('X-Amz-Expires', String(PRESIGNED_EXPIRY_SECONDS));
+
+    const signed = await r2Client.sign(
+      new Request(url.toString(), {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+      }),
+      { aws: { signQuery: true } }
+    );
+
+    return c.json({
+      success: true,
+      data: {
+        uploadUrl: signed.url,
+        r2Key,
+        fileId,
+        expiresIn: PRESIGNED_EXPIRY_SECONDS,
+      },
+    });
+  } catch (error) {
+    console.error('Error generating presigned URL:', error);
+    return c.json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur generation URL upload' } }, 500);
+  }
+});
+
+/**
+ * POST /bulletins-soins/agent/:id/confirm-upload
+ * Confirms a presigned upload: verifies file in R2, computes hash, inserts into bulletin_files.
+ * Body: { r2Key, fileId, fileName, contentType, fileSize }
+ */
+bulletinsAgent.post('/:id/confirm-upload', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const storage = c.env.STORAGE;
+
+  let body: { r2Key?: string; fileId?: string; fileName?: string; contentType?: string; fileSize?: number };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Body JSON invalide' } }, 400);
+  }
+
+  const { r2Key, fileId, fileName, contentType, fileSize } = body;
+  if (!r2Key || !fileId || !fileName || !contentType || !fileSize) {
+    return c.json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'r2Key, fileId, fileName, contentType et fileSize sont requis' },
+    }, 400);
+  }
+
+  // Security: r2Key must match expected pattern for this bulletin
+  const expectedPrefix = `bulletins/${bulletinId}/`;
+  if (!r2Key.startsWith(expectedPrefix)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Cle R2 invalide pour ce bulletin' } }, 403);
+  }
+
+  try {
+    // Verify bulletin ownership
+    const bulletin = await db
+      .prepare('SELECT id, scan_url FROM bulletins_soins WHERE id = ? AND created_by = ?')
+      .bind(bulletinId, user.id)
+      .first<{ id: string; scan_url: string | null }>();
+
+    if (!bulletin) {
+      return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Bulletin non trouve' } }, 404);
+    }
+
+    // Verify file exists in R2
+    const r2Object = await storage.get(r2Key);
+    if (!r2Object) {
+      return c.json({
+        success: false,
+        error: { code: 'FILE_NOT_FOUND', message: 'Fichier non trouve dans R2. Upload echoue ou URL expiree.' },
+      }, 404);
+    }
+
+    // Compute SHA-256 hash from R2 object
+    const arrayBuffer = await r2Object.arrayBuffer();
+    const hashBuf = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const fileHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    // Get next file_index
+    const maxIdx = await db.prepare(
+      'SELECT COALESCE(MAX(file_index), -1) as max_idx FROM bulletin_files WHERE bulletin_id = ?'
+    ).bind(bulletinId).first<{ max_idx: number }>();
+    const nextIndex = (maxIdx?.max_idx ?? -1) + 1;
+
+    // Update bulletin scan_url if first file (legacy compat)
+    if (!bulletin.scan_url) {
+      const scanUrl = `https://dhamen-files.${c.env.ENVIRONMENT === 'production' ? '' : 'staging.'}r2.cloudflarestorage.com/${r2Key}`;
+      await db.prepare(
+        `UPDATE bulletins_soins SET scan_url = ?, scan_filename = ?, updated_at = datetime('now') WHERE id = ?`
+      ).bind(scanUrl, fileName, bulletinId).run();
+    }
+
+    // Insert into bulletin_files
+    await db.prepare(
+      `INSERT OR IGNORE INTO bulletin_files (id, bulletin_id, file_index, file_name, file_hash, r2_key, mime_type, file_size, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    ).bind(fileId, bulletinId, nextIndex, fileName, fileHash, r2Key, contentType, fileSize).run();
+
+    // Audit log
+    await db.prepare(
+      `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+       VALUES (?, ?, 'scan_uploaded', 'bulletins_soins', ?, ?, ?, datetime('now'))`
+    ).bind(
+      generateId(), user.id, bulletinId,
+      JSON.stringify({ filename: fileName, size: fileSize, mime_type: contentType, method: 'presigned' }),
+      c.req.header('CF-Connecting-IP') || 'unknown'
+    ).run();
+
+    return c.json({
+      success: true,
+      data: { id: fileId, r2_key: r2Key, file_hash: fileHash },
+    });
+  } catch (error) {
+    console.error('Error confirming upload:', error);
+    return c.json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur confirmation upload' } }, 500);
+  }
+});
+
 /**
  * GET /bulletins-soins/agent/:id/scan - Download the scan attached to a bulletin
  */

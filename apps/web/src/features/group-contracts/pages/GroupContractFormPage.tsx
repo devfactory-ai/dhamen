@@ -372,6 +372,14 @@ interface PdfAnalyseResponse {
   errors?: string[];
 }
 
+/** Clamp a date on blur: if < minDate → clear, if > maxDate → maxDate */
+function clampDateValue(value: string, minDate: string, maxDate?: string): string {
+  if (!value) return value;
+  if (value < minDate) return "";
+  if (maxDate && value > maxDate) return maxDate;
+  return value;
+}
+
 export function GroupContractFormPage() {
   const { hasPermission } = usePermissions();
   const { id } = useParams<{ id: string }>();
@@ -1476,14 +1484,14 @@ const handlePdfUpload = useCallback(
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="effective_date">Date d'effet *</Label>
-                <Input id="effective_date" type="date" {...register('effective_date')} />
+                <Input id="effective_date" type="date" min="2000-01-01" {...register('effective_date', { onBlur: (e: React.FocusEvent<HTMLInputElement>) => { const v = clampDateValue(e.target.value, "2000-01-01"); if (v !== e.target.value) setValue('effective_date', v); } })} />
                 {errors.effective_date && (
                   <p className="text-xs text-destructive">{errors.effective_date.message}</p>
                 )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="expiry_date">Echéance annuelle</Label>
-                <Input id="expiry_date" type="date" {...register('expiry_date')} />
+                <Input id="expiry_date" type="date" min="2000-01-01" {...register('expiry_date', { onBlur: (e: React.FocusEvent<HTMLInputElement>) => { const v = clampDateValue(e.target.value, "2000-01-01"); if (v !== e.target.value) setValue('expiry_date', v); } })} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="global_ceiling">Plafond global annuel (DT)<InfoTooltip text="Plafond maximum de remboursement par adherent et par an. Ce montant couvre l'ensemble des types de soins. Des sous-plafonds par garantie peuvent s'appliquer." /></Label>

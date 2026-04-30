@@ -156,6 +156,7 @@ export interface AdherentSearchResult {
   plafondGlobal: number | null;
   plafondConsomme: number | null;
   contractType: 'individual' | 'family' | 'corporate' | null;
+  contractStartDate: string | null;
   contractEndDate: string | null;
   contractNumber: string | null;
   contractWarning: string | null;

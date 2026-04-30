@@ -1,10 +1,12 @@
 import { useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Upload, FileImage, FileText, Download, Loader2, Trash2, Plus } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
+import { uploadFilesSequential } from '../lib/presigned-upload';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -28,6 +30,7 @@ interface ScanUploadProps {
 export function ScanUpload({ bulletinId, onUploadComplete, readOnly }: ScanUploadProps) {
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<BulletinFile | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -43,19 +46,20 @@ export function ScanUpload({ bulletinId, onUploadComplete, readOnly }: ScanUploa
     staleTime: 30_000,
   });
 
-  // Upload mutation
+  // Upload mutation — uploads all files sequentially to avoid Worker overload
   const uploadMutation = useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append('scan', file);
-      const res = await apiClient.upload(`/bulletins-soins/agent/${bulletinId}/upload-scan`, formData);
-      if (!res.success) throw new Error(res.error?.message || 'Erreur upload');
-      return res.data;
+    mutationFn: async (files: File[]) => {
+      const failedCount = await uploadFilesSequential(bulletinId, files);
+      if (failedCount > 0 && failedCount < files.length) {
+        toast.warning(`${failedCount}/${files.length} fichier(s) non uploadé(s)`);
+      } else if (failedCount === files.length) {
+        throw new Error('Tous les uploads ont échoué');
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bulletin-files', bulletinId] });
       queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
-      toast.success('Fichier ajouté');
+      toast.success('Fichier(s) ajouté(s)');
       onUploadComplete?.();
     },
     onError: (err: Error) => toast.error(err.message || "Erreur lors de l'upload"),
@@ -70,9 +74,7 @@ export function ScanUpload({ bulletinId, onUploadComplete, readOnly }: ScanUploa
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bulletin-files', bulletinId] });
-      queryClient.invalidateQueries({ queryKey: ['agent-bulletins'] });
       toast.success('Fichier supprimé');
-      onUploadComplete?.();
     },
     onError: (err: Error) => toast.error(err.message || 'Erreur lors de la suppression'),
   });
@@ -90,9 +92,7 @@ export function ScanUpload({ bulletinId, onUploadComplete, readOnly }: ScanUploa
         return;
       }
     }
-    for (const file of filesToUpload) {
-      uploadMutation.mutate(file);
-    }
+    uploadMutation.mutate(filesToUpload);
   }, [uploadMutation]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -162,6 +162,7 @@ export function ScanUpload({ bulletinId, onUploadComplete, readOnly }: ScanUploa
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <Button
+                    type="button"
                     size="sm"
                     variant="ghost"
                     className="h-7 w-7 p-0"
@@ -172,14 +173,11 @@ export function ScanUpload({ bulletinId, onUploadComplete, readOnly }: ScanUploa
                   </Button>
                   {!readOnly && !f.legacy_scan_url && (
                     <Button
+                      type="button"
                       size="sm"
                       variant="ghost"
                       className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                      onClick={() => {
-                        if (confirm(`Supprimer "${f.file_name}" ?`)) {
-                          deleteMutation.mutate(f.id);
-                        }
-                      }}
+                      onClick={() => setDeleteTarget(f)}
                       disabled={deleteMutation.isPending}
                       title="Supprimer"
                     >
@@ -247,6 +245,42 @@ export function ScanUpload({ bulletinId, onUploadComplete, readOnly }: ScanUploa
           <p className="text-sm text-muted-foreground text-center py-2">Aucun fichier attaché</p>
         )}
       </CardContent>
+
+      {/* Delete confirmation modal */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent className="max-w-sm" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="text-sm">Supprimer le fichier ?</DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-muted-foreground">
+            Le fichier <span className="font-medium text-gray-700">{deleteTarget?.file_name || 'Scan'}</span> sera supprimé définitivement.
+          </p>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" size="sm" onClick={() => setDeleteTarget(null)}>
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (deleteTarget) {
+                  deleteMutation.mutate(deleteTarget.id, {
+                    onSettled: () => setDeleteTarget(null),
+                  });
+                }
+              }}
+            >
+              {deleteMutation.isPending ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> Suppression...</>
+              ) : (
+                'Supprimer'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

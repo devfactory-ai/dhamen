@@ -416,9 +416,10 @@ adherents.get(
       SELECT a.id, a.matricule, a.first_name, a.last_name, a.email,
              a.plafond_global, a.plafond_consomme,
              co.name as company_name,
-             (SELECT ct.plan_type FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY ct.created_at DESC LIMIT 1) as contract_type,
-             (SELECT ct.end_date FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY ct.created_at DESC LIMIT 1) as contract_end_date,
-             (SELECT ct.contract_number FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY ct.created_at DESC LIMIT 1) as contract_number
+             (SELECT ct.plan_type FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY CASE WHEN ct.group_contract_id IS NOT NULL THEN 0 ELSE 1 END, ct.created_at DESC LIMIT 1) as contract_type,
+             (SELECT ct.start_date FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY CASE WHEN ct.group_contract_id IS NOT NULL THEN 0 ELSE 1 END, ct.created_at DESC LIMIT 1) as contract_start_date,
+             (SELECT ct.end_date FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY CASE WHEN ct.group_contract_id IS NOT NULL THEN 0 ELSE 1 END, ct.created_at DESC LIMIT 1) as contract_end_date,
+             (SELECT ct.contract_number FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY CASE WHEN ct.group_contract_id IS NOT NULL THEN 0 ELSE 1 END, ct.created_at DESC LIMIT 1) as contract_number
       FROM adherents a
       LEFT JOIN companies co ON a.company_id = co.id
       WHERE a.deleted_at IS NULL AND a.is_active = 1 AND a.parent_adherent_id IS NULL
@@ -479,6 +480,7 @@ adherents.get(
         plafondGlobal: r.plafond_global,
         plafondConsomme: r.plafond_consomme,
         contractType: r.contract_type || null,
+        contractStartDate: (r.contract_start_date as string) || null,
         contractEndDate: endDate || null,
         contractNumber: r.contract_number || null,
         contractWarning,

@@ -133,6 +133,14 @@ const emptyAyantDroit: AyantDroitFormState = {
   plafondGlobal: '',
 };
 
+/** Clamp a date on blur: if < minDate → clear, if > maxDate → maxDate */
+function clampDateValue(value: string, minDate: string, maxDate?: string): string {
+  if (!value) return value;
+  if (value < minDate) return "";
+  if (maxDate && value > maxDate) return maxDate;
+  return value;
+}
+
 export function AgentAdherentFormPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -832,11 +840,14 @@ export function AgentAdherentFormPage() {
                   <Input
                     id="dateEditionPiece"
                     type="date"
+                    min="1900-01-01"
                     max={new Date().toISOString().split("T")[0]}
                     value={form.dateEditionPiece}
-                    onChange={(e) =>
-                      setForm({ ...form, dateEditionPiece: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, dateEditionPiece: e.target.value })}
+                    onBlur={(e) => {
+                      const v = clampDateValue(e.target.value, "1900-01-01", new Date().toISOString().split("T")[0]);
+                      if (v !== e.target.value) setForm((f) => ({ ...f, dateEditionPiece: v }));
+                    }}
                   />
                 </div>
               </div>
@@ -884,11 +895,14 @@ export function AgentAdherentFormPage() {
                   <Input
                     id="dateOfBirth"
                     type="date"
+                    min="1900-01-01"
                     max={new Date().toISOString().split("T")[0]}
                     value={form.dateOfBirth}
-                    onChange={(e) =>
-                      setForm({ ...form, dateOfBirth: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })}
+                    onBlur={(e) => {
+                      const v = clampDateValue(e.target.value, "1900-01-01");
+                      if (v !== e.target.value) setForm((f) => ({ ...f, dateOfBirth: v }));
+                    }}
                     className={formErrors.dateOfBirth ? "border-red-500" : ""}
                   />
                   {formErrors.dateOfBirth && (
@@ -956,11 +970,14 @@ export function AgentAdherentFormPage() {
                   <Input
                     id="dateMarriage"
                     type="date"
+                    min="1900-01-01"
                     max={new Date().toISOString().split("T")[0]}
                     value={form.dateMarriage}
-                    onChange={(e) =>
-                      setForm({ ...form, dateMarriage: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, dateMarriage: e.target.value })}
+                    onBlur={(e) => {
+                      const v = clampDateValue(e.target.value, "1900-01-01", new Date().toISOString().split("T")[0]);
+                      if (v !== e.target.value) setForm((f) => ({ ...f, dateMarriage: v }));
+                    }}
                   />
                 </div>
               </div>
@@ -1100,11 +1117,14 @@ export function AgentAdherentFormPage() {
                   <Input
                     id="dateDebutAdhesion"
                     type="date"
+                    min="2000-01-01"
                     max={new Date().toISOString().split("T")[0]}
                     value={form.dateDebutAdhesion}
-                    onChange={(e) =>
-                      setForm({ ...form, dateDebutAdhesion: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, dateDebutAdhesion: e.target.value })}
+                    onBlur={(e) => {
+                      const v = clampDateValue(e.target.value, "2000-01-01");
+                      if (v !== e.target.value) setForm((f) => ({ ...f, dateDebutAdhesion: v }));
+                    }}
                   />
                 </div>
                 <div>
@@ -1112,10 +1132,13 @@ export function AgentAdherentFormPage() {
                   <Input
                     id="dateFinAdhesion"
                     type="date"
+                    min="2000-01-01"
                     value={form.dateFinAdhesion}
-                    onChange={(e) =>
-                      setForm({ ...form, dateFinAdhesion: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, dateFinAdhesion: e.target.value })}
+                    onBlur={(e) => {
+                      const v = clampDateValue(e.target.value, "2000-01-01");
+                      if (v !== e.target.value) setForm((f) => ({ ...f, dateFinAdhesion: v }));
+                    }}
                   />
                 </div>
                 <div>
@@ -1522,15 +1545,14 @@ export function AgentAdherentFormPage() {
                         <Label>Date de naissance *</Label>
                         <Input
                           type="date"
+                          min="1900-01-01"
                           max={new Date().toISOString().split("T")[0]}
                           value={ad.dateOfBirth}
-                          onChange={(e) =>
-                            updateAyantDroit(
-                              index,
-                              "dateOfBirth",
-                              e.target.value,
-                            )
-                          }
+                          onChange={(e) => updateAyantDroit(index, "dateOfBirth", e.target.value)}
+                          onBlur={(e) => {
+                            const v = clampDateValue(e.target.value, "1900-01-01");
+                            if (v !== e.target.value) updateAyantDroit(index, "dateOfBirth", v);
+                          }}
                           className={
                             formErrors[`ad_${index}_dateOfBirth`]
                               ? "border-red-500"

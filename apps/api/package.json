@@ -24,6 +24,7 @@
     "@dhamen/shared": "workspace:*",
     "@hono/zod-validator": "^0.4.1",
     "@simplewebauthn/server": "^11",
+    "aws4fetch": "^1.0.20",
     "fflate": "^0.8.2",
     "hono": "^4.6.12",
     "pako": "^2.1.0",
