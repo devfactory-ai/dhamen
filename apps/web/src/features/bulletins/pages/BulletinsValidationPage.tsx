@@ -65,7 +65,17 @@ import {
   Printer,
   Filter,
   Archive,
+  Scissors,
+  Smile,
+  Truck,
+  Waves,
+  Bone,
+  ClipboardList,
+  Baby,
+  Heart,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import { getCareTypeConfig } from '@dhamen/shared';
 
 
 // Types for bulletin workflow
@@ -244,12 +254,20 @@ function getStatusConfig(status: string) {
   return statusConfig[status as BulletinStatus] || defaultStatusConfig;
 }
 
-const careTypeConfig: Record<string, { label: string; icon: typeof Stethoscope }> = {
-  consultation: { label: 'Consultation', icon: Stethoscope },
-  pharmacy: { label: 'Pharmacie', icon: Pill },
-  lab: { label: 'Analyses', icon: FlaskConical },
-  hospital: { label: 'Hospitalisation', icon: Building2 },
+const ICON_MAP: Record<string, LucideIcon> = {
+  Stethoscope, Pill, FlaskConical, Building2, Eye, Baby, Heart,
+  ClipboardList, Scissors, Smile, Truck, Waves, Bone,
 };
+
+function careTypeDisplay(value: string | null | undefined) {
+  const cfg = getCareTypeConfig(value);
+  return {
+    label: cfg.label,
+    icon: ICON_MAP[cfg.icon] || Stethoscope,
+    bgColor: cfg.bgColor,
+    textColor: cfg.textColor,
+  };
+}
 
 // Workflow valid transitions
 const validTransitions: Record<BulletinStatus, BulletinStatus[]> = {
@@ -565,7 +583,7 @@ export function BulletinsValidationPage() {
       key: 'care_type',
       header: 'Type',
       render: (row: BulletinSoins) => {
-        const config = careTypeConfig[row.care_type] || careTypeConfig.consultation;
+        const config = careTypeDisplay(row.care_type);
         const Icon = config?.icon;
         return (
           <div className="flex items-center gap-2 min-w-[100px]">
@@ -836,7 +854,7 @@ export function BulletinsValidationPage() {
               <Input
                 placeholder="Rechercher par nom, CIN, numero..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
                 className="pl-9"
               />
             </div>
@@ -868,6 +886,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "all"}
               onClick={() => {
                 setStatusFilter("all");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -877,6 +896,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "pending"}
               onClick={() => {
                 setStatusFilter("pending");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -886,6 +906,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "scan_uploaded"}
               onClick={() => {
                 setStatusFilter("scan_uploaded");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -895,6 +916,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "paper_received"}
               onClick={() => {
                 setStatusFilter("paper_received");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -904,6 +926,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "paper_incomplete"}
               onClick={() => {
                 setStatusFilter("paper_incomplete");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -913,6 +936,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "paper_complete"}
               onClick={() => {
                 setStatusFilter("paper_complete");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -922,6 +946,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "processing"}
               onClick={() => {
                 setStatusFilter("processing");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -931,6 +956,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "approved"}
               onClick={() => {
                 setStatusFilter("approved");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -940,6 +966,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "pending_payment"}
               onClick={() => {
                 setStatusFilter("pending_payment");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -949,6 +976,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "reimbursed"}
               onClick={() => {
                 setStatusFilter("reimbursed");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -958,6 +986,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "rejected"}
               onClick={() => {
                 setStatusFilter("rejected");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -967,6 +996,7 @@ export function BulletinsValidationPage() {
               selected={statusFilter === "non_remboursable"}
               onClick={() => {
                 setStatusFilter("non_remboursable");
+                setPage(1);
                 setStatusDropdownOpen(false);
               }}
             >
@@ -1154,9 +1184,7 @@ export function BulletinsValidationPage() {
                       </p>
                       <div className="flex items-center gap-2">
                         {(() => {
-                          const config =
-                            careTypeConfig[selectedBulletin.care_type] ||
-                            careTypeConfig.consultation;
+                          const config = careTypeDisplay(selectedBulletin.care_type);
                           const Icon = config?.icon!;
                           return (
                             <>

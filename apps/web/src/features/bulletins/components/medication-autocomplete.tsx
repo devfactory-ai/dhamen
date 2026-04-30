@@ -30,6 +30,8 @@ interface MedicationResult {
 interface MedicationAutocompleteProps {
   value: string;
   onSelect: (medication: MedicationResult) => void;
+  /** Called when the user types free text without selecting from dropdown */
+  onFreeText?: (text: string) => void;
   familyId?: string;
   placeholder?: string;
   className?: string;
@@ -38,6 +40,7 @@ interface MedicationAutocompleteProps {
 export function MedicationAutocomplete({
   value,
   onSelect,
+  onFreeText,
   familyId,
   placeholder = 'Rechercher un médicament...',
   className,
@@ -48,6 +51,7 @@ export function MedicationAutocomplete({
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const prevValueRef = useRef(value);
 
   // Debounced search query
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -84,12 +88,14 @@ export function MedicationAutocomplete({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Sync display value when external value changes
+  // Sync display value only when the parent prop actually changes (OCR fill, selection, reset)
   useEffect(() => {
-    if (value && !searchQuery) {
-      setDisplayValue(value);
+    if (value !== prevValueRef.current) {
+      prevValueRef.current = value;
+      setDisplayValue(value || '');
+      setSearchQuery('');
     }
-  }, [value, searchQuery]);
+  }, [value]);
 
   const handleSelect = useCallback(
     (med: MedicationResult) => {
@@ -155,9 +161,18 @@ export function MedicationAutocomplete({
               setIsOpen(true);
             }
           }}
+          onBlur={() => {
+            // Commit free text if user typed without selecting from dropdown
+            if (searchQuery && onFreeText) {
+              onFreeText(searchQuery);
+              setDisplayValue(searchQuery);
+              setSearchQuery('');
+            }
+            setIsOpen(false);
+          }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="flex h-9 w-full rounded-xl border border-input bg-transparent pl-8 pr-8 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="flex h-9 w-full rounded-md border border-input bg-transparent pl-8 pr-8 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         />
         {isFetching && (
           <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 animate-spin" />

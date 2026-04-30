@@ -101,22 +101,14 @@ export function ProvidersPage() {
   const canRead = hasPermission('providers', 'read');
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
 
-  const { data, isLoading } = useProviders(page, 20, typeFilter);
+  const { data, isLoading } = useProviders(page, 20, typeFilter, search || undefined);
   const deleteProvider = useDeleteProvider();
 
   const providers = data?.providers || [];
   const total = data?.total || 0;
 
-  // Client-side search + filters
+  // Client-side filters for fields not yet supported server-side
   const filtered = providers.filter((p) => {
-    if (search) {
-      const q = search.toLowerCase();
-      if (
-        !p.name.toLowerCase().includes(q) &&
-        !(p.city || '').toLowerCase().includes(q) &&
-        !(p.licenseNo || '').toLowerCase().includes(q)
-      ) return false;
-    }
     if (specialityFilter && (p.speciality || '').toLowerCase() !== specialityFilter.toLowerCase()) return false;
     if (cityFilter && (p.city || '').toLowerCase() !== cityFilter.toLowerCase()) return false;
     if (statusFilter === 'active' && !p.isActive) return false;
@@ -390,7 +382,7 @@ export function ProvidersPage() {
                   type="text"
                   placeholder="Rechercher par nom, licence, ville..."
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                   className="w-full h-10 pl-10 pr-4 rounded-xl bg-[#f3f4f5] text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all"
                 />
               </div>

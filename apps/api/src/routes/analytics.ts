@@ -569,6 +569,7 @@ analytics.get(
           SELECT
             bs.id, bs.bulletin_number, bs.status, bs.care_type, bs.bulletin_date,
             bs.total_amount, bs.reimbursed_amount, bs.created_at,
+            bs.beneficiary_name, bs.beneficiary_relationship,
             a.first_name as adherent_first_name, a.last_name as adherent_last_name,
             co.name as company_name
           FROM bulletins_soins bs
@@ -591,6 +592,8 @@ analytics.get(
         reimbursedAmount: r.reimbursed_amount,
         createdAt: r.created_at,
         adherentName: `${r.adherent_first_name || ''} ${r.adherent_last_name || ''}`.trim(),
+        beneficiaryName: r.beneficiary_name || null,
+        beneficiaryRelationship: r.beneficiary_relationship || null,
         companyName: r.company_name || '—',
       }));
 

@@ -62,6 +62,11 @@ export interface Bindings {
   JWT_SECRET: string;
   ENCRYPTION_KEY: string;
 
+  // R2 S3-compatible API credentials (for presigned URLs)
+  R2_ACCESS_KEY_ID?: string;
+  R2_SECRET_ACCESS_KEY?: string;
+  CF_ACCOUNT_ID?: string;
+
   // Optional configuration
   API_BASE_URL?: string;
   WEB_BASE_URL?: string;

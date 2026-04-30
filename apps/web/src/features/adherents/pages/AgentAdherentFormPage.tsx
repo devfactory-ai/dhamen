@@ -105,6 +105,7 @@ interface AyantDroitFormState {
   gender: string;
   phone: string;
   email: string;
+  plafondGlobal: string;
 }
 
 const emptyForm: AdherentFormState = {
@@ -129,7 +130,16 @@ const emptyAyantDroit: AyantDroitFormState = {
   gender: '',
   phone: '',
   email: '',
+  plafondGlobal: '',
 };
+
+/** Clamp a date on blur: if < minDate → clear, if > maxDate → maxDate */
+function clampDateValue(value: string, minDate: string, maxDate?: string): string {
+  if (!value) return value;
+  if (value < minDate) return "";
+  if (maxDate && value > maxDate) return maxDate;
+  return value;
+}
 
 export function AgentAdherentFormPage() {
   const navigate = useNavigate();
@@ -242,6 +252,7 @@ export function AgentAdherentFormPage() {
       gender: adherent.gender || '',
       phone: adherent.phone || '',
       email: adherent.email || '',
+      plafondGlobal: '',
     };
     setAyantsDroit([...ayantsDroit, newAd]);
     setShowImportDialog(false);
@@ -253,7 +264,7 @@ export function AgentAdherentFormPage() {
   const { data: nextMatricule } = useNextMatricule(effectiveCompanyId || undefined);
 
   // --- Load company's group contracts for the contract selector ---
-  const [companyContracts, setCompanyContracts] = useState<Array<{ id: string; contractNumber: string; status: string }>>([]);
+  const [companyContracts, setCompanyContracts] = useState<Array<{ id: string; contractNumber: string; status: string; annualGlobalLimit: number | null }>>([]);
   const [contractsLoaded, setContractsLoaded] = useState(false);
   const currentCompanyId = resolveCompanyId();
   const prevCompanyIdRef = useRef<string | undefined>(undefined);
@@ -274,15 +285,16 @@ export function AgentAdherentFormPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await apiClient.get<Array<{ id: string; contract_number: string; status: string }>>('/group-contracts', {
+        const res = await apiClient.get<Array<{ id: string; contract_number: string; status: string; annual_global_limit: number | null }>>('/group-contracts', {
           params: { companyId: currentCompanyId, status: 'active', limit: '100' },
         });
         if (!cancelled && res.success) {
-          const raw = res.data as unknown as Array<{ id: string; contract_number: string; status: string }>;
+          const raw = res.data as unknown as Array<{ id: string; contract_number: string; status: string; annual_global_limit: number | null }>;
           setCompanyContracts((Array.isArray(raw) ? raw : []).map((gc) => ({
             id: gc.id,
             contractNumber: gc.contract_number,
             status: gc.status,
+            annualGlobalLimit: gc.annual_global_limit,
           })));
         }
       } catch { /* ignore */ }
@@ -322,6 +334,7 @@ export function AgentAdherentFormPage() {
         gender: familleData.conjoint.gender || '',
         email: familleData.conjoint.email || '',
         phone: familleData.conjoint.phone || '',
+        plafondGlobal: familleData.conjoint.plafondGlobal ? String(familleData.conjoint.plafondGlobal / 1000) : '',
       });
     }
     for (const enfant of familleData.enfants) {
@@ -336,6 +349,7 @@ export function AgentAdherentFormPage() {
         gender: enfant.gender || '',
         email: enfant.email || '',
         phone: enfant.phone || '',
+        plafondGlobal: enfant.plafondGlobal ? String(enfant.plafondGlobal / 1000) : '',
       });
     }
     setAyantsDroit(loaded);
@@ -473,6 +487,7 @@ export function AgentAdherentFormPage() {
           gender: ad.gender || undefined,
           phone: ad.phone || undefined,
           email: ad.email || undefined,
+          plafondGlobal: ad.plafondGlobal ? Number(ad.plafondGlobal) * 1000 : undefined,
         }));
 
       // Resolve companyId for update (roles with companies.list can change it)
@@ -540,6 +555,7 @@ export function AgentAdherentFormPage() {
           gender: ad.gender || undefined,
           phone: ad.phone || undefined,
           email: ad.email || undefined,
+          plafondGlobal: ad.plafondGlobal ? Number(ad.plafondGlobal) * 1000 : undefined,
         }));
 
       const payload: CreateAdherentData = {
@@ -824,11 +840,14 @@ export function AgentAdherentFormPage() {
                   <Input
                     id="dateEditionPiece"
                     type="date"
+                    min="1900-01-01"
                     max={new Date().toISOString().split("T")[0]}
                     value={form.dateEditionPiece}
-                    onChange={(e) =>
-                      setForm({ ...form, dateEditionPiece: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, dateEditionPiece: e.target.value })}
+                    onBlur={(e) => {
+                      const v = clampDateValue(e.target.value, "1900-01-01", new Date().toISOString().split("T")[0]);
+                      if (v !== e.target.value) setForm((f) => ({ ...f, dateEditionPiece: v }));
+                    }}
                   />
                 </div>
               </div>
@@ -876,11 +895,14 @@ export function AgentAdherentFormPage() {
                   <Input
                     id="dateOfBirth"
                     type="date"
+                    min="1900-01-01"
                     max={new Date().toISOString().split("T")[0]}
                     value={form.dateOfBirth}
-                    onChange={(e) =>
-                      setForm({ ...form, dateOfBirth: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })}
+                    onBlur={(e) => {
+                      const v = clampDateValue(e.target.value, "1900-01-01");
+                      if (v !== e.target.value) setForm((f) => ({ ...f, dateOfBirth: v }));
+                    }}
                     className={formErrors.dateOfBirth ? "border-red-500" : ""}
                   />
                   {formErrors.dateOfBirth && (
@@ -948,11 +970,14 @@ export function AgentAdherentFormPage() {
                   <Input
                     id="dateMarriage"
                     type="date"
+                    min="1900-01-01"
                     max={new Date().toISOString().split("T")[0]}
                     value={form.dateMarriage}
-                    onChange={(e) =>
-                      setForm({ ...form, dateMarriage: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, dateMarriage: e.target.value })}
+                    onBlur={(e) => {
+                      const v = clampDateValue(e.target.value, "1900-01-01", new Date().toISOString().split("T")[0]);
+                      if (v !== e.target.value) setForm((f) => ({ ...f, dateMarriage: v }));
+                    }}
                   />
                 </div>
               </div>
@@ -981,7 +1006,11 @@ export function AgentAdherentFormPage() {
                         value={form.contractNumber || "none"}
                         onValueChange={(v) => {
                           const val = v === "none" ? "" : v;
-                          setForm({ ...form, contractNumber: val });
+                          const selected = companyContracts.find((gc) => gc.contractNumber === val);
+                          const plafond = selected?.annualGlobalLimit
+                            ? String(selected.annualGlobalLimit / 1000)
+                            : form.plafondGlobal;
+                          setForm({ ...form, contractNumber: val, plafondGlobal: plafond });
                           setContractNumberValid(!!val);
                         }}
                       >
@@ -1088,11 +1117,14 @@ export function AgentAdherentFormPage() {
                   <Input
                     id="dateDebutAdhesion"
                     type="date"
+                    min="2000-01-01"
                     max={new Date().toISOString().split("T")[0]}
                     value={form.dateDebutAdhesion}
-                    onChange={(e) =>
-                      setForm({ ...form, dateDebutAdhesion: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, dateDebutAdhesion: e.target.value })}
+                    onBlur={(e) => {
+                      const v = clampDateValue(e.target.value, "2000-01-01");
+                      if (v !== e.target.value) setForm((f) => ({ ...f, dateDebutAdhesion: v }));
+                    }}
                   />
                 </div>
                 <div>
@@ -1100,10 +1132,13 @@ export function AgentAdherentFormPage() {
                   <Input
                     id="dateFinAdhesion"
                     type="date"
+                    min="2000-01-01"
                     value={form.dateFinAdhesion}
-                    onChange={(e) =>
-                      setForm({ ...form, dateFinAdhesion: e.target.value })
-                    }
+                    onChange={(e) => setForm({ ...form, dateFinAdhesion: e.target.value })}
+                    onBlur={(e) => {
+                      const v = clampDateValue(e.target.value, "2000-01-01");
+                      if (v !== e.target.value) setForm((f) => ({ ...f, dateFinAdhesion: v }));
+                    }}
                   />
                 </div>
                 <div>
@@ -1510,15 +1545,14 @@ export function AgentAdherentFormPage() {
                         <Label>Date de naissance *</Label>
                         <Input
                           type="date"
+                          min="1900-01-01"
                           max={new Date().toISOString().split("T")[0]}
                           value={ad.dateOfBirth}
-                          onChange={(e) =>
-                            updateAyantDroit(
-                              index,
-                              "dateOfBirth",
-                              e.target.value,
-                            )
-                          }
+                          onChange={(e) => updateAyantDroit(index, "dateOfBirth", e.target.value)}
+                          onBlur={(e) => {
+                            const v = clampDateValue(e.target.value, "1900-01-01");
+                            if (v !== e.target.value) updateAyantDroit(index, "dateOfBirth", v);
+                          }}
                           className={
                             formErrors[`ad_${index}_dateOfBirth`]
                               ? "border-red-500"
@@ -1597,6 +1631,26 @@ export function AgentAdherentFormPage() {
                         </div>
                       </div>
                     )}
+
+                    {/* Plafond individuel */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <Label>Plafond global (DT)</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          placeholder="Ex: 6000"
+                          value={ad.plafondGlobal}
+                          onChange={(e) =>
+                            updateAyantDroit(index, "plafondGlobal", e.target.value)
+                          }
+                        />
+                        <p className="text-xs text-gray-400 mt-1">
+                          Plafond annuel individuel pour cet ayant droit
+                        </p>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               ))}

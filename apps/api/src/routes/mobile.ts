@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth';
+import { logAudit } from '../middleware/audit-trail';
 import { success, error } from '../lib/response';
 import { verifyPassword, hashPassword } from '../lib/password';
 import { signJWT, signRefreshToken } from '../lib/jwt';
@@ -131,6 +132,16 @@ mobile.post('/auth/login', zValidator('json', mobileLoginSchema), async (c) => {
     c.env
   );
 
+  logAudit(getDb(c), {
+    userId: adherent.id,
+    action: 'auth.login',
+    entityType: 'adherents',
+    entityId: adherent.id,
+    changes: { method: 'password', deviceId: deviceInfo.deviceId, platform: deviceInfo.platform },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
   return success(c, {
     user: {
       id: adherent.id,
@@ -209,6 +220,16 @@ mobile.post(
       },
       c.env
     );
+
+    logAudit(getDb(c), {
+      userId: adherent.id,
+      action: 'auth.pin_login',
+      entityType: 'adherents',
+      entityId: adherent.id,
+      changes: { method: 'pin', deviceId },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return success(c, { tokens });
   }
@@ -356,6 +377,16 @@ mobile.post(
       c.env
     );
 
+    logAudit(getDb(c), {
+      userId: adherent.id,
+      action: 'auth.biometric_login',
+      entityType: 'adherents',
+      entityId: adherent.id,
+      changes: { method: 'biometric', deviceId },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return success(c, { tokens });
   }
 );
@@ -380,6 +411,16 @@ mobile.post(
       UPDATE adherents SET pin_hash = ?, updated_at = datetime('now')
       WHERE id = ?
     `).bind(pinHash, user.id).run();
+
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'auth.setup_pin',
+      entityType: 'adherents',
+      entityId: user.id,
+      changes: { pinConfigured: true },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return success(c, { message: 'PIN configuré' });
   }
@@ -412,6 +453,16 @@ mobile.post(
       UPDATE adherents SET biometric_enabled = 1, updated_at = datetime('now')
       WHERE id = ?
     `).bind(user.id).run();
+
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'auth.enable_biometric',
+      entityType: 'adherents',
+      entityId: user.id,
+      changes: { biometricEnabled: true, deviceId },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return success(c, { message: 'Biométrie activée' });
   }
@@ -523,6 +574,16 @@ mobile.put(
     await getDb(c).prepare(`
       UPDATE adherents SET ${fields.join(', ')} WHERE id = ?
     `).bind(...values).run();
+
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'profile.update',
+      entityType: 'adherents',
+      entityId: user.id,
+      changes: updates,
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return success(c, { message: 'Profil mis à jour' });
   }
@@ -935,6 +996,16 @@ mobile.post('/notifications/:id/read', async (c) => {
     WHERE id = ? AND user_id = ?
   `).bind(notificationId, user.id).run();
 
+  logAudit(getDb(c), {
+    userId: user.id,
+    action: 'notification.mark_read',
+    entityType: 'notifications',
+    entityId: notificationId,
+    changes: { read: true },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
   return success(c, { read: true });
 });
 
@@ -950,6 +1021,16 @@ mobile.post('/notifications/read-all', async (c) => {
     SET read_at = datetime('now')
     WHERE user_id = ? AND read_at IS NULL
   `).bind(user.id).run();
+
+  logAudit(getDb(c), {
+    userId: user.id,
+    action: 'notification.mark_all_read',
+    entityType: 'notifications',
+    entityId: 'all',
+    changes: { readAll: true },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
 
   return success(c, { message: 'Toutes les notifications marquées comme lues' });
 });
@@ -974,6 +1055,16 @@ mobile.post(
       SET push_token = ?, platform = ?, updated_at = datetime('now')
       WHERE adherent_id = ? AND device_id = ?
     `).bind(token, platform, user.id, deviceId).run();
+
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'device.register_push_token',
+      entityType: 'adherent_devices',
+      entityId: deviceId,
+      changes: { platform, tokenRegistered: true },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return success(c, { registered: true });
   }

@@ -105,7 +105,7 @@ export default function SantePraticiensPage() {
                   type="text"
                   placeholder="Rechercher par nom, spécialité..."
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                   className="pl-10"
                 />
               </div>

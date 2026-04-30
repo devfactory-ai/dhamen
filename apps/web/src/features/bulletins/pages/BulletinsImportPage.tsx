@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
+import { resolveCareType, getCareTypeConfig } from '@dhamen/shared';
 import {
   Select,
   SelectContent,
@@ -20,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import type { LucideIcon } from 'lucide-react';
 import {
   Upload,
   FileSpreadsheet,
@@ -34,6 +36,15 @@ import {
   Pill,
   FlaskConical,
   Building2,
+  Eye,
+  Baby,
+  Heart,
+  ClipboardList,
+  Scissors,
+  Smile,
+  Truck,
+  Waves,
+  Bone,
   ThumbsUp,
   ThumbsDown,
   SkipForward,
@@ -53,7 +64,7 @@ interface ParsedBulletin {
   adherent_first_name: string;
   adherent_last_name: string;
   bulletin_date: string;
-  care_type: 'consultation' | 'pharmacy' | 'lab' | 'hospital';
+  care_type: string;
   actes: Array<{
     code: string;
     label: string;
@@ -101,22 +112,20 @@ interface ZipScannedDoc {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const careTypeConfig = {
-  consultation: { label: 'Consultation', icon: Stethoscope },
-  pharmacy: { label: 'Pharmacie', icon: Pill },
-  lab: { label: 'Laboratoire', icon: FlaskConical },
-  hospital: { label: 'Hospitalisation', icon: Building2 },
-} as const;
-
-const CARE_TYPE_MAP: Record<string, 'consultation' | 'pharmacy' | 'lab' | 'hospital'> = {
-  consultation: 'consultation',
-  pharmacie: 'pharmacy',
-  pharmacy: 'pharmacy',
-  laboratoire: 'lab',
-  lab: 'lab',
-  hospitalisation: 'hospital',
-  hospital: 'hospital',
+const ICON_MAP: Record<string, LucideIcon> = {
+  Stethoscope, Pill, FlaskConical, Building2, Eye, Baby, Heart,
+  ClipboardList, Scissors, Smile, Truck, Waves, Bone,
 };
+
+function careTypeDisplay(value: string | null | undefined) {
+  const cfg = getCareTypeConfig(value);
+  return {
+    label: cfg.label,
+    icon: ICON_MAP[cfg.icon] || Stethoscope,
+    bgColor: cfg.bgColor,
+    textColor: cfg.textColor,
+  };
+}
 
 // ─── Column Mapping ──────────────────────────────────────────────────────────
 
@@ -432,7 +441,7 @@ function parseDhamenRows(rows: unknown[][]): ParsedBulletin[] {
     if (!firstName && !lastName) errors.push('Nom manquant');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(bulletinDate)) errors.push('Date invalide');
 
-    const careType = CARE_TYPE_MAP[typeSoin] || 'consultation';
+    const careType = resolveCareType(typeSoin);
 
     const actes = group.rows.map(r => ({
       code: str(r[5]),
@@ -497,7 +506,7 @@ function parseExcelContent(buffer: ArrayBuffer): ParsedBulletin[] {
   const sheet = workbook.Sheets[workbook.SheetNames[0]!]!;
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
   if (rows.length < 2) return [];
-  const headers = rows[0]!;
+  const headers = rows[0]! as string[];
   const format = detectFormat(headers);
   const dataRows = rows.slice(1);
   if (format === 'sprols') return parseSPROLSRows(dataRows);
@@ -1188,7 +1197,7 @@ export default function BulletinsImportPage() {
                 <tbody className="divide-y divide-gray-100">
                   {parsedBulletins.map((b, i) => {
                     const total = b.actes.reduce((s, a) => s + a.amount, 0);
-                    const config = careTypeConfig[b.care_type];
+                    const config = careTypeDisplay(b.care_type);
                     const Icon = config.icon;
                     return (
                       <tr key={i} className={cn('transition-colors', b.valid ? 'hover:bg-gray-50/50' : 'bg-red-50/30')}>
@@ -1676,7 +1685,7 @@ export default function BulletinsImportPage() {
                       <div className="rounded-xl bg-gray-50 p-4">
                         <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1">Détails</p>
                         <p className="text-sm text-gray-700">
-                          {careTypeConfig[queue.currentBulletin.care_type as keyof typeof careTypeConfig]?.label || queue.currentBulletin.care_type}
+                          {careTypeDisplay(queue.currentBulletin.care_type).label}
                         </p>
                         <p className="text-xs text-gray-500">{queue.currentBulletin.bulletin_date}</p>
                       </div>

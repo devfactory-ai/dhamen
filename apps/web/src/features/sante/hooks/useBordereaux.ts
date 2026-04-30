@@ -8,7 +8,7 @@ import { apiClient } from '@/lib/api-client';
 // Types
 // ============================================
 
-export type BordereauStatut = 'genere' | 'valide' | 'envoye' | 'paye' | 'annule';
+export type BordereauStatut = 'genere' | 'valide' | 'envoye' | 'paye' | 'annule' | 'archive';
 
 export interface Bordereau {
   id: string;
@@ -31,13 +31,14 @@ export interface Bordereau {
 
 export interface BordereauLigne {
   id: string;
-  demandeId: string;
-  numeroDemande: string;
+  numeroBulletin: string;
   adherentNom: string;
+  matricule: string | null;
   typeSoin: string;
   dateSoin: string;
   montantDemande: number;
   montantRembourse: number;
+  status: string;
 }
 
 export interface BordereauAvecLignes extends Bordereau {
@@ -74,6 +75,7 @@ interface BordereauxFilters {
   statut?: BordereauStatut;
   dateDebut?: string;
   dateFin?: string;
+  search?: string;
 }
 
 // ============================================
@@ -94,6 +96,7 @@ export function useBordereaux(
       if (filters.statut) params.set('statut', filters.statut);
       if (filters.dateDebut) params.set('dateDebut', filters.dateDebut);
       if (filters.dateFin) params.set('dateFin', filters.dateFin);
+      if (filters.search) params.set('search', filters.search);
 
       const response = await apiClient.get<Bordereau[]>(
         `/sante/bordereaux?${params.toString()}`
@@ -189,12 +192,55 @@ export function useUpdateBordereauStatut() {
 // Helpers
 // ============================================
 
+export function useBulkArchiveBordereaux() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      const response = await apiClient.post<{ archived: number }>(
+        '/sante/bordereaux/bulk-archive',
+        { ids }
+      );
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to archive bordereaux');
+      }
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sante-bordereaux'] });
+      queryClient.invalidateQueries({ queryKey: ['sante-bordereaux-stats'] });
+    },
+  });
+}
+
+export function useBulkDeleteBordereaux() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      const response = await apiClient.post<{ deleted: number }>(
+        '/sante/bordereaux/bulk-delete',
+        { ids }
+      );
+      if (!response.success) {
+        throw new Error(response.error?.message || 'Failed to delete bordereaux');
+      }
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sante-bordereaux'] });
+      queryClient.invalidateQueries({ queryKey: ['sante-bordereaux-stats'] });
+    },
+  });
+}
+
 export const BORDEREAU_STATUTS_LABELS: Record<BordereauStatut, string> = {
   genere: 'Généré',
   valide: 'Validé',
   envoye: 'Envoyé',
   paye: 'Payé',
   annule: 'Annulé',
+  archive: 'Archivé',
 };
 
 export const BORDEREAU_STATUTS_COLORS: Record<BordereauStatut, string> = {
@@ -203,4 +249,5 @@ export const BORDEREAU_STATUTS_COLORS: Record<BordereauStatut, string> = {
   envoye: 'bg-purple-100 text-purple-800',
   paye: 'bg-emerald-100 text-emerald-800',
   annule: 'bg-gray-100 text-gray-800',
+  archive: 'bg-amber-100 text-amber-800',
 };

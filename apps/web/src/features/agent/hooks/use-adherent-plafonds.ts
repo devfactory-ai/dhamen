@@ -11,6 +11,12 @@ interface PlafondAvecFamille {
   familleLabel: string | null;
   pourcentageConsomme: number;
   montantRestant: number;
+  /** Plafond par acte/événement en millimes (ex: 150 DT pharmacie/jour) */
+  perEventLimit?: number | null;
+  /** Plafond journalier en millimes */
+  dailyLimit?: number | null;
+  /** true when this is the family-shared global plafond (from principal adherent) */
+  isSharedFamily?: boolean;
 }
 
 interface PlafondsResume {

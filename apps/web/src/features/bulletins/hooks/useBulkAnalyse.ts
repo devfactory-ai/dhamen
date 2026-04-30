@@ -66,10 +66,11 @@ export function useBulkAnalyseMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ files, companyId, batchId }: { files: File[]; companyId: string; batchId?: string }) => {
+    mutationFn: async ({ files, companyId, batchId, grouping }: { files: File[]; companyId: string; batchId?: string; grouping?: Record<string, string[]> }) => {
       const formData = new FormData();
       formData.append('companyId', companyId);
       if (batchId) formData.append('batchId', batchId);
+      if (grouping) formData.append('grouping', JSON.stringify(grouping));
       for (const file of files) {
         formData.append('files', file);
       }

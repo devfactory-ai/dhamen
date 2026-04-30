@@ -416,9 +416,10 @@ adherents.get(
       SELECT a.id, a.matricule, a.first_name, a.last_name, a.email,
              a.plafond_global, a.plafond_consomme,
              co.name as company_name,
-             (SELECT ct.plan_type FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY ct.created_at DESC LIMIT 1) as contract_type,
-             (SELECT ct.end_date FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY ct.created_at DESC LIMIT 1) as contract_end_date,
-             (SELECT ct.contract_number FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY ct.created_at DESC LIMIT 1) as contract_number
+             (SELECT ct.plan_type FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY CASE WHEN ct.group_contract_id IS NOT NULL THEN 0 ELSE 1 END, ct.created_at DESC LIMIT 1) as contract_type,
+             (SELECT ct.start_date FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY CASE WHEN ct.group_contract_id IS NOT NULL THEN 0 ELSE 1 END, ct.created_at DESC LIMIT 1) as contract_start_date,
+             (SELECT ct.end_date FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY CASE WHEN ct.group_contract_id IS NOT NULL THEN 0 ELSE 1 END, ct.created_at DESC LIMIT 1) as contract_end_date,
+             (SELECT ct.contract_number FROM contracts ct WHERE ct.adherent_id = a.id AND UPPER(ct.status) = 'ACTIVE' ORDER BY CASE WHEN ct.group_contract_id IS NOT NULL THEN 0 ELSE 1 END, ct.created_at DESC LIMIT 1) as contract_number
       FROM adherents a
       LEFT JOIN companies co ON a.company_id = co.id
       WHERE a.deleted_at IS NULL AND a.is_active = 1 AND a.parent_adherent_id IS NULL
@@ -479,6 +480,7 @@ adherents.get(
         plafondGlobal: r.plafond_global,
         plafondConsomme: r.plafond_consomme,
         contractType: r.contract_type || null,
+        contractStartDate: (r.contract_start_date as string) || null,
         contractEndDate: endDate || null,
         contractNumber: r.contract_number || null,
         contractWarning,
@@ -831,13 +833,13 @@ adherents.get(
       .first<{ matricule: string | null }>();
     const adherentMatricule = adherentRecord?.matricule;
 
-    // Match by adherent_id OR adherent_matricule (catches bulletins linked to auto-created duplicates)
+    // Match by adherent_id, beneficiary_id, OR adherent_matricule (catches bulletins for beneficiaries and auto-created duplicates)
     const whereClause = adherentMatricule
-      ? `(bs.adherent_id = ? OR bs.adherent_matricule = ?)`
-      : `bs.adherent_id = ?`;
+      ? `(bs.adherent_id = ? OR bs.beneficiary_id = ? OR bs.adherent_matricule = ?)`
+      : `(bs.adherent_id = ? OR bs.beneficiary_id = ?)`;
     const bindParams = adherentMatricule
-      ? [adherentId, adherentMatricule]
-      : [adherentId];
+      ? [adherentId, adherentId, adherentMatricule]
+      : [adherentId, adherentId];
 
     const countResult = await db
       .prepare(`SELECT COUNT(*) as count FROM bulletins_soins bs WHERE ${whereClause}`)
@@ -849,6 +851,7 @@ adherents.get(
     const { results } = await db
       .prepare(
         `SELECT bs.id, bs.bulletin_date, bs.bulletin_number, bs.status, bs.total_amount, bs.reimbursed_amount, bs.care_type, bs.created_at,
+                bs.beneficiary_name, bs.beneficiary_relationship,
                 (SELECT COUNT(*) FROM actes_bulletin ab WHERE ab.bulletin_id = bs.id) as actes_count
          FROM bulletins_soins bs
          WHERE ${whereClause}
@@ -867,6 +870,8 @@ adherents.get(
       declaredAmount: r.total_amount,
       reimbursedAmount: r.reimbursed_amount,
       actesCount: r.actes_count,
+      beneficiaryName: r.beneficiary_name || null,
+      beneficiaryRelationship: r.beneficiary_relationship || null,
       createdAt: r.created_at,
     })), {
       page,
@@ -890,11 +895,11 @@ adherents.get(
     const db = getDb(c);
     const user = c.get('user');
 
-    // Check adherent exists
+    // Check adherent exists (include parent_adherent_id for family-shared plafond resolution)
     const adherent = await db
-      .prepare('SELECT id, company_id FROM adherents WHERE id = ? AND deleted_at IS NULL')
+      .prepare('SELECT id, company_id, parent_adherent_id FROM adherents WHERE id = ? AND deleted_at IS NULL')
       .bind(id)
-      .first<{ id: string; company_id: string | null }>();
+      .first<{ id: string; company_id: string | null; parent_adherent_id: string | null }>();
 
     // HR: verify company ownership
     if (user.role === 'HR' && adherent && adherent.company_id !== user.companyId) {
@@ -905,7 +910,7 @@ adherents.get(
       return notFound(c, 'Adhérent non trouvé');
     }
 
-    // Get all plafonds for this adherent and year
+    // Get per-famille plafonds for this adherent
     const { results } = await db
       .prepare(
         `SELECT p.*, fa.code as famille_code, fa.label as famille_label
@@ -917,15 +922,61 @@ adherents.get(
       .bind(id, annee)
       .all();
 
-    const mapPlafond = (r: Record<string, unknown>) => {
+    // Fetch contract guarantees limits (per_event_limit, daily_limit) for this adherent's contract
+    // Maps famille_acte_id → { perEventLimit, dailyLimit } from contract_guarantees
+    const FAMILLE_TO_CARE_TYPES: Record<string, string[]> = {
+      'fa-001': ['consultation_visite','consultation'],
+      // fa-002 merged into fa-009
+
+      'fa-003': ['pharmacie','pharmacy'],
+      'fa-004': ['laboratoire','laboratory'],
+      'fa-005': ['orthopedie','orthopedics'],
+      'fa-006': ['optique','optical'],
+      'fa-007': ['hospitalisation','hospitalization','sanatorium'],
+      'fa-010': ['chirurgie','surgery'],
+      'fa-011': ['dentaire','dental'],
+      'fa-012': ['accouchement','maternity'],
+      'fa-013': ['cures_thermales','thermal_cure'],
+      'fa-014': ['orthodontie','orthodontics'],
+      'fa-015': ['circoncision','circumcision'],
+      'fa-016': ['transport'],
+      'fa-019': ['frais_funeraires','funeral'],
+    };
+    let guaranteeLimits: Record<string, { perEventLimit: number | null; dailyLimit: number | null }> = {};
+    // Find the group_contract_id from the adherent's active contract
+    const activeContract = await db
+      .prepare(`SELECT group_contract_id FROM contracts WHERE adherent_id = ? AND status = 'active' AND group_contract_id IS NOT NULL LIMIT 1`)
+      .bind(id)
+      .first<{ group_contract_id: string }>();
+    if (activeContract?.group_contract_id) {
+      const { results: gResults } = await db
+        .prepare(`SELECT care_type, per_event_limit, daily_limit FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1`)
+        .bind(activeContract.group_contract_id)
+        .all<{ care_type: string; per_event_limit: number | null; daily_limit: number | null }>();
+      for (const g of gResults ?? []) {
+        // Map care_type back to famille_acte_id
+        for (const [familleId, careTypes] of Object.entries(FAMILLE_TO_CARE_TYPES)) {
+          if (careTypes.includes(g.care_type)) {
+            guaranteeLimits[familleId] = {
+              perEventLimit: g.per_event_limit ?? null, // already in millimes
+              dailyLimit: g.daily_limit ?? null, // already in millimes
+            };
+          }
+        }
+      }
+    }
+
+    const mapPlafond = (r: Record<string, unknown>, isSharedFamily = false) => {
       const plafond = Number(r.montant_plafond) || 0;
       const consomme = Number(r.montant_consomme) || 0;
+      const familleActeId = r.famille_acte_id as string | null;
+      const limits = familleActeId ? guaranteeLimits[familleActeId] : undefined;
       return {
         id: r.id,
         adherentId: r.adherent_id,
         contractId: r.contract_id,
         annee: r.annee,
-        familleActeId: r.famille_acte_id,
+        familleActeId,
         typeMaladie: r.type_maladie,
         montantPlafond: plafond,
         montantConsomme: consomme,
@@ -933,6 +984,9 @@ adherents.get(
         familleLabel: r.famille_label || null,
         pourcentageConsomme: plafond > 0 ? Math.round((consomme / plafond) * 100) : 0,
         montantRestant: Math.max(0, plafond - consomme),
+        perEventLimit: limits?.perEventLimit ?? null,
+        dailyLimit: limits?.dailyLimit ?? null,
+        isSharedFamily,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
       };
@@ -942,18 +996,42 @@ adherents.get(
     let global = all.find((p) => p.familleActeId === null) || null;
     const parFamille = all.filter((p) => p.familleActeId !== null);
 
+    // For ayants droit: fetch global plafond from principal adherent (family-shared)
+    if (!global && adherent.parent_adherent_id) {
+      const { results: principalResults } = await db
+        .prepare(
+          `SELECT p.*, fa.code as famille_code, fa.label as famille_label
+           FROM plafonds_beneficiaire p
+           LEFT JOIN familles_actes fa ON p.famille_acte_id = fa.id
+           WHERE p.adherent_id = ? AND p.annee = ? AND p.famille_acte_id IS NULL
+           LIMIT 1`
+        )
+        .bind(adherent.parent_adherent_id, annee)
+        .all();
+      if (principalResults.length > 0) {
+        global = mapPlafond(principalResults[0] as Record<string, unknown>, true);
+      }
+    }
+
+    // Mark global plafond as shared if adherent is ayant droit
+    if (global && adherent.parent_adherent_id) {
+      global.isSharedFamily = true;
+    }
+
     // Fallback: if no plafonds_beneficiaire rows, build global from adherents.plafond_global/plafond_consomme
     if (!global && parFamille.length === 0) {
+      // Resolve to principal for ayants droit
+      const plafondAdherentId = adherent.parent_adherent_id || id;
       const adh = await db
         .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
-        .bind(id)
+        .bind(plafondAdherentId)
         .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
       if (adh?.plafond_global && adh.plafond_global > 0) {
         const plafond = adh.plafond_global;
         const consomme = adh.plafond_consomme || 0;
         global = {
           id: 'legacy-global',
-          adherentId: id,
+          adherentId: plafondAdherentId,
           contractId: null,
           annee,
           familleActeId: null,
@@ -964,6 +1042,9 @@ adherents.get(
           familleLabel: null,
           pourcentageConsomme: plafond > 0 ? Math.round((consomme / plafond) * 100) : 0,
           montantRestant: Math.max(0, plafond - consomme),
+          perEventLimit: null,
+          dailyLimit: null,
+          isSharedFamily: !!adherent.parent_adherent_id,
           createdAt: null,
           updatedAt: null,
         };
@@ -973,7 +1054,7 @@ adherents.get(
     return success(c, {
       global,
       parFamille,
-      totalConsomme: all.reduce((sum, p) => sum + (p.familleActeId ? p.montantConsomme : 0), 0),
+      totalConsomme: global?.montantConsomme || all.reduce((sum, p) => sum + p.montantConsomme, 0),
       totalPlafond: global?.montantPlafond || 0,
     });
   }
@@ -1064,6 +1145,7 @@ adherents.get(
         rangPres: r.rang_pres ?? 0,
         codeSituationFam: r.code_situation_fam,
         parentAdherentId: r.parent_adherent_id,
+        plafondGlobal: r.plafond_global ?? null,
       };
     };
 
@@ -1356,6 +1438,23 @@ adherents.post(
     const encryptedMobile = data.mobile ? await encrypt(data.mobile, encryptionKey) : null;
     const encryptedRib = data.rib ? await encrypt(data.rib, encryptionKey) : null;
 
+    // If no explicit plafondGlobal, inherit from the group contract's annual_global_limit
+    let effectivePlafondGlobal = data.plafondGlobal ?? null;
+    if (!effectivePlafondGlobal && data.companyId && data.companyId !== '__INDIVIDUAL__') {
+      const gcPlafond = await db
+        .prepare(
+          `SELECT annual_global_limit FROM group_contracts
+           WHERE company_id = ? AND status = 'active' AND deleted_at IS NULL
+           ORDER BY created_at DESC LIMIT 1`
+        )
+        .bind(data.companyId)
+        .first<{ annual_global_limit: number | null }>();
+      if (gcPlafond?.annual_global_limit) {
+        // annual_global_limit is stored in millimes in some cases, or DT — match existing convention
+        effectivePlafondGlobal = gcPlafond.annual_global_limit;
+      }
+    }
+
     await db
       .prepare(
         `INSERT INTO adherents (
@@ -1368,19 +1467,21 @@ adherents.post(
           banque, rib_encrypted, regime_social, handicap,
           fonction, maladie_chronique, matricule_conjoint,
           type_piece_identite, date_edition_piece, contre_visite_obligatoire, etat_fiche, credit,
+          dossier_complet,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         id, encryptedNationalId, nationalIdHash, data.firstName, data.lastName,
         data.dateOfBirth, data.gender ?? null, data.lieuNaissance ?? null, data.etatCivil ?? null, data.dateMarriage ?? null,
         encryptedPhone ?? null, encryptedMobile, data.email ?? null,
         data.rue ?? null, data.address ?? null, data.city ?? null, data.postalCode ?? null, data.lat ?? null, data.lng ?? null,
-        (data.companyId && data.companyId !== '__INDIVIDUAL__') ? data.companyId : null, matricule, data.plafondGlobal ?? null,
+        (data.companyId && data.companyId !== '__INDIVIDUAL__') ? data.companyId : null, matricule, effectivePlafondGlobal,
         data.dateDebutAdhesion ?? null, data.dateFinAdhesion ?? null, data.rang ?? 0, data.isActive !== false ? 1 : 0,
         data.banque ?? null, encryptedRib, data.regimeSocial ?? null, data.handicap ? 1 : 0,
         data.fonction ?? null, data.maladiChronique ? 1 : 0, data.matriculeConjoint ?? null,
         data.typePieceIdentite ?? 'CIN', data.dateEditionPiece ?? null, data.contreVisiteObligatoire ? 1 : 0, data.etatFiche ?? 'NON_TEMPORAIRE', data.credit ?? 0,
+        data.dossierComplet === false ? 0 : 1,
         now, now
       )
       .run();
@@ -1438,7 +1539,7 @@ adherents.post(
             contractNumber,
             startDate,
             endDateStr,
-            data.plafondGlobal ? data.plafondGlobal : null,
+            effectivePlafondGlobal ? effectivePlafondGlobal : null,
             groupContractId
           )
           .run();
@@ -1484,7 +1585,7 @@ adherents.post(
             adId, adEncryptedNationalId, adNationalIdHash, ad.firstName, ad.lastName,
             ad.dateOfBirth, ad.gender ?? null, ad.etatCivil ?? null,
             adEncryptedPhone, ad.email || null,
-            data.companyId ?? null, null, adMatricule, data.plafondGlobal ?? null,
+            data.companyId ?? null, null, adMatricule, ad.plafondGlobal ?? data.plafondGlobal ?? null,
             data.dateDebutAdhesion ?? null, data.dateFinAdhesion ?? null, 1,
             ad.lienParente, id, rangCounter,
             ad.lienParente === 'C' ? 'M' : 'C',
@@ -1536,7 +1637,7 @@ adherents.post(
       city: data.city,
       companyId: data.companyId,
       companyName: result?.co_name,
-      plafondGlobal: data.plafondGlobal,
+      plafondGlobal: effectivePlafondGlobal,
       plafondConsomme: 0,
       createdAt: now,
       ayantsDroit: ayantsDroitCreated,
@@ -1715,9 +1816,22 @@ adherents.put(
         .first<{ id: string; status: string }>();
 
       if (existingContract) {
-        // Update contract number (and reactivate if needed)
-        await db.prepare('UPDATE contracts SET contract_number = ?, status = \'active\', updated_at = datetime(\'now\') WHERE id = ?')
-          .bind(data.contractNumber, existingContract.id).run();
+        // Update contract number and resolve group_contract_id from contract_number
+        let resolvedGroupContractId: string | null = null;
+        const matchingGc = await db
+          .prepare("SELECT id FROM group_contracts WHERE contract_number = ? AND deleted_at IS NULL AND status = 'active' LIMIT 1")
+          .bind(data.contractNumber)
+          .first<{ id: string }>();
+        if (matchingGc) {
+          resolvedGroupContractId = matchingGc.id;
+        }
+        await db.prepare(
+          `UPDATE contracts SET contract_number = ?, group_contract_id = COALESCE(?, group_contract_id), status = 'active', updated_at = datetime('now') WHERE id = ?`
+        ).bind(data.contractNumber, resolvedGroupContractId, existingContract.id).run();
+        // Deactivate ALL OTHER contracts for this adherent so only the selected one is active
+        await db.prepare(
+          "UPDATE contracts SET status = 'suspended', updated_at = datetime('now') WHERE adherent_id = ? AND id != ? AND status = 'active'"
+        ).bind(id, existingContract.id).run();
       } else {
         // No contract exists — create one
         // Resolve insurer from group contract if not available
@@ -1742,11 +1856,17 @@ adherents.put(
         if (resolvedInsurerId) {
           const contractId = generateId();
 
-          // Find the group contract to inherit dates
-          const gc = await db
-            .prepare("SELECT id, effective_date, annual_renewal_date, end_date FROM group_contracts WHERE insurer_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1")
-            .bind(resolvedInsurerId)
+          // Find the group contract: first by contract_number, then by insurer_id
+          let gc = await db
+            .prepare("SELECT id, effective_date, annual_renewal_date, end_date FROM group_contracts WHERE contract_number = ? AND deleted_at IS NULL AND status = 'active' LIMIT 1")
+            .bind(data.contractNumber)
             .first<{ id: string; effective_date: string | null; annual_renewal_date: string | null; end_date: string | null }>();
+          if (!gc) {
+            gc = await db
+              .prepare("SELECT id, effective_date, annual_renewal_date, end_date FROM group_contracts WHERE insurer_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1")
+              .bind(resolvedInsurerId)
+              .first<{ id: string; effective_date: string | null; annual_renewal_date: string | null; end_date: string | null }>();
+          }
           const groupContractId = gc?.id || null;
 
           // Use group contract dates if available, fallback to today + 1 year
@@ -1802,17 +1922,17 @@ adherents.put(
               id, national_id_encrypted, national_id_hash, first_name, last_name,
               date_of_birth, gender,
               phone_encrypted, email,
-              company_id, matricule,
+              company_id, matricule, plafond_global,
               is_active, code_type, parent_adherent_id, rang_pres,
               type_piece_identite, etat_fiche,
               created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
           )
           .bind(
             adId, adEncryptedNationalId, adNationalIdHash, ad.firstName, ad.lastName,
             ad.dateOfBirth, ad.gender ?? null,
             adEncryptedPhone, ad.email || null,
-            existing.company_id, adMatricule,
+            existing.company_id, adMatricule, (ad as Record<string, unknown>).plafondGlobal ?? null,
             ad.lienParente, id, rangCounter,
             ad.typePieceIdentite ?? 'CIN', 'NON_TEMPORAIRE'
           )

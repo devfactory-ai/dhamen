@@ -6,6 +6,7 @@
 
 import { Hono } from 'hono';
 import { authMiddleware, requireRole } from '../middleware/auth';
+import { logAudit } from '../middleware/audit-trail';
 import { success, error } from '../lib/response';
 import { MonitoringService } from '../services/monitoring.service';
 import type { Bindings, Variables } from '../types';
@@ -115,6 +116,17 @@ monitoring.post('/alerts', requireRole('ADMIN'), async (c) => {
     metadata: body.metadata || {},
   });
 
+  const user = c.get('user');
+  logAudit(c.env.DB, {
+    userId: user.id,
+    action: 'monitoring_alert.create',
+    entityType: 'monitoring_alert',
+    entityId: alert.id,
+    changes: { type: body.type, severity: body.severity, title: body.title },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
   return success(c, alert, 201);
 });
 
@@ -124,9 +136,20 @@ monitoring.post('/alerts', requireRole('ADMIN'), async (c) => {
  */
 monitoring.post('/alerts/:id/resolve', requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'), async (c) => {
   const alertId = c.req.param('id');
+  const user = c.get('user');
   const service = new MonitoringService(c.env);
 
   await service.resolveAlert(alertId);
+
+  logAudit(c.env.DB, {
+    userId: user.id,
+    action: 'monitoring_alert.resolve',
+    entityType: 'monitoring_alert',
+    entityId: alertId,
+    changes: { resolved: true },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
 
   return success(c, { resolved: true });
 });

@@ -52,7 +52,8 @@ interface AgentAdherent {
 
 function formatAmount(amount: number | null): string {
   if (amount == null) return '—';
-  return new Intl.NumberFormat('fr-TN', { maximumFractionDigits: 0 }).format(amount / 1000) + ' DT';
+  if (!amount) return '0';
+  return new Intl.NumberFormat('fr-TN', { minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(amount / 1000) + ' DT';
 }
 
 function getIncompleteReason(adherent: AgentAdherent): string {

@@ -1,7 +1,5 @@
 /**
  * BordereauDetailsPage - Bordereau Details Page
- *
- * Dedicated page for viewing bordereau details
  */
 import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
@@ -11,8 +9,21 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { DataTable } from '@/components/ui/data-table';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
+
+interface BulletinLine {
+  id: string;
+  bulletinNumber: string;
+  bulletinDate: string;
+  adherentName: string;
+  nationalId: string;
+  careType: string;
+  totalAmount: number;
+  reimbursedAmount: number;
+  status: string;
+}
 
 interface Bordereau {
   id: string;
@@ -24,13 +35,15 @@ interface Bordereau {
   periodStart: string;
   periodEnd: string;
   status: 'DRAFT' | 'SUBMITTED' | 'VALIDATED' | 'PAID' | 'DISPUTED';
-  claimCount: number;
+  claimsCount: number;
   totalAmount: number;
   coveredAmount: number;
   paidAmount: number;
   submittedAt: string | null;
+  validatedAt: string | null;
   paidAt: string | null;
   createdAt: string;
+  bulletins: BulletinLine[];
 }
 
 const BORDEREAU_STATUS = {
@@ -38,7 +51,19 @@ const BORDEREAU_STATUS = {
   SUBMITTED: { label: 'Soumis', variant: 'info' as const },
   VALIDATED: { label: 'Validé', variant: 'success' as const },
   PAID: { label: 'Payé', variant: 'success' as const },
-  DISPUTED: { label: 'Conteste', variant: 'destructive' as const },
+  DISPUTED: { label: 'Contesté', variant: 'destructive' as const },
+};
+
+const CARE_TYPE_LABELS: Record<string, string> = {
+  consultation: 'Consultation',
+  pharmacie: 'Pharmacie',
+  analyse: 'Analyses',
+  optique: 'Optique',
+  dentaire: 'Dentaire',
+  hospitalisation_clinique: 'Hospitalisation clinique',
+  hospitalisation_hopital: 'Hospitalisation hôpital',
+  accouchement: 'Accouchement',
+  radiologie: 'Radiologie',
 };
 
 export function BordereauDetailsPage() {
@@ -102,13 +127,13 @@ export function BordereauDetailsPage() {
       const url = window.URL.createObjectURL(response.data);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `bordereau-${bordereau.bordereauNumber}.pdf`;
+      link.download = `bordereau-${bordereau.bordereauNumber}.txt`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
-      toast.success('PDF téléchargé avec succès');
+      toast.success('Fichier téléchargé avec succès');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Erreur lors du téléchargement');
     } finally {
@@ -132,6 +157,41 @@ export function BordereauDetailsPage() {
       </div>
     );
   }
+
+  const bulletinColumns = [
+    {
+      key: 'bulletinNumber',
+      header: 'N° Bulletin',
+      render: (b: BulletinLine) => <span className="font-medium">{b.bulletinNumber}</span>,
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      render: (b: BulletinLine) => new Date(b.bulletinDate).toLocaleDateString('fr-TN'),
+    },
+    {
+      key: 'adherent',
+      header: 'Adhérent',
+      render: (b: BulletinLine) => b.adherentName?.trim() || '-',
+    },
+    {
+      key: 'careType',
+      header: 'Type de soin',
+      render: (b: BulletinLine) => CARE_TYPE_LABELS[b.careType] || b.careType,
+    },
+    {
+      key: 'totalAmount',
+      header: 'Montant total',
+      render: (b: BulletinLine) => formatAmount(b.totalAmount || 0),
+    },
+    {
+      key: 'reimbursedAmount',
+      header: 'Remboursé',
+      render: (b: BulletinLine) => (
+        <span className="font-medium text-primary">{formatAmount(b.reimbursedAmount || 0)}</span>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -158,8 +218,8 @@ export function BordereauDetailsPage() {
                 <FileText className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{bordereau.claimCount}</p>
-                <p className="text-sm text-muted-foreground">PEC</p>
+                <p className="text-2xl font-bold">{bordereau.claimsCount}</p>
+                <p className="text-sm text-muted-foreground">Bulletins</p>
               </div>
             </div>
           </CardContent>
@@ -187,7 +247,7 @@ export function BordereauDetailsPage() {
               </div>
               <div>
                 <p className="text-2xl font-bold text-primary">{formatAmount(bordereau.coveredAmount)}</p>
-                <p className="text-sm text-muted-foreground">Montant couvert</p>
+                <p className="text-sm text-muted-foreground">Montant remboursé</p>
               </div>
             </div>
           </CardContent>
@@ -201,7 +261,7 @@ export function BordereauDetailsPage() {
               </div>
               <div>
                 <p className="text-2xl font-bold text-green-600">{formatAmount(bordereau.paidAmount)}</p>
-                <p className="text-sm text-muted-foreground">Montant paye</p>
+                <p className="text-sm text-muted-foreground">Montant payé</p>
               </div>
             </div>
           </CardContent>
@@ -215,17 +275,13 @@ export function BordereauDetailsPage() {
               <Building className="h-5 w-5" />
               Informations
             </CardTitle>
-            <CardDescription>Details du bordereau</CardDescription>
+            <CardDescription>Détails du bordereau</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Assureur</p>
-                <p className="font-medium">{bordereau.insurerName}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Praticien</p>
-                <p className="font-medium">{bordereau.providerName}</p>
+                <p className="font-medium">{bordereau.insurerName || '-'}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Statut</p>
@@ -252,7 +308,7 @@ export function BordereauDetailsPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-muted-foreground">Période debut</p>
+                <p className="text-sm text-muted-foreground">Période début</p>
                 <p className="font-medium">{formatDate(bordereau.periodStart)}</p>
               </div>
               <div>
@@ -265,9 +321,15 @@ export function BordereauDetailsPage() {
                   <p className="font-medium">{formatDate(bordereau.submittedAt)}</p>
                 </div>
               )}
+              {bordereau.validatedAt && (
+                <div>
+                  <p className="text-sm text-muted-foreground">Validé le</p>
+                  <p className="font-medium">{formatDate(bordereau.validatedAt)}</p>
+                </div>
+              )}
               {bordereau.paidAt && (
                 <div>
-                  <p className="text-sm text-muted-foreground">Paye le</p>
+                  <p className="text-sm text-muted-foreground">Payé le</p>
                   <p className="font-medium text-green-600">{formatDate(bordereau.paidAt)}</p>
                 </div>
               )}
@@ -275,6 +337,23 @@ export function BordereauDetailsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Bulletins table */}
+      {bordereau.bulletins && bordereau.bulletins.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Bulletins inclus ({bordereau.bulletins.length})</CardTitle>
+            <CardDescription>Liste des bulletins regroupés dans ce bordereau</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataTable
+              columns={bulletinColumns}
+              data={bordereau.bulletins}
+              emptyMessage="Aucun bulletin"
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Actions */}
       <div className="flex justify-end gap-3">
@@ -284,7 +363,7 @@ export function BordereauDetailsPage() {
           ) : (
             <Download className="mr-2 h-4 w-4" />
           )}
-          Télécharger PDF
+          Télécharger
         </Button>
         {bordereau.status === 'DRAFT' && (
           <Button onClick={() => submitMutation.mutate(bordereau.id)} disabled={submitMutation.isPending}>

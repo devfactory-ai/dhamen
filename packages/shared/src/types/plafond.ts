@@ -26,6 +26,8 @@ export interface PlafondAvecFamille extends PlafondBeneficiaire {
   familleLabel: string | null;
   pourcentageConsomme: number;
   montantRestant: number;
+  /** true when this is the family-shared global plafond (from principal adherent) */
+  isSharedFamily?: boolean;
 }
 
 export interface PlafondsResume {

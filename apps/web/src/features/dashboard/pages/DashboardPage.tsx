@@ -309,6 +309,8 @@ interface RecentBulletin {
   reimbursedAmount: number | null;
   createdAt: string;
   adherentName: string;
+  beneficiaryName: string | null;
+  beneficiaryRelationship: string | null;
   companyName: string;
 }
 
@@ -358,6 +360,11 @@ const recentBulletinColumns = [
           </div>
           <div>
             <p className="text-sm font-medium text-gray-900">{name}</p>
+            {b.beneficiaryName && b.beneficiaryRelationship !== 'self' && (
+              <p className="text-xs text-blue-500">
+                → {b.beneficiaryName} ({b.beneficiaryRelationship === 'spouse' ? 'Conjoint(e)' : b.beneficiaryRelationship === 'child' ? 'Enfant' : b.beneficiaryRelationship})
+              </p>
+            )}
             <p className="text-xs text-gray-400">{b.companyName}</p>
           </div>
         </div>
@@ -391,7 +398,7 @@ const recentBulletinColumns = [
     className: 'text-right',
     render: (b: RecentBulletin) => (
       <span className="text-sm font-medium text-gray-900">
-        {b.totalAmount != null ? `${(b.totalAmount / 1000).toFixed(3)} TND` : '—'}
+        {b.totalAmount != null ? `${b.totalAmount.toFixed(3)} TND` : '—'}
       </span>
     ),
   },

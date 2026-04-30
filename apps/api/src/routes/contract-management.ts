@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { authMiddleware, requireRole } from '../middleware/auth';
+import { logAudit } from '../middleware/audit-trail';
 import { success, error, paginated } from '../lib/response';
 import { ContractManagementService } from '../services/contract-management.service';
 import type { Bindings, Variables } from '../types';
@@ -118,6 +119,16 @@ contractManagement.post(
       insurerId,
     });
 
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'template.create',
+      entityType: 'contract_templates',
+      entityId: template.id,
+      changes: { name: body.name, type: body.type, category: body.category, insurerId },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return success(c, template, 201);
   }
 );
@@ -155,6 +166,17 @@ contractManagement.put(
 
     try {
       const template = await service.updateTemplate(templateId, body, user.id, reason);
+
+      logAudit(getDb(c), {
+        userId: user.id,
+        action: 'template.update',
+        entityType: 'contract_templates',
+        entityId: templateId,
+        changes: { ...body, reason },
+        ipAddress: c.req.header('CF-Connecting-IP'),
+        userAgent: c.req.header('User-Agent'),
+      });
+
       return success(c, template);
     } catch (err) {
       return error(c, 'NOT_FOUND', 'Template non trouvé', 404);
@@ -186,6 +208,17 @@ contractManagement.post(
 
     try {
       const template = await service.cloneTemplate(templateId, name, targetInsurerId);
+
+      logAudit(getDb(c), {
+        userId: user.id,
+        action: 'template.clone',
+        entityType: 'contract_templates',
+        entityId: template.id,
+        changes: { sourceTemplateId: templateId, name, targetInsurerId },
+        ipAddress: c.req.header('CF-Connecting-IP'),
+        userAgent: c.req.header('User-Agent'),
+      });
+
       return success(c, template, 201);
     } catch (err) {
       return error(c, 'NOT_FOUND', 'Template non trouvé', 404);
@@ -212,6 +245,17 @@ contractManagement.post(
         user.id,
         'Template activated'
       );
+
+      logAudit(getDb(c), {
+        userId: user.id,
+        action: 'template.activate',
+        entityType: 'contract_templates',
+        entityId: templateId,
+        changes: { isActive: true },
+        ipAddress: c.req.header('CF-Connecting-IP'),
+        userAgent: c.req.header('User-Agent'),
+      });
+
       return success(c, template);
     } catch (err) {
       return error(c, 'NOT_FOUND', 'Template non trouvé', 404);
@@ -238,6 +282,17 @@ contractManagement.post(
         user.id,
         'Template deactivated'
       );
+
+      logAudit(getDb(c), {
+        userId: user.id,
+        action: 'template.deactivate',
+        entityType: 'contract_templates',
+        entityId: templateId,
+        changes: { isActive: false },
+        ipAddress: c.req.header('CF-Connecting-IP'),
+        userAgent: c.req.header('User-Agent'),
+      });
+
       return success(c, template);
     } catch (err) {
       return error(c, 'NOT_FOUND', 'Template non trouvé', 404);
@@ -274,6 +329,17 @@ contractManagement.post(
 
     try {
       const template = await service.restoreVersion(templateId, version, user.id);
+
+      logAudit(getDb(c), {
+        userId: user.id,
+        action: 'template.restore_version',
+        entityType: 'contract_templates',
+        entityId: templateId,
+        changes: { restoredVersion: version },
+        ipAddress: c.req.header('CF-Connecting-IP'),
+        userAgent: c.req.header('User-Agent'),
+      });
+
       return success(c, template);
     } catch (err) {
       return error(c, 'NOT_FOUND', 'Version non trouvée', 404);
@@ -324,9 +390,20 @@ contractManagement.post(
     const body = c.req.valid('json');
     const service = new ContractManagementService(c.env);
 
+    const user = c.get('user');
     const config = await service.configureRenewal({
       contractId,
       ...body,
+    });
+
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'contract.configure_renewal',
+      entityType: 'contracts',
+      entityId: contractId,
+      changes: { autoRenew: body.autoRenew, renewalPeriodDays: body.renewalPeriodDays, priceAdjustment: body.priceAdjustment },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
     });
 
     return success(c, config);
@@ -349,11 +426,22 @@ contractManagement.post(
     const body = c.req.valid('json') || {};
     const service = new ContractManagementService(c.env);
 
+    const user = c.get('user');
     const result = await service.renewContract(contractId, body);
 
     if (!result.success) {
       return error(c, 'RENEWAL_FAILED', result.error || 'Échec du renouvellement', 400);
     }
+
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'contract.renew',
+      entityType: 'contracts',
+      entityId: contractId,
+      changes: { newContractId: result.newContractId, ...body },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return success(c, {
       message: 'Contrat renouvelé avec succès',
@@ -370,9 +458,20 @@ contractManagement.post(
   '/renewals/process',
   requireRole('ADMIN'),
   async (c) => {
+    const user = c.get('user');
     const service = new ContractManagementService(c.env);
 
     const result = await service.processAutoRenewals();
+
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'renewal.process_auto',
+      entityType: 'contracts',
+      entityId: 'batch',
+      changes: { ...result },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return success(c, {
       message: 'Renouvellements traités',
@@ -409,11 +508,23 @@ contractManagement.post(
   requireRole('ADMIN', 'INSURER_ADMIN', 'INSURER_AGENT'),
   zValidator('json', createFromTemplateSchema),
   async (c) => {
+    const user = c.get('user');
     const body = c.req.valid('json');
     const service = new ContractManagementService(c.env);
 
     try {
       const result = await service.createContractFromTemplate(body);
+
+      logAudit(getDb(c), {
+        userId: user.id,
+        action: 'contract.create_from_template',
+        entityType: 'contracts',
+        entityId: result.contractId || result.id || body.templateId,
+        changes: { templateId: body.templateId, adherentId: body.adherentId, startDate: body.startDate },
+        ipAddress: c.req.header('CF-Connecting-IP'),
+        userAgent: c.req.header('User-Agent'),
+      });
+
       return success(c, {
         message: 'Contrat créé avec succès',
         ...result,

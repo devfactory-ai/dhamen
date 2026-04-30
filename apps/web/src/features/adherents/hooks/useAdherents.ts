@@ -33,6 +33,7 @@ export interface AyantDroitData {
   gender?: string;
   phone?: string;
   email?: string;
+  plafondGlobal?: number; // Plafond individuel en millimes
 }
 
 export interface CreateAdherentData {
@@ -155,6 +156,7 @@ export interface AdherentSearchResult {
   plafondGlobal: number | null;
   plafondConsomme: number | null;
   contractType: 'individual' | 'family' | 'corporate' | null;
+  contractStartDate: string | null;
   contractEndDate: string | null;
   contractNumber: string | null;
   contractWarning: string | null;
@@ -185,6 +187,8 @@ export interface AdherentBulletin {
   declaredAmount: number;
   reimbursedAmount: number;
   actesCount: number;
+  beneficiaryName: string | null;
+  beneficiaryRelationship: string | null;
   createdAt: string;
 }
 

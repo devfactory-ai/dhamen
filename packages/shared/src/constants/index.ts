@@ -5,6 +5,7 @@
 export * from './roles';
 export * from './errors';
 export * from './claim-status';
+export * from './care-type-config';
 
 // Common constants
 export const DEFAULT_PAGE_SIZE = 20;

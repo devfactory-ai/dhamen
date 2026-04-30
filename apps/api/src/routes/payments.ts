@@ -6,6 +6,8 @@
 import { Hono } from 'hono';
 import type { Bindings, Variables } from '../types';
 import { authMiddleware, requireAuth, requireRole } from '../middleware/auth';
+import { logAudit } from '../middleware/audit-trail';
+import { getDb } from '../lib/db';
 import { PaymentGatewayService } from '../services/payment-gateway.service';
 
 const payments = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -85,6 +87,17 @@ payments.post(
         400
       );
     }
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'payment.create_order',
+      entityType: 'payment',
+      entityId: result.orderId || body.reference,
+      changes: { type: body.type, amount: body.amount, beneficiary: body.beneficiary, reference: body.reference, bordereauId: body.bordereauId },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,
@@ -173,6 +186,7 @@ payments.post(
   async (c) => {
     const id = c.req.param('id');
 
+    const user = c.get('user');
     const paymentService = new PaymentGatewayService(c.env);
     const result = await paymentService.processPayment(id);
 
@@ -185,6 +199,17 @@ payments.post(
         400
       );
     }
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'payment.process',
+      entityType: 'payment',
+      entityId: id,
+      changes: { status: 'processed' },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,
@@ -203,6 +228,7 @@ payments.post(
   async (c) => {
     const id = c.req.param('id');
     const body = await c.req.json<{ reason: string }>().catch(() => ({ reason: 'Cancelled by user' }));
+    const user = c.get('user');
 
     const paymentService = new PaymentGatewayService(c.env);
     const cancelled = await paymentService.cancelOrder(id, body.reason);
@@ -216,6 +242,17 @@ payments.post(
         400
       );
     }
+
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'payment.cancel',
+      entityType: 'payment',
+      entityId: id,
+      changes: { reason: body.reason },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({
       success: true,
@@ -268,6 +305,17 @@ payments.post(
     // Process payment
     const processResult = await paymentService.processPayment(createResult.orderId);
 
+    // Audit log
+    logAudit(getDb(c), {
+      userId: user.id,
+      action: 'payment.bordereau_pay',
+      entityType: 'payment',
+      entityId: createResult.orderId,
+      changes: { bordereauId, insurerId, success: processResult.success },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json({
       success: processResult.success,
       data: processResult,
@@ -317,6 +365,17 @@ payments.post('/webhook/:provider', async (c) => {
   if (!result.success) {
     return c.json({ error: result.message }, 400);
   }
+
+  // Audit log
+  logAudit(getDb(c), {
+    userId: 'system',
+    action: 'payment.webhook',
+    entityType: 'payment',
+    entityId: provider,
+    changes: { provider, payload },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
 
   return c.json({ success: true });
 });

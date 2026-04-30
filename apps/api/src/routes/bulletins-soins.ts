@@ -6,6 +6,7 @@ import { getDb } from '../lib/db';
 import { extractBulletinData } from '../agents/ocr/ocr.agent';
 import { PushNotificationService } from '../services/push-notification.service';
 import { RealtimeNotificationsService } from '../services/realtime-notifications.service';
+import { logAudit } from '../middleware/audit-trail';
 
 const bulletinsSoins = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -83,11 +84,8 @@ bulletinsSoins.get('/me', async (c) => {
   // Get bulletins with pagination
   const bulletins = await db.prepare(`
     SELECT
-      bs.*,
-      b.full_name as beneficiary_name,
-      b.relationship as beneficiary_relationship
+      bs.*
     FROM bulletins_soins bs
-    LEFT JOIN beneficiaries b ON bs.beneficiary_id = b.id
     ${whereClause}
     ORDER BY bs.bulletin_date DESC, bs.created_at DESC
     LIMIT ? OFFSET ?
@@ -236,11 +234,8 @@ bulletinsSoins.get('/me/:id', async (c) => {
   // Get bulletin
   const bulletin = await db.prepare(`
     SELECT
-      bs.*,
-      b.full_name as beneficiary_name,
-      b.relationship as beneficiary_relationship
+      bs.*
     FROM bulletins_soins bs
-    LEFT JOIN beneficiaries b ON bs.beneficiary_id = b.id
     WHERE bs.id = ? AND bs.adherent_id = ?
   `).bind(bulletinId, adherent.id).first();
 
@@ -315,6 +310,16 @@ bulletinsSoins.post('/me', async (c) => {
     now,
     now
   ).run();
+
+  logAudit(db, {
+    userId: user.id || user.sub,
+    action: 'bulletin.create',
+    entityType: 'bulletins_soins',
+    entityId: id,
+    changes: { bulletin_number: bulletinNumber, care_type: body.care_type || 'consultation', total_amount: body.total_amount },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
 
   return c.json({
     success: true,
@@ -772,6 +777,16 @@ bulletinsSoins.post('/submit', async (c) => {
     now
   ).run();
 
+  logAudit(db, {
+    userId: user.id || user.sub,
+    action: 'bulletin.submit',
+    entityType: 'bulletins_soins',
+    entityId: id,
+    changes: { bulletin_number: bulletinNumber, care_type: careType, total_amount: totalAmount, uploaded_files: uploadedFiles.length },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
   return c.json({
     success: true,
     data: {
@@ -853,6 +868,16 @@ bulletinsSoins.post('/me/:id/upload-scan', async (c) => {
     SET scan_url = ?, scan_filename = ?, updated_at = datetime('now')
     WHERE id = ?
   `).bind(scanUrl, file.name, bulletinId).run();
+
+  logAudit(db, {
+    userId: user.id || user.sub,
+    action: 'bulletin.upload_scan',
+    entityType: 'bulletins_soins',
+    entityId: bulletinId,
+    changes: { scan_filename: file.name },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
 
   return c.json({
     success: true,
@@ -949,12 +974,11 @@ bulletinsSoins.get('/manage', async (c) => {
       a.first_name as adherent_first_name,
       a.last_name as adherent_last_name,
       a.national_id_encrypted as adherent_national_id,
-      b.full_name as beneficiary_name,
-      b.relationship as beneficiary_relationship
+      bs.beneficiary_name,
+      bs.beneficiary_relationship
     FROM bulletins_soins bs
     JOIN adherents a ON bs.adherent_id = a.id
     JOIN companies co ON a.company_id = co.id
-    LEFT JOIN beneficiaries b ON bs.beneficiary_id = b.id
     ${whereClause}
     ORDER BY
       CASE bs.status
@@ -1122,8 +1146,8 @@ bulletinsSoins.get('/manage/:id', async (c) => {
       a.matricule as adherent_matricule,
       a.email as adherent_email,
       a.phone_encrypted as adherent_phone,
-      b.full_name as beneficiary_name,
-      b.relationship as beneficiary_relationship,
+      bs.beneficiary_name,
+      bs.beneficiary_relationship,
       ct.contract_number,
       ct.plan_type,
       ct.coverage_json,
@@ -1131,7 +1155,6 @@ bulletinsSoins.get('/manage/:id', async (c) => {
     FROM bulletins_soins bs
     JOIN adherents a ON bs.adherent_id = a.id
     JOIN companies co ON a.company_id = co.id
-    LEFT JOIN beneficiaries b ON bs.beneficiary_id = b.id
     LEFT JOIN contracts ct ON ct.adherent_id = a.id AND ct.status = 'active'
     LEFT JOIN insurers i ON ct.insurer_id = i.id
     ${detailWhere}
@@ -1258,18 +1281,19 @@ bulletinsSoins.put('/manage/:id/status', async (c) => {
     UPDATE bulletins_soins SET ${updateFields} WHERE id = ?
   `).bind(...updateParams, bulletinId).run();
 
-  // Update adherent plafond_consomme when reimbursing (delta to avoid double-counting)
+  // Update beneficiary plafond_consomme when reimbursing (delta to avoid double-counting)
   // Bulletin amounts are in dinars, plafond_consomme is in millimes (×1000)
+  // Use beneficiary_id (conjoint/enfant) when present, else adherent_id (principal)
   if (status === 'reimbursed') {
     const bul = bulletin as Record<string, unknown>;
-    const adherentId = bul.adherent_id as string | null;
+    const plafondTargetId = (bul.beneficiary_id as string | null) || (bul.adherent_id as string | null);
     const finalAmount = body.reimbursed_amount || bul.approved_amount || bul.total_amount;
     const previousReimbursed = Number(bul.reimbursed_amount) || 0;
     const delta = Number(finalAmount) - previousReimbursed;
-    if (adherentId && delta > 0) {
+    if (plafondTargetId && delta > 0) {
       await db.prepare(
         'UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?'
-      ).bind(Math.round(delta * 1000), adherentId).run();
+      ).bind(Math.round(delta * 1000), plafondTargetId).run();
     }
   }
 
@@ -1988,6 +2012,16 @@ bulletinsSoins.post('/payments/:id/mark-pending', async (c) => {
     WHERE id = ?
   `).bind(now, bulletinId).run();
 
+  logAudit(db, {
+    userId: user.id || user.sub,
+    action: 'bulletin.mark_pending',
+    entityType: 'bulletins_soins',
+    entityId: bulletinId,
+    changes: { previous_status: 'approved', new_status: 'pending_payment' },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
   return c.json({
     success: true,
     data: {
@@ -2296,10 +2330,12 @@ bulletinsSoins.get('/history/:id', async (c) => {
       SELECT bs.*,
              a.first_name as adh_first_name, a.last_name as adh_last_name,
              a.matricule as adh_matricule, a.national_id_encrypted as adh_national_id,
-             a.plafond_global as adh_plafond_global, a.plafond_consomme as adh_plafond_consomme,
-             a.email as adh_email
+             a.email as adh_email,
+             COALESCE(ben.plafond_global, a.plafond_global) as adh_plafond_global,
+             COALESCE(ben.plafond_consomme, a.plafond_consomme) as adh_plafond_consomme
       FROM bulletins_soins bs
       LEFT JOIN adherents a ON bs.adherent_id = a.id
+      LEFT JOIN adherents ben ON bs.beneficiary_id = ben.id
       LEFT JOIN companies co ON a.company_id = co.id
       ${histDetailWhere}
     `).bind(...histDetailParams).first();
@@ -2857,6 +2893,16 @@ bulletinsSoins.delete('/admin/:id', async (c) => {
     await db.prepare('DELETE FROM actes_bulletin WHERE bulletin_id = ?').bind(id).run();
     await db.prepare('DELETE FROM bulletins_soins WHERE id = ?').bind(id).run();
 
+    logAudit(db, {
+      userId: user.id || user.sub,
+      action: 'bulletin.delete',
+      entityType: 'bulletins_soins',
+      entityId: id,
+      changes: { bulletin_number: bulletin.bulletin_number },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json({ success: true, data: { id, deleted: true } });
   } catch (err) {
     return c.json({
@@ -2898,6 +2944,16 @@ bulletinsSoins.post('/admin/bulk-delete', async (c) => {
       .prepare(`DELETE FROM bulletins_soins WHERE id IN (${placeholders})`)
       .bind(...ids)
       .run();
+
+    logAudit(db, {
+      userId: user.id || user.sub,
+      action: 'bulletin.bulk_delete',
+      entityType: 'bulletins_soins',
+      entityId: ids.join(','),
+      changes: { count: result.meta?.changes ?? ids.length, ids },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({ success: true, data: { deleted: result.meta?.changes ?? ids.length } });
   } catch (err) {

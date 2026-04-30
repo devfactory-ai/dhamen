@@ -89,14 +89,17 @@ interface AdherentDetail {
   isActive: boolean;
   dossierComplet: boolean;
   createdAt: string;
+  parentAdherentId: string | null;
+  codeType: string | null;
 }
 
 // --- Helpers ---
 
-// Pour les montants en millimes (plafonds du contrat)
+// Pour les montants en millimes (plafonds du contrat) → affichage "7 000,000 DT", 0 → "0"
 function formatAmount(amount: number | null): string {
   if (amount == null) return '—';
-  return new Intl.NumberFormat('fr-TN', { maximumFractionDigits: 0 }).format(amount / 1000) + ' DT';
+  if (!amount) return '0';
+  return new Intl.NumberFormat('fr-TN', { minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(amount / 1000) + ' DT';
 }
 
 // Pour les montants en dinars (bulletins de soins)
@@ -139,6 +142,8 @@ function useAdherentDetail(id: string) {
         isActive: !!d.isActive,
         dossierComplet: d.dossierComplet !== false && d.dossierComplet !== 0,
         createdAt: d.createdAt as string,
+        parentAdherentId: (d.parentAdherentId as string) || (d.parent_adherent_id as string) || null,
+        codeType: (d.codeType as string) || (d.code_type as string) || null,
       };
     },
     enabled: !!id,
@@ -173,6 +178,7 @@ function BulletinHistory({ adherentId }: { adherentId: string }) {
           <thead>
             <tr className="border-b text-left text-xs text-gray-500">
               <th className="py-2">Date</th>
+              <th>Bénéficiaire</th>
               <th>Statut</th>
               <th className="text-right">Déclaré</th>
               <th className="text-right">Remboursé</th>
@@ -188,6 +194,18 @@ function BulletinHistory({ adherentId }: { adherentId: string }) {
               return (
                 <tr key={b.id} className="border-b last:border-0">
                   <td className="py-2">{formatDate(b.dateSoins)}</td>
+                  <td>
+                    {b.beneficiaryName && b.beneficiaryRelationship !== 'self' ? (
+                      <div>
+                        <p className="text-sm">{b.beneficiaryName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {b.beneficiaryRelationship === 'spouse' ? 'Conjoint(e)' : b.beneficiaryRelationship === 'child' ? 'Enfant' : b.beneficiaryRelationship}
+                        </p>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400">Lui-même</span>
+                    )}
+                  </td>
                   <td>
                     <Badge variant={cfg.variant} className={cfg.className}>
                       {cfg.label}
@@ -206,7 +224,7 @@ function BulletinHistory({ adherentId }: { adherentId: string }) {
           </tbody>
           <tfoot>
             <tr className="border-t font-medium text-sm">
-              <td colSpan={2} className="py-2">
+              <td colSpan={3} className="py-2">
                 Total
               </td>
               <td className="text-right">{formatDinars(totalDeclared)}</td>
@@ -285,9 +303,10 @@ export default function AgentAdherentDetailPage() {
   const plafondPct = plafondGlobal > 0 ? Math.round((plafondConsomme / plafondGlobal) * 100) : 0;
 
   // Build ayants droit from famille data
-  const ayantsDroit: { nom: string; prenom: string; lien: string }[] = [];
+  const ayantsDroit: { id: string; nom: string; prenom: string; lien: string }[] = [];
   if (famille?.conjoint) {
     ayantsDroit.push({
+      id: famille.conjoint.id,
       nom: famille.conjoint.lastName,
       prenom: famille.conjoint.firstName,
       lien: 'Conjoint(e)',
@@ -296,6 +315,7 @@ export default function AgentAdherentDetailPage() {
   if (famille?.enfants) {
     for (const enfant of famille.enfants) {
       ayantsDroit.push({
+        id: enfant.id,
         nom: enfant.lastName,
         prenom: enfant.firstName,
         lien: 'Enfant',
@@ -364,6 +384,26 @@ export default function AgentAdherentDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Lien retour adhérent principal (pour les bénéficiaires) */}
+      {adherent.parentAdherentId && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 flex items-center gap-3">
+          <Users className="h-5 w-5 text-blue-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-blue-800">
+              {adherent.codeType === 'C' ? 'Conjoint(e)' : adherent.codeType === 'E' ? 'Enfant' : 'Ayant droit'} de l'adhérent principal
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-blue-300 text-blue-700 hover:bg-blue-100"
+            onClick={() => navigate(`/adherents/agent/${adherent.parentAdherentId}`)}
+          >
+            <ArrowLeft className="w-4 h-4 mr-1" /> Voir l'adhérent principal
+          </Button>
+        </div>
+      )}
 
       {/* Alerte dossier incomplet */}
       {!adherent.dossierComplet && (
@@ -477,7 +517,8 @@ export default function AgentAdherentDetailPage() {
                 {ayantsDroit.map((ad, i) => (
                   <div
                     key={i}
-                    className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-sm"
+                    className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 transition-colors"
+                    onClick={() => navigate(`/adherents/agent/${ad.id}`)}
                   >
                     <span className="font-medium">{ad.prenom} {ad.nom}</span>
                     <Badge variant="outline" className="text-xs">{ad.lien}</Badge>

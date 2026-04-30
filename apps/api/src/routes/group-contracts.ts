@@ -30,7 +30,7 @@ import type { Bindings, Variables } from "../types";
 const CARE_TYPES = [
   "consultation","consultation_visite","pharmacy","pharmacie",
   "laboratory","laboratoire","optical","optique",
-  "refractive_surgery","chirurgie_refractive","medical_acts","actes_courants",
+  "refractive_surgery","chirurgie_refractive","medical_acts","actes_courants","actes_specialistes",
   "transport","surgery","chirurgie","orthopedics","orthopedie",
   "hospitalization","hospitalisation","maternity","accouchement",
   "ivg","interruption_grossesse","dental","dentaire",
@@ -41,6 +41,15 @@ const CARE_TYPES = [
 const PLAN_CATEGORIES = ["basic","standard","premium","vip"] as const;
 const CONTRACT_STATUSES = ["draft","active","suspended","expired","cancelled"] as const;
 const CONTRACT_TYPES = ["group","individual"] as const;
+
+/** Compute effective status: if DB says 'active' but end_date has passed, return 'expired' */
+function effectiveStatus(status: string, endDate: string | null | undefined, renewalDate: string | null | undefined): string {
+  if (status !== 'active') return status;
+  const expiry = endDate || renewalDate;
+  if (!expiry) return status;
+  const today = new Date().toISOString().split('T')[0];
+  return expiry < today ? 'expired' : status;
+}
 
 const groupContractCreateSchema = z.object({
   contractType: z.enum(CONTRACT_TYPES).default("group"),
@@ -71,7 +80,30 @@ const groupContractCreateSchema = z.object({
   planCategory: z.enum(PLAN_CATEGORIES).default("standard"),
   status: z.enum(CONTRACT_STATUSES).default("draft"),
   notes: z.string().optional(),
-  guarantees: z.array(z.object({
+  guarantees: z.array(z.preprocess((raw) => {
+    // Accept both camelCase (API convention) and snake_case (frontend GarantiesContratPage)
+    const r = raw as Record<string, unknown>;
+    return {
+      guaranteeNumber: r.guaranteeNumber ?? r.guarantee_number ?? r.sort_order ?? 1,
+      careType: r.careType ?? r.care_type,
+      label: r.label ?? '',
+      reimbursementRate: r.reimbursementRate ?? r.reimbursement_rate,
+      isFixedAmount: r.isFixedAmount ?? r.is_fixed_amount ?? false,
+      annualLimit: r.annualLimit ?? r.annual_limit,
+      perEventLimit: r.perEventLimit ?? r.per_event_limit,
+      dailyLimit: r.dailyLimit ?? r.daily_limit,
+      maxDays: r.maxDays ?? r.max_days,
+      letterKeysJson: r.letterKeysJson ?? r.letter_keys_json ?? (r.letter_keys ? JSON.stringify(r.letter_keys) : undefined),
+      subLimitsJson: r.subLimitsJson ?? r.sub_limits_json ?? (r.sub_limits ? JSON.stringify(r.sub_limits) : undefined),
+      conditionsText: r.conditionsText ?? r.conditions_text ?? r.conditions,
+      requiresPrescription: r.requiresPrescription ?? r.requires_prescription ?? false,
+      requiresCnamComplement: r.requiresCnamComplement ?? r.requires_cnam_complement ?? false,
+      renewalPeriodMonths: r.renewalPeriodMonths ?? r.renewal_period_months ?? r.renewal_period,
+      ageLimit: r.ageLimit ?? r.age_limit,
+      waitingPeriodDays: r.waitingPeriodDays ?? r.waiting_period_days ?? 0,
+      exclusionsText: r.exclusionsText ?? r.exclusions_text,
+    };
+  }, z.object({
     guaranteeNumber: z.number().int().min(1).max(18),
     careType: z.enum(CARE_TYPES),
     label: z.string().min(1),
@@ -90,10 +122,11 @@ const groupContractCreateSchema = z.object({
     ageLimit: z.number().int().optional(),
     waitingPeriodDays: z.number().int().default(0),
     exclusionsText: z.string().optional(),
-  })).optional(),
+  }))).optional(),
 });
 
-const groupContractUpdateSchema = groupContractCreateSchema.partial();
+// For updates, use passthrough so unknown fields (like snake_case guarantees) are not stripped
+const groupContractUpdateSchema = groupContractCreateSchema.partial().passthrough();
 
 const groupContractFiltersSchema = z.object({
   companyId: z.string().optional(),
@@ -108,7 +141,7 @@ const groupContractFiltersSchema = z.object({
 // ---------------------------------------------------------------------------
 // Gemini config — override via env GEMINI_MODEL
 // ---------------------------------------------------------------------------
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 
 // ---------------------------------------------------------------------------
 // Router
@@ -140,7 +173,11 @@ groupContracts.get("/", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT","HR"
   const total = countResult?.total ?? 0;
   const offset = (page - 1) * limit;
   const rows = await db.prepare(`SELECT gc.*, CASE WHEN gc.contract_type = 'individual' THEN (a.first_name || ' ' || a.last_name) ELSE co.name END as company_name, ins.name as insurer_name FROM group_contracts gc LEFT JOIN companies co ON gc.company_id = co.id LEFT JOIN adherents a ON gc.adherent_id = a.id LEFT JOIN insurers ins ON gc.insurer_id = ins.id ${whereClause} ORDER BY gc.created_at DESC LIMIT ? OFFSET ?`).bind(...params, limit, offset).all();
-  return paginated(c, rows.results ?? [], { page, limit, total });
+  const results = (rows.results ?? []).map((r: Record<string, unknown>) => ({
+    ...r,
+    status: effectiveStatus(r.status as string, r.end_date as string | null, r.annual_renewal_date as string | null),
+  }));
+  return paginated(c, results, { page, limit, total });
 });
 
 // ---------------------------------------------------------------------------
@@ -153,6 +190,17 @@ groupContracts.get("/:id", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT","
   if (user?.insurerId && (user.role === "INSURER_ADMIN" || user.role === "INSURER_AGENT") && contract.insurer_id !== user.insurerId) return notFound(c, "Contrat groupe non trouvé");
   if (user.role === "HR" && contract.company_id !== user.companyId) return notFound(c, "Contrat non trouvé");
   const guarantees = await db.prepare(`SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1 ORDER BY guarantee_number ASC`).bind(id).all();
+
+  // Count adherents of this company who have a contract linked to this group contract
+  const adherentCount = contract.contract_type === 'individual'
+    ? (contract.adherent_id ? 1 : 0)
+    : (await db.prepare(
+        `SELECT COUNT(DISTINCT c.adherent_id) as cnt
+         FROM contracts c
+         JOIN adherents a ON a.id = c.adherent_id
+         WHERE c.group_contract_id = ? AND c.status != 'cancelled'
+           AND a.company_id = ? AND a.deleted_at IS NULL`
+      ).bind(id, contract.company_id).first<{ cnt: number }>())?.cnt ?? 0;
 
   // Build covered_risks array from boolean columns
   const coveredRisks: string[] = [];
@@ -168,6 +216,7 @@ groupContracts.get("/:id", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT","
     annual_ceiling: g.annual_limit,
     per_act_ceiling: g.per_event_limit,
     per_day_ceiling: g.daily_limit,
+    max_days: g.max_days,
     letter_keys: g.letter_keys_json ? (typeof g.letter_keys_json === 'string' ? JSON.parse(g.letter_keys_json) : g.letter_keys_json) : null,
     sub_limits: g.sub_limits_json ? (typeof g.sub_limits_json === 'string' ? JSON.parse(g.sub_limits_json) : g.sub_limits_json) : null,
     conditions: g.conditions_text,
@@ -177,12 +226,14 @@ groupContracts.get("/:id", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT","
 
   return success(c, {
     ...contract,
+    status: effectiveStatus(contract.status as string, contract.end_date as string | null, contract.annual_renewal_date as string | null),
     // Aliases for detail page
     expiry_date: contract.annual_renewal_date || contract.end_date || null,
     global_ceiling: contract.annual_global_limit,
     intermediary: contract.intermediary_name,
     category: contract.plan_category,
     covered_risks: JSON.stringify(coveredRisks),
+    adherent_count: adherentCount,
     guarantees: mappedGuarantees,
   });
 });
@@ -225,8 +276,8 @@ groupContracts.post("/", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT"), z
 // ---------------------------------------------------------------------------
 // PUT /:id — Update
 // ---------------------------------------------------------------------------
-groupContracts.put("/:id", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT"), zValidator("json", groupContractUpdateSchema), async (c) => {
-  const id = c.req.param("id"); const data = c.req.valid("json"); const user = c.get("user"); const db = getDb(c);
+groupContracts.put("/:id", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT"), async (c) => {
+  const id = c.req.param("id"); const data = await c.req.json<Record<string, unknown>>(); const user = c.get("user"); const db = getDb(c);
   const existing = await db.prepare("SELECT * FROM group_contracts WHERE id = ? AND deleted_at IS NULL").bind(id).first();
   if (!existing) return notFound(c, "Contrat groupe non trouvé");
   if (user?.insurerId && user.role === "INSURER_ADMIN" && existing.insurer_id !== user.insurerId) return notFound(c, "Contrat groupe non trouvé");
@@ -239,14 +290,45 @@ groupContracts.put("/:id", requireRole("ADMIN","INSURER_ADMIN","INSURER_AGENT"),
     const dup = await db.prepare("SELECT id FROM group_contracts WHERE contract_number = ? AND id != ? AND deleted_at IS NULL LIMIT 1").bind(data.contractNumber, id).first();
     if (dup) return conflict(c, `Le numéro de contrat "${data.contractNumber}" existe déjà`);
   }
-  if (sets.length === 0 && !data.guarantees) return success(c, existing);
+  const guaranteesRaw = Array.isArray(data.guarantees) ? data.guarantees as Record<string, unknown>[] : null;
+
+  if (sets.length === 0 && !guaranteesRaw) return success(c, existing);
   if (sets.length > 0) { sets.push("updated_at = ?"); values.push(new Date().toISOString()); values.push(id); await db.prepare(`UPDATE group_contracts SET ${sets.join(", ")} WHERE id = ?`).bind(...values).run(); }
-  if (data.guarantees) {
+  // Propagate date changes to individual contracts linked to this group contract
+  if (data.effectiveDate !== undefined || data.endDate !== undefined || data.annualRenewalDate !== undefined) {
+    const gc = await db.prepare("SELECT effective_date, end_date, annual_renewal_date FROM group_contracts WHERE id = ?").bind(id).first<{ effective_date: string; end_date: string | null; annual_renewal_date: string | null }>();
+    if (gc) {
+      const newStart = gc.effective_date;
+      const newEnd = gc.end_date ?? gc.annual_renewal_date ?? new Date(new Date(newStart).getTime() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+      await db.prepare("UPDATE contracts SET start_date = ?, end_date = ?, updated_at = ? WHERE group_contract_id = ? AND status = 'active'").bind(newStart, newEnd, new Date().toISOString(), id).run();
+    }
+  }
+  if (guaranteesRaw) {
     await db.prepare("UPDATE contract_guarantees SET is_active = 0 WHERE group_contract_id = ?").bind(id).run();
     const now = new Date().toISOString();
-    for (const g of data.guarantees) {
+    for (const g of guaranteesRaw) {
       const gid = generateId();
-      await db.prepare(`INSERT INTO contract_guarantees (id, group_contract_id, guarantee_number, care_type, label, reimbursement_rate, is_fixed_amount, annual_limit, per_event_limit, daily_limit, max_days, letter_keys_json, sub_limits_json, conditions_text, requires_prescription, requires_cnam_complement, renewal_period_months, age_limit, waiting_period_days, exclusions_text, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`).bind(gid, id, g.guaranteeNumber, g.careType, g.label, g.reimbursementRate ?? null, g.isFixedAmount ? 1 : 0, g.annualLimit ?? null, g.perEventLimit ?? null, g.dailyLimit ?? null, g.maxDays ?? null, g.letterKeysJson ?? null, g.subLimitsJson ?? null, g.conditionsText ?? null, g.requiresPrescription ? 1 : 0, g.requiresCnamComplement ? 1 : 0, g.renewalPeriodMonths ?? null, g.ageLimit ?? null, g.waitingPeriodDays, g.exclusionsText ?? null, now, now).run();
+      // Support both camelCase and snake_case field names
+      const careType = (g.careType ?? g.care_type) as string;
+      const label = (g.label ?? '') as string;
+      const guaranteeNumber = Number(g.guaranteeNumber ?? g.guarantee_number ?? g.sort_order ?? 1);
+      const reimbursementRate = g.reimbursementRate ?? g.reimbursement_rate;
+      const isFixedAmount = g.isFixedAmount ?? g.is_fixed_amount ?? false;
+      const annualLimit = g.annualLimit ?? g.annual_limit;
+      const perEventLimit = g.perEventLimit ?? g.per_event_limit;
+      const dailyLimit = g.dailyLimit ?? g.daily_limit;
+      const maxDays = g.maxDays ?? g.max_days;
+      const letterKeysJson = g.letterKeysJson ?? g.letter_keys_json ?? (g.letter_keys ? JSON.stringify(g.letter_keys) : null);
+      const subLimitsJson = g.subLimitsJson ?? g.sub_limits_json ?? (g.sub_limits ? JSON.stringify(g.sub_limits) : null);
+      const conditionsText = g.conditionsText ?? g.conditions_text ?? g.conditions ?? null;
+      const requiresPrescription = g.requiresPrescription ?? g.requires_prescription ?? false;
+      const requiresCnamComplement = g.requiresCnamComplement ?? g.requires_cnam_complement ?? false;
+      const renewalPeriodMonths = g.renewalPeriodMonths ?? g.renewal_period_months ?? g.renewal_period ?? null;
+      const ageLimit = g.ageLimit ?? g.age_limit ?? null;
+      const waitingPeriodDays = Number(g.waitingPeriodDays ?? g.waiting_period_days ?? 0);
+      const exclusionsText = g.exclusionsText ?? g.exclusions_text ?? null;
+      if (!careType) continue; // skip invalid entries
+      await db.prepare(`INSERT INTO contract_guarantees (id, group_contract_id, guarantee_number, care_type, label, reimbursement_rate, is_fixed_amount, annual_limit, per_event_limit, daily_limit, max_days, letter_keys_json, sub_limits_json, conditions_text, requires_prescription, requires_cnam_complement, renewal_period_months, age_limit, waiting_period_days, exclusions_text, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`).bind(gid, id, guaranteeNumber, careType, label, reimbursementRate ?? null, isFixedAmount ? 1 : 0, annualLimit ?? null, perEventLimit ?? null, dailyLimit ?? null, maxDays ?? null, letterKeysJson ?? null, subLimitsJson ?? null, conditionsText ?? null, requiresPrescription ? 1 : 0, requiresCnamComplement ? 1 : 0, renewalPeriodMonths ?? null, ageLimit ?? null, waitingPeriodDays, exclusionsText ?? null, now, now).run();
     }
   }
   // Auto-apply when status → active
@@ -394,7 +476,7 @@ function validateRate(value: unknown): number | null {
   if (num >= 0 && num <= 1) return num;
   return null;
 }
-const VALID_CARE_TYPES = new Set(["consultation","consultation_visite","pharmacy","pharmacie","laboratory","laboratoire","optical","optique","refractive_surgery","chirurgie_refractive","medical_acts","actes_courants","transport","surgery","chirurgie","orthopedics","orthopedie","hospitalization","hospitalisation","maternity","accouchement","ivg","interruption_grossesse","dental","dentaire","orthodontics","orthodontie","circumcision","circoncision","sanatorium","thermal_cure","cures_thermales","funeral","frais_funeraires"]);
+const VALID_CARE_TYPES = new Set(["consultation","consultation_visite","pharmacy","pharmacie","laboratory","laboratoire","optical","optique","refractive_surgery","chirurgie_refractive","medical_acts","actes_courants","actes_specialistes","transport","surgery","chirurgie","orthopedics","orthopedie","hospitalization","hospitalisation","maternity","accouchement","ivg","interruption_grossesse","dental","dentaire","orthodontics","orthodontie","circumcision","circoncision","sanatorium","thermal_cure","cures_thermales","funeral","frais_funeraires"]);
 const GUARANTEE_NUM_TO_CARE_TYPE: Record<number,string> = {1:"consultation",2:"pharmacy",3:"laboratory",4:"optical",5:"refractive_surgery",6:"medical_acts",7:"transport",8:"surgery",9:"orthopedics",10:"hospitalization",11:"maternity",12:"ivg",13:"dental",14:"orthodontics",15:"circumcision",16:"sanatorium",17:"thermal_cure",18:"funeral"};
 
 function validateGuarantee(g: Record<string,unknown>): Record<string,unknown> {
@@ -879,9 +961,9 @@ groupContracts.post("/:id/apply-to-adherents", requireRole("ADMIN","INSURER_ADMI
   if (!gc) return notFound(c,"Contrat groupe non trouvé");
   if (user?.insurerId&&["INSURER_ADMIN","INSURER_AGENT"].includes(user.role)&&gc.insurer_id!==user.insurerId) return notFound(c,"Contrat groupe non trouvé");
   if (gc.status!=="active") return errorResponse(c,"CONTRACT_NOT_ACTIVE","Le contrat groupe doit être actif",400);
-  let adherentList: {id:string;first_name:string;last_name:string}[];
-  if (gc.contract_type==="individual"&&gc.adherent_id) { const a=await db.prepare("SELECT id, first_name, last_name FROM adherents WHERE id = ? AND is_active = 1 AND deleted_at IS NULL").bind(gc.adherent_id).first<{id:string;first_name:string;last_name:string}>(); adherentList=a?[a]:[]; }
-  else { const as2=await db.prepare("SELECT id, first_name, last_name FROM adherents WHERE company_id = ? AND is_active = 1 AND deleted_at IS NULL").bind(gc.company_id).all<{id:string;first_name:string;last_name:string}>(); adherentList=as2.results??[]; }
+  let adherentList: {id:string;first_name:string;last_name:string;plafond_global:number|null}[];
+  if (gc.contract_type==="individual"&&gc.adherent_id) { const a=await db.prepare("SELECT id, first_name, last_name, plafond_global FROM adherents WHERE id = ? AND is_active = 1 AND deleted_at IS NULL").bind(gc.adherent_id).first<{id:string;first_name:string;last_name:string;plafond_global:number|null}>(); adherentList=a?[a]:[]; }
+  else { const as2=await db.prepare("SELECT id, first_name, last_name, plafond_global FROM adherents WHERE company_id = ? AND is_active = 1 AND deleted_at IS NULL").bind(gc.company_id).all<{id:string;first_name:string;last_name:string;plafond_global:number|null}>(); adherentList=as2.results??[]; }
   if (adherentList.length===0) return errorResponse(c,"NO_ADHERENTS","Aucun adhérent actif trouvé",400);
   const guar=await db.prepare("SELECT * FROM contract_guarantees WHERE group_contract_id = ? AND is_active = 1").bind(id).all();
   const coverage: Record<string,unknown>={}; for (const g of guar.results??[]) { const gt=g as Record<string,unknown>; coverage[gt.care_type as string]={enabled:true,reimbursementRate:gt.reimbursement_rate?Number(gt.reimbursement_rate)*100:null,annualLimit:gt.annual_limit,perEventLimit:gt.per_event_limit}; }
@@ -893,9 +975,109 @@ groupContracts.post("/:id/apply-to-adherents", requireRole("ADMIN","INSURER_ADMI
     const cid=generateId(); await db.prepare(`INSERT INTO contracts (id,contract_number,adherent_id,insurer_id,plan_type,status,coverage_json,start_date,end_date,group_contract_id,created_at,updated_at) VALUES (?,?,?,?,?,'active',?,?,?,?,?,?)`).bind(cid,gcn,adh.id,gc.insurer_id,gc.contract_type==="individual"?"individual":"corporate",JSON.stringify(coverage),gc.effective_date,endDate,id,now,now).run(); createdCount++;
   }
   let plafondsCreated=0; const cy=new Date().getFullYear(); const years=[cy,cy+1];
+
+  // Build family plafonds from contract_guarantees (primary source)
+  // Maps care_type → famille_acte_id and uses annual_limit for plafond
+  const CARE_TYPE_TO_FAMILLE: Record<string, string> = {
+    consultation_visite:'fa-001',consultation:'fa-001',
+    actes_courants:'fa-009',medical_acts:'fa-009',
+    pharmacie:'fa-003',pharmacy:'fa-003',
+    laboratoire:'fa-004',laboratory:'fa-004',
+    orthopedie:'fa-005',orthopedics:'fa-005',
+    optique:'fa-006',optical:'fa-006',
+    hospitalisation:'fa-007',hospitalization:'fa-007',
+    chirurgie:'fa-010',surgery:'fa-010',
+    dentaire:'fa-011',dental:'fa-011',
+    accouchement:'fa-012',maternity:'fa-012',
+    cures_thermales:'fa-013',thermal_cure:'fa-013',
+    orthodontie:'fa-014',orthodontics:'fa-014',
+    circoncision:'fa-015',circumcision:'fa-015',
+    transport:'fa-016',
+    frais_funeraires:'fa-019',funeral:'fa-019',
+    chirurgie_refractive:'fa-009',refractive_surgery:'fa-009',
+    sanatorium:'fa-007',
+  };
+
+  const guarantees = await db.prepare(
+    `SELECT care_type, annual_limit, sub_limits_json FROM contract_guarantees
+     WHERE group_contract_id = ? AND is_active = 1 AND annual_limit IS NOT NULL`
+  ).bind(id).all<{care_type:string; annual_limit:number; sub_limits_json:string|null}>();
+
+  // Build plafond entries: one per famille_acte_id, with sub_limits creating separate ordinaire/chronique entries
+  const famillePlafonds: Array<{famille_id:string; montant_plafond:number; type_maladie:string}> = [];
+  for (const g of guarantees.results ?? []) {
+    const familleId = CARE_TYPE_TO_FAMILLE[g.care_type];
+    if (!familleId) continue;
+
+    // annual_limit in contract_guarantees is stored in millimes (from barème TP extraction)
+    const limitInMillimes = g.annual_limit;
+
+    // Check for sub_limits (e.g., pharmacie: {"ordinaire":1000,"chronique":1500})
+    let subLimits: Record<string, number> | null = null;
+    if (g.sub_limits_json) { try { subLimits = JSON.parse(g.sub_limits_json); } catch {} }
+
+    // Detect sub_limits keys (may be "ordinaire"/"chronique" or "maladies_ordinaires"/"maladies_chroniques")
+    const ordKey = subLimits ? (subLimits.ordinaire != null ? 'ordinaire' : subLimits.maladies_ordinaires != null ? 'maladies_ordinaires' : null) : null;
+    const chrKey = subLimits ? (subLimits.chronique != null ? 'chronique' : subLimits.maladies_chroniques != null ? 'maladies_chroniques' : null) : null;
+
+    if (subLimits && (ordKey || chrKey)) {
+      // Create separate plafonds per type_maladie from sub_limits
+      if (ordKey && subLimits[ordKey] != null) {
+        const val = subLimits[ordKey] as number;
+        famillePlafonds.push({ famille_id: familleId, montant_plafond: val, type_maladie: 'ordinaire' });
+      }
+      if (chrKey && subLimits[chrKey] != null) {
+        const val = subLimits[chrKey] as number;
+        famillePlafonds.push({ famille_id: familleId, montant_plafond: val, type_maladie: 'chronique' });
+      }
+    } else {
+      // Single plafond for both types
+      famillePlafonds.push({ famille_id: familleId, montant_plafond: limitInMillimes, type_maladie: 'ordinaire' });
+      famillePlafonds.push({ famille_id: familleId, montant_plafond: limitInMillimes, type_maladie: 'chronique' });
+    }
+  }
+
+  // Also check contrat_baremes as legacy fallback (may have data in older contracts)
   const baremes=await db.prepare(`SELECT DISTINCT cb.famille_id, cb.plafond_famille_annuel FROM contrat_baremes cb JOIN contrat_periodes cp ON cb.periode_id = cp.id WHERE cp.contract_id = ? AND cb.plafond_famille_annuel IS NOT NULL AND cb.famille_id IS NOT NULL`).bind(id).all<{famille_id:string;plafond_famille_annuel:number}>();
-  const globalLimit=gc.annual_global_limit as number|null;
-  for (const adh of adherentList) { for (const y of years) { for (const b of baremes.results??[]) { for (const m of ["ordinaire","chronique"] as const) { try { await db.prepare(`INSERT OR IGNORE INTO plafonds_beneficiaire (id,adherent_id,contract_id,annee,famille_acte_id,type_maladie,montant_plafond,montant_consomme,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,datetime('now'),datetime('now'))`).bind(generateId(),adh.id,id,y,b.famille_id,m,b.plafond_famille_annuel).run(); plafondsCreated++; } catch{} } } if (globalLimit) { try { await db.prepare(`INSERT OR IGNORE INTO plafonds_beneficiaire (id,adherent_id,contract_id,annee,famille_acte_id,type_maladie,montant_plafond,montant_consomme,created_at,updated_at) VALUES (?,?,?,?,NULL,'ordinaire',?,0,datetime('now'),datetime('now'))`).bind(generateId(),adh.id,id,y,globalLimit).run(); plafondsCreated++; } catch{} } } }
+  for (const b of baremes.results ?? []) {
+    // Only add if not already covered by contract_guarantees
+    const alreadyCovered = famillePlafonds.some(fp => fp.famille_id === b.famille_id);
+    if (!alreadyCovered) {
+      famillePlafonds.push({ famille_id: b.famille_id, montant_plafond: b.plafond_famille_annuel, type_maladie: 'ordinaire' });
+      famillePlafonds.push({ famille_id: b.famille_id, montant_plafond: b.plafond_famille_annuel, type_maladie: 'chronique' });
+    }
+  }
+
+  const globalLimitRaw=gc.annual_global_limit as number|null;
+  // annual_global_limit stored in millimes (from barème TP extraction or form * 1000)
+  const globalLimitMillimes = globalLimitRaw && globalLimitRaw > 0 ? globalLimitRaw : null;
+
+  // Step 1: Force update ALL adherents' plafond_global from contract (overwrite any personalized value)
+  if (globalLimitMillimes && globalLimitMillimes > 0) {
+    const adhIds = adherentList.map(a => a.id);
+    // D1 max bind = 100, batch if needed
+    for (let i = 0; i < adhIds.length; i += 80) {
+      const batch = adhIds.slice(i, i + 80);
+      const ph = batch.map(() => '?').join(',');
+      try { await db.prepare(`UPDATE adherents SET plafond_global = ?, updated_at = ? WHERE id IN (${ph})`).bind(globalLimitMillimes, now, ...batch).run(); } catch{}
+    }
+  }
+
+  // Step 2: Delete ALL existing plafonds for this contract → clean slate, then re-insert
+  // This ensures contract barème overwrites any previous/personalized values
+  for (const y of years) {
+    try { await db.prepare(`DELETE FROM plafonds_beneficiaire WHERE contract_id = ? AND annee = ?`).bind(id, y).run(); } catch{}
+  }
+
+  // Step 3: Insert fresh plafonds for every adherent × year × famille from contract guarantees
+  for (const adh of adherentList) {
+    for (const y of years) {
+      for (const fp of famillePlafonds) {
+        try { await db.prepare(`INSERT INTO plafonds_beneficiaire (id,adherent_id,contract_id,annee,famille_acte_id,type_maladie,montant_plafond,montant_consomme,created_at,updated_at) VALUES (?,?,?,?,?,?,?,0,datetime('now'),datetime('now'))`).bind(generateId(),adh.id,id,y,fp.famille_id,fp.type_maladie,fp.montant_plafond).run(); plafondsCreated++; } catch{} }
+      if (globalLimitMillimes && globalLimitMillimes > 0) {
+        try { await db.prepare(`INSERT INTO plafonds_beneficiaire (id,adherent_id,contract_id,annee,famille_acte_id,type_maladie,montant_plafond,montant_consomme,created_at,updated_at) VALUES (?,?,?,?,NULL,'ordinaire',?,0,datetime('now'),datetime('now'))`).bind(generateId(),adh.id,id,y,globalLimitMillimes).run(); plafondsCreated++; } catch{} }
+    }
+  }
   await logAudit(getDb(c),{userId:user?.sub,action:"group_contract.apply_to_adherents",entityType:"group_contract",entityId:id,changes:{companyId:gc.company_id,totalAdherents:adherentList.length,contractsCreated:createdCount,contractsUpdated:updatedCount,plafondsCreated},ipAddress:c.req.header("CF-Connecting-IP"),userAgent:c.req.header("User-Agent")});
   const parts: string[]=[]; if (createdCount>0) parts.push(`${createdCount} contrats créés`); if (updatedCount>0) parts.push(`${updatedCount} contrats mis à jour`); if (plafondsCreated>0) parts.push(`${plafondsCreated} plafonds initialisés`);
   return success(c,{groupContractId:id,totalAdherents:adherentList.length,contractsCreated:createdCount,contractsUpdated:updatedCount,plafondsCreated,message:parts.join(", ")+"."});

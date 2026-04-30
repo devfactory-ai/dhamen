@@ -10,6 +10,7 @@ import { zValidator } from '@hono/zod-validator';
 import type { Bindings, Variables } from '../types';
 import { NotificationService } from '../services/notification.service';
 import { authMiddleware } from '../middleware/auth';
+import { logAudit } from '../middleware/audit-trail';
 
 const notifications = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -116,6 +117,16 @@ notifications.put(
     const notificationService = new NotificationService(c.env);
     await notificationService.updatePreferences(user.sub, body);
 
+    logAudit(c.env.DB, {
+      userId: user.sub,
+      action: 'notification_preferences.update',
+      entityType: 'notification_preferences',
+      entityId: user.sub,
+      changes: body,
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     const updatedPrefs = await notificationService.getUserPreferences(user.sub);
 
     return c.json({
@@ -136,6 +147,16 @@ notifications.post('/:id/read', async (c) => {
   const notificationService = new NotificationService(c.env);
   await notificationService.markAsRead(notificationId, user.sub);
 
+  logAudit(c.env.DB, {
+    userId: user.sub,
+    action: 'notification.mark_read',
+    entityType: 'notification',
+    entityId: notificationId,
+    changes: { read: true },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
   return c.json({
     success: true,
     message: 'Notification marquée comme lue',
@@ -151,6 +172,16 @@ notifications.post('/read-all', async (c) => {
 
   const notificationService = new NotificationService(c.env);
   await notificationService.markAllAsRead(user.sub);
+
+  logAudit(c.env.DB, {
+    userId: user.sub,
+    action: 'notification.mark_all_read',
+    entityType: 'notification',
+    entityId: user.sub,
+    changes: { allRead: true },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
 
   return c.json({
     success: true,

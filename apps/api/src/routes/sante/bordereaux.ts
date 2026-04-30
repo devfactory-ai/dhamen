@@ -1,8 +1,8 @@
 /**
  * SoinFlow Bordereaux routes - Payment batch management
  *
- * Bordereaux are periodic summaries of approved claims sent to insurers
- * for bulk payment processing.
+ * Bordereaux group validated/reimbursed bulletins by period for insurer billing.
+ * Source: bulletins_soins table (approved/reimbursed bulletins)
  */
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
@@ -43,26 +43,15 @@ interface BordereauRow {
   updated_at: string;
 }
 
-interface BordereauLigneRow {
-  id: string;
-  bordereau_id: string;
-  demande_id: string;
-  numero_demande: string;
-  adherent_nom: string;
-  type_soin: string;
-  date_soin: string;
-  montant_demande: number;
-  montant_rembourse: number;
-}
-
 // =============================================================================
 // Schemas
 // =============================================================================
 
 const bordereauFiltersSchema = z.object({
-  statut: z.enum(['genere', 'valide', 'envoye', 'paye', 'annule']).optional(),
+  statut: z.enum(['genere', 'valide', 'envoye', 'paye', 'annule', 'archive']).optional(),
   dateDebut: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   dateFin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  search: z.string().optional(),
 });
 
 const createBordereauSchema = z.object({
@@ -72,8 +61,12 @@ const createBordereauSchema = z.object({
 });
 
 const updateBordereauStatutSchema = z.object({
-  statut: z.enum(['valide', 'envoye', 'paye', 'annule']),
+  statut: z.enum(['valide', 'envoye', 'paye', 'annule', 'archive']),
   notes: z.string().optional(),
+});
+
+const bulkActionSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1),
 });
 
 // =============================================================================
@@ -89,7 +82,7 @@ bordereaux.get(
   requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
   zValidator('query', bordereauFiltersSchema.merge(paginationSchema)),
   async (c) => {
-    const { statut, dateDebut, dateFin, page = 1, limit = 20 } = c.req.valid('query');
+    const { statut, dateDebut, dateFin, search, page = 1, limit = 20 } = c.req.valid('query');
     const offset = (page - 1) * limit;
 
     const conditions: string[] = [];
@@ -98,6 +91,9 @@ bordereaux.get(
     if (statut) {
       conditions.push('statut = ?');
       params.push(statut);
+    } else {
+      // Exclude archived by default
+      conditions.push("statut != 'archive'");
     }
     if (dateDebut) {
       conditions.push('periode_debut >= ?');
@@ -106,6 +102,10 @@ bordereaux.get(
     if (dateFin) {
       conditions.push('periode_fin <= ?');
       params.push(dateFin);
+    }
+    if (search) {
+      conditions.push('numero_bordereau LIKE ?');
+      params.push(`%${search}%`);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -153,6 +153,13 @@ bordereaux.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSU
     WHERE statut != 'annule'
   `).first<{ totalBordereaux: number; totalDemandes: number; montantTotal: number }>();
 
+  // Count bulletins available for next bordereau
+  const available = await getDb(c).prepare(`
+    SELECT COUNT(*) as count, COALESCE(SUM(reimbursed_amount), 0) as total
+    FROM bulletins_soins
+    WHERE status IN ('approved', 'reimbursed') AND bordereau_id IS NULL
+  `).first<{ count: number; total: number }>();
+
   const parStatut: Record<string, { count: number; total: number }> = {};
   for (const row of statusCounts || []) {
     parStatut[row.statut] = { count: row.count, total: row.total };
@@ -162,18 +169,21 @@ bordereaux.get('/stats', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSU
     totalBordereaux: totals?.totalBordereaux ?? 0,
     totalDemandes: totals?.totalDemandes ?? 0,
     montantTotal: totals?.montantTotal ?? 0,
+    bulletinsDisponibles: available?.count ?? 0,
+    montantDisponible: available?.total ?? 0,
     parStatut,
   });
 });
 
 /**
  * GET /api/v1/sante/bordereaux/:id
- * Get bordereau details with lines
+ * Get bordereau details with linked bulletins
  */
 bordereaux.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'), async (c) => {
   const id = c.req.param('id');
+  const db = getDb(c);
 
-  const row = await getDb(c).prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
+  const row = await db.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
     .bind(id)
     .first<BordereauRow>();
 
@@ -181,40 +191,49 @@ bordereaux.get('/:id', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURE
     return notFound(c, 'Bordereau non trouvé');
   }
 
-  // Get bordereau lines
-  const { results: lignes } = await getDb(c).prepare(`
+  // Get bulletins linked to this bordereau
+  const { results: lignes } = await db.prepare(`
     SELECT
-      bl.id, bl.bordereau_id, bl.demande_id,
-      d.numero_demande, d.type_soin, d.date_soin,
-      d.montant_demande, d.montant_rembourse,
-      a.first_name || ' ' || a.last_name as adherent_nom
-    FROM sante_bordereau_lignes bl
-    JOIN sante_demandes d ON bl.demande_id = d.id
-    LEFT JOIN adherents a ON d.adherent_id = a.id
-    WHERE bl.bordereau_id = ?
-    ORDER BY d.date_soin
+      bs.id,
+      bs.bulletin_number,
+      bs.bulletin_date,
+      bs.care_type,
+      bs.total_amount,
+      bs.reimbursed_amount,
+      bs.status,
+      COALESCE(bs.adherent_first_name, a.first_name, '') || ' ' || COALESCE(bs.adherent_last_name, a.last_name, '') as adherent_nom,
+      a.matricule
+    FROM bulletins_soins bs
+    LEFT JOIN adherents a ON bs.adherent_id = a.id
+    WHERE bs.bordereau_id = ?
+    ORDER BY bs.bulletin_date ASC
   `)
     .bind(id)
-    .all<BordereauLigneRow>();
+    .all<{
+      id: string; bulletin_number: string; bulletin_date: string;
+      care_type: string; total_amount: number | null; reimbursed_amount: number | null;
+      status: string; adherent_nom: string; matricule: string | null;
+    }>();
 
   return success(c, {
     ...rowToBordereau(row),
     lignes: lignes.map((l) => ({
       id: l.id,
-      demandeId: l.demande_id,
-      numeroDemande: l.numero_demande,
+      numeroBulletin: l.bulletin_number,
+      dateSoin: l.bulletin_date,
       adherentNom: l.adherent_nom,
-      typeSoin: l.type_soin,
-      dateSoin: l.date_soin,
-      montantDemande: l.montant_demande,
-      montantRembourse: l.montant_rembourse,
+      matricule: l.matricule,
+      typeSoin: l.care_type,
+      montantDemande: l.total_amount ?? 0,
+      montantRembourse: l.reimbursed_amount ?? 0,
+      status: l.status,
     })),
   });
 });
 
 /**
  * POST /api/v1/sante/bordereaux
- * Generate a new bordereau from approved claims
+ * Generate a new bordereau from approved/reimbursed bulletins
  */
 bordereaux.post(
   '/',
@@ -223,32 +242,31 @@ bordereaux.post(
   async (c) => {
     const data = c.req.valid('json');
     const user = c.get('user');
+    const db = getDb(c);
 
-    // Find approved demandes in the period that are not in any bordereau
-    const { results: demandesEligibles } = await getDb(c).prepare(`
-      SELECT d.id, d.montant_rembourse
-      FROM sante_demandes d
-      LEFT JOIN sante_bordereau_lignes bl ON d.id = bl.demande_id
-      WHERE d.statut = 'approuvee'
-        AND d.date_soin >= ?
-        AND d.date_soin <= ?
-        AND bl.id IS NULL
-        AND d.montant_rembourse > 0
+    // Find bulletins that are approved/reimbursed, in the period, and not yet in a bordereau
+    const { results: bulletinsEligibles } = await db.prepare(`
+      SELECT id, total_amount, reimbursed_amount
+      FROM bulletins_soins
+      WHERE status IN ('approved', 'reimbursed')
+        AND bordereau_id IS NULL
+        AND bulletin_date >= ?
+        AND bulletin_date <= ?
     `)
       .bind(data.periodeDebut, data.periodeFin)
-      .all<{ id: string; montant_rembourse: number }>();
+      .all<{ id: string; total_amount: number | null; reimbursed_amount: number | null }>();
 
-    if (demandesEligibles.length === 0) {
-      return badRequest(c, 'Aucune demande approuvée trouvée pour cette période');
+    if (bulletinsEligibles.length === 0) {
+      return badRequest(c, 'Aucun bulletin validé/remboursé trouvé pour cette période');
     }
 
     const now = new Date().toISOString();
     const id = generateId();
     const numeroBordereau = generateNumeroBordereau();
-    const montantTotal = demandesEligibles.reduce((sum, d) => sum + d.montant_rembourse, 0);
+    const montantTotal = bulletinsEligibles.reduce((sum, b) => sum + (b.reimbursed_amount ?? 0), 0);
 
-    // Create bordereau
-    await getDb(c).prepare(`
+    // Create bordereau in sante_bordereaux
+    await db.prepare(`
       INSERT INTO sante_bordereaux (
         id, numero_bordereau, periode_debut, periode_fin,
         nombre_demandes, montant_total, statut, date_generation,
@@ -260,7 +278,7 @@ bordereaux.post(
         numeroBordereau,
         data.periodeDebut,
         data.periodeFin,
-        demandesEligibles.length,
+        bulletinsEligibles.length,
         montantTotal,
         now,
         user.sub,
@@ -270,18 +288,17 @@ bordereaux.post(
       )
       .run();
 
-    // Create bordereau lines
-    for (const demande of demandesEligibles) {
-      const ligneId = generateId();
-      await getDb(c).prepare(`
-        INSERT INTO sante_bordereau_lignes (id, bordereau_id, demande_id, created_at)
-        VALUES (?, ?, ?, ?)
-      `)
-        .bind(ligneId, id, demande.id, now)
-        .run();
-    }
+    // Link bulletins to this bordereau via bordereau_id
+    const bulletinIds = bulletinsEligibles.map(b => b.id);
+    const placeholders = bulletinIds.map(() => '?').join(',');
+    await db.prepare(`
+      UPDATE bulletins_soins SET bordereau_id = ?, updated_at = datetime('now')
+      WHERE id IN (${placeholders})
+    `)
+      .bind(id, ...bulletinIds)
+      .run();
 
-    await logAudit(getDb(c), {
+    await logAudit(db, {
       userId: user.sub,
       action: 'bordereaux.create',
       entityType: 'bordereaux',
@@ -290,12 +307,12 @@ bordereaux.post(
         numeroBordereau,
         periodeDebut: data.periodeDebut,
         periodeFin: data.periodeFin,
-        nombreDemandes: demandesEligibles.length,
+        nombreBulletins: bulletinsEligibles.length,
         montantTotal,
       },
     });
 
-    const bordereau = await getDb(c).prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
+    const bordereau = await db.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
       .bind(id)
       .first<BordereauRow>();
 
@@ -315,8 +332,9 @@ bordereaux.patch(
     const id = c.req.param('id');
     const data = c.req.valid('json');
     const user = c.get('user');
+    const db = getDb(c);
 
-    const existing = await getDb(c).prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
+    const existing = await db.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
       .bind(id)
       .first<BordereauRow>();
 
@@ -326,11 +344,12 @@ bordereaux.patch(
 
     // Validate status transitions
     const validTransitions: Record<string, string[]> = {
-      genere: ['valide', 'annule'],
-      valide: ['envoye', 'annule'],
-      envoye: ['paye', 'annule'],
-      paye: [],
-      annule: [],
+      genere: ['valide', 'annule', 'archive'],
+      valide: ['envoye', 'annule', 'archive'],
+      envoye: ['paye', 'annule', 'archive'],
+      paye: ['archive'],
+      annule: ['archive'],
+      archive: [],
     };
 
     if (!validTransitions[existing.statut]?.includes(data.statut)) {
@@ -344,7 +363,6 @@ bordereaux.patch(
     const updates: string[] = ['statut = ?', 'updated_at = ?'];
     const params: unknown[] = [data.statut, now];
 
-    // Set dates based on status
     if (data.statut === 'valide') {
       updates.push('date_validation = ?', 'valide_par = ?');
       params.push(now, user.sub);
@@ -363,24 +381,24 @@ bordereaux.patch(
 
     params.push(id);
 
-    await getDb(c).prepare(
+    await db.prepare(
       `UPDATE sante_bordereaux SET ${updates.join(', ')} WHERE id = ?`
     )
       .bind(...params)
       .run();
 
-    // If marked as paid, update all demandes to payee
+    // If marked as paid, update all linked bulletins to 'exported' status
     if (data.statut === 'paye') {
-      await getDb(c).prepare(`
-        UPDATE sante_demandes
-        SET statut = 'payee', updated_at = ?
-        WHERE id IN (SELECT demande_id FROM sante_bordereau_lignes WHERE bordereau_id = ?)
+      await db.prepare(`
+        UPDATE bulletins_soins
+        SET status = 'exported', updated_at = ?
+        WHERE bordereau_id = ?
       `)
         .bind(now, id)
         .run();
     }
 
-    await logAudit(getDb(c), {
+    await logAudit(db, {
       userId: user.sub,
       action: 'bordereaux.update_status',
       entityType: 'bordereaux',
@@ -388,11 +406,86 @@ bordereaux.patch(
       changes: { oldStatut: existing.statut, newStatut: data.statut },
     });
 
-    const bordereau = await getDb(c).prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
+    const bordereau = await db.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
       .bind(id)
       .first<BordereauRow>();
 
     return success(c, rowToBordereau(bordereau!));
+  }
+);
+
+/**
+ * POST /api/v1/sante/bordereaux/bulk-archive
+ * Archive multiple bordereaux
+ */
+bordereaux.post(
+  '/bulk-archive',
+  requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'),
+  zValidator('json', bulkActionSchema),
+  async (c) => {
+    const user = c.get('user');
+    const db = getDb(c);
+    const { ids } = c.req.valid('json');
+    const now = new Date().toISOString();
+
+    const placeholders = ids.map(() => '?').join(',');
+    await db.prepare(
+      `UPDATE sante_bordereaux SET statut = 'archive', updated_at = ? WHERE id IN (${placeholders})`
+    )
+      .bind(now, ...ids)
+      .run();
+
+    await logAudit(db, {
+      userId: user.sub,
+      action: 'bordereaux.bulk_archive',
+      entityType: 'bordereaux',
+      entityId: ids.join(','),
+      changes: { ids, count: ids.length },
+    });
+
+    return success(c, { archived: ids.length });
+  }
+);
+
+/**
+ * POST /api/v1/sante/bordereaux/bulk-delete
+ * Delete multiple bordereaux (unlinks bulletins first)
+ */
+bordereaux.post(
+  '/bulk-delete',
+  requireRole('ADMIN', 'INSURER_ADMIN'),
+  zValidator('json', bulkActionSchema),
+  async (c) => {
+    const user = c.get('user');
+    const db = getDb(c);
+    const { ids } = c.req.valid('json');
+    const now = new Date().toISOString();
+
+    const placeholders = ids.map(() => '?').join(',');
+
+    // Unlink bulletins from these bordereaux
+    await db.prepare(
+      `UPDATE bulletins_soins SET bordereau_id = NULL, updated_at = ? WHERE bordereau_id IN (${placeholders})`
+    )
+      .bind(now, ...ids)
+      .run();
+
+    // Delete the bordereaux
+    await db.prepare(
+      `DELETE FROM sante_bordereaux WHERE id IN (${placeholders})`
+    )
+      .bind(...ids)
+      .run();
+
+    await logAudit(db, {
+      userId: user.sub,
+      action: 'bordereaux.bulk_delete',
+      entityType: 'bordereaux',
+      entityId: ids.join(','),
+      changes: { ids, count: ids.length },
+    });
+
+    return success(c, { deleted: ids.length });
   }
 );
 
@@ -403,8 +496,9 @@ bordereaux.patch(
 bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'), async (c) => {
   const id = c.req.param('id');
   const format = c.req.query('format') || 'csv';
+  const db = getDb(c);
 
-  const bordereau = await getDb(c).prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
+  const bordereau = await db.prepare('SELECT * FROM sante_bordereaux WHERE id = ?')
     .bind(id)
     .first<BordereauRow>();
 
@@ -412,31 +506,35 @@ bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 
     return notFound(c, 'Bordereau non trouvé');
   }
 
-  const { results: lignes } = await getDb(c).prepare(`
+  // Get bulletins linked to this bordereau
+  const { results: lignes } = await db.prepare(`
     SELECT
-      d.numero_demande, d.type_soin, d.date_soin,
-      d.montant_demande, d.montant_rembourse,
-      a.first_name, a.last_name, a.matricule
-    FROM sante_bordereau_lignes bl
-    JOIN sante_demandes d ON bl.demande_id = d.id
-    LEFT JOIN adherents a ON d.adherent_id = a.id
-    WHERE bl.bordereau_id = ?
-    ORDER BY d.date_soin
+      bs.bulletin_number, bs.bulletin_date, bs.care_type,
+      bs.total_amount, bs.reimbursed_amount,
+      COALESCE(bs.adherent_first_name, a.first_name, '') as first_name,
+      COALESCE(bs.adherent_last_name, a.last_name, '') as last_name,
+      a.matricule
+    FROM bulletins_soins bs
+    LEFT JOIN adherents a ON bs.adherent_id = a.id
+    WHERE bs.bordereau_id = ?
+    ORDER BY bs.bulletin_date ASC
   `)
     .bind(id)
     .all<{
-      numero_demande: string;
-      type_soin: string;
-      date_soin: string;
-      montant_demande: number;
-      montant_rembourse: number;
+      bulletin_number: string;
+      bulletin_date: string;
+      care_type: string;
+      total_amount: number | null;
+      reimbursed_amount: number | null;
       first_name: string;
       last_name: string;
       matricule: string | null;
     }>();
 
   if (format === 'pdf') {
-    const { generatePDFHTML, formatAmount: fmtAmt, formatDate: fmtDate } = await import('../../services/pdf-generator.service');
+    const { generatePDFHTML, formatDate: fmtDate } = await import('../../services/pdf-generator.service');
+    /** Amounts in bulletins_soins are already in TND — do NOT divide by 1000 */
+    const fmtAmt = (v: number) => (v ?? 0).toFixed(3) + ' TND';
 
     const html = generatePDFHTML(
       {
@@ -450,37 +548,37 @@ bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 
             items: [
               { label: 'Numéro', value: bordereau.numero_bordereau },
               { label: 'Statut', value: bordereau.statut.toUpperCase() },
-              { label: 'Nombre de demandes', value: String(bordereau.nombre_demandes) },
+              { label: 'Nombre de bulletins', value: String(bordereau.nombre_demandes) },
               { label: 'Montant total', value: fmtAmt(bordereau.montant_total) },
               { label: 'Date de génération', value: fmtDate(bordereau.date_generation) },
               ...(bordereau.date_validation ? [{ label: 'Date de validation', value: fmtDate(bordereau.date_validation) }] : []),
-              ...(bordereau.date_envoi ? [{ label: 'Date d\'envoi', value: fmtDate(bordereau.date_envoi) }] : []),
+              ...(bordereau.date_envoi ? [{ label: "Date d'envoi", value: fmtDate(bordereau.date_envoi) }] : []),
               ...(bordereau.date_paiement ? [{ label: 'Date de paiement', value: fmtDate(bordereau.date_paiement) }] : []),
             ],
           },
         },
         { type: 'spacer', data: null },
-        { type: 'heading', data: 'Détail des demandes' },
+        { type: 'heading', data: 'Détail des bulletins' },
         {
           type: 'table',
           data: {
             columns: [
-              { key: 'numero_demande', header: 'N° Demande' },
+              { key: 'bulletin_number', header: 'N° Bulletin' },
               { key: 'matricule', header: 'Matricule' },
               { key: 'nom', header: 'Nom' },
-              { key: 'type_soin', header: 'Type Soin' },
-              { key: 'date_soin', header: 'Date Soin' },
-              { key: 'montant_demande', header: 'Demandé', align: 'right' as const, format: (v: unknown) => fmtAmt(v as number) },
-              { key: 'montant_rembourse', header: 'Remboursé', align: 'right' as const, format: (v: unknown) => fmtAmt(v as number) },
+              { key: 'care_type', header: 'Type Soin' },
+              { key: 'bulletin_date', header: 'Date Soin' },
+              { key: 'total_amount', header: 'Total', align: 'right' as const, format: (v: unknown) => fmtAmt(v as number) },
+              { key: 'reimbursed_amount', header: 'Remboursé', align: 'right' as const, format: (v: unknown) => fmtAmt(v as number) },
             ],
             rows: lignes.map((l) => ({
-              numero_demande: l.numero_demande,
+              bulletin_number: l.bulletin_number,
               matricule: l.matricule ?? '',
               nom: `${l.last_name} ${l.first_name}`,
-              type_soin: l.type_soin,
-              date_soin: l.date_soin,
-              montant_demande: l.montant_demande,
-              montant_rembourse: l.montant_rembourse,
+              care_type: l.care_type,
+              bulletin_date: l.bulletin_date,
+              total_amount: l.total_amount ?? 0,
+              reimbursed_amount: l.reimbursed_amount ?? 0,
             })),
           },
         },
@@ -497,25 +595,25 @@ bordereaux.get('/:id/export', requireRole('SOIN_GESTIONNAIRE', 'INSURER_ADMIN', 
 
   // CSV format
   const headers = [
-    'Numéro Demande',
+    'N° Bulletin',
     'Matricule',
     'Nom',
     'Prénom',
     'Type Soin',
     'Date Soin',
-    'Montant Demandé',
+    'Montant Total',
     'Montant Remboursé',
   ];
 
   const rows = lignes.map((l) => [
-    `"${l.numero_demande}"`,
+    `"${l.bulletin_number}"`,
     `"${l.matricule ?? ''}"`,
     `"${l.last_name}"`,
     `"${l.first_name}"`,
-    `"${l.type_soin}"`,
-    `"${l.date_soin}"`,
-    l.montant_demande.toString(),
-    l.montant_rembourse.toString(),
+    `"${l.care_type}"`,
+    `"${l.bulletin_date}"`,
+    String(l.total_amount ?? 0),
+    String(l.reimbursed_amount ?? 0),
   ]);
 
   const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');

@@ -2,7 +2,7 @@ import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { PageHeader } from '@/components/ui/page-header';
 import { Badge } from '@/components/ui/badge';
-import { Pill } from 'lucide-react';
+import { Pill, AlertTriangle } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 
 interface Medication {
@@ -28,6 +28,7 @@ interface Medication {
   is_reimbursable: number;
   reimbursement_rate: number;
   requires_prescription: number;
+  requires_prior_approval: number;
   is_controlled: number;
   gpb: string | null;
   veic: string | null;
@@ -91,6 +92,8 @@ export default function MedicationDetailPage() {
     return <div className="flex items-center justify-center p-8">Médicament non trouvé</div>;
   }
 
+  const hasAmmData = med.code_amm || med.amm_classe || med.amm_date || med.laboratory;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -105,23 +108,103 @@ export default function MedicationDetailPage() {
         />
       </div>
 
+      {/* Badges résumé */}
+      <div className="flex flex-wrap gap-2">
+        {med.veic && veicLabel[med.veic] ? (
+          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium ${veicLabel[med.veic]!.color}`}>
+            {veicLabel[med.veic]!.label}
+          </span>
+        ) : null}
+        {med.gpb && gpbLabel[med.gpb] ? (
+          <Badge variant={gpbLabel[med.gpb]!.variant}>{gpbLabel[med.gpb]!.label}</Badge>
+        ) : null}
+        {med.requires_prior_approval ? (
+          <Badge variant="destructive" className="gap-1">
+            <AlertTriangle className="h-3 w-3" />
+            Accord préalable requis
+          </Badge>
+        ) : null}
+        {med.is_reimbursable ? (
+          <Badge variant="success">Remboursable {Math.round(med.reimbursement_rate * 100)}%</Badge>
+        ) : (
+          <Badge variant="outline">Non remboursable</Badge>
+        )}
+        {med.is_generic ? <Badge variant="secondary">Générique</Badge> : null}
+      </div>
+
       <div className="grid gap-6 md:grid-cols-2">
-        {/* Identification */}
+        {/* Identification CNAM */}
         <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h4 className="mb-4 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
             Identification
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <DetailField label="Nom commercial" value={med.brand_name} />
-            <DetailField label="DCI" value={med.dci} />
             <DetailField label="Code PCT" value={med.code_pct} />
-            <DetailField label="Code AMM" value={med.code_amm} />
-            <DetailField label="Code CNAM" value={med.code_cnam} />
-            <DetailField label="Famille" value={med.family_name} />
+            <DetailField label="Nom commercial" value={med.brand_name} />
+            <DetailField label="DCI (Dénomination Commune)" value={med.dci} />
+            <div>
+              <p className="text-xs text-muted-foreground">Catégorie CNAM</p>
+              {med.veic ? (
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${veicLabel[med.veic]?.color || ''}`}>
+                  {veicLabel[med.veic]?.label || med.veic}
+                </span>
+              ) : (
+                <p className="text-sm text-muted-foreground">-</p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Accord préalable (AP)</p>
+              {med.requires_prior_approval ? (
+                <Badge variant="destructive" className="text-xs">Oui</Badge>
+              ) : (
+                <p className="text-sm">Non</p>
+              )}
+            </div>
+            <DetailField label="Famille thérapeutique" value={med.family_name} />
           </div>
         </div>
 
-        {/* Pharmaceutical */}
+        {/* Tarification */}
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <h4 className="mb-4 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+            Tarification
+          </h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs text-muted-foreground">Prix public</p>
+              <p className="text-lg font-semibold">{formatPrice(med.price_public)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Tarif de référence</p>
+              <p className="text-lg font-semibold text-blue-600">{formatPrice(med.price_reference)}</p>
+            </div>
+            <DetailField label="Prix hospitalier" value={formatPrice(med.price_hospital)} />
+            <div>
+              <p className="text-xs text-muted-foreground">Remboursable</p>
+              {med.is_reimbursable ? (
+                <Badge variant="success">{Math.round(med.reimbursement_rate * 100)}%</Badge>
+              ) : (
+                <Badge variant="outline">Non</Badge>
+              )}
+            </div>
+            {med.price_public && med.price_reference ? (
+              <div className="sm:col-span-2">
+                <p className="text-xs text-muted-foreground">Écart prix public / tarif référence</p>
+                <p className="text-sm">
+                  {((med.price_public - med.price_reference) / 1000).toFixed(3)} TND
+                  {' '}
+                  <span className="text-muted-foreground">
+                    ({med.price_reference > 0
+                      ? `${(((med.price_public - med.price_reference) / med.price_reference) * 100).toFixed(1)}%`
+                      : '-'})
+                  </span>
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Informations pharmaceutiques */}
         <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <h4 className="mb-4 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
             Informations pharmaceutiques
@@ -130,21 +213,6 @@ export default function MedicationDetailPage() {
             <DetailField label="Dosage" value={med.dosage} />
             <DetailField label="Forme" value={med.form} />
             <DetailField label="Conditionnement" value={med.packaging} />
-            <DetailField label="Laboratoire" value={med.laboratory} />
-            <DetailField label="Pays d'origine" value={med.country_origin} />
-            <DetailField
-              label="Durée conservation"
-              value={med.duree_conservation ? `${med.duree_conservation} mois` : null}
-            />
-          </div>
-        </div>
-
-        {/* Classification */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h4 className="mb-4 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            Classification
-          </h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p className="text-xs text-muted-foreground">G/P/B</p>
               {med.gpb ? (
@@ -153,42 +221,6 @@ export default function MedicationDetailPage() {
                 </Badge>
               ) : (
                 <p className="text-sm text-muted-foreground">-</p>
-              )}
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">VEIC</p>
-              {med.veic ? (
-                <span
-                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${veicLabel[med.veic]?.color || ''}`}
-                >
-                  {veicLabel[med.veic]?.label || med.veic}
-                </span>
-              ) : (
-                <p className="text-sm text-muted-foreground">-</p>
-              )}
-            </div>
-            <DetailField label="Classe AMM" value={med.amm_classe} />
-            <DetailField label="Sous-classe AMM" value={med.amm_sous_classe} />
-            <DetailField label="Date AMM" value={med.amm_date} />
-            <DetailField label="Tableau" value={med.tableau_amm} />
-          </div>
-        </div>
-
-        {/* Pricing & Reimbursement */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h4 className="mb-4 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            Tarification & Remboursement
-          </h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <DetailField label="Prix public" value={formatPrice(med.price_public)} />
-            <DetailField label="Prix hospitalier" value={formatPrice(med.price_hospital)} />
-            <DetailField label="Prix référence" value={formatPrice(med.price_reference)} />
-            <div>
-              <p className="text-xs text-muted-foreground">Remboursable</p>
-              {med.is_reimbursable ? (
-                <Badge variant="success">{Math.round(med.reimbursement_rate * 100)}%</Badge>
-              ) : (
-                <Badge variant="outline">Non</Badge>
               )}
             </div>
             <div>
@@ -201,6 +233,28 @@ export default function MedicationDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* Données AMM (si disponibles) */}
+        {hasAmmData && (
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <h4 className="mb-4 text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              Données AMM
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <DetailField label="Code AMM" value={med.code_amm} />
+              <DetailField label="Laboratoire" value={med.laboratory} />
+              <DetailField label="Classe AMM" value={med.amm_classe} />
+              <DetailField label="Sous-classe AMM" value={med.amm_sous_classe} />
+              <DetailField label="Date AMM" value={med.amm_date} />
+              <DetailField label="Tableau" value={med.tableau_amm} />
+              <DetailField label="Pays d'origine" value={med.country_origin} />
+              <DetailField
+                label="Durée conservation"
+                value={med.duree_conservation ? `${med.duree_conservation} mois` : null}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Indications */}

@@ -6,6 +6,7 @@
 
 import { Hono } from 'hono';
 import { authMiddleware, requireRole } from '../middleware/auth';
+import { logAudit } from '../middleware/audit-trail';
 import { success, error } from '../lib/response';
 import { RealtimeDashboardService, type RealtimeEventType } from '../services/realtime-dashboard.service';
 import type { Bindings, Variables } from '../types';
@@ -200,6 +201,16 @@ dashboardRealtime.post('/broadcast', async (c) => {
     },
   });
 
+  logAudit(c.env.DB, {
+    userId: user.id,
+    action: 'dashboard.broadcast',
+    entityType: 'realtime_event',
+    entityId: body.type,
+    changes: { type: body.type },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
   return success(c, { broadcasted: true });
 });
 
@@ -347,6 +358,16 @@ dashboardRealtime.post('/alerts/:id/acknowledge', async (c) => {
         acknowledged_by = ?
     WHERE id = ?
   `).bind(user.id, alertId).run();
+
+  logAudit(c.env.DB, {
+    userId: user.id,
+    action: 'alert.acknowledge',
+    entityType: 'alert',
+    entityId: alertId,
+    changes: { acknowledged: true },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
 
   return success(c, { acknowledged: true });
 });

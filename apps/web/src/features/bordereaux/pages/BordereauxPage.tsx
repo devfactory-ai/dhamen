@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
-import { Send, Loader2, FileText, Eye, Clock } from 'lucide-react';
+import { Send, Loader2, FileText, Eye, Clock, Plus } from 'lucide-react';
 import { FloatingHelp } from '@/components/ui/floating-help';
 
 interface Bordereau {
@@ -22,7 +22,7 @@ interface Bordereau {
   periodStart: string;
   periodEnd: string;
   status: 'DRAFT' | 'SUBMITTED' | 'VALIDATED' | 'PAID' | 'DISPUTED';
-  claimCount: number;
+  claimsCount: number;
   totalAmount: number;
   coveredAmount: number;
   paidAmount: number;
@@ -107,13 +107,13 @@ export function BordereauxPage() {
     {
       key: 'insurer',
       header: 'Assureur',
-      render: (bordereau: Bordereau) => bordereau.insurerName,
+      render: (bordereau: Bordereau) => bordereau.insurerName || '-',
     },
     {
-      key: 'claims',
-      header: 'PEC',
+      key: 'bulletins',
+      header: 'Bulletins',
       render: (bordereau: Bordereau) => (
-        <span className="font-medium">{bordereau.claimCount}</span>
+        <span className="font-medium">{bordereau.claimsCount}</span>
       ),
     },
     {
@@ -141,7 +141,7 @@ export function BordereauxPage() {
       render: (bordereau: Bordereau) => (
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => navigate(`/bordereaux/${bordereau.id}`)}>
-            Details
+            Détails
           </Button>
           {bordereau.status === 'DRAFT' && (
             <Button
@@ -166,33 +166,39 @@ export function BordereauxPage() {
   // Calculate totals
   const totals = data?.bordereaux.reduce(
     (acc, b) => ({
-      claims: acc.claims + b.claimCount,
+      bulletins: acc.bulletins + b.claimsCount,
       covered: acc.covered + b.coveredAmount,
       paid: acc.paid + b.paidAmount,
     }),
-    { claims: 0, covered: 0, paid: 0 }
-  ) || { claims: 0, covered: 0, paid: 0 };
+    { bulletins: 0, covered: 0, paid: 0 }
+  ) || { bulletins: 0, covered: 0, paid: 0 };
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Bordereaux"
-        description="Relevés de facturation pour paiement"
-      />
+      <div className="flex items-center justify-between">
+        <PageHeader
+          title="Bordereaux"
+          description="Relevés de facturation pour paiement assureur"
+        />
+        <Button onClick={() => navigate('/bordereaux/nouveau')}>
+          <Plus className="mr-2 h-4 w-4" />
+          Nouveau bordereau
+        </Button>
+      </div>
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className='font-medium text-muted-foreground text-sm'>PEC totales</CardTitle>
+            <CardTitle className='font-medium text-muted-foreground text-sm'>Bulletins totaux</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className='font-bold text-2xl'>{totals.claims}</p>
+            <p className='font-bold text-2xl'>{totals.bulletins}</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className='font-medium text-muted-foreground text-sm'>Montant couvert</CardTitle>
+            <CardTitle className='font-medium text-muted-foreground text-sm'>Montant remboursé</CardTitle>
           </CardHeader>
           <CardContent>
             <p className='font-bold text-2xl text-primary'>{formatAmount(totals.covered)}</p>
@@ -243,10 +249,11 @@ export function BordereauxPage() {
       <FloatingHelp
         title="Bordereaux"
         tips={[
-          { icon: <FileText className="h-4 w-4 text-blue-500" />, title: "Qu'est-ce qu'un bordereau ?", desc: "Un bordereau regroupe les PEC d'une période pour facturation entre prestataire et assureur." },
-          { icon: <Send className="h-4 w-4 text-green-500" />, title: "Soumettre", desc: "Les bordereaux en brouillon peuvent être soumis à l'assureur pour validation et paiement." },
-          { icon: <Clock className="h-4 w-4 text-amber-500" />, title: "Suivi des statuts", desc: "Suivez le cycle : Brouillon, Soumis, Validé, Payé ou Contesté." },
-          { icon: <Eye className="h-4 w-4 text-purple-500" />, title: "Détails", desc: "Cliquez sur 'Détails' pour voir la liste des PEC incluses dans le bordereau." },
+          { icon: <FileText className="h-4 w-4 text-blue-500" />, title: "Qu'est-ce qu'un bordereau ?", desc: "Un bordereau regroupe les bulletins validés d'une période pour facturation à l'assureur." },
+          { icon: <Plus className="h-4 w-4 text-green-500" />, title: "Générer", desc: "Cliquez sur 'Nouveau bordereau' pour regrouper les bulletins remboursés d'une période." },
+          { icon: <Send className="h-4 w-4 text-blue-500" />, title: "Soumettre", desc: "Les bordereaux en brouillon peuvent être soumis à l'assureur pour validation et paiement." },
+          { icon: <Clock className="h-4 w-4 text-amber-500" />, title: "Suivi", desc: "Cycle : Brouillon → Soumis → Validé → Payé." },
+          { icon: <Eye className="h-4 w-4 text-purple-500" />, title: "Détails", desc: "Cliquez sur 'Détails' pour voir les bulletins inclus dans le bordereau." },
         ]}
       />
     </div>

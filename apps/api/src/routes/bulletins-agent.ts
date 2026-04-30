@@ -1,4 +1,6 @@
-import { findActeRefByCode, listActesGroupesParFamille, listActesReferentiel } from '@dhamen/db';
+import { z } from 'zod';
+import { findActeRefByCode, findActeRefByCodeWithCoefficient, listActesGroupesParFamille, listActesReferentiel } from '@dhamen/db';
+// findActeRefByCode kept for acte_ref_id-based lookups in batch resolution
 /**
  * Bulletins Agent Routes
  * Routes for insurance agents to create, manage batches, and export bulletins
@@ -35,7 +37,7 @@ bulletinsAgent.use('*', authMiddleware());
 // ---------------------------------------------------------------------------
 const CARE_TYPE_TO_FAMILLE: Record<string, string> = {
   consultation_visite: 'fa-001',
-  actes_courants: 'fa-002',
+  actes_courants: 'fa-009',
   pharmacie: 'fa-003',
   laboratoire: 'fa-004',
   orthopedie: 'fa-005',
@@ -45,13 +47,35 @@ const CARE_TYPE_TO_FAMILLE: Record<string, string> = {
   dentaire: 'fa-011',
   accouchement: 'fa-012',
   cures_thermales: 'fa-013',
-  orthodontie: 'fa-014',
+  frais_funeraires: 'fa-014',
   circoncision: 'fa-015',
   transport: 'fa-016',
-  frais_funeraires: 'fa-019',
   chirurgie_refractive: 'fa-006', // linked to optique family
   sanatorium: 'fa-013',
   interruption_grossesse: 'fa-012',
+};
+
+// Default acte codes for care_types when no code is provided or code is not found (e.g., medication code_amm)
+const CARE_TYPE_DEFAULT_CODE: Record<string, string> = {
+  pharmacie: 'PH1', pharmacy: 'PH1',
+  laboratoire: 'AN', laboratory: 'AN', lab: 'AN',
+  optique: 'OPT', optical: 'OPT',
+  chirurgie: 'KC', surgery: 'KC',
+  dentaire: 'DC', dental: 'DC',
+  actes_courants: 'AM', medical_acts: 'AM',
+  hospitalisation: 'CL', hospitalization: 'CL', hospital: 'CL',
+  hospitalisation_hopital: 'HP',
+  accouchement: 'ACC', maternity: 'ACC',
+  orthodontie: 'ODF', orthodontics: 'ODF',
+  orthopedie: 'ORP', orthopedics: 'ORP',
+  circoncision: 'CIR', circumcision: 'CIR',
+  transport: 'TR',
+  frais_funeraires: 'FF', funeral: 'FF',
+  cures_thermales: 'CT', thermal_cure: 'CT',
+  chirurgie_refractive: 'LASER', refractive_surgery: 'LASER',
+  interruption_grossesse: 'IG',
+  sanatorium: 'HP',
+  consultation: 'C1',
 };
 
 /**
@@ -78,7 +102,7 @@ async function initializePlafondsForAdherent(
     .all<{ care_type: string; annual_limit: number }>();
 
   for (const year of years) {
-    // Per-famille plafonds from guarantees
+    // Per-famille plafonds from guarantees (individual per member)
     for (const g of (guarantees ?? [])) {
       const familleId = CARE_TYPE_TO_FAMILLE[g.care_type];
       if (!familleId) continue;
@@ -99,7 +123,7 @@ async function initializePlafondsForAdherent(
       }
     }
 
-    // Global plafond
+    // Global plafond — individual per member (principal AND ayants droit each get their own)
     if (globalLimit) {
       const globalMillimes = globalLimit * 1000;
       try {
@@ -132,7 +156,8 @@ const NATURE_ACTE_MAPPINGS: Array<{ keywords: string[]; code: string; label: str
   { keywords: ['radio', 'radiograph', 'radiologie'], code: 'R', label: 'Radiologie' },
   { keywords: ['echograph', 'echo'], code: 'E', label: 'Échographie' },
   { keywords: ['scanner', 'irm', 'imagerie'], code: 'TS', label: 'Traitements spéciaux (scanner/IRM)' },
-  { keywords: ['dentaire', 'dent', 'dentist'], code: 'SD', label: 'Soins et prothèses dentaires' },
+  { keywords: ['dentaire', 'dent', 'dentist', 'soin dentaire'], code: 'DC', label: 'Soins Dentaires' },
+  { keywords: ['prothese dentaire', 'prothèse dentaire', 'couronne', 'bridge', 'implant'], code: 'DP', label: 'Prothèses Dentaires' },
   { keywords: ['kine', 'physiother', 'reeducation'], code: 'PC', label: 'Pratiques courantes' },
   { keywords: ['clinique', 'hospitalisation'], code: 'CL', label: 'Hospitalisation clinique' },
   { keywords: ['hopital'], code: 'HP', label: 'Hospitalisation hôpital' },
@@ -151,6 +176,253 @@ function mapNatureActeToCode(natureActe: string): { code: string; label: string 
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// File hash duplicate check (pre-OCR, saves Gemini tokens)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /bulletins-soins/agent/check-file-hash?hash=<sha256> - Check if a file was already analysed
+ * Hash is computed client-side in the browser (no file upload needed = fast).
+ * Should be called BEFORE sending to OCR to avoid wasting tokens.
+ */
+bulletinsAgent.get('/check-file-hash', async (c) => {
+  const fileHash = c.req.query('hash')?.trim();
+  if (!fileHash || fileHash.length !== 64) {
+    return c.json({ success: true, data: { isDuplicate: false } });
+  }
+
+  const db = c.get('tenantDb') ?? c.env.DB;
+  // Check legacy file_hash, combined_hash, and new bulletin_files table
+  const existing = await db
+    .prepare(
+      `SELECT id, bulletin_number, status, bulletin_date, adherent_first_name, adherent_last_name,
+              care_type, total_amount, reimbursed_amount, created_at
+       FROM bulletins_soins
+       WHERE (file_hash = ? OR combined_hash = ?) AND status NOT IN ('deleted')
+       UNION
+       SELECT bs.id, bs.bulletin_number, bs.status, bs.bulletin_date, bs.adherent_first_name, bs.adherent_last_name,
+              bs.care_type, bs.total_amount, bs.reimbursed_amount, bs.created_at
+       FROM bulletin_files bf JOIN bulletins_soins bs ON bs.id = bf.bulletin_id
+       WHERE bf.file_hash = ? AND bs.status NOT IN ('deleted')
+       ORDER BY created_at DESC LIMIT 1`
+    )
+    .bind(fileHash, fileHash, fileHash)
+    .first<{
+      id: string; bulletin_number: string; status: string; bulletin_date: string;
+      adherent_first_name: string; adherent_last_name: string;
+      care_type: string; total_amount: number | null; reimbursed_amount: number | null;
+      created_at: string;
+    }>();
+
+  if (existing) {
+    return c.json({
+      success: true,
+      data: {
+        isDuplicate: true,
+        bulletin: {
+          id: existing.id,
+          bulletinNumber: existing.bulletin_number,
+          status: existing.status,
+          date: existing.bulletin_date,
+          adherent: `${existing.adherent_first_name || ''} ${existing.adherent_last_name || ''}`.trim(),
+          careType: existing.care_type,
+          totalAmount: existing.total_amount,
+          reimbursedAmount: existing.reimbursed_amount,
+          createdAt: existing.created_at,
+        },
+      },
+    });
+  }
+
+  return c.json({ success: true, data: { isDuplicate: false } });
+});
+
+/**
+ * POST /bulletins-soins/agent/check-file-duplicate - Multi-level duplicate detection
+ * Accepts JSON with pre-computed hashes (no file upload = fast).
+ * Three detection levels:
+ *   FILE_DUPLICATE   — an individual file hash already exists in bulletin_files or file_hash
+ *   BULLETIN_EXACT   — combined_hash matches an existing bulletin exactly
+ *   BULLETIN_OVERLAP — some files overlap with another bulletin's files
+ */
+bulletinsAgent.post('/check-file-duplicate', async (c) => {
+  const user = c.get('user') as { id: string; role: string; insurerId?: string };
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+  }
+
+  try {
+    const body = await c.req.json<{
+      fileHashes: { index: number; name: string; hash: string }[];
+      combinedHash: string;
+    }>();
+
+    const { fileHashes, combinedHash } = body;
+
+    if (!fileHashes || fileHashes.length === 0 || !combinedHash) {
+      return c.json({ success: true, data: { duplicates: [], level: null } });
+    }
+
+    const db = c.get('tenantDb') ?? c.env.DB;
+    const allIndividualHashes = fileHashes.map(f => f.hash);
+
+    // --- Level 1: BULLETIN_EXACT — combined_hash matches exactly ---
+    const exactMatch = await db
+      .prepare(
+        `SELECT id, bulletin_number, status, bulletin_date, adherent_first_name, adherent_last_name,
+                care_type, total_amount, reimbursed_amount, created_at
+         FROM bulletins_soins
+         WHERE combined_hash = ? AND status NOT IN ('deleted')
+         ORDER BY created_at DESC LIMIT 1`
+      )
+      .bind(combinedHash)
+      .first<{
+        id: string; bulletin_number: string; status: string; bulletin_date: string;
+        adherent_first_name: string; adherent_last_name: string;
+        care_type: string; total_amount: number | null; reimbursed_amount: number | null;
+        created_at: string;
+      }>();
+
+    if (exactMatch) {
+      return c.json({
+        success: true,
+        data: {
+          level: 'BULLETIN_EXACT',
+          isDuplicate: true,
+          duplicates: [{
+            level: 'BULLETIN_EXACT',
+            bulletin: {
+              id: exactMatch.id,
+              bulletinNumber: exactMatch.bulletin_number,
+              status: exactMatch.status,
+              date: exactMatch.bulletin_date,
+              adherent: `${exactMatch.adherent_first_name || ''} ${exactMatch.adherent_last_name || ''}`.trim(),
+              careType: exactMatch.care_type,
+              totalAmount: exactMatch.total_amount,
+              reimbursedAmount: exactMatch.reimbursed_amount,
+              createdAt: exactMatch.created_at,
+            },
+          }],
+          files: fileHashes.map(f => ({
+            ...f,
+            isDuplicate: true,
+            level: 'BULLETIN_EXACT' as const,
+            bulletin: {
+              id: exactMatch.id,
+              bulletinNumber: exactMatch.bulletin_number,
+              status: exactMatch.status,
+              date: exactMatch.bulletin_date,
+              adherent: `${exactMatch.adherent_first_name || ''} ${exactMatch.adherent_last_name || ''}`.trim(),
+              careType: exactMatch.care_type,
+              totalAmount: exactMatch.total_amount,
+              reimbursedAmount: exactMatch.reimbursed_amount,
+              createdAt: exactMatch.created_at,
+            },
+          })),
+        },
+      });
+    }
+
+    // --- Level 2: FILE_DUPLICATE — check individual file hashes ---
+    // Check both bulletin_files table (new) and legacy file_hash column
+    const allHashes = new Set([...allIndividualHashes, combinedHash]);
+    const placeholders = [...allHashes].map(() => '?').join(',');
+
+    // Query new bulletin_files table + legacy file_hash in parallel
+    const [bfResults, legacyResults] = await Promise.all([
+      db.prepare(
+        `SELECT bf.file_hash, bf.bulletin_id, bs.bulletin_number, bs.status, bs.bulletin_date,
+                bs.adherent_first_name, bs.adherent_last_name, bs.care_type,
+                bs.total_amount, bs.reimbursed_amount, bs.created_at
+         FROM bulletin_files bf
+         JOIN bulletins_soins bs ON bs.id = bf.bulletin_id
+         WHERE bf.file_hash IN (${placeholders}) AND bs.status NOT IN ('deleted')
+         ORDER BY bs.created_at DESC`
+      ).bind(...allHashes).all<{
+        file_hash: string; bulletin_id: string; bulletin_number: string; status: string;
+        bulletin_date: string; adherent_first_name: string; adherent_last_name: string;
+        care_type: string; total_amount: number | null; reimbursed_amount: number | null;
+        created_at: string;
+      }>().catch(() => ({ results: [] as any[] })),
+      db.prepare(
+        `SELECT id, bulletin_number, status, bulletin_date, adherent_first_name, adherent_last_name,
+                care_type, total_amount, reimbursed_amount, file_hash, created_at
+         FROM bulletins_soins
+         WHERE file_hash IN (${placeholders}) AND status NOT IN ('deleted')
+         ORDER BY created_at DESC`
+      ).bind(...allHashes).all<{
+        id: string; bulletin_number: string; status: string; bulletin_date: string;
+        adherent_first_name: string; adherent_last_name: string;
+        care_type: string; total_amount: number | null; reimbursed_amount: number | null;
+        file_hash: string; created_at: string;
+      }>(),
+    ]);
+
+    // Merge results: hash → bulletin info
+    const hashToBulletin = new Map<string, {
+      id: string; bulletinNumber: string; status: string; date: string;
+      adherent: string; careType: string; totalAmount: number | null;
+      reimbursedAmount: number | null; createdAt: string;
+    }>();
+
+    for (const r of (bfResults.results || [])) {
+      if (!hashToBulletin.has(r.file_hash)) {
+        hashToBulletin.set(r.file_hash, {
+          id: r.bulletin_id, bulletinNumber: r.bulletin_number, status: r.status,
+          date: r.bulletin_date,
+          adherent: `${r.adherent_first_name || ''} ${r.adherent_last_name || ''}`.trim(),
+          careType: r.care_type, totalAmount: r.total_amount,
+          reimbursedAmount: r.reimbursed_amount, createdAt: r.created_at,
+        });
+      }
+    }
+    for (const r of (legacyResults.results || [])) {
+      if (r.file_hash && !hashToBulletin.has(r.file_hash)) {
+        hashToBulletin.set(r.file_hash, {
+          id: r.id, bulletinNumber: r.bulletin_number, status: r.status,
+          date: r.bulletin_date,
+          adherent: `${r.adherent_first_name || ''} ${r.adherent_last_name || ''}`.trim(),
+          careType: r.care_type, totalAmount: r.total_amount,
+          reimbursedAmount: r.reimbursed_amount, createdAt: r.created_at,
+        });
+      }
+    }
+
+    // Build per-file response
+    const filesResponse = fileHashes.map(f => {
+      const match = hashToBulletin.get(f.hash);
+      return {
+        index: f.index,
+        name: f.name,
+        hash: f.hash,
+        isDuplicate: !!match,
+        level: match ? 'FILE_DUPLICATE' as const : null,
+        bulletin: match || null,
+      };
+    });
+
+    const duplicateFiles = filesResponse.filter(f => f.isDuplicate);
+    const allDuplicate = duplicateFiles.length === fileHashes.length;
+    const someDuplicate = duplicateFiles.length > 0;
+
+    // Determine highest level
+    const level = allDuplicate ? 'BULLETIN_OVERLAP' : someDuplicate ? 'FILE_DUPLICATE' : null;
+
+    return c.json({
+      success: true,
+      data: {
+        level,
+        isDuplicate: someDuplicate,
+        duplicates: duplicateFiles.map(f => ({ level: 'FILE_DUPLICATE', bulletin: f.bulletin })),
+        files: filesResponse,
+      },
+    });
+  } catch (error) {
+    console.error('[check-file-duplicate] Error:', error);
+    return c.json({ success: true, data: { isDuplicate: false, level: null, duplicates: [], files: [] } });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // OCR proxy endpoint (REQ-010 / TASK-001)
@@ -173,14 +445,81 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
   try {
     const body = await c.req.parseBody({ all: true });
     const files = body['files'];
+    const forceReanalyse = c.req.query('force') === 'true';
 
-    const proxyForm = new FormData();
+    // --- File hash deduplication: check BEFORE calling OCR to save tokens ---
+    const fileList: File[] = [];
     if (Array.isArray(files)) {
-      for (const file of files) {
-        if (file instanceof File) proxyForm.append('files', file);
-      }
+      for (const f of files) { if (f instanceof File) fileList.push(f); }
     } else if (files instanceof File) {
-      proxyForm.append('files', files);
+      fileList.push(files);
+    }
+
+    // Compute SHA-256 hash — single file = direct hash, multiple = hash each, sort, combine
+    let fileHash: string | null = null;
+    if (fileList.length === 1) {
+      const buf = await fileList[0]!.arrayBuffer();
+      const h = await crypto.subtle.digest('SHA-256', buf);
+      fileHash = Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('');
+    } else if (fileList.length > 1) {
+      const perFileHashes: string[] = [];
+      for (const f of fileList) {
+        const buf = await f.arrayBuffer();
+        const h = await crypto.subtle.digest('SHA-256', buf);
+        perFileHashes.push(Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join(''));
+      }
+      perFileHashes.sort();
+      const combined = new TextEncoder().encode(perFileHashes.join(''));
+      const finalHash = await crypto.subtle.digest('SHA-256', combined);
+      fileHash = Array.from(new Uint8Array(finalHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Check if this exact file was already analysed (legacy file_hash + new combined_hash + bulletin_files)
+    const db = c.get('tenantDb') ?? c.env.DB;
+    if (fileHash && !forceReanalyse) {
+      const existing = await db
+        .prepare(
+          `SELECT id, bulletin_number, status, bulletin_date, adherent_first_name, adherent_last_name,
+                  care_type, total_amount, reimbursed_amount, created_at
+           FROM bulletins_soins
+           WHERE (file_hash = ? OR combined_hash = ?) AND status NOT IN ('deleted')
+           ORDER BY created_at DESC LIMIT 1`
+        )
+        .bind(fileHash, fileHash)
+        .first<{
+          id: string; bulletin_number: string; status: string; bulletin_date: string;
+          adherent_first_name: string; adherent_last_name: string;
+          care_type: string; total_amount: number | null; reimbursed_amount: number | null;
+          created_at: string;
+        }>();
+
+      if (existing) {
+        console.log(`[analyse-bulletin] Duplicate file detected (hash=${fileHash.slice(0, 12)}…), bulletin=${existing.id}`);
+        return c.json({
+          success: true,
+          data: {
+            _file_already_analysed: {
+              message: `Ce document a déjà été analysé et enregistré comme bulletin N° ${existing.bulletin_number}.`,
+              bulletinId: existing.id,
+              bulletinNumber: existing.bulletin_number,
+              status: existing.status,
+              date: existing.bulletin_date,
+              adherent: `${existing.adherent_first_name || ''} ${existing.adherent_last_name || ''}`.trim(),
+              careType: existing.care_type,
+              totalAmount: existing.total_amount,
+              reimbursedAmount: existing.reimbursed_amount,
+              createdAt: existing.created_at,
+              fileHash,
+            },
+          },
+        });
+      }
+    }
+
+    // Build proxy form for OCR service
+    const proxyForm = new FormData();
+    for (const file of fileList) {
+      proxyForm.append('files', file);
     }
 
     let ocrRes: Response;
@@ -220,8 +559,6 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
     const parsed = JSON.parse(cleaned);
 
     // Enrich volet_medical with matched acte codes (TASK-003)
-    const db = c.get('tenantDb') ?? c.env.DB;
-
     if (parsed && Array.isArray(parsed.volet_medical)) {
       for (const acte of parsed.volet_medical) {
         const match = mapNatureActeToCode(acte.nature_acte || '');
@@ -361,6 +698,11 @@ bulletinsAgent.post('/analyse-bulletin', async (c) => {
           existing_reimbursed: existing.reimbursed_amount,
         };
       }
+    }
+
+    // Attach file hash to response so frontend can store it when creating the bulletin
+    if (fileHash) {
+      parsed._file_hash = fileHash;
     }
 
     return c.json({ success: true, data: parsed });
@@ -987,6 +1329,22 @@ bulletinsAgent.post('/analyse-bulk', async (c) => {
       return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Aucun fichier fourni' } }, 400);
     }
 
+    // Parse optional folder grouping metadata: { "groupName": ["file1.jpg", "file2.jpg"], ... }
+    // Allows folder imports to use the same queue-based processing as ZIP imports
+    const fileGroupMapping = new Map<string, string>();
+    const groupingRaw = formData.get('grouping') as string | null;
+    if (groupingRaw) {
+      try {
+        const grouping = JSON.parse(groupingRaw) as Record<string, string[]>;
+        for (const [groupName, fileNames] of Object.entries(grouping)) {
+          for (const fn of fileNames) {
+            fileGroupMapping.set(fn, groupName);
+          }
+        }
+        console.log(`[analyse-bulk] Folder grouping: ${Object.keys(grouping).length} group(s) from metadata`);
+      } catch { console.warn('[analyse-bulk] Invalid grouping JSON, ignoring'); }
+    }
+
     console.log(`[analyse-bulk] ${files.length} file(s), first: ${files[0]?.name} (${files[0]?.size} bytes)`);
 
     const ocrJobId = generateId();
@@ -1068,17 +1426,18 @@ bulletinsAgent.post('/analyse-bulk', async (c) => {
           bulletinGroups.get(groupKey)!.files.push({ name: fileName, data: entryData, type });
         }
       } else {
-        const groupKey = '__direct_files';
+        // Non-ZIP files: group by 'grouping' metadata if provided, else single group
+        const data = new Uint8Array(await file.arrayBuffer());
+        const groupKey = fileGroupMapping.get(file.name) || '__direct_files';
         if (!bulletinGroups.has(groupKey)) {
           bulletinGroups.set(groupKey, { bulletinId: generateId(), files: [] });
         }
-        const data = new Uint8Array(await file.arrayBuffer());
         bulletinGroups.get(groupKey)!.files.push({ name: file.name, data, type: file.type });
       }
     }
 
     if (bulletinGroups.size === 0) {
-      return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Aucun fichier exploitable trouvé dans le(s) ZIP' } }, 400);
+      return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Aucun fichier exploitable trouvé' } }, 400);
     }
 
     console.log(`[analyse-bulk] ${bulletinGroups.size} bulletin group(s) detected`);
@@ -1337,6 +1696,16 @@ bulletinsAgent.post('/ocr-jobs/:id/retry', async (c) => {
     })()
   );
 
+  logAudit(db, {
+    userId: user.id,
+    action: 'ocr_job.retry',
+    entityType: 'ocr_job',
+    entityId: jobId,
+    changes: { totalBulletins: bulletinGroups.size, bulletinIds },
+    ipAddress: c.req.header('CF-Connecting-IP'),
+    userAgent: c.req.header('User-Agent'),
+  });
+
   return c.json({
     success: true,
     data: { jobId, totalBulletins: bulletinGroups.size, bulletinIds },
@@ -1480,13 +1849,14 @@ bulletinsAgent.get('/:id', async (c) => {
       .bind(bulletinId)
       .all();
 
-    // Fetch adherent plafond if linked
+    // Fetch beneficiary plafond (use beneficiary_id if present, else adherent_id)
+    const detailBeneficiaryId = (bulletin.beneficiary_id as string | null) || (bulletin.adherent_id as string | null);
     let plafondGlobal: number | null = null;
     let plafondConsomme: number | null = null;
-    if (bulletin.adherent_id) {
+    if (detailBeneficiaryId) {
       const adh = await db
         .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
-        .bind(bulletin.adherent_id)
+        .bind(detailBeneficiaryId)
         .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
       if (adh) {
         plafondGlobal = adh.plafond_global;
@@ -1502,19 +1872,25 @@ bulletinsAgent.get('/:id', async (c) => {
     // Fetch sub_items for all actes in this bulletin
     const acteList = actes.results || [];
     const acteIdList = acteList.map((a: Record<string, unknown>) => a.id as string);
-    let subItemsMap: Record<string, Array<{ id: string; label: string; code: string | null; amount: number }>> = {};
+    let subItemsMap: Record<string, Array<{ id: string; label: string; code: string | null; cotation: string | null; amount: number }>> = {};
     if (acteIdList.length > 0) {
       const placeholders = acteIdList.map(() => '?').join(',');
       const { results: subItems } = await db
-        .prepare(`SELECT id, acte_id, label, code, amount FROM acte_sub_items WHERE acte_id IN (${placeholders}) ORDER BY created_at`)
+        .prepare(`SELECT id, acte_id, label, code, cotation, amount FROM acte_sub_items WHERE acte_id IN (${placeholders}) ORDER BY created_at`)
         .bind(...acteIdList)
         .all();
       for (const si of subItems) {
         const aid = si.acte_id as string;
         if (!subItemsMap[aid]) subItemsMap[aid] = [];
-        subItemsMap[aid].push({ id: si.id as string, label: si.label as string, code: si.code as string | null, amount: si.amount as number });
+        subItemsMap[aid].push({ id: si.id as string, label: si.label as string, code: si.code as string | null, cotation: si.cotation as string | null, amount: si.amount as number });
       }
     }
+
+    // Fetch attached files
+    const { results: files } = await db.prepare(
+      `SELECT id, file_index, file_name, mime_type, file_size, created_at
+       FROM bulletin_files WHERE bulletin_id = ? ORDER BY file_index`
+    ).bind(bulletinId).all();
 
     return c.json({
       success: true,
@@ -1524,6 +1900,7 @@ bulletinsAgent.get('/:id', async (c) => {
           ...a,
           sub_items: subItemsMap[a.id as string] || [],
         })),
+        files: files || [],
         plafond_global: plafondGlobal,
         plafond_consomme: plafondConsomme,
         plafond_consomme_avant: plafondConsommeAvant,
@@ -1596,6 +1973,16 @@ bulletinsAgent.delete('/:id', async (c) => {
       db.prepare('DELETE FROM actes_bulletin WHERE bulletin_id = ?').bind(bulletinId),
       db.prepare('DELETE FROM bulletins_soins WHERE id = ?').bind(bulletinId),
     ]);
+
+    logAudit(db, {
+      userId: user.id,
+      action: 'bulletin.delete',
+      entityType: 'bulletin',
+      entityId: bulletinId,
+      changes: { previous_status: bulletin.status },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json({ success: true, data: { id: bulletinId } });
   } catch (error) {
@@ -1846,88 +2233,178 @@ bulletinsAgent.post('/bulk-delete-batches', async (c) => {
 /**
  * POST /bulletins-soins/agent/estimate - Estimate reimbursement without creating a bulletin
  */
+
+// Schemas de validation
+const estimateActeSchema = z.object({
+  code: z.string().optional(),
+  amount: z.number().nonnegative('Le montant doit être positif ou nul'),
+  care_type: z.string().optional(),
+  nbr_cle: z.number().nonnegative().optional(),
+  nombre_jours: z.number().int().positive().optional(),
+});
+
+const estimateBodySchema = z.object({
+  adherent_matricule: z.string().min(1, 'Matricule requis'),
+  bulletin_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date invalide (format YYYY-MM-DD)'),
+  actes: z.array(estimateActeSchema),
+  company_id: z.string().optional(),
+  type_maladie: z.enum(['ordinaire', 'chronique']).optional(),
+  beneficiary_id: z.string().optional(),
+  beneficiary_relationship: z.enum(['self', 'spouse', 'child', 'parent']).optional(),
+});
+
+type EstimateReason =
+  | 'OK'
+  | 'MISSING_CODE'
+  | 'ACTE_NOT_FOUND'
+  | 'NO_ACTIVE_CONTRACT'
+  | 'CEILING_EXHAUSTED'
+  | 'CALCULATION_ERROR'
+  | 'FALLBACK_RATE_USED';
+
+interface EstimateDetail {
+  code: string | null;
+  amount: number;
+  reimbursed: number;
+  reason: EstimateReason;
+  message?: string;
+  type?: string;
+  valeur?: number;
+  taux?: number;
+  plafonds?: unknown;
+  breakdown?: unknown;
+  _debug?: unknown;
+}
+
 bulletinsAgent.post('/estimate', async (c) => {
   const user = c.get('user');
   if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
-    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+    return c.json(
+      { success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } },
+      403,
+    );
   }
 
   const db = c.get('tenantDb') ?? c.env.DB;
-  const body = await c.req.json<{
-    adherent_matricule: string;
-    bulletin_date: string;
-    actes: Array<{ code?: string; amount: number; care_type?: string }>;
-    company_id?: string;
-  }>();
 
-  const { adherent_matricule, bulletin_date, actes, company_id } = body;
-  if (!adherent_matricule || !actes || actes.length === 0) {
-    return c.json({ success: true, data: { reimbursed_amount: null, details: [] } });
+  // Validation Zod
+  let body: z.infer<typeof estimateBodySchema>;
+  try {
+    const raw = await c.req.json();
+    body = estimateBodySchema.parse(raw);
+  } catch (err) {
+    const issues = err instanceof z.ZodError
+      ? err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')
+      : 'Payload invalide';
+    return c.json(
+      { success: false, error: { code: 'VALIDATION_ERROR', message: issues } },
+      400,
+    );
+  }
+
+  const {
+    adherent_matricule,
+    bulletin_date,
+    actes,
+    company_id,
+    type_maladie = 'ordinaire',
+    beneficiary_id,
+    beneficiary_relationship,
+  } = body;
+
+  if (actes.length === 0) {
+    return c.json({ success: true, data: { reimbursed_amount: 0, details: [] } });
   }
 
   try {
-    // Find adherent — normalize whitespace, filter by company when available, then by insurer
+    // Find adherent — isolation inter-assureurs par contrat
     const cleanMatricule = adherent_matricule.replace(/\s+/g, '');
     let insurerFilter = '';
     let joinClause = '';
     const bindParams: unknown[] = [cleanMatricule];
 
     if (company_id && company_id !== '__INDIVIDUAL__') {
-      // When company_id is provided, filter directly by company for precise match
       joinClause = 'LEFT JOIN companies co ON a.company_id = co.id';
       insurerFilter = 'AND a.company_id = ?';
       bindParams.push(company_id);
     } else if (user.insurerId) {
-      joinClause = 'LEFT JOIN companies co ON a.company_id = co.id';
-      insurerFilter = `AND (co.insurer_id = ? OR a.company_id IS NULL OR a.company_id = '__INDIVIDUAL__')`;
-      bindParams.push(user.insurerId);
+      insurerFilter = `AND EXISTS (
+        SELECT 1 FROM contracts c2
+        LEFT JOIN companies co2 ON c2.company_id = co2.id
+        WHERE c2.adherent_id = a.id
+          AND c2.deleted_at IS NULL
+          AND (co2.insurer_id = ? OR c2.insurer_id = ?)
+      )`;
+      bindParams.push(user.insurerId, user.insurerId);
     }
 
     const adherent = await db
       .prepare(
-        `SELECT a.id FROM adherents a ${joinClause} WHERE REPLACE(a.matricule, ' ', '') = ? AND a.deleted_at IS NULL ${insurerFilter}`
+        `SELECT a.id FROM adherents a ${joinClause}
+         WHERE REPLACE(a.matricule, ' ', '') = ?
+           AND a.deleted_at IS NULL
+           ${insurerFilter}`,
       )
       .bind(...bindParams)
       .first<{ id: string }>();
 
     if (!adherent) {
-      return c.json({ success: true, data: { reimbursed_amount: null, details: [], warning: 'Adhérent non trouvé' } });
+      return c.json({
+        success: true,
+        data: {
+          reimbursed_amount: null,
+          details: [],
+          warning: 'Adhérent non trouvé ou non accessible',
+        },
+      });
     }
 
-    // Find best contract (prioritize group_contract_id)
+    // Recherche du contrat actif
     const contract = await db
       .prepare(
         `SELECT c.id FROM contracts c
-         WHERE c.adherent_id = ? AND c.status = 'active'
-           AND c.start_date <= ? AND c.end_date >= ?
-         ORDER BY CASE WHEN c.group_contract_id IS NOT NULL THEN 0 ELSE 1 END, c.created_at DESC
-         LIMIT 1`
+         WHERE c.adherent_id = ?
+           AND c.status = 'active'
+           AND c.start_date <= ?
+           AND c.end_date >= ?
+         ORDER BY CASE WHEN c.group_contract_id IS NOT NULL THEN 0 ELSE 1 END,
+                  c.created_at DESC
+         LIMIT 1`,
       )
       .bind(adherent.id, bulletin_date, bulletin_date)
       .first<{ id: string }>();
 
     if (!contract) {
-      // Fetch all contracts for this adherent so the frontend can show a selector
       const { results: allContracts } = await db
         .prepare(
-          `SELECT c.id, c.contract_number, c.plan_type, c.status, c.start_date, c.end_date
-           FROM contracts c WHERE c.adherent_id = ?
-           ORDER BY c.end_date DESC`
+          `SELECT c.id, c.contract_number, c.plan_type, c.status,
+                  c.start_date, c.end_date
+           FROM contracts c
+           WHERE c.adherent_id = ?
+           ORDER BY c.end_date DESC`,
         )
         .bind(adherent.id)
-        .all<{ id: string; contract_number: string; plan_type: string; status: string; start_date: string; end_date: string }>();
+        .all<{
+          id: string;
+          contract_number: string;
+          plan_type: string;
+          status: string;
+          start_date: string;
+          end_date: string;
+        }>();
 
-      // No active contract → reimbursement is 0 (cannot calculate without contract)
-      const details = actes.map((acte) => ({
+      const details: EstimateDetail[] = actes.map((acte) => ({
         code: acte.code?.trim() || null,
         amount: acte.amount,
         reimbursed: 0,
+        reason: 'NO_ACTIVE_CONTRACT' as const,
+        message: `Aucun contrat actif à la date du ${bulletin_date}`,
       }));
 
       const hasContracts = allContracts && allContracts.length > 0;
       const warning = hasContracts
         ? `Aucun contrat actif à la date du ${bulletin_date} — ${allContracts.length} contrat(s) existant(s). Remboursement impossible sans contrat actif.`
-        : 'Cet adhérent n\'a aucun contrat enregistré. Remboursement impossible.';
+        : "Cet adhérent n'a aucun contrat enregistré. Remboursement impossible.";
 
       return c.json({
         success: true,
@@ -1941,63 +2418,226 @@ bulletinsAgent.post('/estimate', async (c) => {
       });
     }
 
-    // Contract-aware calculation
-    const details = [];
-    let total = 0;
+    // Resolve beneficiary for plafond lookups
+    let estimateBeneficiaryId = adherent.id;
+    if (beneficiary_id) {
+      estimateBeneficiaryId = beneficiary_id;
+    } else if (beneficiary_relationship && beneficiary_relationship !== 'self') {
+      const codeType = beneficiary_relationship === 'spouse' ? 'C' : 'E';
+      const resolvedBen = await db
+        .prepare('SELECT id FROM adherents WHERE parent_adherent_id = ? AND code_type = ? AND deleted_at IS NULL ORDER BY rang_pres ASC LIMIT 1')
+        .bind(adherent.id, codeType)
+        .first<{ id: string }>();
+      if (resolvedBen) estimateBeneficiaryId = resolvedBen.id;
+    }
+
+    // Boucle de calcul par acte (arithmétique en millimes entiers)
+    const details: EstimateDetail[] = [];
+    let totalMillimes = 0;
     const estimateBatchCtx: CalculBatchContext = {};
+
     for (const acte of actes) {
-      const code = acte.code?.trim();
-      if (!code) { details.push({ code: null, amount: acte.amount, reimbursed: 0 }); continue; }
-      const ref = await findActeRefByCode(db, code);
-      if (!ref) { details.push({ code, amount: acte.amount, reimbursed: 0 }); continue; }
+      let code = acte.code?.trim();
+
+      const defaultCode = acte.care_type
+        ? CARE_TYPE_DEFAULT_CODE[acte.care_type]
+        : undefined;
+
+      if (!code && defaultCode) code = defaultCode;
+
+      if (!code) {
+        details.push({
+          code: null,
+          amount: acte.amount,
+          reimbursed: 0,
+          reason: 'MISSING_CODE',
+          message: 'Code acte manquant et care_type sans code par défaut',
+        });
+        continue;
+      }
+
+      let refResult = await findActeRefByCodeWithCoefficient(db, code);
+
+      if (!refResult && defaultCode && code !== defaultCode) {
+        refResult = await findActeRefByCodeWithCoefficient(db, defaultCode);
+        if (refResult) code = defaultCode;
+      }
+
+      // If code looks like a care_type (e.g. CHIRURGIE_REFRACTIVE), resolve to default acte code
+      if (!refResult) {
+        const codeAsCaretype = code.toLowerCase();
+        const fallbackCode = CARE_TYPE_DEFAULT_CODE[codeAsCaretype];
+        if (fallbackCode && fallbackCode !== code) {
+          refResult = await findActeRefByCodeWithCoefficient(db, fallbackCode);
+          if (refResult) {
+            if (!acte.care_type) acte.care_type = codeAsCaretype;
+            code = fallbackCode;
+          }
+        }
+      }
+
+      if (!refResult) {
+        details.push({
+          code,
+          amount: acte.amount,
+          reimbursed: 0,
+          reason: 'ACTE_NOT_FOUND',
+          message: `Code acte "${code}" introuvable dans le référentiel`,
+        });
+        continue;
+      }
+
+      const ref = refResult.acte;
+
       try {
         const calcInput: CalculRemboursementInput = {
-          adherentId: adherent.id,
+          adherentId: estimateBeneficiaryId,
           contractId: contract.id,
-          acteRefId: (ref as { id: string }).id,
+          acteRefId: ref.id,
           fraisEngages: acte.amount,
           dateSoin: bulletin_date,
-          typeMaladie: 'ordinaire',
+          typeMaladie: type_maladie,
+          nbrCle: acte.nbr_cle ?? refResult.parsedCoefficient ?? undefined,
+          nombreJours: acte.nombre_jours,
+          careType: acte.care_type || undefined,
         };
+
         const result = await calculerRemboursement(db, calcInput, estimateBatchCtx);
-        total += result.montantRembourse;
-        details.push({ code, amount: acte.amount, reimbursed: result.montantRembourse, type: result.typeCalcul, valeur: result.valeurBareme });
-      } catch {
-        // Fallback to referentiel rate
+
+        const reimbursedMillimes = Math.floor(result.montantRembourse * 1000);
+        totalMillimes += reimbursedMillimes;
+
+        let reason: EstimateReason = 'OK';
+        let message: string | undefined;
+        if (reimbursedMillimes === 0) {
+          if (result.plafondGlobalApplique) {
+            reason = 'CEILING_EXHAUSTED';
+            message = 'Plafond global atteint';
+          } else if (result.plafondFamilleApplique) {
+            reason = 'CEILING_EXHAUSTED';
+            message = "Plafond de la famille d'actes atteint";
+          }
+        }
+
+        details.push({
+          code,
+          amount: acte.amount,
+          reimbursed: result.montantRembourse,
+          reason,
+          message,
+          type: result.typeCalcul,
+          valeur: result.valeurBareme,
+          plafonds: {
+            acte: {
+              applied: result.plafondActeApplique,
+              valeur: result.details.plafondActeValeur,
+            },
+            jour: {
+              applied: result.plafondJourApplique,
+              valeur: result.details.plafondJourValeur,
+            },
+            famille: { applied: result.plafondFamilleApplique },
+            global: { applied: result.plafondGlobalApplique },
+          },
+          breakdown: {
+            brut: result.details.montantBrut,
+            apresJour: result.details.apresPlafondJour,
+            apresActe: result.details.apresPlafondActe,
+            apresFamille: result.details.apresPlafondFamille,
+            apresGlobal: result.details.apresPlafondGlobal,
+          },
+          _debug: result._debug,
+        });
+      } catch (err) {
+        console.error(`Error calculating acte ${code}:`, err);
+
         const taux = (ref as { taux_remboursement?: number }).taux_remboursement || 0;
-        const reimbursed = Math.round(acte.amount * taux);
-        total += reimbursed;
-        details.push({ code, amount: acte.amount, taux, reimbursed });
+        const reimbursedMillimes = Math.floor(acte.amount * taux * 1000);
+        const reimbursed = reimbursedMillimes / 1000;
+        totalMillimes += reimbursedMillimes;
+
+        details.push({
+          code,
+          amount: acte.amount,
+          taux,
+          reimbursed,
+          reason: 'FALLBACK_RATE_USED',
+          message: 'Calcul principal en erreur, taux référentiel utilisé en secours',
+          _debug: { error: err instanceof Error ? err.message : String(err) },
+        });
       }
     }
 
-    // Apply adherent global plafond cap (legacy field — plafond in millimes, amounts in dinars)
+    let total = totalMillimes / 1000;
+
+    // Plafond adhérent — filet de sécurité uniquement si l'engine ne l'a pas déjà appliqué
     let plafondWarning: string | undefined;
-    if (adherent && total > 0) {
+    const engineAlreadyCappedGlobal = details.some(
+      (d) => (d.plafonds as { global?: { applied?: boolean } } | undefined)?.global?.applied === true,
+    );
+
+    if (!engineAlreadyCappedGlobal && total > 0) {
       const adh = await db
         .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
         .bind(adherent.id)
         .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
+
       if (adh?.plafond_global && adh.plafond_global > 0) {
-        const restantDT = Math.max(0, (adh.plafond_global - (adh.plafond_consomme || 0)) / 1000);
-        if (total > restantDT) {
-          plafondWarning = `Plafond restant : ${restantDT.toFixed(3)} DT. Le remboursement a été réduit de ${total.toFixed(3)} à ${restantDT.toFixed(3)} DT.`;
-          // Proportionally reduce each acte's reimbursement
-          const ratio = restantDT / total;
-          for (const d of details) {
-            if (d.reimbursed > 0) {
-              d.reimbursed = Math.round(d.reimbursed * ratio * 1000) / 1000;
+        const plafondMillimes = adh.plafond_global;
+        const consommeMillimes = adh.plafond_consomme || 0;
+        const restantMillimes = Math.max(0, plafondMillimes - consommeMillimes);
+        const restantDT = restantMillimes / 1000;
+
+        if (totalMillimes > restantMillimes) {
+          plafondWarning =
+            `Plafond adhérent restant : ${restantDT.toFixed(3)} DT. ` +
+            `Le remboursement a été réduit de ${total.toFixed(3)} à ${restantDT.toFixed(3)} DT.`;
+
+          const ratio = restantMillimes / totalMillimes;
+          let reallocatedMillimes = 0;
+          for (let i = 0; i < details.length; i++) {
+            const d = details[i];
+            if (!d || d.reimbursed <= 0) continue;
+            const originalMillimes = Math.floor(d.reimbursed * 1000);
+            const isLast = i === details.length - 1;
+            const reducedMillimes = isLast
+              ? restantMillimes - reallocatedMillimes
+              : Math.floor(originalMillimes * ratio);
+            d.reimbursed = Math.max(0, reducedMillimes) / 1000;
+            if (reducedMillimes < originalMillimes) {
+              d.reason = 'CEILING_EXHAUSTED';
+              d.message = `Réduit par plafond adhérent (ratio ${(ratio * 100).toFixed(1)}%)`;
             }
+            reallocatedMillimes += Math.max(0, reducedMillimes);
           }
           total = restantDT;
         }
       }
     }
 
-    return c.json({ success: true, data: { reimbursed_amount: total, details, ...(plafondWarning ? { plafond_warning: plafondWarning } : {}) } });
+    return c.json({
+      success: true,
+      data: {
+        reimbursed_amount: total,
+        details,
+        ...(plafondWarning ? { plafond_warning: plafondWarning } : {}),
+      },
+    });
   } catch (error) {
     console.error('Error estimating reimbursement:', error);
-    return c.json({ success: true, data: { reimbursed_amount: null, details: [] } });
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'ESTIMATE_FAILED',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Erreur inconnue lors du calcul',
+        },
+      },
+      500,
+    );
   }
 });
 
@@ -2030,6 +2670,7 @@ bulletinsAgent.post('/create', async (c) => {
   const beneficiaryName = (formData['beneficiary_name'] as string) || null;
   const beneficiaryId = (formData['beneficiary_id'] as string) || null;
   const beneficiaryRelationship = (formData['beneficiary_relationship'] as string) || null;
+  console.log('[SAISIE] beneficiary data received:', { beneficiaryId, beneficiaryName, beneficiaryRelationship });
   const providerName = (formData['provider_name'] as string) || null;
   const providerSpecialty = (formData['provider_specialty'] as string) || null;
   // care_type is now per-acte; top-level is optional fallback
@@ -2039,6 +2680,7 @@ bulletinsAgent.post('/create', async (c) => {
   const batchId = (formData['batch_id'] as string) || null;
   const companyId = (formData['company_id'] as string) || null;
   const userBulletinNumber = (formData['bulletin_number'] as string) || null;
+  const frontendFileHash = (formData['file_hash'] as string) || null;
 
   // Parse actes array (JSON string from form)
   const actesRaw = formData['actes'] as string;
@@ -2152,23 +2794,80 @@ bulletinsAgent.post('/create', async (c) => {
     }
   }
 
-  // Handle file upload (scan)
+  // Handle file upload (scan) + compute server-side file hash
+  // Upload to R2 and hash in parallel per file to minimize CPU time
   let scanUrl: string | null = null;
   const storage = c.env.STORAGE;
 
-  // Find scan files in formData
-  for (const key of Object.keys(formData)) {
-    if (key.startsWith('scan_') && formData[key] instanceof File) {
-      const file = formData[key] as File;
-      if (file.size > 0) {
-        const fileName = `bulletins/${bulletinId}/${key}_${file.name}`;
-        const arrayBuffer = await file.arrayBuffer();
-        await storage.put(fileName, arrayBuffer, {
-          httpMetadata: { contentType: file.type },
-        });
-        scanUrl = `https://dhamen-files.${c.env.ENVIRONMENT === 'production' ? '' : 'dev.'}r2.cloudflarestorage.com/${fileName}`;
-        break; // Just use the first scan for now
+  const scanKeys = Object.keys(formData).filter(k => k.startsWith('scan_') && formData[k] instanceof File).sort();
+  const uploadPromises = scanKeys.map(async (key) => {
+    const file = formData[key] as File;
+    if (file.size > 0) {
+      const arrayBuffer = await file.arrayBuffer();
+      const r2Key = `bulletins/${bulletinId}/${key}_${file.name}`;
+      // Upload and hash in parallel for each file
+      const [, hashBuf] = await Promise.all([
+        storage.put(r2Key, arrayBuffer, { httpMetadata: { contentType: file.type } }),
+        crypto.subtle.digest('SHA-256', arrayBuffer),
+      ]);
+      const hash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+      return { hash, r2Key, originalName: file.name, mimeType: file.type, fileSize: file.size };
+    }
+    return null;
+  });
+  const uploadResults = await Promise.all(uploadPromises);
+  const uploadedFiles: { hash: string; r2Key: string; originalName: string; mimeType: string; fileSize: number }[] = [];
+  const perFileHashes: string[] = [];
+  for (const result of uploadResults) {
+    if (result) {
+      uploadedFiles.push(result);
+      perFileHashes.push(result.hash);
+      if (!scanUrl) {
+        scanUrl = `https://dhamen-files.${c.env.ENVIRONMENT === 'production' ? '' : 'dev.'}r2.cloudflarestorage.com/${result.r2Key}`;
       }
+    }
+  }
+
+  // Compute combined hash from per-file hashes
+  let fileHash: string | null = frontendFileHash;
+  let combinedHash: string | null = null;
+  if (perFileHashes.length === 1) {
+    fileHash = perFileHashes[0]!;
+    combinedHash = fileHash;
+  } else if (perFileHashes.length > 1) {
+    const sorted = [...perFileHashes].sort();
+    const combined = new TextEncoder().encode(sorted.join(''));
+    const finalHash = await crypto.subtle.digest('SHA-256', combined);
+    fileHash = Array.from(new Uint8Array(finalHash)).map(b => b.toString(16).padStart(2, '0')).join('');
+    combinedHash = fileHash;
+  }
+
+  // Server-side duplicate detection — check combined_hash, bulletin_files, and legacy file_hash
+  if (fileHash) {
+    const existingByHash = await db
+      .prepare(
+        `SELECT id, bulletin_number, status, total_amount, adherent_first_name, adherent_last_name
+         FROM bulletins_soins
+         WHERE (file_hash = ? OR combined_hash = ?) AND status NOT IN ('deleted')
+         ORDER BY created_at DESC LIMIT 1`
+      )
+      .bind(fileHash, combinedHash || fileHash)
+      .first<{ id: string; bulletin_number: string; status: string; total_amount: number | null; adherent_first_name: string; adherent_last_name: string }>();
+
+    if (existingByHash) {
+      return c.json({
+        success: false,
+        error: {
+          code: 'DUPLICATE_FILE',
+          message: `Ce fichier a déjà été enregistré comme bulletin N° ${existingByHash.bulletin_number} (${existingByHash.adherent_first_name || ''} ${existingByHash.adherent_last_name || ''}).`,
+          existingBulletin: {
+            id: existingByHash.id,
+            bulletinNumber: existingByHash.bulletin_number,
+            status: existingByHash.status,
+            totalAmount: existingByHash.total_amount,
+          },
+        },
+      }, 409);
     }
   }
 
@@ -2561,43 +3260,38 @@ bulletinsAgent.post('/create', async (c) => {
       })
     );
 
-    // Phase 2: Sequential auto-registration only for providers not found
-    for (let i = 0; i < actes.length; i++) {
-      const mfData = actesMfData[i]!;
-      const lookupResult = lookupResults[i]!;
+    // Phase 2: Parallel auto-registration for providers not found
+    // First pass: identify which need registration and check license_no in parallel
+    const registrationChecks = await Promise.all(
+      actesMfData.map(async (mfData, i) => {
+        const lookupResult = lookupResults[i]!;
+        if (mfData.skip) return { action: 'skip' as const, id: null };
+        if (lookupResult.found) return { action: 'found' as const, id: lookupResult.id };
 
-      if (mfData.skip) {
-        providerIds.push(null);
-        continue;
-      }
-
-      if (lookupResult.found) {
-        providerIds.push(lookupResult.id);
-        continue;
-      }
-
-      // Provider not found — auto-register
-      const acte = mfData.acte;
-      const acteCareType = (acte.care_type || careType || 'consultation') as string;
-      const provType = acteCareType === 'pharmacy' ? 'pharmacist' : acteCareType === 'lab' ? 'lab' : acteCareType === 'hospital' ? 'clinic' : 'doctor';
-      const effectiveName = mfData.nomPraticien.length >= 2 ? mfData.nomPraticien : `Praticien MF ${mfData.normalizedMf}`;
-
-      try {
-        const newProviderId = generateId();
         const licenseNo = `MF-${mfData.normalizedMf}`;
-
-        // Check if license_no already exists (UNIQUE constraint)
         const existingByLicense = await db
           .prepare('SELECT id, name FROM providers WHERE license_no = ? AND deleted_at IS NULL LIMIT 1')
           .bind(licenseNo)
           .first<{ id: string; name: string }>();
+        if (existingByLicense) return { action: 'found' as const, id: existingByLicense.id };
+        return { action: 'register' as const, id: null, licenseNo };
+      })
+    );
 
-        if (existingByLicense) {
-          providerIds.push(existingByLicense.id);
-          continue;
-        }
+    // Second pass: register all missing providers in parallel
+    const registrationResults = await Promise.allSettled(
+      registrationChecks.map(async (check, i) => {
+        if (check.action !== 'register') return check.id;
 
-        // Insert into providers table
+        const mfData = actesMfData[i]!;
+        const acte = mfData.acte;
+        const acteCareType = (acte.care_type || careType || 'consultation') as string;
+        const provType = acteCareType === 'pharmacy' ? 'pharmacist' : acteCareType === 'lab' ? 'lab' : acteCareType === 'hospital' ? 'clinic' : 'doctor';
+        const effectiveName = mfData.nomPraticien.length >= 2 ? mfData.nomPraticien : `Praticien MF ${mfData.normalizedMf}`;
+
+        const newProviderId = generateId();
+        const licenseNo = check.licenseNo!;
+
         await db
           .prepare(
             `INSERT INTO providers (id, type, name, license_no, mf_number, mf_verified, is_active, address, city, created_at, updated_at)
@@ -2606,7 +3300,7 @@ bulletinsAgent.post('/create', async (c) => {
           .bind(newProviderId, provType, effectiveName, licenseNo, mfData.rawMf)
           .run();
 
-        // Fire secondary inserts in parallel (sante_praticiens, MF verification, audit)
+        // Fire secondary inserts in parallel (non-blocking)
         const santePraticienId = generateId();
         const santeType = acteCareType === 'pharmacy' ? 'pharmacien'
           : acteCareType === 'lab' ? 'laborantin'
@@ -2619,20 +3313,14 @@ bulletinsAgent.post('/create', async (c) => {
         const verificationId = generateId();
 
         await Promise.allSettled([
-          db
-            .prepare(
-              `INSERT INTO sante_praticiens (id, provider_id, nom, specialite, type_praticien, est_conventionne, is_active, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'), datetime('now'))`
-            )
-            .bind(santePraticienId, newProviderId, effectiveName, santeSpecialite, santeType)
-            .run(),
-          db
-            .prepare(
-              `INSERT INTO practitioner_mf_verifications (id, provider_id, mf_number, verification_status, created_at, updated_at)
-               VALUES (?, ?, ?, 'pending', datetime('now'), datetime('now'))`
-            )
-            .bind(verificationId, newProviderId, mfData.rawMf)
-            .run(),
+          db.prepare(
+            `INSERT INTO sante_praticiens (id, provider_id, nom, specialite, type_praticien, est_conventionne, is_active, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'), datetime('now'))`
+          ).bind(santePraticienId, newProviderId, effectiveName, santeSpecialite, santeType).run(),
+          db.prepare(
+            `INSERT INTO practitioner_mf_verifications (id, provider_id, mf_number, verification_status, created_at, updated_at)
+             VALUES (?, ?, ?, 'pending', datetime('now'), datetime('now'))`
+          ).bind(verificationId, newProviderId, mfData.rawMf).run(),
           logAudit(db, {
             userId: user.id,
             action: 'provider.auto_register',
@@ -2645,15 +3333,26 @@ bulletinsAgent.post('/create', async (c) => {
         ]);
 
         console.log('[PROVIDER-LOOKUP] Auto-registered provider:', newProviderId, effectiveName, mfData.normalizedMf);
-        providerIds.push(newProviderId);
         newlyRegisteredProviders.push({ id: newProviderId, name: effectiveName, mfNumber: mfData.normalizedMf });
-      } catch (providerError) {
-        const errMsg = providerError instanceof Error ? providerError.message : String(providerError);
-        console.error('[PROVIDER-LOOKUP] Auto-register failed:', errMsg, providerError);
-        newlyRegisteredProviders.push({ id: 'ERROR', name: errMsg, mfNumber: mfData.normalizedMf });
+        return newProviderId;
+      })
+    );
+
+    // Collect provider IDs from results
+    for (let i = 0; i < registrationChecks.length; i++) {
+      const check = registrationChecks[i]!;
+      if (check.action === 'skip') { providerIds.push(null); continue; }
+      if (check.action === 'found') { providerIds.push(check.id); continue; }
+      const result = registrationResults[i]!;
+      if (result.status === 'fulfilled') {
+        providerIds.push(result.value);
+      } else {
+        const errMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        console.error('[PROVIDER-LOOKUP] Auto-register failed:', errMsg);
+        newlyRegisteredProviders.push({ id: 'ERROR', name: errMsg, mfNumber: actesMfData[i]!.normalizedMf });
         const retryProvider = await db
           .prepare('SELECT id, name FROM providers WHERE mf_number = ? AND deleted_at IS NULL LIMIT 1')
-          .bind(mfData.normalizedMf)
+          .bind(actesMfData[i]!.normalizedMf)
           .first<{ id: string; name: string }>();
         providerIds.push(retryProvider?.id || null);
       }
@@ -2666,9 +3365,24 @@ bulletinsAgent.post('/create', async (c) => {
     // Fallback: derive provider_name from first acte's nom_prof_sant if not provided at bulletin level
     const effectiveProviderName = providerName || (actes.length > 0 && (actes[0] as Record<string, unknown>).nom_prof_sant) || null;
 
-    // Insert bulletin
-    // Use beneficiary_id from form data, or resolve from adherent family if relationship is provided
-    const effectiveBeneficiaryId = beneficiaryRelationship === 'self' ? null : beneficiaryId;
+    // Resolve beneficiary_id: use form data, or lookup from adherent family if relationship provided
+    let effectiveBeneficiaryId: string | null = null;
+    if (beneficiaryRelationship && beneficiaryRelationship !== 'self' && adherentId) {
+      if (beneficiaryId) {
+        effectiveBeneficiaryId = beneficiaryId;
+      } else {
+        // Frontend didn't provide beneficiary_id — resolve from DB by relationship
+        const codeType = beneficiaryRelationship === 'spouse' ? 'C' : 'E';
+        const resolvedBen = await db
+          .prepare('SELECT id FROM adherents WHERE parent_adherent_id = ? AND code_type = ? AND deleted_at IS NULL ORDER BY rang_pres ASC LIMIT 1')
+          .bind(adherentId, codeType)
+          .first<{ id: string }>();
+        if (resolvedBen) {
+          effectiveBeneficiaryId = resolvedBen.id;
+        }
+      }
+    }
+    console.log('[SAISIE] beneficiary resolved:', { effectiveBeneficiaryId, beneficiaryId, beneficiaryRelationship, adherentId });
 
     await db
       .prepare(`
@@ -2678,8 +3392,8 @@ bulletinsAgent.post('/create', async (c) => {
         beneficiary_id, beneficiary_name, beneficiary_relationship,
         provider_id, provider_name, provider_specialty, care_type, care_description,
         total_amount, scan_url, batch_id, company_id, status, created_by,
-        submission_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
+        file_hash, combined_hash, submission_date, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
     `)
       .bind(
         bulletinId,
@@ -2704,9 +3418,32 @@ bulletinsAgent.post('/create', async (c) => {
         batchId,
         companyId,
         status,
-        user.id
+        user.id,
+        fileHash,
+        combinedHash
       )
       .run();
+
+    // Insert per-file hashes into bulletin_files for granular duplicate detection + R2 retrieval
+    if (perFileHashes.length > 0) {
+      const bfStatements = perFileHashes.map((hash, idx) => {
+        const uploaded = uploadedFiles[idx];
+        return db.prepare(
+          `INSERT OR IGNORE INTO bulletin_files (id, bulletin_id, file_index, file_name, file_hash, r2_key, mime_type, file_size, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).bind(
+          generateId(),
+          bulletinId,
+          idx,
+          uploaded?.originalName || (scanKeys[idx] ? (formData[scanKeys[idx]!] as File)?.name || null : null),
+          hash,
+          uploaded?.r2Key || null,
+          uploaded?.mimeType || null,
+          uploaded?.fileSize || null
+        );
+      });
+      await db.batch(bfStatements);
+    }
 
     // Insert actes and calculate reimbursement
     let reimbursedAmount: number | null = null;
@@ -2748,10 +3485,20 @@ bulletinsAgent.post('/create', async (c) => {
             }
             const code = acte.code?.trim();
             if (code) {
-              const ref = await findActeRefByCode(db, code);
-              return { ref: ref as { id: string; taux_remboursement: number } | null, code };
+              let refResult = await findActeRefByCodeWithCoefficient(db, code);
+              // Fallback: if code not found (e.g., medication code_amm), use default code for care_type
+              if (!refResult) {
+                const defaultCode = (acte.care_type || careType) ? CARE_TYPE_DEFAULT_CODE[acte.care_type || careType] : undefined;
+                if (defaultCode && code !== defaultCode) {
+                  refResult = await findActeRefByCodeWithCoefficient(db, defaultCode);
+                }
+              }
+              if (refResult) {
+                return { ref: refResult.acte as { id: string; taux_remboursement: number }, code, parsedCoefficient: refResult.parsedCoefficient };
+              }
+              return { ref: null, code, parsedCoefficient: null };
             }
-            return { ref: null, code: '' };
+            return { ref: null, code: '', parsedCoefficient: null };
           })
         ),
         // Parallel medication lookups — skip if medication_id provided
@@ -2786,6 +3533,8 @@ bulletinsAgent.post('/create', async (c) => {
       ]);
 
       // Contract-bareme-aware calculation (TASK-006)
+      // Use beneficiary's own ID for plafond lookups (each family member has their own plafond)
+      const plafondAdherentId = effectiveBeneficiaryId || adherentId;
       if (contractId && adherentId) {
         const baremeResults: CalculRemboursementResult[] = [];
         let totalRembourse = 0;
@@ -2800,7 +3549,7 @@ bulletinsAgent.post('/create', async (c) => {
             try {
               const medMatch = medicationMatches[i];
               const calcInput: CalculRemboursementInput = {
-                adherentId,
+                adherentId: plafondAdherentId,
                 contractId,
                 acteRefId: acteRefInfo.ref.id,
                 fraisEngages: acte.amount,
@@ -2809,32 +3558,28 @@ bulletinsAgent.post('/create', async (c) => {
                   | 'ordinaire'
                   | 'chronique',
                 medicationFamilyId: medMatch?.medicationFamilyId ?? undefined,
+                nbrCle: (acteRefInfo as { parsedCoefficient?: number | null }).parsedCoefficient ?? (acte as Record<string, unknown>).nbr_cle as number | undefined,
+                nombreJours: (acte as Record<string, unknown>).nombre_jours as number | undefined,
+                careType: (acte as Record<string, unknown>).care_type as string | undefined || careType || undefined,
               };
               const result = await calculerRemboursement(db, calcInput, batchCtx);
               baremeResults.push(result);
               totalRembourse += result.montantRembourse;
             } catch {
               // If bareme not found, use legacy calculation for this acte
+              const fallbackAmt = Math.floor(acte.amount * (acteRefInfo.ref.taux_remboursement || 0) * 1000) / 1000;
               baremeResults.push({
-                montantRembourse: Math.round(
-                  acte.amount * (acteRefInfo.ref.taux_remboursement || 0)
-                ),
+                montantRembourse: fallbackAmt,
                 typeCalcul: 'taux',
                 valeurBareme: acteRefInfo.ref.taux_remboursement || 0,
                 plafondActeApplique: false,
                 plafondFamilleApplique: false,
                 plafondGlobalApplique: false,
                 details: {
-                  montantBrut: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)),
-                  apresPlafondActe: Math.round(
-                    acte.amount * (acteRefInfo.ref.taux_remboursement || 0)
-                  ),
-                  apresPlafondFamille: Math.round(
-                    acte.amount * (acteRefInfo.ref.taux_remboursement || 0)
-                  ),
-                  apresPlafondGlobal: Math.round(
-                    acte.amount * (acteRefInfo.ref.taux_remboursement || 0)
-                  ),
+                  montantBrut: fallbackAmt,
+                  apresPlafondActe: fallbackAmt,
+                  apresPlafondFamille: fallbackAmt,
+                  apresPlafondGlobal: fallbackAmt,
                 },
               });
               totalRembourse += baremeResults[baremeResults.length - 1]!.montantRembourse;
@@ -2859,11 +3604,11 @@ bulletinsAgent.post('/create', async (c) => {
 
         reimbursedAmount = totalRembourse;
 
-        // Apply adherent global plafond cap (plafond in millimes, amounts in dinars)
-        if (adherentId && reimbursedAmount > 0) {
+        // Apply beneficiary global plafond cap (plafond in millimes, amounts in dinars)
+        if (plafondAdherentId && reimbursedAmount > 0) {
           const adhPlafond = await db
             .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
-            .bind(adherentId)
+            .bind(plafondAdherentId)
             .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
           if (adhPlafond?.plafond_global && adhPlafond.plafond_global > 0) {
             const restantDT = Math.max(0, (adhPlafond.plafond_global - (adhPlafond.plafond_consomme || 0)) / 1000);
@@ -2923,13 +3668,13 @@ bulletinsAgent.post('/create', async (c) => {
         // Insert sub_items for each acte (medications, analyses, etc.)
         const subItemStmts: ReturnType<typeof db.prepare>[] = [];
         actes.forEach((acte, i) => {
-          const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; amount: number }> | undefined;
+          const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; cotation?: string; amount: number }> | undefined;
           if (subs && subs.length > 0) {
             for (const si of subs) {
               subItemStmts.push(
                 db.prepare(
-                  `INSERT INTO acte_sub_items (id, acte_id, label, code, amount, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
-                ).bind(generateId(), acteIds[i], si.label, si.code || null, si.amount)
+                  `INSERT INTO acte_sub_items (id, acte_id, label, code, cotation, amount, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+                ).bind(generateId(), acteIds[i], si.label, si.code || null, si.cotation || null, si.amount)
               );
             }
           }
@@ -2963,7 +3708,7 @@ bulletinsAgent.post('/create', async (c) => {
           const baremeResult = baremeResults[i]!;
           if (baremeResult.montantRembourse > 0 && familleIds[i] !== undefined) {
             await mettreAJourPlafonds(
-              db, adherentId, contractId, annee,
+              db, plafondAdherentId, contractId, annee,
               familleIds[i]!, baremeResult.montantRembourse * 1000, typeMaladie,
               cachedGroupId
             );
@@ -2976,7 +3721,7 @@ bulletinsAgent.post('/create', async (c) => {
         ];
         if (reimbursedAmount > 0) {
           finalUpdates.push(
-            db.prepare('UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?').bind(Math.round(reimbursedAmount * 1000), adherentId)
+            db.prepare('UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?').bind(Math.round(reimbursedAmount * 1000), plafondAdherentId)
           );
         }
         await db.batch(finalUpdates);
@@ -3001,10 +3746,10 @@ bulletinsAgent.post('/create', async (c) => {
         // If plafond_global is NULL (e.g. individual mode, no contract), treat as unlimited
         // plafond_global and plafond_consomme are in millimes, convert to dinars (÷1000)
         let plafondRestant = contractId ? Number.MAX_SAFE_INTEGER : 0;
-        if (contractId && adherentId) {
+        if (contractId && plafondAdherentId) {
           const adh = await db
             .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
-            .bind(adherentId)
+            .bind(plafondAdherentId)
             .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
           if (adh && adh.plafond_global) {
             plafondRestant = (adh.plafond_global - (adh.plafond_consomme || 0)) / 1000;
@@ -3054,13 +3799,13 @@ bulletinsAgent.post('/create', async (c) => {
         // Insert sub_items for each acte (medications, analyses, etc.)
         const subItemStmts2: ReturnType<typeof db.prepare>[] = [];
         actes.forEach((acte, i) => {
-          const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; amount: number }> | undefined;
+          const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; cotation?: string; amount: number }> | undefined;
           if (subs && subs.length > 0) {
             for (const si of subs) {
               subItemStmts2.push(
                 db.prepare(
-                  `INSERT INTO acte_sub_items (id, acte_id, label, code, amount, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
-                ).bind(generateId(), acteIds2[i], si.label, si.code || null, si.amount)
+                  `INSERT INTO acte_sub_items (id, acte_id, label, code, cotation, amount, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+                ).bind(generateId(), acteIds2[i], si.label, si.code || null, si.cotation || null, si.amount)
               );
             }
           }
@@ -3071,14 +3816,24 @@ bulletinsAgent.post('/create', async (c) => {
         const finalUpdates2: ReturnType<typeof db.prepare>[] = [
           db.prepare('UPDATE bulletins_soins SET reimbursed_amount = ? WHERE id = ?').bind(reimbursedAmount, bulletinId),
         ];
-        if (adherentId && reimbursedAmount > 0) {
+        if (plafondAdherentId && reimbursedAmount > 0) {
           finalUpdates2.push(
-            db.prepare('UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?').bind(Math.round(reimbursedAmount * 1000), adherentId)
+            db.prepare('UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?').bind(Math.round(reimbursedAmount * 1000), plafondAdherentId)
           );
         }
         await db.batch(finalUpdates2);
       }
     }
+
+    logAudit(db, {
+      userId: user.id,
+      action: 'bulletin.create',
+      entityType: 'bulletin',
+      entityId: bulletinId,
+      changes: { bulletinNumber, adherentMatricule, actesCount: actes.length, totalAmount, reimbursedAmount, status, companyId, batchId, adherentAutoCreated },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json(
       {
@@ -3178,6 +3933,16 @@ bulletinsAgent.post('/batches', async (c) => {
     `)
       .bind(batchId, name, isIndividualMode ? null : companyId, user.id)
       .run();
+
+    logAudit(db, {
+      userId: user.id,
+      action: 'batch.create',
+      entityType: 'batch',
+      entityId: batchId,
+      changes: { name, companyId },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
 
     return c.json(
       {
@@ -3535,6 +4300,16 @@ bulletinsAgent.post('/import-lot', async (c) => {
       totalImported++;
     }
 
+    logAudit(db, {
+      userId: user.id,
+      action: 'bulletin.import',
+      entityType: 'batch',
+      entityId: batchId,
+      changes: { batchName, companyId, totalImported, skipped, totalBulletins: bulletins.length },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json(
       {
         success: true,
@@ -3602,12 +4377,13 @@ bulletinsAgent.post('/:id/validate', async (c) => {
   try {
     // Fetch bulletin — all insurer roles and admins can validate any bulletin in their tenant
     const bulletin = await db
-      .prepare('SELECT id, status, adherent_id, reimbursed_amount, bulletin_number, care_type, bulletin_date FROM bulletins_soins WHERE id = ?')
+      .prepare('SELECT id, status, adherent_id, beneficiary_id, reimbursed_amount, bulletin_number, care_type, bulletin_date FROM bulletins_soins WHERE id = ?')
       .bind(bulletinId)
       .first<{
         id: string;
         status: string;
         adherent_id: string | null;
+        beneficiary_id: string | null;
         reimbursed_amount: number | null;
         bulletin_number: string;
         care_type: string | null;
@@ -3641,12 +4417,13 @@ bulletinsAgent.post('/:id/validate', async (c) => {
 
     const now = new Date().toISOString();
 
-    // Cap reimbursed_amount to adherent's remaining plafond (millimes ÷ 1000 → dinars)
+    // Cap reimbursed_amount to beneficiary's remaining plafond (millimes ÷ 1000 → dinars)
+    const plafondBeneficiaryId = bulletin.beneficiary_id || bulletin.adherent_id;
     let finalReimbursedAmount = reimbursed_amount;
-    if (bulletin.adherent_id && reimbursed_amount > 0) {
+    if (plafondBeneficiaryId && reimbursed_amount > 0) {
       const adhP = await db
         .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
-        .bind(bulletin.adherent_id)
+        .bind(plafondBeneficiaryId)
         .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
       if (adhP?.plafond_global && adhP.plafond_global > 0) {
         const previousAmount = bulletin.reimbursed_amount || 0;
@@ -3676,9 +4453,9 @@ bulletinsAgent.post('/:id/validate', async (c) => {
       .bind(finalStatus, finalReimbursedAmount, now, user.id, now, finalReimbursedAmount, now, bulletinId)
       .run();
 
-    // Update adherent plafond_consomme (adjust delta if reimbursement changed)
+    // Update beneficiary plafond_consomme (adjust delta if reimbursement changed)
     // finalReimbursedAmount is in dinars, plafond_consomme is in millimes (×1000)
-    if (bulletin.adherent_id) {
+    if (plafondBeneficiaryId) {
       const previousAmount = bulletin.reimbursed_amount || 0;
       const delta = finalReimbursedAmount - previousAmount;
       if (delta !== 0) {
@@ -3686,7 +4463,7 @@ bulletinsAgent.post('/:id/validate', async (c) => {
           .prepare(
             'UPDATE adherents SET plafond_consomme = COALESCE(plafond_consomme, 0) + ? WHERE id = ?'
           )
-          .bind(Math.round(delta * 1000), bulletin.adherent_id)
+          .bind(Math.round(delta * 1000), plafondBeneficiaryId)
           .run();
       }
     }
@@ -3893,6 +4670,16 @@ bulletinsAgent.post('/:id/reject', async (c) => {
       .bind(notes, now, user.id, now, bulletinId)
       .run();
 
+    logAudit(db, {
+      userId: user.id,
+      action: 'bulletin.reject',
+      entityType: 'bulletin',
+      entityId: bulletinId,
+      changes: { previous_status: bulletin.status, notes },
+      ipAddress: c.req.header('CF-Connecting-IP'),
+      userAgent: c.req.header('User-Agent'),
+    });
+
     return c.json({
       success: true,
       data: { id: bulletinId, status: 'rejected', notes },
@@ -3905,6 +4692,151 @@ bulletinsAgent.post('/:id/reject', async (c) => {
       500
     );
   }
+});
+
+/**
+ * GET /bulletins-soins/agent/:id/files - List all files attached to a bulletin
+ */
+bulletinsAgent.get('/:id/files', async (c) => {
+  const user = c.get('user');
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  const { results } = await db.prepare(
+    `SELECT id, file_index, file_name, file_hash, r2_key, mime_type, file_size, created_at
+     FROM bulletin_files WHERE bulletin_id = ? ORDER BY file_index`
+  ).bind(bulletinId).all();
+
+  // Fallback: if no bulletin_files rows but bulletin has scan_url, return that as a virtual file
+  if (!results || results.length === 0) {
+    const bulletin = await db.prepare(
+      'SELECT scan_url, scan_filename FROM bulletins_soins WHERE id = ?'
+    ).bind(bulletinId).first<{ scan_url: string | null; scan_filename: string | null }>();
+    if (bulletin?.scan_url) {
+      return c.json({
+        success: true,
+        data: [{
+          id: 'legacy',
+          file_index: 0,
+          file_name: bulletin.scan_filename || 'scan',
+          r2_key: null,
+          mime_type: null,
+          file_size: null,
+          created_at: null,
+          legacy_scan_url: true,
+        }],
+      });
+    }
+  }
+
+  return c.json({ success: true, data: results || [] });
+});
+
+/**
+ * GET /bulletins-soins/agent/:id/files/:fileId/download - Download a specific file from R2
+ */
+bulletinsAgent.get('/:id/files/:fileId/download', async (c) => {
+  const user = c.get('user');
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const fileId = c.req.param('fileId');
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const storage = c.env.STORAGE;
+
+  // Legacy fallback: fileId === 'legacy' → use scan_url from bulletins_soins
+  if (fileId === 'legacy') {
+    const bulletin = await db.prepare(
+      'SELECT scan_url, scan_filename FROM bulletins_soins WHERE id = ?'
+    ).bind(bulletinId).first<{ scan_url: string | null; scan_filename: string | null }>();
+    if (!bulletin?.scan_url) {
+      return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Scan introuvable' } }, 404);
+    }
+    const R2_PREFIX = 'https://dhamen-files.r2.cloudflarestorage.com/';
+    const DEV_R2_PREFIX = 'https://dhamen-files.dev.r2.cloudflarestorage.com/';
+    let r2Key = bulletin.scan_url;
+    if (r2Key.startsWith(R2_PREFIX)) r2Key = r2Key.slice(R2_PREFIX.length);
+    else if (r2Key.startsWith(DEV_R2_PREFIX)) r2Key = r2Key.slice(DEV_R2_PREFIX.length);
+    const object = await storage.get(r2Key);
+    if (!object) {
+      return c.json({ success: false, error: { code: 'STORAGE_ERROR', message: 'Fichier introuvable dans le stockage' } }, 404);
+    }
+    const headers = new Headers();
+    headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
+    headers.set('Content-Disposition', `inline; filename="${bulletin.scan_filename || 'scan'}"`);
+    return new Response(object.body, { headers });
+  }
+
+  const file = await db.prepare(
+    'SELECT r2_key, file_name, mime_type FROM bulletin_files WHERE id = ? AND bulletin_id = ?'
+  ).bind(fileId, bulletinId).first<{ r2_key: string | null; file_name: string | null; mime_type: string | null }>();
+
+  if (!file || !file.r2_key) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Fichier introuvable' } }, 404);
+  }
+
+  const object = await storage.get(file.r2_key);
+  if (!object) {
+    return c.json({ success: false, error: { code: 'STORAGE_ERROR', message: 'Fichier introuvable dans le stockage' } }, 404);
+  }
+
+  const headers = new Headers();
+  headers.set('Content-Type', file.mime_type || object.httpMetadata?.contentType || 'application/octet-stream');
+  headers.set('Content-Disposition', `inline; filename="${file.file_name || 'scan'}"`);
+  return new Response(object.body, { headers });
+});
+
+/**
+ * DELETE /bulletins-soins/agent/:id/files/:fileId - Delete a specific file from R2 and DB
+ */
+bulletinsAgent.delete('/:id/files/:fileId', async (c) => {
+  const user = c.get('user');
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const fileId = c.req.param('fileId');
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const storage = c.env.STORAGE;
+
+  // Verify bulletin is editable
+  const bulletin = await db.prepare(
+    'SELECT status FROM bulletins_soins WHERE id = ?'
+  ).bind(bulletinId).first<{ status: string }>();
+  if (!bulletin || !['draft', 'in_batch'].includes(bulletin.status)) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Bulletin non modifiable' } }, 400);
+  }
+
+  const file = await db.prepare(
+    'SELECT id, r2_key, file_name FROM bulletin_files WHERE id = ? AND bulletin_id = ?'
+  ).bind(fileId, bulletinId).first<{ id: string; r2_key: string | null; file_name: string | null }>();
+
+  if (!file) {
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Fichier introuvable' } }, 404);
+  }
+
+  // Delete from R2
+  if (file.r2_key) {
+    try { await storage.delete(file.r2_key); } catch { /* R2 key may already be gone */ }
+  }
+
+  // Delete from DB
+  await db.prepare('DELETE FROM bulletin_files WHERE id = ?').bind(fileId).run();
+
+  // If this was the scan_url file, clear it
+  await db.prepare(
+    `UPDATE bulletins_soins SET scan_url = NULL, scan_filename = NULL, updated_at = datetime('now')
+     WHERE id = ? AND scan_url LIKE '%' || ?`
+  ).bind(bulletinId, file.file_name || '___never_match___').run();
+
+  return c.json({ success: true, data: { deleted: file.id } });
 });
 
 /**
@@ -3995,34 +4927,46 @@ bulletinsAgent.post('/:id/upload-scan', async (c) => {
 
     const scanUrl = `https://dhamen-files.r2.cloudflarestorage.com/${r2Key}`;
 
-    // Update bulletin with scan info
-    await db
-      .prepare(`
-      UPDATE bulletins_soins
-      SET scan_url = ?, scan_filename = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `)
-      .bind(scanUrl, file.name, bulletinId)
-      .run();
+    // Compute file hash
+    const hashBuf = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const fileHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    // Get next file_index
+    const maxIdx = await db.prepare(
+      'SELECT COALESCE(MAX(file_index), -1) as max_idx FROM bulletin_files WHERE bulletin_id = ?'
+    ).bind(bulletinId).first<{ max_idx: number }>();
+    const nextIndex = (maxIdx?.max_idx ?? -1) + 1;
+
+    // Update bulletin scan_url (keep first file as legacy scan_url)
+    const existingScan = await db.prepare(
+      'SELECT scan_url FROM bulletins_soins WHERE id = ?'
+    ).bind(bulletinId).first<{ scan_url: string | null }>();
+    if (!existingScan?.scan_url) {
+      await db.prepare(
+        `UPDATE bulletins_soins SET scan_url = ?, scan_filename = ?, updated_at = datetime('now') WHERE id = ?`
+      ).bind(scanUrl, file.name, bulletinId).run();
+    }
+
+    // Insert into bulletin_files
+    const fileId = generateId();
+    await db.prepare(
+      `INSERT OR IGNORE INTO bulletin_files (id, bulletin_id, file_index, file_name, file_hash, r2_key, mime_type, file_size, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    ).bind(fileId, bulletinId, nextIndex, file.name, fileHash, r2Key, file.type, file.size).run();
 
     // Audit log
-    await db
-      .prepare(`
-      INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
-      VALUES (?, ?, 'scan_uploaded', 'bulletins_soins', ?, ?, ?, datetime('now'))
-    `)
-      .bind(
-        generateId(),
-        user.id,
-        bulletinId,
-        JSON.stringify({ filename: file.name, size: file.size, mime_type: file.type }),
-        c.req.header('CF-Connecting-IP') || 'unknown'
-      )
-      .run();
+    await db.prepare(
+      `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+       VALUES (?, ?, 'scan_uploaded', 'bulletins_soins', ?, ?, ?, datetime('now'))`
+    ).bind(
+      generateId(), user.id, bulletinId,
+      JSON.stringify({ filename: file.name, size: file.size, mime_type: file.type }),
+      c.req.header('CF-Connecting-IP') || 'unknown'
+    ).run();
 
     return c.json({
       success: true,
-      data: { scan_url: scanUrl, scan_filename: file.name },
+      data: { id: fileId, scan_url: scanUrl, scan_filename: file.name, r2_key: r2Key },
     });
   } catch (error) {
     console.error('Error uploading scan:', error);
@@ -4033,6 +4977,232 @@ bulletinsAgent.post('/:id/upload-scan', async (c) => {
       },
       500
     );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Presigned R2 Upload — browser uploads directly to R2, bypassing Worker CPU
+// ---------------------------------------------------------------------------
+
+const PRESIGNED_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
+const PRESIGNED_MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+const PRESIGNED_EXPIRY_SECONDS = 600; // 10 minutes
+const PRESIGNED_MAX_FILES = 10;
+
+/**
+ * GET /bulletins-soins/agent/:id/upload-url
+ * Generates a presigned PUT URL for direct browser → R2 upload.
+ * Query params: fileName, contentType, fileSize
+ */
+bulletinsAgent.get('/:id/upload-url', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+  }
+
+  // Validate R2 credentials are configured
+  const { R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, CF_ACCOUNT_ID } = c.env;
+  if (!R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !CF_ACCOUNT_ID) {
+    // Fallback: credentials not configured, client should use legacy upload-scan
+    return c.json({ success: false, error: { code: 'PRESIGN_UNAVAILABLE', message: 'Presigned uploads not configured' } }, 501);
+  }
+
+  const bulletinId = c.req.param('id');
+  const fileName = c.req.query('fileName');
+  const contentType = c.req.query('contentType');
+  const fileSizeStr = c.req.query('fileSize');
+
+  if (!fileName || !contentType || !fileSizeStr) {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'fileName, contentType et fileSize sont requis' } }, 400);
+  }
+
+  // Validate content type
+  if (!PRESIGNED_ALLOWED_TYPES.includes(contentType)) {
+    return c.json({
+      success: false,
+      error: { code: 'INVALID_FILE_TYPE', message: 'Type non supporte. Formats acceptes : JPEG, PNG, PDF' },
+    }, 400);
+  }
+
+  // Validate file size
+  const fileSize = Number.parseInt(fileSizeStr, 10);
+  if (Number.isNaN(fileSize) || fileSize <= 0 || fileSize > PRESIGNED_MAX_SIZE) {
+    return c.json({
+      success: false,
+      error: { code: 'FILE_TOO_LARGE', message: 'Le fichier ne doit pas depasser 10 Mo' },
+    }, 400);
+  }
+
+  const db = c.get('tenantDb') ?? c.env.DB;
+
+  try {
+    // Verify bulletin exists and belongs to user
+    const bulletin = await db
+      .prepare('SELECT id FROM bulletins_soins WHERE id = ? AND created_by = ?')
+      .bind(bulletinId, user.id)
+      .first();
+
+    if (!bulletin) {
+      return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Bulletin non trouve' } }, 404);
+    }
+
+    // Check max files limit
+    const fileCount = await db.prepare(
+      'SELECT COUNT(*) as cnt FROM bulletin_files WHERE bulletin_id = ?'
+    ).bind(bulletinId).first<{ cnt: number }>();
+    if (fileCount && fileCount.cnt >= PRESIGNED_MAX_FILES) {
+      return c.json({
+        success: false,
+        error: { code: 'MAX_FILES_REACHED', message: `Maximum ${PRESIGNED_MAX_FILES} fichiers par bulletin` },
+      }, 400);
+    }
+
+    // Generate R2 key (server-controlled, client cannot choose)
+    const fileId = generateId();
+    const sanitizedName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const r2Key = `bulletins/${bulletinId}/${fileId}_${sanitizedName}`;
+
+    // Determine R2 bucket name based on environment
+    const bucketName = c.env.ENVIRONMENT === 'production'
+      ? 'dhamen-files-production'
+      : c.env.ENVIRONMENT === 'staging'
+        ? 'dhamen-files-staging'
+        : 'dhamen-files';
+
+    // Dynamic import to avoid breaking the module if aws4fetch has issues
+    const { AwsClient } = await import('aws4fetch');
+    const r2Client = new AwsClient({
+      accessKeyId: R2_ACCESS_KEY_ID,
+      secretAccessKey: R2_SECRET_ACCESS_KEY,
+    });
+
+    const r2Endpoint = `https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com/${bucketName}/${r2Key}`;
+    const url = new URL(r2Endpoint);
+    url.searchParams.set('X-Amz-Expires', String(PRESIGNED_EXPIRY_SECONDS));
+
+    const signed = await r2Client.sign(
+      new Request(url.toString(), {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+      }),
+      { aws: { signQuery: true } }
+    );
+
+    return c.json({
+      success: true,
+      data: {
+        uploadUrl: signed.url,
+        r2Key,
+        fileId,
+        expiresIn: PRESIGNED_EXPIRY_SECONDS,
+      },
+    });
+  } catch (error) {
+    console.error('Error generating presigned URL:', error);
+    return c.json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur generation URL upload' } }, 500);
+  }
+});
+
+/**
+ * POST /bulletins-soins/agent/:id/confirm-upload
+ * Confirms a presigned upload: verifies file in R2, computes hash, inserts into bulletin_files.
+ * Body: { r2Key, fileId, fileName, contentType, fileSize }
+ */
+bulletinsAgent.post('/:id/confirm-upload', async (c) => {
+  const user = c.get('user');
+
+  if (!['INSURER_ADMIN', 'INSURER_AGENT', 'ADMIN'].includes(user.role)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Acces reserve aux agents' } }, 403);
+  }
+
+  const bulletinId = c.req.param('id');
+  const db = c.get('tenantDb') ?? c.env.DB;
+  const storage = c.env.STORAGE;
+
+  let body: { r2Key?: string; fileId?: string; fileName?: string; contentType?: string; fileSize?: number };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Body JSON invalide' } }, 400);
+  }
+
+  const { r2Key, fileId, fileName, contentType, fileSize } = body;
+  if (!r2Key || !fileId || !fileName || !contentType || !fileSize) {
+    return c.json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'r2Key, fileId, fileName, contentType et fileSize sont requis' },
+    }, 400);
+  }
+
+  // Security: r2Key must match expected pattern for this bulletin
+  const expectedPrefix = `bulletins/${bulletinId}/`;
+  if (!r2Key.startsWith(expectedPrefix)) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Cle R2 invalide pour ce bulletin' } }, 403);
+  }
+
+  try {
+    // Verify bulletin ownership
+    const bulletin = await db
+      .prepare('SELECT id, scan_url FROM bulletins_soins WHERE id = ? AND created_by = ?')
+      .bind(bulletinId, user.id)
+      .first<{ id: string; scan_url: string | null }>();
+
+    if (!bulletin) {
+      return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Bulletin non trouve' } }, 404);
+    }
+
+    // Verify file exists in R2
+    const r2Object = await storage.get(r2Key);
+    if (!r2Object) {
+      return c.json({
+        success: false,
+        error: { code: 'FILE_NOT_FOUND', message: 'Fichier non trouve dans R2. Upload echoue ou URL expiree.' },
+      }, 404);
+    }
+
+    // Compute SHA-256 hash from R2 object
+    const arrayBuffer = await r2Object.arrayBuffer();
+    const hashBuf = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const fileHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    // Get next file_index
+    const maxIdx = await db.prepare(
+      'SELECT COALESCE(MAX(file_index), -1) as max_idx FROM bulletin_files WHERE bulletin_id = ?'
+    ).bind(bulletinId).first<{ max_idx: number }>();
+    const nextIndex = (maxIdx?.max_idx ?? -1) + 1;
+
+    // Update bulletin scan_url if first file (legacy compat)
+    if (!bulletin.scan_url) {
+      const scanUrl = `https://dhamen-files.${c.env.ENVIRONMENT === 'production' ? '' : 'staging.'}r2.cloudflarestorage.com/${r2Key}`;
+      await db.prepare(
+        `UPDATE bulletins_soins SET scan_url = ?, scan_filename = ?, updated_at = datetime('now') WHERE id = ?`
+      ).bind(scanUrl, fileName, bulletinId).run();
+    }
+
+    // Insert into bulletin_files
+    await db.prepare(
+      `INSERT OR IGNORE INTO bulletin_files (id, bulletin_id, file_index, file_name, file_hash, r2_key, mime_type, file_size, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+    ).bind(fileId, bulletinId, nextIndex, fileName, fileHash, r2Key, contentType, fileSize).run();
+
+    // Audit log
+    await db.prepare(
+      `INSERT INTO audit_logs (id, user_id, action, entity_type, entity_id, changes_json, ip_address, created_at)
+       VALUES (?, ?, 'scan_uploaded', 'bulletins_soins', ?, ?, ?, datetime('now'))`
+    ).bind(
+      generateId(), user.id, bulletinId,
+      JSON.stringify({ filename: fileName, size: fileSize, mime_type: contentType, method: 'presigned' }),
+      c.req.header('CF-Connecting-IP') || 'unknown'
+    ).run();
+
+    return c.json({
+      success: true,
+      data: { id: fileId, r2_key: r2Key, file_hash: fileHash },
+    });
+  } catch (error) {
+    console.error('Error confirming upload:', error);
+    return c.json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Erreur confirmation upload' } }, 500);
   }
 });
 
@@ -4129,8 +5299,8 @@ bulletinsAgent.post('/:id/update', async (c) => {
 
   // Verify bulletin exists and is editable (draft or in_batch only)
   const bulletin = await db.prepare(
-    `SELECT id, status, company_id, batch_id, adherent_id, care_type FROM bulletins_soins WHERE id = ?`
-  ).bind(bulletinId).first<{ id: string; status: string; company_id: string; batch_id: string | null; adherent_id: string | null; care_type: string | null }>();
+    `SELECT id, status, company_id, batch_id, adherent_id, beneficiary_id, care_type FROM bulletins_soins WHERE id = ?`
+  ).bind(bulletinId).first<{ id: string; status: string; company_id: string; batch_id: string | null; adherent_id: string | null; beneficiary_id: string | null; care_type: string | null }>();
 
   if (!bulletin) {
     return c.json({ success: false, error: { code: 'NOT_FOUND', message: 'Bulletin introuvable' } }, 404);
@@ -4149,6 +5319,7 @@ bulletinsAgent.post('/:id/update', async (c) => {
   const adherentEmail = (formData['adherent_email'] as string) || null;
   const beneficiaryName = (formData['beneficiary_name'] as string) || null;
   const beneficiaryRelationship = (formData['beneficiary_relationship'] as string) || null;
+  const updateBeneficiaryIdRaw = (formData['beneficiary_id'] as string) || null;
   const actesRaw = formData['actes'] as string;
 
   let actes: Array<{
@@ -4162,18 +5333,33 @@ bulletinsAgent.post('/:id/update', async (c) => {
     return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'Format actes invalide' } }, 400);
   }
 
+  // Resolve beneficiary_id for update (same logic as create)
+  let updateResolvedBeneficiaryId: string | null = null;
+  if (beneficiaryRelationship && beneficiaryRelationship !== 'self' && bulletin.adherent_id) {
+    if (updateBeneficiaryIdRaw) {
+      updateResolvedBeneficiaryId = updateBeneficiaryIdRaw;
+    } else {
+      const codeType = beneficiaryRelationship === 'spouse' ? 'C' : 'E';
+      const resolvedBen = await db
+        .prepare('SELECT id FROM adherents WHERE parent_adherent_id = ? AND code_type = ? AND deleted_at IS NULL ORDER BY rang_pres ASC LIMIT 1')
+        .bind(bulletin.adherent_id, codeType)
+        .first<{ id: string }>();
+      if (resolvedBen) updateResolvedBeneficiaryId = resolvedBen.id;
+    }
+  }
+
   // Update bulletin fields
   await db.prepare(`
     UPDATE bulletins_soins SET
       bulletin_number = ?, bulletin_date = ?,
       adherent_matricule = ?, adherent_first_name = ?, adherent_last_name = ?,
-      beneficiary_name = ?, beneficiary_relationship = ?,
+      beneficiary_id = ?, beneficiary_name = ?, beneficiary_relationship = ?,
       updated_at = ?
     WHERE id = ?
   `).bind(
     bulletinNumber, bulletinDate,
     adherentMatricule, adherentFirstName, adherentLastName,
-    beneficiaryName, beneficiaryRelationship,
+    updateResolvedBeneficiaryId, beneficiaryName, beneficiaryRelationship,
     now, bulletinId
   ).run();
 
@@ -4191,6 +5377,7 @@ bulletinsAgent.post('/:id/update', async (c) => {
   const totalAmount = actes.reduce((sum, a) => sum + (a.amount || 0), 0);
   const careType = bulletin.care_type || 'consultation';
   const adherentId = bulletin.adherent_id;
+  const updatePlafondId = updateResolvedBeneficiaryId || adherentId;
   const warnings: string[] = [];
 
   // Recalculate reimbursement based on active contract at bulletin date
@@ -4219,10 +5406,20 @@ bulletinsAgent.post('/:id/update', async (c) => {
         actes.map(async (acte) => {
           const code = acte.code?.trim();
           if (code) {
-            const ref = await findActeRefByCode(db, code);
-            return { ref: ref as { id: string; taux_remboursement: number } | null, code };
+            let refResult = await findActeRefByCodeWithCoefficient(db, code);
+            // Fallback: if code not found (e.g., medication code_amm), use default code for care_type
+            if (!refResult) {
+              const defaultCode = (acte.care_type || careType) ? CARE_TYPE_DEFAULT_CODE[acte.care_type || careType] : undefined;
+              if (defaultCode && code !== defaultCode) {
+                refResult = await findActeRefByCodeWithCoefficient(db, defaultCode);
+              }
+            }
+            if (refResult) {
+              return { ref: refResult.acte as { id: string; taux_remboursement: number }, code, parsedCoefficient: refResult.parsedCoefficient };
+            }
+            return { ref: null, code, parsedCoefficient: null };
           }
-          return { ref: null, code: '' };
+          return { ref: null, code: '', parsedCoefficient: null };
         })
       ),
       Promise.all(
@@ -4257,23 +5454,27 @@ bulletinsAgent.post('/:id/update', async (c) => {
           try {
             const medMatch = medicationMatches[i];
             const calcInput: CalculRemboursementInput = {
-              adherentId,
+              adherentId: updatePlafondId!,
               contractId,
               acteRefId: acteRefInfo.ref.id,
               fraisEngages: acte.amount,
               dateSoin: bulletinDate,
               typeMaladie: (careType === 'pharmacie_chronique' ? 'chronique' : 'ordinaire') as 'ordinaire' | 'chronique',
               medicationFamilyId: medMatch?.medicationFamilyId ?? undefined,
+              nbrCle: (acteRefInfo as { parsedCoefficient?: number | null }).parsedCoefficient ?? (acte as Record<string, unknown>).nbr_cle as number | undefined,
+              nombreJours: (acte as Record<string, unknown>).nombre_jours as number | undefined,
+              careType: (acte as Record<string, unknown>).care_type as string | undefined || careType || undefined,
             };
             const result = await calculerRemboursement(db, calcInput, updateBatchCtx);
             baremeResults.push(result);
             totalRembourse += result.montantRembourse;
           } catch {
+            const fbAmt = Math.floor(acte.amount * (acteRefInfo.ref.taux_remboursement || 0) * 1000) / 1000;
             baremeResults.push({
-              montantRembourse: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)),
+              montantRembourse: fbAmt,
               typeCalcul: 'taux', valeurBareme: acteRefInfo.ref.taux_remboursement || 0,
               plafondActeApplique: false, plafondFamilleApplique: false, plafondGlobalApplique: false,
-              details: { montantBrut: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)), apresPlafondActe: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)), apresPlafondFamille: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)), apresPlafondGlobal: Math.round(acte.amount * (acteRefInfo.ref.taux_remboursement || 0)) },
+              details: { montantBrut: fbAmt, apresPlafondActe: fbAmt, apresPlafondFamille: fbAmt, apresPlafondGlobal: fbAmt },
             });
             totalRembourse += baremeResults[baremeResults.length - 1]!.montantRembourse;
           }
@@ -4288,11 +5489,11 @@ bulletinsAgent.post('/:id/update', async (c) => {
 
       reimbursedAmount = totalRembourse;
 
-      // Apply adherent global plafond cap
-      if (reimbursedAmount > 0) {
+      // Apply beneficiary global plafond cap
+      if (reimbursedAmount > 0 && updatePlafondId) {
         const adhPlafond = await db
           .prepare('SELECT plafond_global, plafond_consomme FROM adherents WHERE id = ?')
-          .bind(adherentId)
+          .bind(updatePlafondId)
           .first<{ plafond_global: number | null; plafond_consomme: number | null }>();
         if (adhPlafond?.plafond_global && adhPlafond.plafond_global > 0) {
           const restantDT = Math.max(0, (adhPlafond.plafond_global - (adhPlafond.plafond_consomme || 0)) / 1000);
@@ -4338,13 +5539,13 @@ bulletinsAgent.post('/:id/update', async (c) => {
       // Insert sub_items
       const subItemStmts: ReturnType<typeof db.prepare>[] = [];
       actes.forEach((acte, i) => {
-        const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; amount: number }> | undefined;
+        const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; cotation?: string; amount: number }> | undefined;
         if (subs && subs.length > 0) {
           for (const si of subs) {
             subItemStmts.push(
               db.prepare(
-                `INSERT INTO acte_sub_items (id, acte_id, label, code, amount, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
-              ).bind(generateId(), acteIds[i], si.label, si.code || null, si.amount)
+                `INSERT INTO acte_sub_items (id, acte_id, label, code, cotation, amount, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+              ).bind(generateId(), acteIds[i], si.label, si.code || null, si.cotation || null, si.amount)
             );
           }
         }
@@ -4375,13 +5576,13 @@ bulletinsAgent.post('/:id/update', async (c) => {
       // Insert sub_items
       const subItemStmts: ReturnType<typeof db.prepare>[] = [];
       actes.forEach((acte, i) => {
-        const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; amount: number }> | undefined;
+        const subs = (acte as Record<string, unknown>).sub_items as Array<{ label: string; code?: string; cotation?: string; amount: number }> | undefined;
         if (subs && subs.length > 0) {
           for (const si of subs) {
             subItemStmts.push(
               db.prepare(
-                `INSERT INTO acte_sub_items (id, acte_id, label, code, amount, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
-              ).bind(generateId(), acteIds[i], si.label, si.code || null, si.amount)
+                `INSERT INTO acte_sub_items (id, acte_id, label, code, cotation, amount, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+              ).bind(generateId(), acteIds[i], si.label, si.code || null, si.cotation || null, si.amount)
             );
           }
         }
@@ -4405,19 +5606,30 @@ bulletinsAgent.post('/:id/update', async (c) => {
     }
   }
 
-  // Update total_amount + reimbursed_amount
-  await db.prepare('UPDATE bulletins_soins SET total_amount = ?, reimbursed_amount = ?, updated_at = ? WHERE id = ?')
-    .bind(totalAmount, reimbursedAmount, now, bulletinId).run();
+  // Re-evaluate status: if all MF are now filled and bulletin has a batch, promote draft → in_batch
+  const mfNowComplete = actes.every((a) => a.ref_prof_sant && a.ref_prof_sant.trim().length >= 7);
+  let newStatus = bulletin.status;
+  if (bulletin.status === 'draft' && mfNowComplete && bulletin.batch_id) {
+    newStatus = 'in_batch';
+  }
+
+  // Update total_amount + reimbursed_amount + status
+  await db.prepare('UPDATE bulletins_soins SET total_amount = ?, reimbursed_amount = ?, status = ?, updated_at = ? WHERE id = ?')
+    .bind(totalAmount, reimbursedAmount, newStatus, now, bulletinId).run();
 
   await logAudit(db, {
     userId: user.id,
     action: 'BULLETIN_UPDATE',
     entityType: 'bulletin',
     entityId: bulletinId,
-    changes: { adherentMatricule, actesCount: actes.length, totalAmount, reimbursedAmount },
+    changes: { adherentMatricule, actesCount: actes.length, totalAmount, reimbursedAmount, statusChanged: newStatus !== bulletin.status ? newStatus : undefined },
   });
 
-  return c.json({ success: true, data: { id: bulletinId, warnings: warnings.length > 0 ? warnings : undefined } });
+  if (newStatus !== bulletin.status) {
+    warnings.push(`Statut mis à jour : ${bulletin.status} → ${newStatus}`);
+  }
+
+  return c.json({ success: true, data: { id: bulletinId, status: newStatus, warnings: warnings.length > 0 ? warnings : undefined } });
 });
 
 // ---------------------------------------------------------------------------

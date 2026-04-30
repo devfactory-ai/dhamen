@@ -15,8 +15,11 @@ JWT_EXPIRES_IN = "900"
 REFRESH_EXPIRES_IN = "86400"
 WEBAUTHN_RP_NAME = "E-Sante"
 WEBAUTHN_RP_ID = "localhost"
+CF_ACCOUNT_ID = "6435a77d3ce17b7de468c6618e7b2b14"
 # GEMINI_API_KEY — stored as Cloudflare secret (wrangler secret put GEMINI_API_KEY)
 # ENCRYPTION_KEY — stored as Cloudflare secret (wrangler secret put ENCRYPTION_KEY)
+# R2_ACCESS_KEY_ID — stored as Cloudflare secret (wrangler secret put R2_ACCESS_KEY_ID)
+# R2_SECRET_ACCESS_KEY — stored as Cloudflare secret (wrangler secret put R2_SECRET_ACCESS_KEY)
 
 # Legacy single DB (kept for backward compatibility during migration)
 [[d1_databases]]
@@ -245,7 +248,10 @@ REFRESH_EXPIRES_IN = "86400"
 WEBAUTHN_RP_NAME = "E-Sante"
 WEBAUTHN_RP_ID = "e-sante.com.tn"
 WEB_BASE_URL = "https://dhamen-web-staging.pages.dev"
+CF_ACCOUNT_ID = "6435a77d3ce17b7de468c6618e7b2b14"
 # GEMINI_API_KEY — stored as Cloudflare secret
+# R2_ACCESS_KEY_ID — stored as Cloudflare secret
+# R2_SECRET_ACCESS_KEY — stored as Cloudflare secret
 
 # Legacy DB
 [[env.staging.d1_databases]]

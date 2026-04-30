@@ -46,12 +46,12 @@ interface CreateProviderData {
   email?: string;
 }
 
-export function useProviders(page = 1, limit = 20, type?: string) {
+export function useProviders(page = 1, limit = 20, type?: string, search?: string) {
   return useQuery({
-    queryKey: ['providers', page, limit, type],
+    queryKey: ['providers', page, limit, type, search],
     queryFn: async () => {
       const response = await apiClient.get<Provider[]>('/providers', {
-        params: { page, limit, type },
+        params: { page, limit, type, search: search || undefined },
       });
       if (!response.success) {
         throw new Error(response.error?.message || 'Erreur lors du chargement des praticiens');

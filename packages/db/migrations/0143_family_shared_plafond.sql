@@ -1,0 +1,8 @@
+-- Migration 0143: Family shared plafond (contract-level)
+--
+-- Each member (principal, conjoint, enfant) keeps their own individual global plafond.
+-- Additionally, the contract's annual_global_limit acts as a family-wide ceiling:
+--   total consumption across ALL family members must not exceed the contract limit.
+--
+-- No data deletion needed — all individual plafonds are preserved.
+-- The family-wide contract check is enforced in application code.
